@@ -1,0 +1,32 @@
+pasa el gimnasta
+el juez hace un calculo
+
+
+se califica por dos fases
+
+el contenido y los errores
+
+maximo de partes que sepueden tomar son 8
+el minimo es 5 = de 6 a 8 permitido en partes 
+
+el sistema tiene que alertar de que cumpla con el reglamento
+
+
+se le pone un puntaje a cada grupo en la derecha
+
+
+la nota final se va a contrastar y graficar la nota real con la nota que el puso
+
+
+nota reflejada arriba a la derecha
+
+hay otras penalidades o bonus
+
+stick bonus es que si caen parados
+
+
+importante la columna de en medio que se pone en verde 
+
+
+
+empresa de computo es longins
