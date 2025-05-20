@@ -1,12 +1,26 @@
-import React from 'react';
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity, SafeAreaView, Dimensions } from 'react-native';
+import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useEffect, useState } from 'react';
+import {
+  Dimensions,
+  Modal,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native';
+import { getMainTablesByCompetenceId, getRateGeneralByTableId } from "../Database/database";
+import { exportToPDF } from '../components/exportToPDF';
 
-interface Gymnast {
+interface MainTable {
   id: number;
+  competenceId: number;
+  number: number;
   name: string;
   event: string;
   noc: string;
-  bib: string;
+  bib: number;
   j: number;
   i: number;
   h: number;
@@ -23,456 +37,131 @@ interface Gymnast {
   nd: number;
   cv: number;
   sv: number;
-  e_score: number;
-  d_score: number;
-  e_penalty: number;
+  e2: number;
+  d3: number;
+  e3: number;
   delt: number;
   percentage: number;
 }
 
-interface GymnasticsScoreTableProps {
-  gymnasts: Gymnast[];
-  onStartJudging: () => void;
-  onFinishJudging: () => void;
+interface MainRateGeneral {
+  id: number;
+  tableId: number;
+  stickBonus: boolean;
+  numberOfElements: number;
+  difficultyValues: number;
+  elementGroups1: number;
+  elementGroups2: number;
+  elementGroups3: number;
+  elementGroups4: number;
+  elementGroups5: number;
+  execution: number;
+  eScore: number;
+  myScore: number;
+  compD: number;
+  compE: number;
+  compSd: number;
+  compNd: number;
+  compScore: number;
+  comments: string;
+  paths: string;
 }
 
-const GymnasticsScoreTable: React.FC<GymnasticsScoreTableProps> = ({
-  gymnasts = [],
-  onStartJudging,
-  onFinishJudging
-}) => {
-  // Sample data if no gymnasts provided
-  const sampleGymnasts: Gymnast[] = [
-    {
-      id: 1,
-      name: 'Gymnast',
-      event: 'FX',
-      noc: '0',
-      bib: '0',
-      j: 0,
-      i: 0,
-      h: 0,
-      g: 0,
-      f: 0,
-      e: 0,
-      d: 0,
-      c: 0,
-      b: 0,
-      a: 0,
-      dv: 0,
-      eg: 0,
-      sb: 0,
-      nd: 0,
-      cv: 0,
-      sv: 0,
-      e_score: 0,
-      d_score: 0,
-      e_penalty: 0,
-      delt: 0,
-      percentage: 0
-    },{
-      id: 1,
-      name: 'Gymnast',
-      event: 'FX',
-      noc: '0',
-      bib: '0',
-      j: 0,
-      i: 0,
-      h: 0,
-      g: 0,
-      f: 0,
-      e: 0,
-      d: 0,
-      c: 0,
-      b: 0,
-      a: 0,
-      dv: 0,
-      eg: 0,
-      sb: 0,
-      nd: 0,
-      cv: 0,
-      sv: 0,
-      e_score: 0,
-      d_score: 0,
-      e_penalty: 0,
-      delt: 0,
-      percentage: 0
-    },
-    {
-      id: 1,
-      name: 'Gymnast',
-      event: 'FX',
-      noc: '0',
-      bib: '0',
-      j: 0,
-      i: 0,
-      h: 0,
-      g: 0,
-      f: 0,
-      e: 0,
-      d: 0,
-      c: 0,
-      b: 0,
-      a: 0,
-      dv: 0,
-      eg: 0,
-      sb: 0,
-      nd: 0,
-      cv: 0,
-      sv: 0,
-      e_score: 0,
-      d_score: 0,
-      e_penalty: 0,
-      delt: 0,
-      percentage: 0
-    },
-    {
-      id: 1,
-      name: 'Gymnast',
-      event: 'FX',
-      noc: '0',
-      bib: '0',
-      j: 0,
-      i: 0,
-      h: 0,
-      g: 0,
-      f: 0,
-      e: 0,
-      d: 0,
-      c: 0,
-      b: 0,
-      a: 0,
-      dv: 0,
-      eg: 0,
-      sb: 0,
-      nd: 0,
-      cv: 0,
-      sv: 0,
-      e_score: 0,
-      d_score: 0,
-      e_penalty: 0,
-      delt: 0,
-      percentage: 0
-    },
-    {
-      id: 1,
-      name: 'Gymnast',
-      event: 'FX',
-      noc: '0',
-      bib: '0',
-      j: 0,
-      i: 0,
-      h: 0,
-      g: 0,
-      f: 0,
-      e: 0,
-      d: 0,
-      c: 0,
-      b: 0,
-      a: 0,
-      dv: 0,
-      eg: 0,
-      sb: 0,
-      nd: 0,
-      cv: 0,
-      sv: 0,
-      e_score: 0,
-      d_score: 0,
-      e_penalty: 0,
-      delt: 0,
-      percentage: 0
-    },
-    {
-      id: 1,
-      name: 'Gymnast',
-      event: 'FX',
-      noc: '0',
-      bib: '0',
-      j: 0,
-      i: 0,
-      h: 0,
-      g: 0,
-      f: 0,
-      e: 0,
-      d: 0,
-      c: 0,
-      b: 0,
-      a: 0,
-      dv: 0,
-      eg: 0,
-      sb: 0,
-      nd: 0,
-      cv: 0,
-      sv: 0,
-      e_score: 0,
-      d_score: 0,
-      e_penalty: 0,
-      delt: 0,
-      percentage: 0
-    },
-    {
-      id: 1,
-      name: 'Gymnast',
-      event: 'FX',
-      noc: '0',
-      bib: '0',
-      j: 0,
-      i: 0,
-      h: 0,
-      g: 0,
-      f: 0,
-      e: 0,
-      d: 0,
-      c: 0,
-      b: 0,
-      a: 0,
-      dv: 0,
-      eg: 0,
-      sb: 0,
-      nd: 0,
-      cv: 0,
-      sv: 0,
-      e_score: 0,
-      d_score: 0,
-      e_penalty: 0,
-      delt: 0,
-      percentage: 0
-    },
-    {
-      id: 1,
-      name: 'Gymnast',
-      event: 'FX',
-      noc: '0',
-      bib: '0',
-      j: 0,
-      i: 0,
-      h: 0,
-      g: 0,
-      f: 0,
-      e: 0,
-      d: 0,
-      c: 0,
-      b: 0,
-      a: 0,
-      dv: 0,
-      eg: 0,
-      sb: 0,
-      nd: 0,
-      cv: 0,
-      sv: 0,
-      e_score: 0,
-      d_score: 0,
-      e_penalty: 0,
-      delt: 0,
-      percentage: 0
-    },
-    {
-      id: 1,
-      name: 'Gymnast',
-      event: 'FX',
-      noc: '0',
-      bib: '0',
-      j: 0,
-      i: 0,
-      h: 0,
-      g: 0,
-      f: 0,
-      e: 0,
-      d: 0,
-      c: 0,
-      b: 0,
-      a: 0,
-      dv: 0,
-      eg: 0,
-      sb: 0,
-      nd: 0,
-      cv: 0,
-      sv: 0,
-      e_score: 0,
-      d_score: 0,
-      e_penalty: 0,
-      delt: 0,
-      percentage: 0
-    },
-    {
-      id: 1,
-      name: 'Gymnast',
-      event: 'FX',
-      noc: '0',
-      bib: '0',
-      j: 0,
-      i: 0,
-      h: 0,
-      g: 0,
-      f: 0,
-      e: 0,
-      d: 0,
-      c: 0,
-      b: 0,
-      a: 0,
-      dv: 0,
-      eg: 0,
-      sb: 0,
-      nd: 0,
-      cv: 0,
-      sv: 0,
-      e_score: 0,
-      d_score: 0,
-      e_penalty: 0,
-      delt: 0,
-      percentage: 0
-    },
-    {
-      id: 1,
-      name: 'Gymnast',
-      event: 'FX',
-      noc: '0',
-      bib: '0',
-      j: 0,
-      i: 0,
-      h: 0,
-      g: 0,
-      f: 0,
-      e: 0,
-      d: 0,
-      c: 0,
-      b: 0,
-      a: 0,
-      dv: 0,
-      eg: 0,
-      sb: 0,
-      nd: 0,
-      cv: 0,
-      sv: 0,
-      e_score: 0,
-      d_score: 0,
-      e_penalty: 0,
-      delt: 0,
-      percentage: 0
-    },
-    {
-      id: 1,
-      name: 'Gymnast',
-      event: 'FX',
-      noc: '0',
-      bib: '0',
-      j: 0,
-      i: 0,
-      h: 0,
-      g: 0,
-      f: 0,
-      e: 0,
-      d: 0,
-      c: 0,
-      b: 0,
-      a: 0,
-      dv: 0,
-      eg: 0,
-      sb: 0,
-      nd: 0,
-      cv: 0,
-      sv: 0,
-      e_score: 0,
-      d_score: 0,
-      e_penalty: 0,
-      delt: 0,
-      percentage: 0
-    },
-    {
-      id: 2,
-      name: 'Gymnast',
-      event: 'VT',
-      noc: '0',
-      bib: '0',
-      j: 0,
-      i: 0,
-      h: 0,
-      g: 0,
-      f: 0,
-      e: 0,
-      d: 0,
-      c: 0,
-      b: 0,
-      a: 0,
-      dv: 0,
-      eg: 0,
-      sb: 0,
-      nd: 0,
-      cv: 0,
-      sv: 0,
-      e_score: 0,
-      d_score: 0,
-      e_penalty: 0,
-      delt: 0,
-      percentage: 0
-    },
-    {
-      id: 3,
-      name: 'Gymnast',
-      event: 'PH',
-      noc: '0',
-      bib: '0',
-      j: 0,
-      i: 0,
-      h: 0,
-      g: 0,
-      f: 0,
-      e: 0,
-      d: 0,
-      c: 0,
-      b: 0,
-      a: 0,
-      dv: 0,
-      eg: 0,
-      sb: 0,
-      nd: 0,
-      cv: 0,
-      sv: 0,
-      e_score: 0,
-      d_score: 0,
-      e_penalty: 0,
-      delt: 0,
-      percentage: 0
-    },
-    {
-      id: 4,
-      name: 'Gymnast',
-      event: 'Suelo',
-      noc: '0',
-      bib: '0',
-      j: 0,
-      i: 0,
-      h: 0,
-      g: 0,
-      f: 0,
-      e: 0,
-      d: 0,
-      c: 0,
-      b: 0,
-      a: 0,
-      dv: 0,
-      eg: 0,
-      sb: 0,
-      nd: 0,
-      cv: 0,
-      sv: 0,
-      e_score: 0,
-      d_score: 0,
-      e_penalty: 0,
-      delt: 0,
-      percentage: 0
-    }
-  ];
+interface MainTableWithRateGeneral extends MainTable {
+  rateGeneral?: MainRateGeneral;
+}
 
-  // Use provided gymnasts or sample data if empty
-  const displayGymnasts = gymnasts.length > 0 ? gymnasts : sampleGymnasts;
-  const windowWidth = Dimensions.get('window').width;
+const GymnasticsScoreTable: React.FC = () => {
+  const router = useRouter();
+  const params = useLocalSearchParams();
+  
+  // Parse params
+  const competenceId = params.competenceId ? Number(params.competenceId) : 0;
+  const discipline = params.discipline === "true";
+  const event = params.event as string;
+  const gymnastId = params.gymnast ? Number(params.gymnast) : 0;
+  const number = params.number ? Number(params.number) : 0;
+  const participants = params.participants ? Number(params.participants) : 0;
+  const folderId = params.folderId;
+
+  const [tables, setTables] = useState<MainTableWithRateGeneral[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [pdfExporting, setPdfExporting] = useState(false);
+
+  // Fetch data on component mount
+  useEffect(() => {
+    const fetchTables = async () => {
+      try {
+        setLoading(true);
+        const mainTables = await getMainTablesByCompetenceId(competenceId);
+
+        // Sort tables by number
+        const sortedTables = [...mainTables].sort((a, b) => a.number - b.number);
+        
+        // Fetch rate general data for each table
+        const tablesWithRates = await Promise.all(
+          sortedTables.map(async (table) => {
+            try {
+              const rateGeneral = await getRateGeneralByTableId(table.id);
+              return { ...table, rateGeneral };
+            } catch (error) {
+              console.error(`Error fetching rate general for table ${table.id}:`, error);
+              return { ...table };
+            }
+          })
+        );
+        console.log("Tables with rates:", tablesWithRates);
+        setTables(tablesWithRates);
+      } catch (error) {
+        console.error("Error fetching tables:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTables();
+  }, [competenceId]);
+
+  const handleStartJudging = (tableId: number, tableNumber: number, tableEvent: string) => {
+    if (tableEvent === "VT") {
+      router.push(`/main-jump?competenceId=${competenceId}&gymnastId=${discipline}&event=${tableEvent}&discipline=${discipline}&gymnast=${tableId}&number=${tableNumber}&participants=${participants}&folderId=${folderId}`);
+    } else {
+      router.push(`/main-floor?competenceId=${competenceId}&gymnastId=${discipline}&event=${tableEvent}&discipline=${discipline}&gymnast=${tableId}&number=${tableNumber}&participants=${participants}&folderId=${folderId}`);
+    }
+  };
+
+  const handleFinishJudging = () => {
+    // Show the modal instead of navigating directly
+    setModalVisible(false);
+    setModalVisible(true);
+  };
+
+  const handleDownloadPDF = async () => {
+  try {
+    setPdfExporting(true);
+    const filePath = await exportToPDF(tables);
+    setPdfExporting(false);
+    setModalVisible(false);
+    // Optionally open or share the PDF here
+    router.push(`/main-menu?discipline=${discipline}`);
+  } catch (error) {
+    console.error("Error exporting PDF:", error);
+    setPdfExporting(false);
+  }
+};
+
+  const handleExit = () => {
+    // Navigate back without exporting
+    setModalVisible(false)
+    router.push(`/main-menu?discipline=${discipline}`);
+  };
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView horizontal showsHorizontalScrollIndicator={true} style={styles.horizontalScroll}>
         <View>
-          {/* Table Header */}
+          {/* Table Header - Keeping original headers */}
           <View style={styles.headerRow}>
             <View style={styles.headerIdCell}>
               <Text style={styles.headerText}>No.</Text>
@@ -552,91 +241,111 @@ const GymnasticsScoreTable: React.FC<GymnasticsScoreTableProps> = ({
             <View style={styles.headerPercentCell}>
               <Text style={styles.headerText}>%</Text>
             </View>
+            <View style={styles.headerCommentsCell}>
+              <Text style={styles.headerText}>Comments</Text>
+            </View>
           </View>
 
-          {/* Table Body - Only display actual data rows */}
+          {/* Table Body - Dynamic with MainTable data */}
           <ScrollView style={styles.tableBody}>
-            {displayGymnasts.map((gymnast) => (
-              <View key={gymnast.id} style={styles.tableRow}>
+            {tables.map((table, idx) => (
+              <TouchableOpacity 
+                key={table.id} 
+                style={[
+                  styles.tableRow,
+                  table.id === gymnastId ? styles.selectedRow : null
+                ]}
+                onPress={() => handleStartJudging(table.id, table.number, table.event)}
+              >
                 <View style={styles.idCell}>
-                  <Text style={styles.cellText}>{gymnast.id}</Text>
+                  <Text style={[styles.cellText, 
+                  idx === tables.length - 1 ? { borderBottomLeftRadius: 15 } : null
+                  ]}>{table.number}</Text>
                 </View>
                 <View style={styles.gymnastCell}>
-                  <Text style={styles.cellText}>{gymnast.name}</Text>
+                  <Text style={styles.cellText}>{table.name}</Text>
                 </View>
                 <View style={styles.eventCell}>
-                  <Text style={styles.cellText}>{gymnast.event}</Text>
+                  <Text style={styles.cellText}>{table.event}</Text>
                 </View>
                 <View style={styles.nocCell}>
-                  <Text style={styles.cellText}>{gymnast.noc}</Text>
+                  <Text style={styles.cellText}>{table.noc}</Text>
                 </View>
                 <View style={styles.bibCell}>
-                  <Text style={styles.cellText}>{gymnast.bib}</Text>
+                  <Text style={styles.cellText}>{table.bib}</Text>
                 </View>
                 <View style={styles.smallCell}>
-                  <Text style={styles.cellText}>{gymnast.j}</Text>
+                  <Text style={styles.cellText}>{table.j}</Text>
                 </View>
                 <View style={styles.smallCell}>
-                  <Text style={styles.cellText}>{gymnast.i}</Text>
+                  <Text style={styles.cellText}>{table.i}</Text>
                 </View>
                 <View style={styles.smallCell}>
-                  <Text style={styles.cellText}>{gymnast.h}</Text>
+                  <Text style={styles.cellText}>{table.h}</Text>
                 </View>
                 <View style={styles.smallCell}>
-                  <Text style={styles.cellText}>{gymnast.g}</Text>
+                  <Text style={styles.cellText}>{table.g}</Text>
                 </View>
                 <View style={styles.smallCell}>
-                  <Text style={styles.cellText}>{gymnast.f}</Text>
+                  <Text style={styles.cellText}>{table.f}</Text>
                 </View>
                 <View style={styles.smallCell}>
-                  <Text style={styles.cellText}>{gymnast.e}</Text>
+                  <Text style={styles.cellText}>{table.e}</Text>
                 </View>
                 <View style={styles.smallCell}>
-                  <Text style={styles.cellText}>{gymnast.d}</Text>
+                  <Text style={styles.cellText}>{table.d}</Text>
                 </View>
                 <View style={styles.smallCell}>
-                  <Text style={styles.cellText}>{gymnast.c}</Text>
+                  <Text style={styles.cellText}>{table.c}</Text>
                 </View>
                 <View style={styles.smallCell}>
-                  <Text style={styles.cellText}>{gymnast.b}</Text>
+                  <Text style={styles.cellText}>{table.b}</Text>
                 </View>
                 <View style={styles.smallCell}>
-                  <Text style={styles.cellText}>{gymnast.a}</Text>
+                  <Text style={styles.cellText}>{table.a}</Text>
                 </View>
                 <View style={styles.smallCell}>
-                  <Text style={styles.cellText}>{gymnast.dv}</Text>
+                  <Text style={styles.cellText}>{table.rateGeneral?.difficultyValues.toFixed(1)}</Text>
                 </View>
                 <View style={styles.smallCell}>
-                  <Text style={styles.cellText}>{gymnast.eg}</Text>
+                  <Text style={styles.cellText}>{table.rateGeneral?.elementGroups5}</Text>
                 </View>
                 <View style={styles.smallCell}>
-                  <Text style={styles.cellText}>{gymnast.sb}</Text>
+                  <Text style={styles.cellText}>{table.rateGeneral?.stickBonus ? 0.1 : 0}</Text>
                 </View>
                 <View style={styles.smallCell}>
-                  <Text style={styles.cellText}>{gymnast.nd}</Text>
+                  <Text style={styles.cellText}>{table.nd}</Text>
                 </View>
                 <View style={styles.smallCell}>
-                  <Text style={styles.cellText}>{gymnast.cv}</Text>
+                  <Text style={styles.cellText}>{table.cv}</Text>
                 </View>
                 <View style={styles.smallCell}>
-                  <Text style={styles.cellText}>{gymnast.sv}</Text>
+                  <Text style={styles.cellText}>{table.sv.toFixed(1)}</Text>
                 </View>
                 <View style={styles.smallCell}>
-                  <Text style={styles.cellText}>{gymnast.e_score}</Text>
+                  <Text style={styles.cellText}>{table.rateGeneral?.eScore.toFixed(3) || '0.000'}</Text>
                 </View>
                 <View style={styles.goldDataCell}>
-                  <Text style={styles.cellText}>{gymnast.d_score}</Text>
+                  <Text style={styles.cellText}>{table.rateGeneral?.compD}</Text>
                 </View>
                 <View style={styles.goldDataCell}>
-                  <Text style={styles.cellText}>{gymnast.e_penalty}</Text>
+                  <Text style={styles.cellText}>{table.rateGeneral?.compE}</Text>
                 </View>
                 <View style={styles.deltaDataCell}>
-                  <Text style={styles.cellText}>{gymnast.delt}</Text>
+                  <Text style={styles.cellText}>{table.delt}</Text>
                 </View>
                 <View style={styles.percentDataCell}>
-                  <Text style={styles.cellText}>{gymnast.percentage}</Text>
+                  <Text style={styles.cellText}>{table.percentage}</Text>
                 </View>
-              </View>
+                <View
+                  style={[
+                    styles.CommentDataCell,
+                    idx === tables.length - 1 ? { borderBottomRightRadius: 15 } : null
+                  ]}
+                >
+                  <Text style={styles.cellText}>{table.rateGeneral?.comments}</Text>
+                </View>
+              </TouchableOpacity>
             ))}
           </ScrollView>
         </View>
@@ -644,16 +353,68 @@ const GymnasticsScoreTable: React.FC<GymnasticsScoreTableProps> = ({
 
       {/* Button Row */}
       <View style={styles.buttonContainer}>
-        <TouchableOpacity style={styles.startButton} onPress={onStartJudging}>
-          <Text style={styles.buttonText}>START JUDGING</Text>
+        <TouchableOpacity 
+          style={styles.startButton} 
+          onPress={() => {
+            const currentGymnast = tables.find(t => t.id === gymnastId);
+            if (currentGymnast) {
+              handleStartJudging(currentGymnast.id, currentGymnast.number, currentGymnast.event);
+            } else if (tables.length > 0) {
+              // Start with first gymnast if none selected
+              handleStartJudging(tables[0].id, tables[0].number, tables[0].event);
+            }
+          }}
+        >
+          <Text style={styles.buttonText}>CONTINUE JUDGING</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.finishButton} onPress={onFinishJudging}>
+        <TouchableOpacity style={styles.finishButton} onPress={handleFinishJudging}>
           <Text style={styles.buttonText}>FINISH JUDGING</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Finish Modal */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalHeaderText}>Finish Judging</Text>
+            </View>
+            
+            <View style={styles.modalBody}>
+              <Text style={styles.modalText}>Do you want to download the scoring data as PDF before exiting?</Text>
+            </View>
+            
+            <View style={styles.modalButtonContainer}>
+              <TouchableOpacity 
+                style={styles.modalDownloadButton} 
+                onPress={handleDownloadPDF}
+                disabled={pdfExporting}
+              >
+                <Text style={styles.buttonText}>
+                  {pdfExporting ? "DOWNLOADING..." : "DOWNLOAD PDF"}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.modalExitButton} 
+                onPress={handleExit}
+              >
+                <Text style={styles.buttonText}>EXIT</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
+
+const windowWidth = Dimensions.get('window').width;
+const windowHeight = Dimensions.get('window').height;
 
 const styles = StyleSheet.create({
   container: {
@@ -676,6 +437,9 @@ const styles = StyleSheet.create({
     height: 40,
     borderBottomWidth: 1,
     borderBottomColor: '#ddd',
+  },
+  selectedRow: {
+    backgroundColor: '#e3f2fd', // Light blue background for selected row
   },
   // Header styles
   headerIdCell: {
@@ -720,7 +484,7 @@ const styles = StyleSheet.create({
     borderRightColor: '#ddd',
   },
   headersecondCell: {
-    width: 40,
+    width: 48,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#0052b4', // Blue for header
@@ -728,16 +492,15 @@ const styles = StyleSheet.create({
     borderRightColor: '#ddd',
   },
   headerSmallCell: {
-    width: 40,
+    width: 48,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#A2A2A2', 
-
     borderRightWidth: 1,
     borderRightColor: '#ddd',
   },
   headerGoldCell: {
-    width: 40,
+    width: 48,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#F5D76E', // Gold/yellow color for D and E headers
@@ -753,15 +516,23 @@ const styles = StyleSheet.create({
     borderRightColor: '#ddd',
   },
   headerPercentCell: {
-    width: 40,
+    width: 48,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#F5D76E', // Gold/yellow color for DELT header
-    /* backgroundColor: '#FFCDD2',  */
+    borderRightWidth: 1,
+    borderRightColor: '#ddd',
+  },
+  headerCommentsCell: {
+    width: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#0052b4', // Blue for header
     borderTopRightRadius: 15,
     borderRightWidth: 1,
     borderRightColor: '#ddd',
   },
+  
   
   // Data row styles - all white background
   idCell: {
@@ -805,7 +576,7 @@ const styles = StyleSheet.create({
     borderRightColor: '#ddd',
   },
   smallCell: {
-    width: 40,
+    width: 48,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'white',
@@ -813,7 +584,7 @@ const styles = StyleSheet.create({
     borderRightColor: '#ddd',
   },
   goldDataCell: {
-    width: 40,
+    width: 48,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'white', // White background for data rows
@@ -829,12 +600,19 @@ const styles = StyleSheet.create({
     borderRightColor: '#ddd',
   },
   percentDataCell: {
-    width: 40,
+    width: 48,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#FFC0C7', // White background for data rows even in percent column
+    backgroundColor: '#FFC0C7', // Pink background for percent column
     borderRightWidth: 1,
-    /* borderBottomEndRadius: 15, */
+    borderRightColor: '#ddd',
+  },
+  CommentDataCell:{
+    width: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'white', // White background for comment column
+    borderRightWidth: 1,
     borderRightColor: '#ddd',
   },
   
@@ -881,6 +659,75 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContainer: {
+    width: windowWidth * 0.6,
+    maxWidth: 500,
+    backgroundColor: 'white',
+    borderRadius: 8,
+    overflow: 'hidden',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  modalHeader: {
+    backgroundColor: '#0052b4',
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+  },
+  modalHeaderText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  modalBody: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  modalText: {
+    fontSize: 16,
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  modalButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+  },
+  modalDownloadButton: {
+    flex: 1,
+    backgroundColor: '#4CAF50', // Green for download
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 4,
+    marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalExitButton: {
+    flex: 1,
+    backgroundColor: '#d32f2f', // Red for exit
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 4,
+    marginLeft: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

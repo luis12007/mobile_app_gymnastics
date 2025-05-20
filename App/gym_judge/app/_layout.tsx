@@ -36,6 +36,8 @@ export default function RootLayout() {
         <Stack.Screen name="start-gudging" options={{ title: 'start-gudging' }} />
         <Stack.Screen name="main-floor" options={{ title: 'main-floor' }} />
         <Stack.Screen name="main-jump" options={{ title: 'main-jump' }} />
+
+        
       </Stack>
     </ThemeProvider>
   );

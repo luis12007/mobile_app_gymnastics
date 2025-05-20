@@ -18,7 +18,16 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { deleteFolder, getFoldersByUserId, insertCompetence, insertFolder, insertMainTable, updateFolder } from "../Database/database"; // Adjust the path based on your project structure
+import {
+  deleteCompetencesByFolderId,
+  deleteFolder,
+  deleteMainTableByCompetenceId,
+  deleteRateGeneralByTableId,
+  getCompetencesByFolderId,
+  getFoldersByUserId,
+  getMainTablesByCompetenceId,
+  insertCompetence, insertFolder, insertMainTable, updateFolder
+} from "../Database/database"; // Adjust the path based on your project structure
 const { width, height } = Dimensions.get("window");
 const isLargeScreen = width >= 1000 && height >= 700;
 var isLargeDevice = false
@@ -409,34 +418,53 @@ const [folderSelectionForCompetition, setFolderSelectionForCompetition] = useSta
   };
 
   // Function to actually delete the selected folders
-  const performDelete = async () => {
-    try {
-      // Delete each selected folder from database
-      for (const folderId of selectedFolders) {
-        await deleteFolder(folderId);
+const performDelete = async () => {
+  try {
+    // Delete each selected folder and its related data
+    for (const folderId of selectedFolders) {
+      // Fetch competences associated with the folder
+      const competences = await getCompetencesByFolderId(folderId);
+
+      for (const competence of competences) {
+        // Fetch main tables associated with the competence
+        const mainTables = await getMainTablesByCompetenceId(competence.id);
+
+        for (const mainTable of mainTables) {
+          // Delete rateGeneral entries associated with the main table
+          await deleteRateGeneralByTableId(mainTable.id);
+        }
+
+        // Delete main tables associated with the competence
+        await deleteMainTableByCompetenceId(competence.id);
       }
-      
-      // Update the folders state to remove deleted folders
-      setFolders(prevFolders => 
-        prevFolders.filter(folder => !selectedFolders.includes(folder.id))
-      );
-      
-      setConfirmationModel(false);
-      setSelectionMode(false);
-      setSelectionAction(null);
-      setSelectedFolders([]);
-      
-      // Show success feedback
-      setFeedbackAcceptModel(true);
-      setTimeout(() => {
-        setFeedbackAcceptModel(false);
-      }, 1500);
-      
-    } catch (error) {
-      console.error("Error deleting folders:", error);
-      Alert.alert("Error", "Failed to delete folders.");
+
+      // Delete competences associated with the folder
+      await deleteCompetencesByFolderId(folderId);
+
+      // Finally, delete the folder
+      await deleteFolder(folderId);
     }
-  };
+
+    // Update the folders state to remove deleted folders
+    setFolders(prevFolders =>
+      prevFolders.filter(folder => !selectedFolders.includes(folder.id))
+    );
+
+    setConfirmationModel(false);
+    setSelectionMode(false);
+    setSelectionAction(null);
+    setSelectedFolders([]);
+
+    // Show success feedback
+    setFeedbackAcceptModel(true);
+    setTimeout(() => {
+      setFeedbackAcceptModel(false);
+    }, 1500);
+  } catch (error) {
+    console.error("Error deleting folders and related data:", error);
+    Alert.alert("Error", "Failed to delete folders and related data.");
+  }
+};
 
   // Function to handle edit confirmation
   const handleEditConfirm = () => {

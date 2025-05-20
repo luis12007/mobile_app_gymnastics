@@ -1,22 +1,115 @@
-import React from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  Text, 
-  TouchableOpacity, 
-  SafeAreaView, 
-  ScrollView, 
-  Dimensions, 
-  Image, 
-  TextInput
-} from 'react-native';
+import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  Animated,
+  Dimensions,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
-const { width, height } = Dimensions.get('window');
+import {
+  getCompetenceById,
+  getMainTableById,
+  getMainTablesByCompetenceId,
+  getRateGeneralByTableId,
+  updateMainTable,
+  updateRateGeneral,
+} from "../Database/database";
+import ModalvaultMag from "../components/ModalVaultMag";
+import ModalvaultWag from "../components/ModalVaultWag";
+import WhiteboardScreen from "../components/WhiteboardScreen_jump";
 
-// Device size detection for responsive design
-const isLargeDevice = width >= 1200 && height >= 700;
-const isSmallDevice = width < 1200 && width >= 950;
-const isTinyDevice = width < 950;
+const { width, height } = Dimensions.get("window");
+const isLargeScreen = width >= 1000 && height >= 700;
+var isLargeDevice = false;
+var isSmallDevice = false;
+var isTinyDevice = false;
+if (width >= 1368 && height >= 1025) {
+  isLargeDevice = true;
+}
+if (width < 1367 && width >= 945) {
+  isSmallDevice = true;
+}
+if (width < 949) {
+  isTinyDevice = true;
+}
+
+interface MainRateGeneral {
+  id: number;
+  tableId: number;
+  stickBonus: boolean;
+  numberOfElements: number;
+  difficultyValues: number;
+  elementGroups1: number;
+  elementGroups2: number;
+  elementGroups3: number;
+  elementGroups4: number;
+  elementGroups5: number;
+  execution: number;
+  eScore: number;
+  myScore: number;
+  compD: number;
+  compE: number;
+  compSd: number;
+  compNd: number;
+  compScore: number;
+  comments: string;
+  paths: string;
+  ded: number;
+  dedexecution: number;
+  vaultNumber: string;
+  vaultDescription: string;
+}
+
+interface MainTable {
+  id: number;
+  competenceId: number;
+  number: number;
+  name: string;
+  event: string;
+  noc: string;
+  bib: number;
+  j: number;
+  i: number;
+  h: number;
+  g: number;
+  f: number;
+  e: number;
+  d: number;
+  c: number;
+  b: number;
+  a: number;
+  dv: number;
+  eg: number;
+  sb: number;
+  nd: number;
+  cv: number;
+  sv: number;
+  e2: number;
+  d3: number;
+  e3: number;
+  delt: number;
+  percentage: number;
+}
+
+interface Competence {
+  id: number;
+  name: string;
+  description: string;
+  date: string; // ISO date string
+  type: string; // "Floor", "Jump", etc.
+  gender: boolean; // mag and wag
+  sessionId: number;
+  folderId: number;
+  userId: number;
+  numberOfParticipants: number;
+}
 
 interface VaultScoreDisplayProps {
   onBack: () => void;
@@ -55,18 +148,18 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   onNext,
   vaultData = {
     score: 100,
-    vaultNumbers: '100',
+    vaultNumbers: "100",
     sv: 2.0,
     nd: 0.0,
     sb: 0.0,
     execution: 0.0,
-    myScore: 10.000,
+    myScore: 10.0,
     compDeduction: {
       d: 0.0,
-      e: 0.000,
-      sd: '##',
-      nd: '##',
-      score: 0.000,
+      e: 0.0,
+      sd: "##",
+      nd: "##",
+      score: 0.0,
     },
     neutral: {
       overtime: 0,
@@ -75,107 +168,1204 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
       total: 1,
     },
     startValue: 0,
-    description: 'No vault assigned',
-    comments: '',
+    description: "No vault assigned",
+    comments: "",
   },
 }) => {
+  /* Declare params */
+  const params = useLocalSearchParams();
+  const discipline = params.discipline === "true";
+  const participants = params.participants;
+  const event = params.event;
+  const competenceId = params.competenceId;
+  const number = params.number;
+  const gymnastid = params.gymnast ? Number(params.gymnast) : 0;
+  const folderId = params.folderId;
+
+  const router = useRouter();
+
+  /* Define usestate */
+  const [showNdModal, setShowNdModal] = useState(false);
+  const [ndInput, setNdInput] = useState("");
+  const ndInputRef = useRef<any>(null);
+  const [nd, setNd] = useState(0);
+
+  const [showCommentsModal, setShowCommentsModal] = useState(false);
+  const [commentsInput, setCommentsInput] = useState("");
+  const commentsInputRef = useRef<any>(null);
+
+  const backButtonOpacity = useRef(new Animated.Value(0)).current;
+  const backButtonTranslateX = useRef(new Animated.Value(50)).current;
+  const executionInputRef = useRef<any>(null);
+
+  const [showExecutionModal, setShowExecutionModal] = useState(false);
+  const [execution, setExecution] = useState(0);
+  const [executionInput, setExecutionInput] = useState("");
+
+  const [showDModal, setShowDModal] = useState(false);
+  const [dInput, setDInput] = useState("");
+  const dInputRef = useRef<any>(null);
+  const [d, setD] = useState(0);
+
+  const [showEModal, setShowEModal] = useState(false);
+  const [eInput, setEInput] = useState("");
+  const eInputRef = useRef<any>(null);
+  const [e, setE] = useState(0);
+
+  const [showNdModalcomp, setShowNdModalcomp] = useState(false);
+  const ndInputRefcomp = useRef<any>(null);
+  const [ndInputcomp, setNdInputcomp] = useState("");
+
+  // Track the total elements
+  const [totalElements, setTotalElements] = useState(0);
+  const [rateid, setRateId] = useState(0);
+  const [stickbonus, setStickBonus] = useState(false);
+  const [difficultyValues, setDifficultyValues] = useState(0);
+  const [gymnastName, setGymnastName] = useState("");
+  const [gymnastNoc, setGymnastNoc] = useState("");
+  const [gymnastBib, setGymnastBib] = useState(0);
+  const [gymnastEvent, setGymnastEvent] = useState("");
+  const [elementGroupsTotal, setElementGroupsTotal] = useState(0);
+  const [cv, setCv] = useState(0);
+  const [myScore, setMyScore] = useState(0);
+  const [sv, setSv] = useState(0);
+
+  const [eScore, setEScore] = useState(0);
+  const [score, setScore] = useState(0);
+  const [sb, setSb] = useState(true);
+  const [ndcomp, setndcomp] = useState(0);
+  const [showNdCompModal, setShowNdCompModal] = useState(false);
+  const [comments, setComments] = useState("");
+  const [delt, setDelt] = useState(0);
+  const [ded, setSetded] = useState(0);
+  const [percentage, setpercentage] = useState(0);
+
+  /* DEFINE MODALS */
+  const [showmodalmag, setShowModalMag] = useState(false);
+  const [showmodalwag, setShowModalWag] = useState(false);
+  const [vaultnumber, setVaultNumber] = useState("0");
+  const [startValue, setStartValue] = useState(0);
+  const [vaultDescription, setVaultDescription] = useState("No Vault Assigned");
+  const [gender, setGender] = useState(false);
+
+  /* Useffect */
+  useEffect(() => {
+    const fetchMainRateGeneral = async () => {
+      try {
+        const mainRateGeneral = await getMainTableById(gymnastid); // Fetch data by gymnastid
+        console.log("MainGeneral data:", mainRateGeneral); // Debugging line
+        /* getting rate table with the mainrategeneral id */
+
+        const competence = await getCompetenceById(Number(competenceId));
+        console.log("Competence data:", competence); // Debugging line
+
+        if (competence) {
+          setGender(competence.gender);
+        }
+        if (mainRateGeneral) {
+          const mainRateGeneralId = mainRateGeneral.id;
+          const rateTable = await getRateGeneralByTableId(mainRateGeneralId);
+          console.log("Rate Table data:", rateTable); // Debugging line
+
+          setGymnastEvent(mainRateGeneral.event);
+          setCv(mainRateGeneral.cv);
+          setNd(mainRateGeneral.nd);
+          setDelt(mainRateGeneral.delt);
+          setpercentage(mainRateGeneral.percentage);
+
+          setGymnastName(mainRateGeneral.name);
+          setGymnastNoc(mainRateGeneral.noc);
+          setGymnastBib(mainRateGeneral.bib);
+          setSv(mainRateGeneral.sv);
+          setStartValue(mainRateGeneral.sv);
+          setNd(mainRateGeneral.nd);
+
+          if (rateTable) {
+            setVaultNumber(rateTable.vaultNumber);
+            setVaultDescription(rateTable.vaultDescription);
+            setRateId(rateTable.id);
+            setStickBonus(rateTable.stickBonus);
+            setCommentsInput(rateTable.comments);
+            setComments(rateTable.comments);
+            setExecution(rateTable.execution);
+            setEScore(rateTable.eScore);
+            setMyScore(rateTable.myScore);
+            setD(rateTable.compD);
+            setScore(rateTable.compScore);
+            setE(rateTable.compE);
+            setSb(rateTable.compSd === 0.1);
+            setndcomp(rateTable.compNd);
+            setSetded(rateTable.ded);
+
+            /* setTotalElements(rateTable.numberOfElements);
+            setDifficultyValues(rateTable.difficultyValues);
+            setElementGroupsTotal(rateTable.elementGroups5);
+            
+            setElementGroupValues({
+              I: rateTable.elementGroups1 || 0.0,
+              II: rateTable.elementGroups2 || 0.0,
+              III: rateTable.elementGroups3 || 0.0,
+              IV: rateTable.elementGroups4 || 0.0,
+            }); */
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching MainRateGeneral data:", error);
+      }
+    };
+
+    fetchMainRateGeneral();
+  }, [gymnastid]); // Re-fetch data when gymnastid changes
+
+  useEffect(() => {
+    if (showNdModal && ndInputRef.current) {
+      if (Platform.OS === "web") {
+        const input = ndInputRef.current;
+        if (input && input.focus) {
+          input.focus();
+          setTimeout(() => {
+            if (input.setSelectionRange) {
+              input.setSelectionRange(0, input.value.length);
+            }
+          }, 10);
+        }
+      } else {
+        ndInputRef.current.focus();
+      }
+    }
+  }, [showNdModal]);
+
+  useEffect(() => {
+    if (showNdModalcomp && ndInputRefcomp.current) {
+      if (Platform.OS === "web") {
+        const input = ndInputRefcomp.current;
+        if (input && input.focus) {
+          input.focus();
+          setTimeout(() => {
+            if (input.setSelectionRange) {
+              input.setSelectionRange(0, input.value.length);
+            }
+          }, 10);
+        }
+      } else {
+        ndInputRefcomp.current.focus();
+      }
+    }
+  }, [showNdModalcomp]);
+
+  useEffect(() => {
+    if (showDModal && dInputRef.current) {
+      if (Platform.OS === "web") {
+        const input = dInputRef.current;
+        if (input && input.focus) {
+          input.focus();
+          setTimeout(() => {
+            if (input.setSelectionRange) {
+              input.setSelectionRange(0, input.value.length);
+            }
+          }, 10);
+        }
+      } else {
+        dInputRef.current.focus();
+      }
+    }
+  }, [showDModal]);
+
+  useEffect(() => {
+    if (showEModal && eInputRef.current) {
+      if (Platform.OS === "web") {
+        const input = eInputRef.current;
+        if (input && input.focus) {
+          input.focus();
+          setTimeout(() => {
+            if (input.setSelectionRange) {
+              input.setSelectionRange(0, input.value.length);
+            }
+          }, 10);
+        }
+      } else {
+        eInputRef.current.focus();
+      }
+    }
+  }, [showEModal]);
+
+  useEffect(() => {
+    if (showExecutionModal && executionInputRef.current) {
+      if (Platform.OS === "web") {
+        // For web, use the underlying DOM node
+        const input = executionInputRef.current;
+        if (input && input.focus) {
+          input.focus();
+          // Select all text after a short delay (to ensure focus)
+          setTimeout(() => {
+            if (input.setSelectionRange) {
+              input.setSelectionRange(0, input.value.length);
+            }
+          }, 10);
+        }
+      } else {
+        // Native platforms
+        executionInputRef.current.focus();
+      }
+    }
+  }, [showExecutionModal]);
+
+  /* Buttons un the bottom */
+
+  const handleSelect = () => {
+    router.push(
+      `/final-table?competenceId=${competenceId}&gymnastId=${discipline}&event=${event}&discipline=${discipline}&gymnast=${gymnastid}&number=${number}&participants=${participants}&folderId=${folderId}`
+    );
+  };
+
+  const handlegobacklist = () => {
+    router.push(
+      `/start-gudging?id=${competenceId}&discipline=${discipline}&participants=${participants}&number=${number}&gymnast=${gymnastid}&folderId=${folderId}`
+    ); // Pass the value as a query parameter
+  };
+
+  const handleGoForward = async () => {
+    try {
+      // Fetch all MainTable entries for the current competenceId
+
+      if (number === participants) {
+        router.push(
+          `/final-table?competenceId=${competenceId}&gymnastId=${discipline}&event=${event}&discipline=${discipline}&gymnast=${gymnastid}&number=${number}&participants=${participants}&folderId=${folderId}`
+        );
+        return;
+      }
+      const mainTables = await getMainTablesByCompetenceId(
+        Number(competenceId)
+      );
+      console.log("Main Tables:", mainTables); // Debugging line
+
+      // Sort the main tables by number to ensure proper order
+      const sortedTables = mainTables.sort((a, b) => a.number - b.number);
+
+      // Start searching for the next valid gymnast
+      let nextNumber = Number(number) + 1;
+      let nextTable = null;
+
+      while (
+        !nextTable &&
+        nextNumber <= sortedTables[sortedTables.length - 1]?.number
+      ) {
+        nextTable = sortedTables.find((table) => table.number === nextNumber);
+        if (!nextTable) nextNumber++; // Increment if not found
+      }
+
+      if (nextTable) {
+        if (nextTable?.event === "VT") {
+          router.push(
+            `/main-jump?competenceId=${competenceId}&gymnastId=${discipline}&event=${nextTable?.event}&discipline=${discipline}&gymnast=${nextTable.id}&number=${nextTable.number}&participants=${participants}&folderId=${folderId}`
+          );
+        } else {
+          router.push(
+            `/main-floor?competenceId=${competenceId}&gymnastId=${discipline}&event=${nextTable?.event}&discipline=${discipline}&gymnast=${nextTable.id}&number=${nextTable.number}&participants=${participants}&folderId=${folderId}`
+          );
+        }
+      } else {
+        console.warn("No next gymnast found.");
+        alert("No next gymnast found.");
+      }
+    } catch (error) {
+      console.error("Error navigating to the next gymnast:", error);
+    }
+  };
+
+  const handleGoBack = async () => {
+    try {
+      // Fetch all MainTable entries for the current competenceId
+      const mainTables = await getMainTablesByCompetenceId(
+        Number(competenceId)
+      );
+
+      // Sort the main tables by number to ensure proper order
+      const sortedTables = mainTables.sort((a, b) => a.number - b.number);
+
+      // Start searching for the previous valid gymnast
+      let previousNumber = Number(number) - 1;
+      let previousTable = null;
+
+      while (!previousTable && previousNumber >= sortedTables[0]?.number) {
+        previousTable = sortedTables.find(
+          (table) => table.number === previousNumber
+        );
+        if (!previousTable) previousNumber--; // Decrement if not found
+      }
+
+      if (previousTable) {
+        if (previousTable?.event === "VT") {
+          router.push(
+            `/main-jump?competenceId=${competenceId}&gymnastId=${discipline}&event=${previousTable?.event}&discipline=${discipline}&gymnast=${previousTable.id}&number=${previousTable.number}&participants=${participants}&folderId=${folderId}`
+          );
+        } else {
+          router.push(
+            `/main-floor?competenceId=${competenceId}&gymnastId=${discipline}&event=${previousTable?.event}&discipline=${discipline}&gymnast=${previousTable.id}&number=${previousTable.number}&participants=${participants}&folderId=${folderId}`
+          );
+        }
+      } else {
+        console.warn("No previous gymnast found.");
+        alert("No previous gymnast found.");
+      }
+    } catch (error) {
+      console.error("Error navigating to the previous gymnast:", error);
+    }
+  };
+
+  /* Logic ======================================================== */
+  const handleStickBonusChange = async (value: boolean) => {
+    setStickBonus(value);
+    const newmyscore = eScore + sv + (value ? 0.1 : 0.0) - nd;
+
+    setMyScore(newmyscore);
+
+    try {
+      // Save the stickBonus value in MainRateGeneral
+      const updateData: Partial<MainRateGeneral> = {
+        stickBonus: value,
+        myScore: newmyscore,
+      };
+      console.log("Update Data:", updateData); // Debugging line
+      console.log("Rate ID:", rateid); // Debugging line
+      const success = await updateRateGeneral(rateid, updateData);
+
+      if (success) {
+        console.log(`Saved stickBonus = ${value} in MainRateGeneral.`);
+      } else {
+        console.error(`Failed to save stickBonus in MainRateGeneral.`);
+      }
+    } catch (error) {
+      console.error("Error saving stickBonus to MainRateGeneral:", error);
+    }
+  };
+  /* Logic ======================================================== */
+
+  const oncodetable = async () => {
+    if (gender == true) {
+      setShowModalMag(true);
+    } else {
+      setShowModalWag(true);
+    }
+  };
+
+  const handleVaultSelect = (value: {
+    number: string;
+    value: number;
+    description: string;
+  }) => {
+    console.log("Selected vault from :", value);
+    setVaultNumber(value.number);
+    setStartValue(value.value);
+    setSv(value.value);
+
+    setVaultDescription(value.description);
+
+    const newmyscore = eScore + value.value + (stickbonus ? 0.1 : 0.0) - nd;
+    setMyScore(newmyscore);
+    updateRateGeneral(rateid, {
+      vaultNumber: value.number,
+      vaultDescription: value.description,
+      myScore: newmyscore,
+    }).then((success) => {
+      if (success) {
+        console.log("Vault number and description updated successfully.");
+      } else {
+        console.error("Failed to update vault number and description.");
+      }
+    });
+
+    updateMainTable(gymnastid, {
+      sv: value.value,
+    }).then((success) => {
+      if (success) {
+        console.log("Vault SV updated successfully.");
+      } else {
+        console.error("Failed to update vault SV.");
+      }
+    });
+  };
+
+  /* Helpers ============================================== */
+  function trimDecimals(num: number, decimals: number) {
+    const [int, dec] = String(num).split(".");
+    if (!dec) return int + "." + "0".repeat(decimals);
+    return int + "." + dec.slice(0, decimals).padEnd(decimals, "0");
+  }
+
+  function getDeductionIntervalValue(newded: number): number {
+    if (newded >= 0.0 && newded <= 0.4) return 1;
+    if (newded > 0.4 && newded <= 0.6) return 2;
+    if (newded > 0.6 && newded <= 1.0) return 3;
+    if (newded > 1.0 && newded <= 1.5) return 4;
+    if (newded > 1.5 && newded <= 2.0) return 5;
+    if (newded > 2.0 && newded <= 2.5) return 6;
+    if (newded > 2.5 && newded <= 10.0) return 7;
+    return 0; // Out of range
+  }
+
+  const percentageTable = [
+    // 0.000 0.100 0.200 0.300 0.400 0.500 0.600 0.700 0.800 0.900 1.000 1.100 1.200 1.300 1.400 1.500 1.600
+    [100, 75, 65, 55, 45, 35, 25, 15, 5, 0, 0, 0, 0, 0, 0, 0, 0], // 1
+    [100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0, 0, 0], // 2
+    [100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0, 0], // 3
+    [100, 100, 94, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0], // 4
+    [100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0], // 5
+    [100, 100, 100, 96, 88, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0], // 6
+    [100, 100, 100, 100, 93, 87, 80, 70, 60, 50, 40, 30, 20, 0, 0, 0, 0], // 7
+  ];
+  const deltSteps = [
+    0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4,
+    1.5, 1.6,
+  ];
+
+  function getPercentageFromTable(dedInterval: number, delt: number): number {
+    if (delt >= 1.4) return 0;
+    if (dedInterval < 1 || dedInterval > 7) return 0;
+
+    // Find the closest delt step index (without exceeding delt)
+    let deltIndex =
+      deltSteps.findIndex((step, idx) => delt < step && idx > 0) - 1;
+    if (deltIndex < 0) deltIndex = deltSteps.length - 1;
+    if (delt >= deltSteps[deltSteps.length - 1])
+      deltIndex = deltSteps.length - 1;
+
+    // If delt is less than the first step, use index 0
+    if (delt < deltSteps[0]) deltIndex = 0;
+
+    // Table is 0-indexed, dedInterval is 1-indexed
+    return percentageTable[dedInterval - 1][deltIndex] || 0;
+  }
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
-        {/* Score Display */}
-        <View style={styles.scoreDisplay}>
-          <Text style={styles.scoreText}>100</Text>
-        </View>
-
-        {/* Graph Image */}
-        <View style={styles.graphContainer}>
-          <Image
-            source={require("../assets/images/Jump.png")}
-            style={styles.graphContainerimg}
-            resizeMode="contain"
-          />
-
-          <TouchableOpacity 
-            onPress={() => {}} 
-            style={styles.codetable}
+      {showNdCompModal && (
+        <View
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            zIndex: 10000,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0,0,0,0.2)",
+            height: "105%",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#fff",
+              borderRadius: 16,
+              padding: 24,
+              minWidth: 250,
+              alignItems: "center",
+              elevation: 10,
+              marginBottom: "30%",
+            }}
           >
-            <Text 
+            <TextInput
+              ref={ndInputRef}
               style={[
-                isLargeDevice ? styles.codeTableText : null,
-                isSmallDevice ? styles.codeTableTextSmall : null,
-                isTinyDevice ? styles.codeTableTextTiny : null
+                styles.infoValueText,
+                { fontSize: 40, marginBottom: 16, textAlign: "center" },
               ]}
-            >
-              CODE TABLE
-            </Text>
-          </TouchableOpacity>
-        </View>
+              value={ndInputcomp}
+              keyboardType="decimal-pad"
+              inputMode="decimal"
+              onFocus={(e) => {
+                if (
+                  Platform.OS === "web" &&
+                  e.target &&
+                  typeof (e.target as HTMLInputElement).select === "function"
+                ) {
+                  (e.target as HTMLInputElement).select();
+                }
+              }}
+              selectTextOnFocus
+              onChangeText={(text) => {
+                if (/^\d*\.?\d*$/.test(text)) {
+                  setNdInputcomp(text);
+                }
+              }}
+              maxLength={5}
+              autoFocus
+            />
+            <TouchableOpacity
+              style={{
+                marginTop: 10,
+                padding: 10,
+                backgroundColor: "#0052b4",
+                borderRadius: 8,
+              }}
+              onPress={() => {
+                const num = parseFloat(ndInputcomp.replace(",", "."));
+                if (!isNaN(num)) {
+                  const rounded = Math.round(num * 10) / 10;
+                  setndcomp(rounded);
+                  // Save to database
 
+                  const compscorecalc = d + e + (sb ? 0.1 : 0.0) - rounded;
+                  setScore(compscorecalc);
+                  updateRateGeneral(rateid, {
+                    compNd: rounded,
+                    compScore: compscorecalc,
+                  })
+                    .then((success) => {
+                      if (success) {
+                        console.log(
+                          `Saved ndcomp = ${rounded} in MainRateGeneral.`
+                        );
+                      } else {
+                        console.error(
+                          `Failed to save ndcomp in MainRateGeneral.`
+                        );
+                      }
+                    })
+                    .catch((error) => {
+                      console.error(
+                        "Error saving ndcomp to MainRateGeneral:",
+                        error
+                      );
+                    });
+                }
+                setShowNdCompModal(false);
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {showEModal && (
+        <View
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            zIndex: 10000,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0,0,0,0.2)",
+            height: "105%",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#fff",
+              borderRadius: 16,
+              padding: 24,
+              minWidth: 250,
+              alignItems: "center",
+              elevation: 10,
+              marginBottom: "30%",
+            }}
+          >
+            <TextInput
+              ref={eInputRef}
+              style={[
+                styles.infoValueText,
+                { fontSize: 40, marginBottom: 16, textAlign: "center" },
+              ]}
+              value={eInput}
+              keyboardType="decimal-pad"
+              inputMode="decimal"
+              onFocus={(e) => {
+                if (
+                  Platform.OS === "web" &&
+                  e.target &&
+                  typeof (e.target as HTMLInputElement).select === "function"
+                ) {
+                  (e.target as HTMLInputElement).select();
+                }
+              }}
+              selectTextOnFocus
+              onChangeText={(text) => {
+                if (/^\d*\.?\d*$/.test(text)) {
+                  setEInput(text);
+                }
+              }}
+              maxLength={5}
+              autoFocus
+            />
+            <TouchableOpacity
+              style={{
+                marginTop: 10,
+                padding: 10,
+                backgroundColor: "#0052b4",
+                borderRadius: 8,
+              }}
+              onPress={() => {
+                const num = parseFloat(eInput.replace(",", "."));
+                if (!isNaN(num)) {
+                  const rounded = Math.round(num * 1000) / 1000;
+                  setE(rounded);
+                  // Save to database
+                  const compscorecalc = d + rounded + (sb ? 0.1 : 0.0) - ndcomp;
+                  setScore(compscorecalc);
+
+                  /* ============================================================== */
+                  const newdelt = Math.abs(
+                    Math.round((eScore - rounded) * 10) / 10
+                  );
+                  setDelt(newdelt);
+                  console.log("delt:", newdelt);
+
+                  const newded = 10 - rounded;
+                  setSetded(Number(newded.toFixed(1)));
+                  console.log("ded:", Number(newded.toFixed(1)));
+
+                  /* logic of the table */
+
+                  const dedInterval = getDeductionIntervalValue(
+                    Number(newded.toFixed(1))
+                  );
+                  console.log("dedInterval:", dedInterval);
+                  const percentageValue = getPercentageFromTable(
+                    dedInterval,
+                    newdelt
+                  );
+                  console.log("percentageValue:", percentageValue);
+                  setpercentage(percentageValue);
+
+                  updateMainTable(gymnastid, {
+                    delt: newdelt,
+                    percentage: percentageValue,
+                  });
+                  console.log("percentage:", percentageValue);
+
+                  /* ============================================================== */
+
+                  updateRateGeneral(rateid, {
+                    compE: rounded,
+                    compScore: compscorecalc,
+                    ded: newded,
+                  })
+                    .then((success) => {
+                      if (success) {
+                        console.log(`Saved e = ${rounded} in MainTable.`);
+                      } else {
+                        console.error(`Failed to save e in MainTable.`);
+                      }
+                    })
+                    .catch((error) => {
+                      console.error("Error saving e to MainTable:", error);
+                    });
+                }
+                setShowEModal(false);
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {showDModal && (
+        <View
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            zIndex: 10000,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0,0,0,0.2)",
+            height: "105%",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#fff",
+              borderRadius: 16,
+              padding: 24,
+              minWidth: 250,
+              alignItems: "center",
+              elevation: 10,
+              marginBottom: "30%",
+            }}
+          >
+            <TextInput
+              ref={dInputRef}
+              style={[
+                styles.infoValueText,
+                { fontSize: 40, marginBottom: 16, textAlign: "center" },
+              ]}
+              value={dInput}
+              keyboardType="decimal-pad"
+              inputMode="decimal"
+              onFocus={(e) => {
+                if (
+                  Platform.OS === "web" &&
+                  e.target &&
+                  typeof (e.target as HTMLInputElement).select === "function"
+                ) {
+                  (e.target as HTMLInputElement).select();
+                }
+              }}
+              selectTextOnFocus
+              onChangeText={(text) => {
+                if (/^\d*\.?\d*$/.test(text)) {
+                  setDInput(text);
+                }
+              }}
+              maxLength={5}
+              autoFocus
+            />
+            <TouchableOpacity
+              style={{
+                marginTop: 10,
+                padding: 10,
+                backgroundColor: "#0052b4",
+                borderRadius: 8,
+              }}
+              onPress={() => {
+                const num = parseFloat(dInput.replace(",", "."));
+                if (!isNaN(num)) {
+                  const rounded = Math.round(num * 10) / 10;
+                  setD(rounded);
+
+                  const compscorecalc = rounded + e + (sb ? 0.1 : 0.0) - ndcomp;
+                  setScore(compscorecalc);
+                  // Save to database
+                  updateRateGeneral(rateid, {
+                    compD: rounded,
+                    compScore: compscorecalc,
+                  })
+                    .then((success) => {
+                      if (success) {
+                        console.log(`Saved d = ${rounded} in MainTable.`);
+                      } else {
+                        console.error(`Failed to save d in MainTable.`);
+                      }
+                    })
+                    .catch((error) => {
+                      console.error("Error saving d to MainTable:", error);
+                    });
+                }
+                setShowDModal(false);
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {showExecutionModal && (
+        <View
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            zIndex: 10000,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0,0,0,0.2)",
+            height: "105%",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#fff",
+              borderRadius: 16,
+              padding: 24,
+              minWidth: 250,
+              alignItems: "center",
+              elevation: 10,
+              marginBottom: "30%",
+            }}
+          >
+            <TextInput
+              ref={executionInputRef}
+              style={[
+                styles.infoValueText,
+                { fontSize: 40, marginBottom: 16, textAlign: "center" },
+              ]}
+              value={executionInput}
+              keyboardType="numeric"
+              onFocus={(e) => {
+                if (Platform.OS === "web" && e.target && e.target.select) {
+                  e.target.select();
+                }
+              }}
+              selectTextOnFocus
+              onChangeText={(text) => {
+                // Only update the input string, not the number
+                if (/^\d*\.?\d*$/.test(text)) {
+                  setExecutionInput(text);
+                }
+              }}
+              maxLength={5}
+              autoFocus
+            />
+            <TouchableOpacity
+              style={{
+                marginTop: 10,
+                padding: 10,
+                backgroundColor: "#0052b4",
+                borderRadius: 8,
+              }}
+              onPress={() => {
+                // Parse and update only when closing
+                const num = parseFloat(executionInput.replace(",", "."));
+                if (!isNaN(num)) {
+                  const rounded = Math.round(num * 10) / 10;
+                  setExecution(rounded);
+                  const eScore = Number((10 - rounded).toFixed(3));
+                  const newmyscore =
+                    eScore + sv + (stickbonus ? 0.1 : 0.0) - nd;
+                  setMyScore(newmyscore);
+
+                  /* ============================================================== */
+                  const newdelt = Math.abs(Math.round((eScore - e) * 10) / 10);
+                  setDelt(newdelt);
+                  console.log("delt:", newdelt);
+
+                  const newded = 10 - e;
+                  setSetded(Number(newded.toFixed(1)));
+                  console.log("ded:", Number(newded.toFixed(1)));
+
+                  /* logic of the table */
+
+                  const dedInterval = getDeductionIntervalValue(
+                    Number(newded.toFixed(1))
+                  );
+                  console.log("dedInterval:", dedInterval);
+                  const percentageValue = getPercentageFromTable(
+                    dedInterval,
+                    newdelt
+                  );
+                  console.log("percentageValue:", percentageValue);
+                  setpercentage(percentageValue);
+
+                  updateMainTable(gymnastid, {
+                    delt: newdelt,
+                    percentage: percentageValue,
+                  });
+                  console.log("percentage:", percentageValue);
+
+                  /* ============================================================== */
+
+                  setEScore(eScore);
+                  updateRateGeneral(rateid, {
+                    execution: rounded,
+                    eScore,
+                    myScore: newmyscore,
+                  })
+                    .then((success) => {
+                      if (success) {
+                        console.log(
+                          `Saved execution = ${rounded}, eScore = ${eScore} in MainRateGeneral.`
+                        );
+                      } else {
+                        console.error(
+                          `Failed to save execution/eScore in MainRateGeneral.`
+                        );
+                      }
+                    })
+                    .catch((error) => {
+                      console.error(
+                        "Error saving execution/eScore to MainRateGeneral:",
+                        error
+                      );
+                    });
+                }
+                setShowExecutionModal(false);
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {showCommentsModal && (
+        <View
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: 0,
+            bottom: 0,
+            zIndex: 10000,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0,0,0,0.3)",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#fff",
+              borderRadius: 16,
+              padding: 24,
+              minWidth: 350,
+              width: "80%",
+              maxWidth: 700,
+
+              alignItems: "center",
+              elevation: 10,
+              marginBottom: "30%",
+            }}
+          >
+            <Text
+              style={{ fontWeight: "bold", fontSize: 20, marginBottom: 10 }}
+            >
+              Edit Comments
+            </Text>
+            <TextInput
+              ref={commentsInputRef}
+              style={{
+                width: "100%",
+                minHeight: 120,
+                maxHeight: 250,
+                borderColor: "#ccc",
+                borderWidth: 1,
+                borderRadius: 10,
+                padding: 12,
+                fontSize: 18,
+                textAlignVertical: "top",
+                backgroundColor: "#f9f9f9",
+              }}
+              multiline
+              value={commentsInput}
+              onChangeText={setCommentsInput}
+              autoFocus
+            />
+            <View style={{ flexDirection: "row", marginTop: 18 }}>
+              <TouchableOpacity
+                style={{
+                  marginRight: 16,
+                  padding: 10,
+                  backgroundColor: "#0052b4",
+                  borderRadius: 8,
+                  minWidth: 80,
+                  alignItems: "center",
+                }}
+                onPress={async () => {
+                  setComments(commentsInput);
+                  setShowCommentsModal(false);
+                  try {
+                    await updateRateGeneral(rateid, {
+                      comments: commentsInput,
+                    });
+                  } catch (error) {
+                    console.error(
+                      "Error saving comments to MainRateGeneral:",
+                      error
+                    );
+                  }
+                }}
+              >
+                <Text style={{ color: "#fff", fontWeight: "bold" }}>Save</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{
+                  padding: 10,
+                  backgroundColor: "#ccc",
+                  borderRadius: 8,
+                  minWidth: 80,
+                  alignItems: "center",
+                }}
+                onPress={() => setShowCommentsModal(false)}
+              >
+                <Text style={{ color: "#333", fontWeight: "bold" }}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {showNdModal && (
+        <View
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            zIndex: 10000,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0,0,0,0.2)",
+            height: "105%",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#fff",
+              borderRadius: 16,
+              padding: 24,
+              minWidth: 250,
+              alignItems: "center",
+              elevation: 10,
+              marginBottom: "30%",
+            }}
+          >
+            <TextInput
+              ref={ndInputRef}
+              style={[
+                styles.infoValueText,
+                { fontSize: 40, marginBottom: 16, textAlign: "center" },
+              ]}
+              value={ndInput}
+              keyboardType="decimal-pad"
+              inputMode="decimal"
+              onFocus={(e) => {
+                if (
+                  Platform.OS === "web" &&
+                  e.target &&
+                  typeof (e.target as HTMLInputElement).select === "function"
+                ) {
+                  (e.target as HTMLInputElement).select();
+                }
+              }}
+              selectTextOnFocus
+              onChangeText={(text) => {
+                if (/^\d*\.?\d*$/.test(text)) {
+                  setNdInput(text);
+                }
+              }}
+              maxLength={5}
+              autoFocus
+            />
+            <TouchableOpacity
+              style={{
+                marginTop: 10,
+                padding: 10,
+                backgroundColor: "#0052b4",
+                borderRadius: 8,
+              }}
+              onPress={() => {
+                const num = parseFloat(ndInput.replace(",", "."));
+                if (!isNaN(num)) {
+                  const rounded = Math.round(num * 10) / 10;
+                  setNd(rounded);
+
+                  const newmyscore = eScore + sv + (stickbonus ? 0.1 : 0.0) - rounded;
+                  setMyScore(newmyscore);
+                  updateRateGeneral(rateid, {
+                    myScore: newmyscore,
+                  });
+                  // Save to database
+                  updateMainTable(gymnastid, {
+                    nd: rounded,
+                  })
+                    .then((success) => {
+                      if (success) {
+                        console.log(`Saved nd = ${rounded} in MainTable.`);
+                      } else {
+                        console.error(`Failed to save nd in MainTable.`);
+                      }
+                    })
+                    .catch((error) => {
+                      console.error("Error saving nd to MainTable:", error);
+                    });
+                }
+                setShowNdModal(false);
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {showmodalmag && (
+        <ModalvaultMag
+          visible={showmodalmag}
+          onClose={() => setShowModalMag(false)}
+          onSelect={(value) => {
+            handleVaultSelect(value);
+          }}
+        />
+      )}
+
+      {showmodalwag && (
+        <ModalvaultWag
+          visible={showmodalwag}
+          onClose={() => setShowModalWag(false)}
+          onSelect={(value) => {
+            handleVaultSelect(value);
+          }}
+        />
+      )}
+
+      {/* Whiteboard Screen */}
+      <WhiteboardScreen
+        rateGeneralId={0}
+        tableId={gymnastid}
+        stickBonus={stickbonus}
+        setStickBonus={handleStickBonusChange}
+        percentage={percentage}
+        oncodetable={oncodetable}
+      />
+      <ScrollView contentContainerStyle={styles.scrollContainer}>
         {/* Main Table */}
         <View style={styles.tableContainer}>
           {/* Header Row */}
           <View style={styles.tableRow}>
             <View style={styles.vaultNumbersCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.cellHeaderText : null,
                   isSmallDevice ? styles.cellHeaderTextSmall : null,
-                  isTinyDevice ? styles.cellHeaderTextTiny : null
+                  isTinyDevice ? styles.cellHeaderTextTiny : null,
                 ]}
               >
                 VAULT NUMBERS
               </Text>
             </View>
             <View style={styles.svValueCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.cellHeaderText : null,
                   isSmallDevice ? styles.cellHeaderTextSmall : null,
-                  isTinyDevice ? styles.cellHeaderTextTiny : null
+                  isTinyDevice ? styles.cellHeaderTextTiny : null,
                 ]}
               >
                 SV
               </Text>
             </View>
             <View style={styles.ndCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.cellHeaderText : null,
                   isSmallDevice ? styles.cellHeaderTextSmall : null,
-                  isTinyDevice ? styles.cellHeaderTextTiny : null
+                  isTinyDevice ? styles.cellHeaderTextTiny : null,
                 ]}
               >
                 ND
               </Text>
             </View>
             <View style={styles.sbCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.cellHeaderText : null,
                   isSmallDevice ? styles.cellHeaderTextSmall : null,
-                  isTinyDevice ? styles.cellHeaderTextTiny : null
+                  isTinyDevice ? styles.cellHeaderTextTiny : null,
                 ]}
               >
                 SB
               </Text>
             </View>
             <View style={styles.executionCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.cellHeaderText : null,
                   isSmallDevice ? styles.cellHeaderTextSmall : null,
-                  isTinyDevice ? styles.cellHeaderTextTiny : null
+                  isTinyDevice ? styles.cellHeaderTextTiny : null,
                 ]}
               >
                 EXECUTION
               </Text>
             </View>
             <View style={styles.myScoreCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.cellHeaderText : null,
                   isSmallDevice ? styles.cellHeaderTextSmall : null,
-                  isTinyDevice ? styles.cellHeaderTextTiny : null
+                  isTinyDevice ? styles.cellHeaderTextTiny : null,
                 ]}
               >
                 MY SCORE
@@ -186,69 +1376,103 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
           {/* Values Row */}
           <View style={styles.tableRow}>
             <View style={styles.vaultValueCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.vaultValueText : null,
                   isSmallDevice ? styles.vaultValueTextSmall : null,
-                  isTinyDevice ? styles.vaultValueTextTiny : null
+                  isTinyDevice ? styles.vaultValueTextTiny : null,
                 ]}
               >
-                {vaultData.vaultNumbers}
+                {vaultnumber}
               </Text>
             </View>
-            <View style={[styles.emptyBlueCell, {width: 210}]}>
-              <Text 
+            <View
+              style={[
+                styles.emptyBlueCell,
+                { width: isLargeDevice ? 210 : isSmallDevice ? 160 : 110 },
+              ]}
+            >
+              <Text
                 style={[
                   isLargeDevice ? styles.svValueText : null,
                   isSmallDevice ? styles.svValueTextSmall : null,
-                  isTinyDevice ? styles.svValueTextTiny : null
+                  isTinyDevice ? styles.svValueTextTiny : null,
                 ]}
               >
-                2.0
+                {sv}
               </Text>
             </View>
-            <View style={styles.ndValueCell}>
-              <Text 
+            <TouchableOpacity
+              style={styles.ndValueCell}
+              onPress={() => {
+                setNdInput(nd.toFixed(1)); // Set value BEFORE opening modal
+                setShowNdModal(true);
+              }}
+            >
+              <Text
                 style={[
                   isLargeDevice ? styles.valueText : null,
                   isSmallDevice ? styles.valueTextSmall : null,
-                  isTinyDevice ? styles.valueTextTiny : null
+                  isTinyDevice ? styles.valueTextTiny : null,
                 ]}
               >
-                {vaultData.nd.toFixed(1)}
+                {nd.toFixed(1)}
               </Text>
-            </View>
+            </TouchableOpacity>
             <View style={styles.sbValueCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.valueText : null,
                   isSmallDevice ? styles.valueTextSmall : null,
-                  isTinyDevice ? styles.valueTextTiny : null
+                  isTinyDevice ? styles.valueTextTiny : null,
                 ]}
               >
-                {vaultData.sb.toFixed(1)}
+                {stickbonus ? "0.1" : "0.0"}
               </Text>
             </View>
-            <View style={styles.executionValueCell}>
-              <Text 
-                style={[
-                  isLargeDevice ? styles.valueText : null,
-                  isSmallDevice ? styles.valueTextSmall : null,
-                  isTinyDevice ? styles.valueTextTiny : null
-                ]}
-              >
-                {vaultData.execution.toFixed(1)}
-              </Text>
+            <View style={styles.executionValueCellflex}>
+              <View style={styles.executionValueCell}>
+                <Text
+                  style={[
+                    isLargeDevice ? styles.valueText : null,
+                    isSmallDevice ? styles.valueTextSmall : null,
+                    isTinyDevice ? styles.valueTextTiny : null,
+                  ]}
+                >
+                  <TouchableOpacity
+                    onPress={() => {
+                      setExecutionInput(execution.toFixed(1)); // Set value BEFORE opening modal
+                      setShowExecutionModal(true);
+                    }}
+                  >
+                    <Text style={styles.infoValueText}>
+                      {execution.toFixed(1)}
+                    </Text>
+                  </TouchableOpacity>
+                </Text>
+              </View>
+              <View style={styles.executionValueCell}>
+                <Text
+                  style={[
+                    isLargeDevice ? styles.valueText : null,
+                    isSmallDevice ? styles.valueTextSmall : null,
+                    isTinyDevice ? styles.valueTextTiny : null,
+                  ]}
+                >
+                  <Text style={styles.scoreValueText}>{eScore.toFixed(3)}</Text>
+                </Text>
+              </View>
             </View>
+
             <View style={styles.myScoreValueCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.scoreValueText : null,
                   isSmallDevice ? styles.scoreValueTextSmall : null,
-                  isTinyDevice ? styles.scoreValueTextTiny : null
+                  isTinyDevice ? styles.scoreValueTextTiny : null,
                 ]}
               >
-                {vaultData.myScore.toFixed(3)}
+                {myScore.toFixed(3)}
               </Text>
             </View>
           </View>
@@ -256,155 +1480,242 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
           {/* Start Value / Description Row */}
           <View style={styles.tableRow}>
             <View style={styles.startValueCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.cellHeaderText : null,
                   isSmallDevice ? styles.cellHeaderTextSmall : null,
-                  isTinyDevice ? styles.cellHeaderTextTiny : null
+                  isTinyDevice ? styles.cellHeaderTextTiny : null,
                 ]}
               >
                 START VALUE
               </Text>
             </View>
             <View style={styles.descriptionCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.cellHeaderText : null,
                   isSmallDevice ? styles.cellHeaderTextSmall : null,
-                  isTinyDevice ? styles.cellHeaderTextTiny : null
+                  isTinyDevice ? styles.cellHeaderTextTiny : null,
                 ]}
               >
                 DESCRIPTION
               </Text>
             </View>
             <View style={styles.compDeductionHeaderCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.compDeductionText : null,
                   isSmallDevice ? styles.compDeductionTextSmall : null,
-                  isTinyDevice ? styles.compDeductionTextTiny : null
+                  isTinyDevice ? styles.compDeductionTextTiny : null,
                 ]}
               >
                 COMPETITION
               </Text>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.compDeductionText : null,
                   isSmallDevice ? styles.compDeductionTextSmall : null,
-                  isTinyDevice ? styles.compDeductionTextTiny : null
+                  isTinyDevice ? styles.compDeductionTextTiny : null,
                 ]}
               >
                 DEDUCTION
               </Text>
             </View>
             <View style={styles.dCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.smallCellText : null,
                   isSmallDevice ? styles.smallCellTextSmall : null,
-                  isTinyDevice ? styles.smallCellTextTiny : null
+                  isTinyDevice ? styles.smallCellTextTiny : null,
                 ]}
               >
                 D
               </Text>
             </View>
             <View style={styles.dValueCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.smallValueText : null,
                   isSmallDevice ? styles.smallValueTextSmall : null,
-                  isTinyDevice ? styles.smallValueTextTiny : null
+                  isTinyDevice ? styles.smallValueTextTiny : null,
                 ]}
               >
-                {vaultData.compDeduction.d.toFixed(1)}
+                <TouchableOpacity
+                  onPress={() => {
+                    setDInput(d.toFixed(1)); // Set value BEFORE opening modal
+                    setShowDModal(true);
+                  }}
+                >
+                  <Text
+                    style={[
+                      isLargeDevice ? styles.dValueText : null,
+                      isSmallDevice ? styles.dValueTextSmall : null,
+                      isTinyDevice ? styles.dValueTextTiny : null,
+                    ]}
+                  >
+                    {d.toFixed(1)}
+                  </Text>
+                </TouchableOpacity>
               </Text>
             </View>
             <View style={styles.eCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.smallCellText : null,
                   isSmallDevice ? styles.smallCellTextSmall : null,
-                  isTinyDevice ? styles.smallCellTextTiny : null
+                  isTinyDevice ? styles.smallCellTextTiny : null,
                 ]}
               >
                 E
               </Text>
             </View>
             <View style={styles.eValueCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.smallValueText : null,
                   isSmallDevice ? styles.smallValueTextSmall : null,
-                  isTinyDevice ? styles.smallValueTextTiny : null
+                  isTinyDevice ? styles.smallValueTextTiny : null,
                 ]}
               >
-                {vaultData.compDeduction.e.toFixed(3)}
+                <TouchableOpacity
+                  onPress={() => {
+                    setEInput(e.toFixed(3)); // Set value BEFORE opening modal
+                    setShowEModal(true);
+                  }}
+                >
+                  <Text
+                    style={[
+                      isLargeDevice ? styles.eValueText : null,
+                      isSmallDevice ? styles.eValueTextSmall : null,
+                      isTinyDevice ? styles.eValueTextTiny : null,
+                    ]}
+                  >
+                    {e.toFixed(3)}
+                  </Text>
+                </TouchableOpacity>
               </Text>
             </View>
             <View style={styles.sdCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.smallCellText : null,
                   isSmallDevice ? styles.smallCellTextSmall : null,
-                  isTinyDevice ? styles.smallCellTextTiny : null
+                  isTinyDevice ? styles.smallCellTextTiny : null,
                 ]}
               >
-                SD
+                SB
               </Text>
             </View>
             <View style={styles.sdValueCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.smallValueText : null,
                   isSmallDevice ? styles.smallValueTextSmall : null,
-                  isTinyDevice ? styles.smallValueTextTiny : null
+                  isTinyDevice ? styles.smallValueTextTiny : null,
                 ]}
               >
-                {vaultData.compDeduction.sd}
+                <TouchableOpacity
+                  onPress={() => {
+                    const newValue = !sb;
+                    setSb(newValue);
+                    // Save to database if needed
+                    const compscorecalc =
+                      d + e + (newValue ? 0.1 : 0.0) - ndcomp;
+                    setScore(compscorecalc);
+                    updateRateGeneral(rateid, {
+                      compSd: newValue ? 0.1 : 0.0,
+                      compScore: compscorecalc,
+                    })
+                      .then((success) => {
+                        if (success) {
+                          console.log(
+                            `Saved SB = ${
+                              newValue ? "0.1" : "0.0"
+                            } in MainRateGeneral.`
+                          );
+                        } else {
+                          console.error(
+                            `Failed to save SB in MainRateGeneral.`
+                          );
+                        }
+                      })
+                      .catch((error) => {
+                        console.error(
+                          "Error saving SB to MainRateGeneral:",
+                          error
+                        );
+                      });
+                  }}
+                >
+                  <Text
+                    style={[
+                      isLargeDevice ? styles.sdValueText : null,
+                      isSmallDevice ? styles.sdValueTextSmall : null,
+                      isTinyDevice ? styles.sdValueTextTiny : null,
+                    ]}
+                  >
+                    {sb ? "0.1" : "0.0"}
+                  </Text>
+                </TouchableOpacity>
               </Text>
             </View>
             <View style={styles.ndDeductionCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.smallCellText : null,
                   isSmallDevice ? styles.smallCellTextSmall : null,
-                  isTinyDevice ? styles.smallCellTextTiny : null
+                  isTinyDevice ? styles.smallCellTextTiny : null,
                 ]}
               >
                 ND
               </Text>
             </View>
             <View style={styles.ndDeductionValueCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.smallValueText : null,
                   isSmallDevice ? styles.smallValueTextSmall : null,
-                  isTinyDevice ? styles.smallValueTextTiny : null
+                  isTinyDevice ? styles.smallValueTextTiny : null,
                 ]}
               >
-                {vaultData.compDeduction.nd}
+                <TouchableOpacity
+                  onPress={() => {
+                    setNdInputcomp(ndcomp.toFixed(1)); // Set value BEFORE opening modal
+                    setShowNdCompModal(true); // Open the ND COMP modal
+                  }}
+                >
+                  <Text
+                    style={[
+                      isLargeDevice ? styles.ndValueText : null,
+                      isSmallDevice ? styles.ndValueTextSmall : null,
+                      isTinyDevice ? styles.ndValueTextTiny : null,
+                    ]}
+                  >
+                    {ndcomp.toFixed(1)}
+                  </Text>
+                </TouchableOpacity>
               </Text>
             </View>
             <View style={styles.scoreHeaderCell}>
-              <Text 
+              <Text
                 style={[
-                  isLargeDevice ? styles.smallCellText : null,
-                  isSmallDevice ? styles.smallCellTextSmall : null,
-                  isTinyDevice ? styles.smallCellTextTiny : null
+                  isLargeDevice ? styles.ScoresmallCellText : null,
+                  isSmallDevice ? styles.ScoresmallCellTextSmall : null,
+                  isTinyDevice ? styles.ScoresmallCellTextTiny : null,
                 ]}
               >
                 SCORE
               </Text>
             </View>
             <View style={styles.scoreTotalCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.smallValueText : null,
                   isSmallDevice ? styles.smallValueTextSmall : null,
-                  isTinyDevice ? styles.smallValueTextTiny : null
+                  isTinyDevice ? styles.smallValueTextTiny : null,
                 ]}
               >
-                {vaultData.compDeduction.score.toFixed(3)}
+                {trimDecimals(score, 3)}
               </Text>
             </View>
           </View>
@@ -412,89 +1723,89 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
           {/* Data Row */}
           <View style={styles.tableRow}>
             <View style={styles.startValueValueCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.startValueValueText : null,
                   isSmallDevice ? styles.startValueValueTextSmall : null,
-                  isTinyDevice ? styles.startValueValueTextTiny : null
+                  isTinyDevice ? styles.startValueValueTextTiny : null,
                 ]}
               >
-                {vaultData.startValue}
+                {startValue}
               </Text>
             </View>
             <View style={styles.descriptionValueCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.descriptionValueText : null,
                   isSmallDevice ? styles.descriptionValueTextSmall : null,
-                  isTinyDevice ? styles.descriptionValueTextTiny : null
+                  isTinyDevice ? styles.descriptionValueTextTiny : null,
                 ]}
               >
-                {vaultData.description}
+                {vaultDescription}
               </Text>
             </View>
             <View style={styles.gymnastInfoCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.gymnastInfoText : null,
                   isSmallDevice ? styles.gymnastInfoTextSmall : null,
-                  isTinyDevice ? styles.gymnastInfoTextTiny : null
+                  isTinyDevice ? styles.gymnastInfoTextTiny : null,
                 ]}
               >
                 GYMNAST
               </Text>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.gymnastInfoText : null,
                   isSmallDevice ? styles.gymnastInfoTextSmall : null,
-                  isTinyDevice ? styles.gymnastInfoTextTiny : null
+                  isTinyDevice ? styles.gymnastInfoTextTiny : null,
                 ]}
               >
                 INFO
               </Text>
             </View>
             <View style={styles.neutralValueCellname}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.neutralText : null,
                   isSmallDevice ? styles.neutralTextSmall : null,
-                  isTinyDevice ? styles.neutralTextTiny : null
+                  isTinyDevice ? styles.neutralTextTiny : null,
                 ]}
               >
-                0
+                {gymnastName}
               </Text>
             </View>
             <View style={styles.neutralValueCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.neutralText : null,
                   isSmallDevice ? styles.neutralTextSmall : null,
-                  isTinyDevice ? styles.neutralTextTiny : null
+                  isTinyDevice ? styles.neutralTextTiny : null,
                 ]}
               >
-                0
+                {gymnastNoc}
               </Text>
             </View>
             <View style={styles.neutralValueCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.neutralText : null,
                   isSmallDevice ? styles.neutralTextSmall : null,
-                  isTinyDevice ? styles.neutralTextTiny : null
+                  isTinyDevice ? styles.neutralTextTiny : null,
                 ]}
               >
-                0
+                {gymnastBib}
               </Text>
             </View>
             <View style={styles.neutralTotalCell}>
-              <Text 
+              <Text
                 style={[
                   isLargeDevice ? styles.neutralTotalText : null,
                   isSmallDevice ? styles.neutralTotalTextSmall : null,
-                  isTinyDevice ? styles.neutralTotalTextTiny : null
+                  isTinyDevice ? styles.neutralTotalTextTiny : null,
                 ]}
               >
-                1
+                {number}
               </Text>
             </View>
           </View>
@@ -502,61 +1813,51 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
 
         {/* Comments Section */}
         <View style={styles.commentsSection}>
-          <Text 
-            style={[
-              isLargeDevice ? styles.commentsText : null,
-              isSmallDevice ? styles.commentsTextSmall : null,
-              isTinyDevice ? styles.commentsTextTiny : null
-            ]}
-          >
-            COMMENTS
-          </Text>
-          <TextInput
-            style={styles.commentsBox}
-            multiline
-            numberOfLines={3}
-            onChangeText={(text) => {
-              // Handle comment change
-              console.log(text);
+          <TouchableOpacity
+            onPress={() => {
+              setCommentsInput(comments); // Set current comments before opening
+              setShowCommentsModal(true);
             }}
-          />
+            style={styles.commentsBoxTouchable}
+          >
+            <Text numberOfLines={3} style={styles.commentsBoxTextPreview}>
+              {comments ? comments : "Tap to add comments..."}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Buttons */}
         <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.backButton} onPress={onBack}>
-            <Text 
-              style={[
-                isLargeDevice ? styles.buttonText : null,
-                isSmallDevice ? styles.buttonTextSmall : null,
-                isTinyDevice ? styles.buttonTextTiny : null
-              ]}
-            >
-              BACK
-            </Text>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => handleGoBack()}
+          >
+            <Text style={styles.buttonText}>BACK</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.filterButton} onPress={onFilter}>
-            <Text 
-              style={[
-                isLargeDevice ? styles.buttonText : null,
-                isSmallDevice ? styles.buttonTextSmall : null,
-                isTinyDevice ? styles.buttonTextTiny : null
-              ]}
-            >
-              MAIN TABLE
-            </Text>
+          <TouchableOpacity
+            style={styles.mainTableButton}
+            onPress={() => handlegobacklist()}
+          >
+            <Text style={styles.buttonText}>START LIST</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.nextButton} onPress={onNext}>
-            <Text 
-              style={[
-                isLargeDevice ? styles.buttonText : null,
-                isSmallDevice ? styles.buttonTextSmall : null,
-                isTinyDevice ? styles.buttonTextTiny : null
-              ]}
-            >
-              NEXT
+          <TouchableOpacity
+            style={styles.mainTableButton}
+            onPress={() => handleSelect()}
+          >
+            <Text style={styles.buttonText}>MAIN TABLE</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.nextButton,
+              {
+                backgroundColor:
+                  number === participants ? "#DC3545" : "#0052b4",
+              },
+            ]}
+            onPress={() => handleGoForward()}
+          >
+            <Text style={styles.buttonText}>
+              {number === participants ? "FINISH" : "NEXT"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -568,44 +1869,107 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: "#e0e0e0",
   },
+  ndValueText: {
+    fontSize: 25,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  ndValueTextSmall: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  ndValueTextTiny: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  sdValueText: {
+    fontSize: 25,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  sdValueTextSmall: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  sdValueTextTiny: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#333",
+  },
+
+  eValueText: {
+    fontSize: 25,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  eValueTextSmall: {
+    fontSize: 17,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  eValueTextTiny: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#333",
+  },
+
+  dValueText: {
+    fontSize: 25,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  dValueTextSmall: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  dValueTextTiny: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#333",
+  },
+
   scrollContainer: {
     flexGrow: 1,
   },
   scoreDisplay: {
     height: 50,
-    justifyContent: 'flex-start',
-    alignItems: 'flex-end',
+    justifyContent: "flex-start",
+    alignItems: "flex-end",
     padding: 10,
   },
   scoreText: {
     fontSize: 26,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: "bold",
+    color: "#333",
   },
   graphContainer: {
     height: isLargeDevice ? 450 : isSmallDevice ? 350 : 250,
-    width: '100%',
-    position: 'relative',
+    width: "100%",
+    position: "relative",
   },
   graphContainerimg: {
-    width: isLargeDevice ? '70%' : isSmallDevice ? '60%' : '50%',
-    height: isLargeDevice ? '70%' : isSmallDevice ? '60%' : '50%',
-    position: 'relative',
-    alignSelf: 'center',
+    width: isLargeDevice ? "70%" : isSmallDevice ? "60%" : "50%",
+    height: isLargeDevice ? "70%" : isSmallDevice ? "60%" : "50%",
+    position: "relative",
+    alignSelf: "center",
     top: isLargeDevice ? 60 : isSmallDevice ? 50 : 40,
     left: 0,
   },
   codetable: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#0052b4',
-    position: 'absolute',
+    fontWeight: "bold",
+    color: "#0052b4",
+    position: "absolute",
     bottom: 10,
-    backgroundColor: '#B4B4B4',
+    backgroundColor: "#B4B4B4",
     borderRadius: 10,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: {
       width: 0,
       height: 2,
@@ -618,566 +1982,620 @@ const styles = StyleSheet.create({
   },
   codeTableText: {
     fontSize: 20,
-    color: 'white',
+    color: "white",
   },
   codeTableTextSmall: {
     fontSize: 16,
-    color: 'white',
+    color: "white",
   },
   codeTableTextTiny: {
     fontSize: 12,
-    color: 'white',
+    color: "white",
   },
   tableContainer: {
-    width: '100%',
+    width: "100%",
   },
   tableRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     height: isLargeDevice ? 55 : isSmallDevice ? 45 : 35,
   },
   vaultNumbersCell: {
-    width: isLargeDevice ? 700 : isSmallDevice ? 500 : 300,
-    backgroundColor: '#64b5f6',
-    justifyContent: 'center',
+    width: isLargeDevice ? 700 : isSmallDevice ? 500 : 400,
+    backgroundColor: "#64b5f6",
+    justifyContent: "center",
     paddingLeft: 10,
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   cellHeaderText: {
     fontSize: 25,
-    fontWeight: 'bold',
-    alignSelf: 'center',
-    color: '#000',
+    fontWeight: "bold",
+    alignSelf: "center",
+    color: "#000",
   },
   cellHeaderTextSmall: {
     fontSize: 20,
-    fontWeight: 'bold',
-    alignSelf: 'center',
-    color: '#000',
+    fontWeight: "bold",
+    alignSelf: "center",
+    color: "#000",
   },
   cellHeaderTextTiny: {
     fontSize: 15,
-    fontWeight: 'bold',
-    alignSelf: 'center',
-    color: '#000',
+    fontWeight: "bold",
+    alignSelf: "center",
+    color: "#000",
   },
   svValueCell: {
     width: isLargeDevice ? 210 : isSmallDevice ? 160 : 110,
-    backgroundColor: '#ffca28',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#ffca28",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   svValueText: {
     fontSize: 26,
-    fontWeight: 'bold',
-    color: '#000',
-    textAlign: 'center',
-    alignSelf: 'center',
-    justifyContent: 'center',
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "center",
+    alignSelf: "center",
+    justifyContent: "center",
     paddingTop: 6,
   },
   svValueTextSmall: {
     fontSize: 22,
-    fontWeight: 'bold',
-    color: '#000',
-    textAlign: 'center',
-    alignSelf: 'center',
-    justifyContent: 'center',
-    paddingTop: 4,
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "center",
+    alignSelf: "center",
+    height: "100%",
+    paddingTop: 9,
   },
   svValueTextTiny: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000',
-    textAlign: 'center',
-    alignSelf: 'center',
-    justifyContent: 'center',
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "center",
+    alignSelf: "center",
+    justifyContent: "center",
     paddingTop: 2,
   },
   ndCell: {
     flex: 1,
-    backgroundColor: '#64b5f6',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#64b5f6",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   sbCell: {
     flex: 1,
-    backgroundColor: '#f48fb1',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#64b5f6",
+
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   executionCell: {
     flex: 2,
-    backgroundColor: '#f48fb1',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#64b5f6",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   myScoreCell: {
     flex: 2,
-    backgroundColor: '#64b5f6',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#64b5f6",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   vaultValueCell: {
     width: isLargeDevice ? 700 : isSmallDevice ? 500 : 300,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   vaultValueText: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   vaultValueTextSmall: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   vaultValueTextTiny: {
     fontSize: 14,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   emptyBlueCell: {
-    backgroundColor: '#f5f5f5',
+    backgroundColor: "#f5f5f5",
     borderLeftWidth: 0.5,
     borderRightWidth: 0.5,
     borderBottomWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
     zIndex: -1,
   },
   ndValueCell: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   valueText: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   valueTextSmall: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   valueTextTiny: {
     fontSize: 14,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   sbValueCell: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   executionValueCell: {
     flex: 2,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
+  },
+  executionValueCellflex: {
+    flex: 2,
+    flexDirection: "row",
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 0.5,
+    borderColor: "#999",
   },
   myScoreValueCell: {
     flex: 2,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   scoreValueText: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   scoreValueTextSmall: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   scoreValueTextTiny: {
     fontSize: 14,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   startValueCell: {
     width: isLargeDevice ? 250 : isSmallDevice ? 180 : 120,
-    backgroundColor: '#64b5f6',
-    justifyContent: 'center',
+    backgroundColor: "#64b5f6",
+    justifyContent: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   descriptionCell: {
     width: isLargeDevice ? 450 : isSmallDevice ? 320 : 180,
-    backgroundColor: '#64b5f6',
-    justifyContent: 'center',
+    backgroundColor: "#64b5f6",
+    justifyContent: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   compDeductionHeaderCell: {
     width: isLargeDevice ? 210 : isSmallDevice ? 160 : 110,
-    backgroundColor: '#4caf50',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   compDeductionText: {
     fontSize: 15,
-    fontWeight: 'bold',
-    color: '#000',
-    textAlign: 'left',
-    alignSelf: 'flex-end',
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "left",
+    alignSelf: "flex-end",
     paddingRight: 10,
   },
   compDeductionTextSmall: {
     fontSize: 12,
-    fontWeight: 'bold',
-    color: '#000',
-    textAlign: 'left',
-    alignSelf: 'flex-end',
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "left",
+    alignSelf: "flex-end",
     paddingRight: 8,
   },
   compDeductionTextTiny: {
     fontSize: 8,
-    fontWeight: 'bold',
-    color: '#000',
-    textAlign: 'left',
-    alignSelf: 'flex-end',
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "left",
+    alignSelf: "flex-end",
     paddingRight: 5,
   },
   dCell: {
     flex: 0.5,
-    backgroundColor: '#A3A3A3',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#A3A3A3",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   smallCellText: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   smallCellTextSmall: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#000',
+    fontSize: 23,
+    fontWeight: "bold",
+    color: "#000",
   },
   smallCellTextTiny: {
     fontSize: 11,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
+  },
+  ScoresmallCellText: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  ScoresmallCellTextSmall: {
+    fontSize: 11,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  ScoresmallCellTextTiny: {
+    fontSize: 11,
+    fontWeight: "bold",
+    color: "#000",
   },
   dValueCell: {
     flex: 0.5,
-    backgroundColor: '#4caf50',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   smallValueText: {
     fontSize: 23,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   smallValueTextSmall: {
     fontSize: 19,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   smallValueTextTiny: {
     fontSize: 14,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   eCell: {
     flex: 0.5,
-    backgroundColor: '#A3A3A3',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#A3A3A3",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   eValueCell: {
     flex: 0.7,
-    backgroundColor: '#4caf50',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   sdCell: {
     flex: 0.5,
-    backgroundColor: '#A3A3A3',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#A3A3A3",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   sdValueCell: {
     flex: 0.5,
-    backgroundColor: '#4caf50',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   ndDeductionCell: {
     flex: 0.5,
-    backgroundColor: '#A3A3A3',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#A3A3A3",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   ndDeductionValueCell: {
     flex: 0.5,
-    backgroundColor: '#4caf50',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   scoreHeaderCell: {
     flex: 0.5,
-    backgroundColor: '#A3A3A3',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#A3A3A3",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   scoreTotalCell: {
     flex: 0.7,
-    backgroundColor: '#4caf50',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   startValueValueCell: {
     width: isLargeDevice ? 250 : isSmallDevice ? 180 : 120,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   startValueValueText: {
     fontSize: 30,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   startValueValueTextSmall: {
     fontSize: 25,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   startValueValueTextTiny: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   descriptionValueCell: {
     width: isLargeDevice ? 450 : isSmallDevice ? 320 : 180,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   descriptionValueText: {
     fontSize: 30,
-    color: '#000',
+    color: "#000",
   },
   descriptionValueTextSmall: {
-    fontSize: 25,
-    color: '#000',
+    fontSize: 18,
+    color: "#000",
   },
   descriptionValueTextTiny: {
     fontSize: 18,
-    color: '#000',
+    color: "#000",
   },
   gymnastInfoCell: {
     width: isLargeDevice ? 210 : isSmallDevice ? 160 : 110,
-    backgroundColor: '#4caf50',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   gymnastInfoText: {
     fontSize: 17,
-    fontWeight: 'bold',
-    color: '#000',
-    textAlign: 'right',
-    alignSelf: 'flex-end',
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "right",
+    alignSelf: "flex-end",
     paddingRight: 10,
   },
   gymnastInfoTextSmall: {
     fontSize: 14,
-    fontWeight: 'bold',
-    color: '#000',
-    textAlign: 'right',
-    alignSelf: 'flex-end',
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "right",
+    alignSelf: "flex-end",
     paddingRight: 8,
   },
   gymnastInfoTextTiny: {
     fontSize: 10,
-    fontWeight: 'bold',
-    color: '#000',
-    textAlign: 'right',
-    alignSelf: 'flex-end',
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "right",
+    alignSelf: "flex-end",
     paddingRight: 5,
   },
   neutralValueCell: {
     flex: 2,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   neutralValueCellname: {
     flex: 4,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   neutralText: {
     fontSize: 30,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   neutralTextSmall: {
     fontSize: 25,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   neutralTextTiny: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   neutralTotalCell: {
     flex: 0.7,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 0.5,
-    borderColor: '#999',
+    borderColor: "#999",
   },
   neutralTotalText: {
     fontSize: 30,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   neutralTotalTextSmall: {
     fontSize: 25,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   neutralTotalTextTiny: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: "bold",
+    color: "#000",
   },
   commentsSection: {
     padding: 10,
   },
   commentsText: {
     fontSize: 23,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: "bold",
+    color: "#333",
   },
   commentsTextSmall: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: "bold",
+    color: "#333",
   },
   commentsTextTiny: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: "bold",
+    color: "#333",
   },
   commentsBox: {
     height: isLargeDevice ? 60 : isSmallDevice ? 50 : 40,
     borderRadius: 15,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: "#ccc",
     padding: 10,
   },
   buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
     padding: 10,
     marginTop: isLargeDevice ? 30 : isSmallDevice ? 20 : 15,
   },
   backButton: {
     flex: 3,
-    backgroundColor: '#0052b4',
+    backgroundColor: "#0052b4",
     padding: isLargeDevice ? 15 : isSmallDevice ? 12 : 10,
     borderRadius: 5,
     marginRight: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   filterButton: {
     flex: 1,
-    backgroundColor: '#0052b4',
+    backgroundColor: "#0052b4",
     padding: isLargeDevice ? 15 : isSmallDevice ? 12 : 10,
     borderRadius: 5,
     marginRight: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   nextButton: {
     flex: 3,
-    backgroundColor: '#0052b4',
+    backgroundColor: "#0052b4",
     padding: isLargeDevice ? 15 : isSmallDevice ? 12 : 10,
     borderRadius: 5,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   buttonText: {
     fontSize: 16,
-    color: '#fff',
-    fontWeight: 'bold',
+    color: "#fff",
+    fontWeight: "bold",
   },
   buttonTextSmall: {
     fontSize: 14,
-    color: '#fff',
-    fontWeight: 'bold',
+    color: "#fff",
+    fontWeight: "bold",
   },
   buttonTextTiny: {
     fontSize: 11,
-    color: '#fff',
-    fontWeight: 'bold',
+    color: "#fff",
+    fontWeight: "bold",
+  },
+  mainTableButton: {
+    flex: 1,
+    backgroundColor: "#0052b4",
+    padding: 12,
+    borderRadius: 5,
+    marginRight: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  commentsBoxTouchable: {
+    backgroundColor: "#fff",
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    padding: 10,
+    minHeight: 60,
+    justifyContent: "center",
+  },
+  commentsBoxTextPreview: {
+    fontSize: 16,
+    color: "#333",
+  },
+  infoValueText: {
+    fontSize: 23,
+    fontWeight: "bold",
+    color: "#333",
   },
 });
 

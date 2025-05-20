@@ -96,6 +96,11 @@ interface MainRateGeneral {
   compNd: number;
   compScore: number;
   comments: string;
+  paths: string;
+  ded: number;
+  dedexecution: number;
+  vaultNumber: string;
+  vaultDescription: string;
 }
 
 interface MainRateJump {
@@ -634,6 +639,61 @@ export const getMainTables = async (): Promise<MainTable[]> => {
   return getItems<MainTable>(MAIN_TABLES_KEY);
 };
 
+export const deleteRateGeneralByTableId = async (tableId: number): Promise<void> => {
+  try {
+    const rateGeneralTables = await getRateGeneralTables();
+    const filteredRateGeneralTables = rateGeneralTables.filter(rate => rate.tableId !== tableId);
+
+    if (filteredRateGeneralTables.length === rateGeneralTables.length) {
+      console.log(`No RateGeneral entries found for tableId: ${tableId}`);
+      return;
+    }
+
+    await saveItems(RATE_GENERAL_KEY, filteredRateGeneralTables);
+    console.log(`Deleted RateGeneral entries for tableId: ${tableId}`);
+  } catch (error) {
+    console.error(`Error deleting RateGeneral entries for tableId: ${tableId}`, error);
+  }
+};
+
+export const deleteMainTableByCompetenceId = async (competenceId: number): Promise<void> => {
+  try {
+    const mainTables = await getMainTables();
+    const filteredMainTables = mainTables.filter(table => table.competenceId !== competenceId);
+
+    if (filteredMainTables.length === mainTables.length) {
+      console.log(`No MainTable entries found for competenceId: ${competenceId}`);
+      return;
+    }
+
+    await saveItems(MAIN_TABLES_KEY, filteredMainTables);
+    console.log(`Deleted MainTable entries for competenceId: ${competenceId}`);
+  } catch (error) {
+    console.error(`Error deleting MainTable entries for competenceId: ${competenceId}`, error);
+  }
+};
+
+export const updateElementGroup = async (rateId: number, elementGroupKey: keyof MainRateGeneral, value: number) => {
+  try {
+    // Prepare the data to update
+    const updateData: Partial<MainRateGeneral> = {
+      [elementGroupKey]: value, // Dynamically set the field to update
+    };
+
+    // Call the updateRateGeneral function
+    const success = await updateRateGeneral(rateId, updateData);
+
+    if (success) {
+      console.log(`Successfully updated ${elementGroupKey} to ${value} for rateId: ${rateId}`);
+    } else {
+      console.error(`Failed to update ${elementGroupKey} for rateId: ${rateId}`);
+    }
+  } catch (error) {
+    console.error("Error updating element group:", error);
+  }
+};
+
+
 export const getMainTablesByCompetenceId = async (competenceId: number): Promise<MainTable[]> => {
   try {
     const mainTables = await getMainTables();
@@ -643,6 +703,24 @@ export const getMainTablesByCompetenceId = async (competenceId: number): Promise
     return [];
   }
 };
+
+export const deleteCompetencesByFolderId = async (folderId: number): Promise<void> => {
+  try {
+    const competences = await getCompetences();
+    const filteredCompetences = competences.filter(competence => competence.folderId !== folderId);
+
+    if (filteredCompetences.length === competences.length) {
+      console.log(`No Competence entries found for folderId: ${folderId}`);
+      return;
+    }
+
+    await saveItems(COMPETENCES_KEY, filteredCompetences);
+    console.log(`Deleted Competence entries for folderId: ${folderId}`);
+  } catch (error) {
+    console.error(`Error deleting Competence entries for folderId: ${folderId}`, error);
+  }
+};
+
 
 export const getMainTableById = async (tableId: number): Promise<MainTable | null> => {
   try {
@@ -727,6 +805,8 @@ export const deleteMainTable = async (tableId: number): Promise<boolean> => {
 export const getRateGeneralTables = async (): Promise<MainRateGeneral[]> => {
   return getItems<MainRateGeneral>(RATE_GENERAL_KEY);
 };
+
+
 
 export const getRateGeneralByTableId = async (tableId: number): Promise<MainRateGeneral | null> => {
   try {
@@ -914,6 +994,38 @@ export const cleanupData = async (): Promise<void> => {
   }
 };
 
+export const getMainTableByCompetenceId = async (competenceId: number): Promise<MainTable[]> => {
+  try {
+    const mainTables = await getMainTables();
+    return mainTables.filter(table => table.competenceId === competenceId);
+  } catch (error) {
+    console.error("Error getting main tables by competence ID:", error);
+    return [];
+  }
+};
+
+export const deleteMainTableentries = async (competenceId: number, number: number): Promise<boolean> => {
+  try {
+    const mainTables = await getMainTables();
+    const filteredMainTables = mainTables.filter(
+      table => !(table.competenceId === competenceId && table.number === number)
+    );
+
+    if (filteredMainTables.length === mainTables.length) {
+      console.error("Main table entry not found.");
+      return false;
+    }
+
+    await saveItems(MAIN_TABLES_KEY, filteredMainTables);
+    console.log(`Deleted MainTable entry with competenceId: ${competenceId}, number: ${number}`);
+    return true;
+  } catch (error) {
+    console.error("Error deleting MainTable entry:", error);
+    return false;
+  }
+};
+
+
 // Add test data
 export const addTestData = async () => {
   try {
@@ -1077,7 +1189,8 @@ export const addTestData = async () => {
         compSd: 0.0,
         compNd: 0.0,
         compScore: 14.0,
-        comments: "Good performance overall"
+        comments: "Good performance overall",
+        paths: "Path A",
       };
       
       const result = await insertRateGeneral(rateGeneralData);
@@ -1086,6 +1199,8 @@ export const addTestData = async () => {
       }
     }
     
+
+
     // Add test rate jump
     const rateJumpExists = (await getRateJumpTables()).some(rate => rate.tableId === tableId);
     

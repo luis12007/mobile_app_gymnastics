@@ -20,11 +20,15 @@ import {
 } from 'react-native';
 import {
   deleteCompetence,
+  deleteMainTableByCompetenceId,
+  deleteRateGeneralByTableId,
   getCompetencesByFolderId,
+  getMainTablesByCompetenceId,
   insertCompetence,
   insertMainTable,
+  insertRateGeneral,
   updateCompetence,
-  updateFolder,
+  updateFolder
 } from "../Database/database"; // Make sure you have these functions in your database file
 
 const { width, height } = Dimensions.get("window");
@@ -97,6 +101,7 @@ interface CompetitionItemProps {
   folderType: 1 | 2;
   animationDelay?: number;
   selectionMode?: boolean;
+  folderId: number;
   gender: boolean; // mag and wag
   onSelect?: (id: number) => void;
 }
@@ -124,6 +129,7 @@ const CompetitionItem: React.FC<CompetitionItemProps> = ({
   gender,
   animationDelay = 0,
   selectionMode = false,
+  folderId,
   onSelect = () => {}
 }) => {
   const router = useRouter();
@@ -131,6 +137,7 @@ const CompetitionItem: React.FC<CompetitionItemProps> = ({
   // Animation values
   const scaleAnim = useRef(new Animated.Value(0.85)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
+
   
   useEffect(() => {
     // Start animation after delay (for staggered effect)
@@ -156,7 +163,7 @@ const CompetitionItem: React.FC<CompetitionItemProps> = ({
     if (selectionMode) {
       onSelect(competitionId);
     } else {
-      router.push(`/start-gudging?id=${competitionId}&discipline=${gender}&participants=${participants}`);
+      router.push(`/start-gudging?id=${competitionId}&discipline=${gender}&participants=${participants}&number=0&folderId=${folderId}`);
     }
   };
 
@@ -355,8 +362,7 @@ const addNewCompetition = async () => {
 // Add this new function to create Main Table entries
 const createMainTableEntries = async (competenceId: number, numberOfParticipants: number) => {
   try {
-    // Create a main table entry for each participant
-    for (let i = 1; i < numberOfParticipants +1; i++) {
+    for (let i = 1; i <= numberOfParticipants; i++) {
       const mainTableData = {
         competenceId: competenceId,
         number: i, // Participant number
@@ -384,22 +390,49 @@ const createMainTableEntries = async (competenceId: number, numberOfParticipants
         d3: 0,
         e3: 0,
         delt: 0,
-        percentage: 0
+        percentage: 0,
       };
-      
-      // Insert the main table entry
-      const result = await insertMainTable(mainTableData);
-      if (!result) {
+
+      // Insert the main table entry and get the ID of the inserted row
+      const mainTableId = await insertMainTable(mainTableData);
+      if (!mainTableId) {
         console.error(`Failed to create main table entry ${i} for competition ID: ${competenceId}`);
+        continue;
+      }
+
+      // Create the corresponding MainRateGeneral entry
+      const mainRateGeneralData = {
+        tableId: mainTableId, // Use the ID of the inserted MainTable
+        stickBonus: false,
+        numberOfElements: 0,
+        difficultyValues: 0,
+        elementGroups1: 0,
+        elementGroups2: 0,
+        elementGroups3: 0,
+        elementGroups4: 0,
+        elementGroups5: 0,
+        execution: 0,
+        eScore: 0,
+        myScore: 0,
+        compD: 0,
+        compE: 0,
+        compSd: 0,
+        compNd: 0,
+        compScore: 0,
+        comments: "",
+        paths: "",
+      };
+
+      const rateGeneralResult = await insertRateGeneral(mainRateGeneralData);
+      if (!rateGeneralResult) {
+        console.error(`Failed to create MainRateGeneral entry for MainTable ID: ${mainTableId}`);
       }
     }
-    console.log(`Successfully created ${numberOfParticipants} main table entries for competition ID: ${competenceId}`);
+    console.log(`Successfully created ${numberOfParticipants} main table and rate general entries for competition ID: ${competenceId}`);
   } catch (error) {
-    console.error("Error creating main table entries:", error);
-    // We don't show an alert here as the competition was already created successfully
+    console.error("Error creating main table and rate general entries:", error);
   }
 };
-
 
 
   // Fetch competitions in this folder
@@ -517,34 +550,45 @@ const createMainTableEntries = async (competenceId: number, numberOfParticipants
   };
 
   // Function to actually delete the selected competitions
-  const performDelete = async () => {
-    try {
-      // Delete each selected competition from database
-      for (const competitionId of selectedCompetitions) {
-        await deleteCompetence(competitionId);
+const performDelete = async () => {
+  try {
+    // Delete each selected competition and its related data
+    for (const competitionId of selectedCompetitions) {
+      // Fetch main tables associated with the competition
+      const mainTables = await getMainTablesByCompetenceId(competitionId);
+
+      for (const mainTable of mainTables) {
+        // Delete rateGeneral entries associated with the main table
+        await deleteRateGeneralByTableId(mainTable.id);
       }
-      
-      // Update the competitions state to remove deleted competitions
-      setCompetitions(prevCompetitions => 
-        prevCompetitions.filter(comp => !selectedCompetitions.includes(comp.id))
-      );
-      
-      setConfirmationModel(false);
-      setSelectionMode(false);
-      setSelectionAction(null);
-      setSelectedCompetitions([]);
-      
-      // Show success feedback
-      setFeedbackAcceptModel(true);
-      setTimeout(() => {
-        setFeedbackAcceptModel(false);
-      }, 1500);
-      
-    } catch (error) {
-      console.error("Error deleting competitions:", error);
-      Alert.alert("Error", "Failed to delete competitions.");
+
+      // Delete main tables associated with the competition
+      await deleteMainTableByCompetenceId(competitionId);
+
+      // Finally, delete the competition
+      await deleteCompetence(competitionId);
     }
-  };
+
+    // Update the competitions state to remove deleted competitions
+    setCompetitions(prevCompetitions =>
+      prevCompetitions.filter(comp => !selectedCompetitions.includes(comp.id))
+    );
+
+    setConfirmationModel(false);
+    setSelectionMode(false);
+    setSelectionAction(null);
+    setSelectedCompetitions([]);
+
+    // Show success feedback
+    setFeedbackAcceptModel(true);
+    setTimeout(() => {
+      setFeedbackAcceptModel(false);
+    }, 1500);
+  } catch (error) {
+    console.error("Error deleting competitions and related data:", error);
+    Alert.alert("Error", "Failed to delete competitions and related data.");
+  }
+};
 
   // Function to handle edit confirmation
   const handleEditConfirm = () => {
@@ -585,6 +629,9 @@ const createMainTableEntries = async (competenceId: number, numberOfParticipants
 
     try {
       const result = await updateCompetence(id,updatedCompetition);
+
+      /* count number of main table related to that competition an if th participants are less delete main table 
+      with the competence id from 1 increasing up to the number of participants TODO */
       if (result) {
         // Update the competitions state with the edited competition
         setCompetitions(prevCompetitions => 
@@ -667,6 +714,7 @@ const createMainTableEntries = async (competenceId: number, numberOfParticipants
               gender={competition.gender ? true : false}
               selectionMode={selectionMode}
               onSelect={toggleCompetitionSelection}
+              folderId={folderId} // Pass the folderId to the CompetitionItem
             />
           ))}
         </View>

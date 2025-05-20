@@ -8,19 +8,21 @@ import {
   Dimensions,
   Easing,
   Modal,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import {
   deleteMainTable,
   getCompetenceById,
   getMainTablesByCompetenceId,
   insertMainTable,
+  insertRateGeneral,
   updateCompetence,
   updateMainTable
 } from '../Database/database'; // Adjust the import path as needed
@@ -59,14 +61,63 @@ interface GymnasticsTableProps {
   onStartJudging?: (discipline: string) => void;
 }
 
+const DropdownList = ({ 
+  visible, 
+  discipline,
+  onSelect,
+  onClose,
+  top = 100,
+  left = 50,
+  width = 200,
+}) => {
+  if (!visible) return null;
+
+  const options = discipline 
+    ? ['FX', 'VT', 'PH', 'SR', 'PB', 'HB'] 
+    : ['FX', 'UB', 'BB', 'VT'];
+
+  return (
+    <View style={[styles.dropdownContainer, { top, left, width }]}>
+      {options.map((option, index) => (
+        <TouchableOpacity
+          key={index}
+          style={styles.dropdownItem}
+          onPress={() => {
+            if (onSelect) {
+              onSelect(option);
+            }
+            if (onClose) {
+              onClose();
+            }
+          }}
+        >
+          <Text style={styles.dropdownItemText}>{option}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+};
+
 const GymnasticsTable: React.FC<GymnasticsTableProps> = ({ 
   onStartJudging
 }) => {
   const params = useLocalSearchParams();
-  console.log(params)
-  const discipline = params.discipline === "true"
+  const discipline = params.discipline === "true";
   const participants = params.participants ? Number(params.participants) : 0;
   const competenceId = params.id ? Number(params.id) : 0;
+  const number = params.number ? Number(params.number) : 1;
+  const folderId = params.folderId;
+  const backButtonOpacity = useRef(new Animated.Value(0)).current;
+const backButtonTranslateX = useRef(new Animated.Value(50)).current;
+  
+  // Define the event options based on discipline
+  const maleEvents = ["FX", "VT", "PH", "SR", "PB", "HB"];
+  const femaleEvents = ["FX", "UB", "BB", "VT"];
+  const eventOptions = discipline ? maleEvents : femaleEvents;
+  
+  const [dropdownVisible, setDropdownVisible] = useState(false);
+  const [activeDropdownGymnastId, setActiveDropdownGymnastId] = useState<number | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<string | null>(null);
   
   const [isDeleteMode, setIsDeleteMode] = useState(false);
   const [nameSearch, setNameSearch] = useState('');
@@ -79,9 +130,22 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
 
+  // Dropdown states
+  const [searchDropdownVisible, setSearchDropdownVisible] = useState(false);
+  const [activeRowDropdown, setActiveRowDropdown] = useState<number | null>(null);
+  
+  // Refs to store positions for dropdowns
+  const searchButtonRef = useRef<View>(null);
+  const [searchDropdownPosition, setSearchDropdownPosition] = useState({ top: 0, left: 0, width: 200 });
+  const rowRefs = useRef<{[key: number]: any}>({});
+  const [rowDropdownPosition, setRowDropdownPosition] = useState({ top: 0, left: 0, width: 150 });
+  
   // State for confirmation modal
   const [confirmationModal, setConfirmationModal] = useState(false);
   const [gymnastToDelete, setGymnastToDelete] = useState<number | null>(null);
+const [isTypeSearchExpanded, setIsTypeSearchExpanded] = useState(false);
+const [isearching, setIsSearching] = useState(false);
+
 
   // Track which field is being edited
   const [editingField, setEditingField] = useState<{
@@ -144,18 +208,18 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
   useEffect(() => {
     // Animate search bar
     Animated.timing(searchBarOpacity, {
-      toValue: 1,
-      duration: 600,
-      useNativeDriver: true,
-      easing: Easing.out(Easing.ease),
-    }).start();
-    
-    Animated.timing(searchBarTranslateY, {
-      toValue: 0,
-      duration: 700,
-      useNativeDriver: true,
-      easing: Easing.out(Easing.back(1.2)),
-    }).start();
+  toValue: 1,
+  duration: 2000, // Changed from 600 to 2000 ms (2 seconds)
+  useNativeDriver: true,
+  easing: Easing.out(Easing.ease),
+}).start();
+
+Animated.timing(searchBarTranslateY, {
+  toValue: 0,
+  duration: 2000, // Changed from 700 to 2000 ms (2 seconds)
+  useNativeDriver: true,
+  easing: Easing.out(Easing.back(1.2)),
+}).start();
     
     // Animate table
     Animated.sequence([
@@ -173,6 +237,24 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
         easing: Easing.out(Easing.back(1.05)),
       }),
     ]).start();
+
+    Animated.sequence([
+  Animated.delay(500), // Start after search bar animation begins
+  Animated.parallel([
+    Animated.timing(backButtonOpacity, {
+      toValue: 1,
+      duration: 600,
+      useNativeDriver: true,
+      easing: Easing.out(Easing.ease),
+    }),
+    Animated.timing(backButtonTranslateX, {
+      toValue: 0,
+      duration: 700,
+      useNativeDriver: true,
+      easing: Easing.out(Easing.back(1.2)),
+    }),
+  ]),
+]).start();
     
     // Animate button container
     Animated.sequence([
@@ -233,8 +315,35 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
     loadData();
   }, [competenceId]);
 
+  // Effect to measure search dropdown position
+  useEffect(() => {
+    if (searchButtonRef.current) {
+      searchButtonRef.current.measure((x, y, width, height, pageX, pageY) => {
+        setSearchDropdownPosition({
+          top: pageY + height,
+          left: pageX,
+          width: width,
+        });
+      });
+    }
+  }, [searchDropdownVisible]);
+
+  // Effect to measure row dropdown position
+  useEffect(() => {
+    if (activeRowDropdown !== null && rowRefs.current[activeRowDropdown]) {
+      rowRefs.current[activeRowDropdown].measure((x, y, width, height, pageX, pageY) => {
+        setRowDropdownPosition({
+          top: pageY + height,
+          left: pageX,
+          width: width,
+        });
+      });
+    }
+  }, [activeRowDropdown]);
+
   const handleSearch = () => {
     // Filter gymnasts based on search criteria
+    setIsSearching(true);
     const loadData = async () => {
       if (competenceId) {
         setIsLoading(true);
@@ -252,7 +361,7 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
           
           if (typeSearch) {
             filteredTables = filteredTables.filter(table => 
-              table.event?.toLowerCase().includes(typeSearch.toLowerCase())
+              table.event === typeSearch
             );
           }
           
@@ -274,6 +383,10 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
           }));
           
           setGymnasts(formattedGymnasts);
+          console.log("Filtered gymnasts:", formattedGymnasts);
+          if (!nameSearch && !typeSearch && !bibSearch) {
+            setIsSearching(false);
+          }
         } catch (error) {
           console.error("Error searching data:", error);
           Alert.alert("Error", "Failed to search gymnasts data");
@@ -284,11 +397,49 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
     };
     
     loadData();
+    // Close dropdown after search
+    setSearchDropdownVisible(false);
+  };
+
+  // Function to handle opening the event dropdown for a specific gymnast
+  const handleOpenEventDropdown = (gymnastId: number) => {
+    // First close any open dropdowns
+    setActiveRowDropdown(null);
+    setSearchDropdownVisible(false);
+    
+    // Set the active gymnast for the dropdown
+    setActiveDropdownGymnastId(gymnastId);
+    
+    // Find the position for the dropdown
+    if (rowRefs.current[gymnastId]) {
+      // Use setTimeout to ensure the measure happens after the current render cycle
+      // This helps with iOS rendering issues
+      setTimeout(() => {
+        rowRefs.current[gymnastId].measure((x, y, width, height, pageX, pageY) => {
+          setRowDropdownPosition({
+            top: pageY + height,
+            left: pageX,
+            width: width,
+          });
+          
+          // Now show the dropdown
+          setDropdownVisible(true);
+        });
+      }, 100);
+    } else {
+      // Fallback if ref isn't available
+      setDropdownVisible(true);
+    }
   };
 
   // Start editing a field
   const startEditing = (gymnastId: number, field: string) => {
     setEditingField({ gymnastId, field });
+    
+    // For event field, open dropdown
+    if (field === 'event') {
+      handleOpenEventDropdown(gymnastId);
+    }
   };
 
   // Function to handle changes to gymnast data
@@ -298,6 +449,36 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
         gymnast.id === id ? { ...gymnast, [field]: value } : gymnast
       )
     );
+  };
+
+  // Function to handle event selection from dropdown
+  const handleEventSelect = (event: string) => {
+    if (activeDropdownGymnastId !== null) {
+      // First update the gymnast data with the new event
+      handleGymnastChange(activeDropdownGymnastId, 'event', event);
+      
+      // Then immediately save this change to the database
+      const gymnast = gymnasts.find(g => g.id === activeDropdownGymnastId);
+      if (gymnast) {
+        // Create an updated gymnast object with the new event
+        const updatedGymnast = { ...gymnast, event };
+        
+        // Save to database
+        updateMainTable(activeDropdownGymnastId, updatedGymnast)
+          .then(() => {
+            console.log(`Event updated for gymnast ${activeDropdownGymnastId} to ${event}`);
+          })
+          .catch(error => {
+            console.error("Error saving event:", error);
+            Alert.alert("Error", "Failed to save event change");
+          });
+      }
+      
+      // Close the dropdown and reset editing state
+      setDropdownVisible(false);
+      setActiveDropdownGymnastId(null);
+      setEditingField({ gymnastId: null, field: null });
+    }
   };
 
   // Function to save edited field to database
@@ -313,12 +494,17 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
       Alert.alert("Error", "Failed to save changes");
     } finally {
       setEditingField({ gymnastId: null, field: null });
+      setActiveRowDropdown(null);
     }
   };
 
   // Toggle delete mode on/off
   const toggleDeleteMode = () => {
     setIsDeleteMode(!isDeleteMode);
+    // Close any open dropdowns
+    setSearchDropdownVisible(false);
+    setActiveRowDropdown(null);
+    setDropdownVisible(false);
   };
 
   // Perform the actual deletion
@@ -381,8 +567,8 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
         competenceId: competenceId,
         number: newNumber,
         name: "",
-        event: "", 
-        noc: "", // Changed from 0 to empty string
+        event: eventOptions[0], // Set the first event as default
+        noc: "", 
         bib: 0,
         // Add default values for other fields as needed
         j: 0, i: 0, h: 0, g: 0, f: 0, e: 0, d: 0, c: 0, b: 0, a: 0,
@@ -392,7 +578,35 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
       
       // Insert into database
       const id = await insertMainTable(newGymnast);
-      
+
+      // Create the corresponding MainRateGeneral entry
+      const mainRateGeneralData = {
+        tableId: id, // Use the ID of the inserted MainTable
+        stickBonus: false,
+        numberOfElements: 0,
+        difficultyValues: 0,
+        elementGroups1: 0,
+        elementGroups2: 0,
+        elementGroups3: 0,
+        elementGroups4: 0,
+        elementGroups5: 0,
+        execution: 0,
+        eScore: 0,
+        myScore: 0,
+        compD: 0,
+        compE: 0,
+        compSd: 0,
+        compNd: 0,
+        compScore: 0,
+        comments: "",
+        paths: "",
+      };
+
+      const rateGeneralResult = await insertRateGeneral(mainRateGeneralData);
+            if (!rateGeneralResult) {
+              console.error(`Failed to create MainRateGeneral entry for MainTable ID: ${id}`);
+            }
+
       if (id) {
         // Add to local state
         setGymnasts([...gymnasts, { ...newGymnast, id: id as number }]);
@@ -414,11 +628,55 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
     }
   };
 
-  const handleSelectStart = (discipline: string) => {
-    if (onStartJudging) {
-      onStartJudging(discipline);
+  const handleSelectStart = () => {
+    /* start go to the first gymnast */
+    if (gymnasts.length > 0) {
+      if (number !== 0) {
+        console.log("number", number);
+        console.log("gymnasts", gymnasts);
+        const firstGymnast = gymnasts[number - 1];
+        console.log("firstGymnast", firstGymnast);
+        const event = firstGymnast.event;
+if (event === "VT") {
+      router.push(`/main-jump?competenceId=${firstGymnast.competenceId}&gymnastId=${firstGymnast.id}&event=${event}&discipline=${discipline}&gymnast=${firstGymnast.id}&number=${number}&participants=${participants}&folderId=${folderId}`);
+  }else {
+      router.push(`/main-floor?competenceId=${firstGymnast.competenceId}&gymnastId=${firstGymnast.id}&event=${event}&discipline=${discipline}&gymnast=${firstGymnast.id}&number=${number}&participants=${participants}&folderId=${folderId}`);
+  }
+      }else {
+      const firstGymnast = gymnasts[0];
+      const event = firstGymnast.event;
+      if (event === "VT") {
+      router.push(`/main-jump?competenceId=${firstGymnast.competenceId}&gymnastId=${firstGymnast.id}&event=${event}&discipline=${discipline}&gymnast=${firstGymnast.id}&number=${number}&participants=${participants}&folderId=${folderId}`);
+  }else {
+      router.push(`/main-floor?competenceId=${firstGymnast.competenceId}&gymnastId=${firstGymnast.id}&event=${event}&discipline=${discipline}&gymnast=${firstGymnast.id}&number=${number}&participants=${participants}&folderId=${folderId}`);
+  }
+      }
+
+      }
+  };
+
+
+// Add this state variable at the top with other state variables
+const [isTogglingSearch, setIsTogglingSearch] = useState(false);
+
+  // Global click handler to close dropdowns if clicking elsewhere
+  const handleGlobalClick = () => {
+    // On iOS, we need to be more careful about touch handling
+    if (Platform.OS === 'ios') {
+      // Set a small delay to ensure we don't interfere with other touch events
+      setTimeout(() => {
+        setSearchDropdownVisible(false);
+        setActiveRowDropdown(null);
+        // Don't close the dropdown immediately to prevent conflicts with other touch events
+        if (!activeDropdownGymnastId) {
+          setDropdownVisible(false);
+        }
+      }, 10);
     } else {
-      router.push(`/main-floor?discipline=${discipline}&competenceId=${competenceId}`);
+      // For other platforms, we can close immediately
+      setSearchDropdownVisible(false);
+      setActiveRowDropdown(null);
+      setDropdownVisible(false);
     }
   };
 
@@ -431,9 +689,68 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
     );
   }
 
+
+  // Add these state variables at the top with other state variables
+
+// Replace the toggleSearchDropdown function
+const toggleSearchDropdown = () => {
+  // Prevent rapid consecutive toggles
+  if (isTogglingSearch) return;
+  
+  setIsTogglingSearch(true);
+  
+  // Toggle dropdown expanded state
+  setIsTypeSearchExpanded(!isTypeSearchExpanded);
+  
+  // Close other dropdowns
+  setActiveRowDropdown(null);
+  setDropdownVisible(false);
+  setSearchDropdownVisible(false);
+  
+  // Reset the flag after a short delay
+  setTimeout(() => {
+    setIsTogglingSearch(false);
+  }, 300);
+};
+
+// Add this function to handle type selection
+const handleTypeSelect = (option) => {
+  setTypeSearch(option);
+  setIsTypeSearchExpanded(false);
+  
+
+};
+
+
+const gotogymnastcalculator = (competenceId, gymnastId, event, discipline,gymnast, number) => {
+  if (event === "VT") {
+      router.push(`/main-jump?competenceId=${competenceId}&gymnastId=${gymnastId}&event=${event}&discipline=${discipline}&gymnast=${gymnast}&number=${number}&participants=${participants}&folderId=${folderId}`);
+  }else {
+      router.push(`/main-floor?competenceId=${competenceId}&gymnastId=${gymnastId}&event=${event}&discipline=${discipline}&gymnast=${gymnast}&number=${number}&participants=${participants}&folderId=${folderId}`);
+  }
+};
+
+
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container} onTouchStart={handleGlobalClick}>
       {/* Search Bar with Animation */}
+      <Animated.View 
+  style={[
+    styles.backButton,
+    {
+      opacity: backButtonOpacity,
+      transform: [{ translateX: backButtonTranslateX }]
+    }
+  ]}
+>
+  <TouchableOpacity 
+    style={styles.backButtonInner}
+    onPress={() => router.push(`/folder?id=${folderId}&discipline=${discipline}`)}
+  >
+    <Ionicons name="arrow-back" size={28} color="#0052b4" />
+    <Text style={styles.backButtonText}>Go Back</Text>
+  </TouchableOpacity>
+</Animated.View>
       <Animated.View 
         style={[
           styles.searchContainer,
@@ -447,22 +764,84 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
           <TextInput
             style={styles.searchInput}
             placeholder="Name"
+            placeholderTextColor="#999"
             value={nameSearch}
             onChangeText={setNameSearch}
           />
         </View>
-        <View style={styles.searchInputContainer}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Event"
-            value={typeSearch}
-            onChangeText={setTypeSearch}
-          />
-        </View>
+        
+        {/* Event Dropdown for Search */}
+<View style={styles.searchInputContainer}>
+  <View style={{ position: 'relative', zIndex: Platform.OS === 'ios' ? 999 : 10 }}>
+    <TouchableOpacity 
+      style={styles.dropdownButton}
+      onPress={(e) => {
+        e.stopPropagation();
+        toggleSearchDropdown();
+      }}
+    >
+      <Text style={styles.dropdownButtonText}>
+        {typeSearch || "Select Event"}
+      </Text>
+      <Ionicons 
+        name={isTypeSearchExpanded ? "chevron-up" : "chevron-down"} 
+        size={24} 
+        color="#666" 
+      />
+    </TouchableOpacity>
+    
+    {/* Dropdown options as part of the component, not absolute */}
+    {isTypeSearchExpanded && (
+      <View style={{
+        backgroundColor: 'white',
+        borderWidth: 1,
+        borderColor: '#ddd',
+        borderRadius: 5,
+        marginTop: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
+        elevation: 5,
+        width: '100%',
+        position: 'absolute',
+        top: '100%',
+        left: 0,
+        zIndex: 1000
+      }}>
+        {/* None option */}
+        <TouchableOpacity
+          style={styles.dropdownItem}
+          activeOpacity={0.7}
+          onPress={() => handleTypeSelect("")}
+        >
+          <Text style={styles.dropdownItemText}>None</Text>
+        </TouchableOpacity>
+        
+        {/* Event options */}
+        {eventOptions.map((option, index) => (
+          <TouchableOpacity
+            key={index}
+            style={[
+              styles.dropdownItem,
+              index === eventOptions.length - 1 ? { borderBottomWidth: 0 } : null
+            ]}
+            activeOpacity={0.7}
+            onPress={() => handleTypeSelect(option)}
+          >
+            <Text style={styles.dropdownItemText}>{option}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    )}
+  </View>
+</View>
+        
         <View style={styles.searchInputContainer}>
           <TextInput
             style={styles.searchInput}
             placeholder="BIB"
+            placeholderTextColor="#999"
             value={bibSearch}
             onChangeText={setBibSearch}
           />
@@ -507,7 +886,7 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
           {gymnasts.length === 0 ? (
             <View style={styles.emptyStateContainer}>
               <Text style={styles.emptyStateText}>No gymnasts found</Text>
-              <Text style={styles.emptyStateSubtext}>Add gymnasts using the + button below</Text>
+              <Text style={styles.emptyStateSubtext}> </Text>
             </View>
           ) : (
             /* Rows with animation - only animated on initial load */
@@ -522,9 +901,11 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
                   }
                 ]}
               >
-                <View style={styles.noCell}>
+                <TouchableOpacity style={styles.noCell}
+                onPress={() => gotogymnastcalculator(competenceId,gymnast.id,gymnast.event,discipline,gymnast.id,gymnast.number)}>
                   <Text style={styles.cellText}>{gymnast.number}</Text>
-                </View>
+                </TouchableOpacity>
+                
                 <View style={styles.gymnastCell}>
                   {editingField.gymnastId === gymnast.id && editingField.field === 'name' ? (
                     <TextInput
@@ -541,38 +922,54 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
                     </TouchableOpacity>
                   )}
                 </View>
+                
+                {/* Event Cell with Dropdown */}
                 <View style={styles.eventCell}>
-                  {editingField.gymnastId === gymnast.id && editingField.field === 'event' ? (
+                  <TouchableOpacity 
+                    ref={el => rowRefs.current[gymnast.id] = el}
+                    style={styles.eventDropdownButton}
+                    onPress={() => {
+                      // Extra check to prevent dropdown closing issues on iOS
+                      if (Platform.OS === 'ios') {
+                        // Ensure any existing dropdown is closed
+                        setDropdownVisible(false);
+                        
+                        // Small delay to ensure UI has updated before opening new dropdown
+                        setTimeout(() => {
+                          startEditing(gymnast.id, 'event');
+                        }, 50);
+                      } else {
+                        startEditing(gymnast.id, 'event');
+                      }
+                    }}
+                  >
+                    <Text style={styles.cellText}>{gymnast.event || "Select"}</Text>
+                    <Ionicons 
+                      name="chevron-down" 
+                      size={20} 
+                      color="#666" 
+                      style={{ marginLeft: 5 }}
+                    />
+                  </TouchableOpacity>
+                </View>
+                
+                <View style={styles.standardCell}>
+                  {editingField.gymnastId === gymnast.id && editingField.field === 'noc' ? (
                     <TextInput
                       style={styles.editInput}
-                      placeholder="Enter event"
-                      value={gymnast.event}
-                      onChangeText={(text) => handleGymnastChange(gymnast.id, 'event', text)}
+                      placeholder="Enter NOC"
+                      value={gymnast.noc}
+                      onChangeText={(text) => handleGymnastChange(gymnast.id, 'noc', text)}
                       onBlur={() => saveField(gymnast.id)}
                       autoFocus
                     />
                   ) : (
-                    <TouchableOpacity onPress={() => startEditing(gymnast.id, 'event')}>
-                      <Text style={styles.cellText}>{gymnast.event || "Click to edit"}</Text>
+                    <TouchableOpacity onPress={() => startEditing(gymnast.id, 'noc')}>
+                      <Text style={styles.cellText}>{gymnast.noc || "Click to edit"}</Text>
                     </TouchableOpacity>
                   )}
                 </View>
-                <View style={styles.standardCell}>
-  {editingField.gymnastId === gymnast.id && editingField.field === 'noc' ? (
-    <TextInput
-      style={styles.editInput}
-      placeholder="Enter NOC"
-      value={gymnast.noc}
-      onChangeText={(text) => handleGymnastChange(gymnast.id, 'noc', text)}
-      onBlur={() => saveField(gymnast.id)}
-      autoFocus
-    />
-  ) : (
-    <TouchableOpacity onPress={() => startEditing(gymnast.id, 'noc')}>
-      <Text style={styles.cellText}>{gymnast.noc || "Click to edit"}</Text>
-    </TouchableOpacity>
-  )}
-</View>
+                
                 <View style={styles.standardCell}>
                   {editingField.gymnastId === gymnast.id && editingField.field === 'bib' ? (
                     <TextInput
@@ -590,6 +987,7 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
                     </TouchableOpacity>
                   )}
                 </View>
+                
                 {/* Delete button in row */}
                 {isDeleteMode && (
                   <TouchableOpacity 
@@ -604,7 +1002,7 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
           )}
           
           {/* Add Gymnast Row */}
-          {gymnasts.length < participants && (
+          {gymnasts.length < participants && !isearching && (
   <TouchableOpacity 
     style={styles.addRow}
     onPress={handleAddGymnast}
@@ -626,15 +1024,20 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
         ]}
       >
         <TouchableOpacity 
-          style={[
-            styles.startButton,
-            { opacity: gymnasts.length > 0 ? 1 : 0.5 }
-          ]}
-          onPress={() => handleSelectStart('floor')}
-          disabled={gymnasts.length === 0 || isSaving}
-        >
-          <Text style={styles.buttonText}>START JUDGING</Text>
-        </TouchableOpacity>
+  style={[
+    styles.startButton,
+    { 
+      backgroundColor: number === 1 ? '#0052b4' : 'rgb(28, 82, 147)', // Change background color based on `number`
+      opacity: gymnasts.length > 0 ? 1 : 0.5 
+    }
+  ]}
+  onPress={() => handleSelectStart()}
+  disabled={gymnasts.length === 0 || isSaving}
+>
+  <Text style={styles.buttonText}>
+    {number == 0 ? 'START JUDGING' : 'CONTINUE JUDGING'} {/* Change text based on `number` */}
+  </Text>
+</TouchableOpacity>
         <TouchableOpacity 
           style={styles.editButton}
           onPress={toggleDeleteMode}
@@ -649,6 +1052,69 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
           )}
         </TouchableOpacity>
       </Animated.View>
+
+      {/* Event Dropdown (shown conditionally) */}
+      {dropdownVisible && (
+  <View 
+    style={[
+      styles.dropdownContainer, 
+      styles.eventDropdownList,
+      { 
+        top: rowDropdownPosition.top,
+        left: rowDropdownPosition.left,
+        width: rowDropdownPosition.width,
+        zIndex: Platform.OS === 'ios' ? 9999 : 1000,
+      }
+    ]}
+  >
+    {/* Add empty option at the beginning */}
+    <TouchableOpacity
+      style={styles.dropdownItem}
+      activeOpacity={0.7}
+      onPress={() => {
+        const currentGymnastId = activeDropdownGymnastId;
+        if (currentGymnastId !== null) {
+          // Handle selecting empty option
+          if (Platform.OS === 'ios') {
+            setTimeout(() => {
+              handleEventSelect("");
+            }, 50);
+          } else {
+            handleEventSelect("");
+          }
+        }
+      }}
+    >
+      <Text style={styles.dropdownItemText}>None</Text>
+    </TouchableOpacity>
+    
+    {/* Existing options */}
+    {eventOptions.map((option, index) => (
+      <TouchableOpacity
+        key={index}
+        style={styles.dropdownItem}
+        activeOpacity={0.7}
+        onPress={() => {
+          const currentGymnastId = activeDropdownGymnastId;
+          
+          if (currentGymnastId !== null) {
+            if (Platform.OS === 'ios') {
+              setTimeout(() => {
+                handleEventSelect(option);
+              }, 50);
+            } else {
+              handleEventSelect(option);
+            }
+          }
+        }}
+      >
+        <Text style={styles.dropdownItemText}>{option}</Text>
+      </TouchableOpacity>
+    ))}
+  </View>
+)}
+
+
 
       {/* Delete Confirmation Modal */}
       <Modal
@@ -687,7 +1153,7 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -722,10 +1188,12 @@ const styles = StyleSheet.create({
     marginTop: 10,
     marginLeft: 20,
     width: '60%',
+    zIndex: 10,
   },
   searchInputContainer: {
     flex: 1,
     marginRight: 8,
+    position: 'relative',
   },
   searchInput: {
     backgroundColor: '#e8e8e8',
@@ -734,12 +1202,85 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   searchButton: {
-    backgroundColor: '#ccc',
+    backgroundColor: '#e8e8e8',
     width: 44,
     height: 44,
     borderRadius: 5,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  // Dropdown styles
+  dropdownContainer: {
+    position: 'absolute',
+    backgroundColor: 'white',
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    // Sets a high zIndex for all platforms
+    zIndex: 1000,
+  },
+  // Additional styles specifically for event dropdown
+  eventDropdownList: {
+    // For iOS, we need to ensure it's above everything
+    ...(Platform.OS === 'ios' ? {
+      position: 'absolute',
+      zIndex: 9999, 
+    } : {}),
+  },
+  dropdownItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ddd',
+  },
+  inlineDropdown: {
+  backgroundColor: 'white',
+  borderWidth: 1,
+  borderColor: '#ddd',
+  borderRadius: 5,
+  marginTop: 2,
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.25,
+  shadowRadius: 3.84,
+  elevation: 5,
+  width: '100%',
+  position: 'absolute',
+  top: '100%',
+  left: 0,
+  zIndex: 1000
+},
+lastDropdownItem: {
+  borderBottomWidth: 0
+},
+  dropdownItemText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  dropdownButton: {
+    backgroundColor: '#e8e8e8',
+    borderRadius: 5,
+    padding: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  dropdownButtonText: {
+    fontSize: 14,
+    color: '#999',
+  },
+  // Event dropdown button in table
+  eventDropdownButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 8,
+    borderRadius: 4,
   },
   tableContainer: {
     flex: 1,
@@ -747,6 +1288,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: 'hidden',
     marginHorizontal: 20,
+    zIndex: 1,
   },
   headerRow: {
     flexDirection: 'row',
@@ -783,7 +1325,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#f9f9f9',
   },
   noCell: {
-    width: 40,
+    width: 60,
+    height: 40,
+
     justifyContent: 'center',
     paddingHorizontal: 5,
   },
@@ -796,6 +1340,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 5,
+    position: 'relative',
   },
   standardCell: {
     flex: 1,
@@ -816,7 +1361,7 @@ const styles = StyleSheet.create({
     color: '#999',
   },
   tableBody: {
-    maxHeight: 400,
+    maxHeight: "100%",
   },
   emptyStateContainer: {
     alignItems: 'center',
@@ -836,6 +1381,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     padding: 16,
+    zIndex: 1,
   },
   startButton: {
     flex: 3,
@@ -1011,7 +1557,31 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 20,
-  }
+  },backButton: {
+  position: 'absolute',
+  top: 22,
+  right: 30,
+  zIndex: 1000,
+},
+backButtonInner: {
+  backgroundColor: 'white',
+  flexDirection: 'row',
+  alignItems: 'center',
+  paddingVertical: 8,
+  paddingHorizontal: 12,
+  borderRadius: 8,
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.2,
+  shadowRadius: 2,
+  elevation: 3,
+},
+backButtonText: {
+  color: '#0052b4',
+  fontWeight: 'bold',
+  marginLeft: 5,
+  fontSize: 16,
+},
 });
 
 export default GymnasticsTable;

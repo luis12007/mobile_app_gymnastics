@@ -1,22 +1,21 @@
-import React, { useState, useEffect, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-const CURRENT_USER_KEY = "currentUser";
+import { useRouter } from "expo-router";
+import React, { useEffect, useRef, useState } from "react";
 import {
-  View,
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Dimensions,
+  Easing,
+  Image,
+  ImageStyle,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  Image,
-  Dimensions,
-  Platform,
-  Alert,
-  ActivityIndicator,
-  Animated,
-  Easing,
-  ImageStyle,
+  View
 } from "react-native";
-import { useRouter } from "expo-router";
+const CURRENT_USER_KEY = "currentUser";
 
 import { insertUser, validateUser } from "../Database/database";
 
@@ -150,6 +149,9 @@ export default function LoginScreen() {
     }
   };
 
+  const gotoboard = () => {
+    router.push('/WhiteboardScreen');
+  }
   // Calculate logo transform based on animation values
   const logoTransform = [
     { scale: logoScale },
@@ -192,6 +194,7 @@ export default function LoginScreen() {
         resizeMode="cover"
       />
 
+
       {/* Content */}
       <View style={styles.contentContainer}>
         {/* Logo Section with scale and position animation */}
@@ -218,6 +221,7 @@ export default function LoginScreen() {
             alignItems: "center"
           }}
         >
+
           {/* Username Input */}
           <View
             style={[
