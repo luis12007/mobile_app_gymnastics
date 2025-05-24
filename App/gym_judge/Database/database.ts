@@ -14,6 +14,7 @@ interface User {
   id: number;
   username: string;
   password: string;
+  rol: string; // "admin" or "user"
 }
 
 interface Folder {
@@ -118,6 +119,131 @@ interface MainRateJump {
   compNd: number;
   score: number;
 }
+
+// Constante para tabla de dispositivos activados
+const ACTIVATED_DEVICES_KEY = "activated_devices";
+
+// Interfaz para dispositivos activados
+interface ActivatedDevice {
+  id: number;
+  deviceId: string;
+  activationKey: string;
+  activatedAt: number;
+  createdBy: number | null;
+}
+
+// Configurar la tabla de dispositivos activados
+export const setupActivatedDevicesTable = async (): Promise<void> => {
+  try {
+    // En AsyncStorage solo necesitamos verificar que la clave existe
+    const devices = await AsyncStorage.getItem(ACTIVATED_DEVICES_KEY);
+    if (!devices) {
+      await AsyncStorage.setItem(ACTIVATED_DEVICES_KEY, JSON.stringify([]));
+    }
+    console.log("Activated devices table is ready");
+  } catch (error) {
+    console.error("Error setting up activated devices table:", error);
+  }
+};
+
+// Verificar si un dispositivo ya está activado
+export const isDeviceActivated = async (deviceId: string): Promise<boolean> => {
+  try {
+    const devices = await getActivatedDevices();
+    return devices.some(device => device.deviceId === deviceId);
+  } catch (error) {
+    console.error("Error checking if device is activated:", error);
+    return false;
+  }
+};
+
+// Obtener todos los dispositivos activados
+export const getActivatedDevices = async (): Promise<ActivatedDevice[]> => {
+  return getItems<ActivatedDevice>(ACTIVATED_DEVICES_KEY);
+};
+
+// Registrar un dispositivo activado
+export const registerActivatedDevice = async (
+  deviceId: string, 
+  activationKey: string, 
+  userId: number | null = null
+): Promise<boolean> => {
+  try {
+    // Verificar si ya está activado
+    const isActivated = await isDeviceActivated(deviceId);
+    if (isActivated) {
+      console.log("Device is already activated");
+      return false;
+    }
+    
+    const devices = await getActivatedDevices();
+    const id = await getNextId(ACTIVATED_DEVICES_KEY);
+    
+    const newDevice: ActivatedDevice = {
+      id,
+      deviceId,
+      activationKey,
+      activatedAt: Date.now(),
+      createdBy: userId
+    };
+    
+    devices.push(newDevice);
+    await saveItems(ACTIVATED_DEVICES_KEY, devices);
+    console.log("Device registered successfully", newDevice);
+    return true;
+  } catch (error) {
+    console.error("Error registering activated device:", error);
+    return false;
+  }
+};
+// Verificar si un usuario ya existe
+export const checkUserExists = async (username: string): Promise<boolean> => {
+  try {
+    const users = await getUsers();
+    return users.some(user => user.username === username);
+  } catch (error) {
+    console.error("Error checking if user exists:", error);
+    return false; // En caso de error, asumimos que no existe
+  }
+};
+
+
+// Validar una clave de activación para un dispositivo específico
+export const validateActivationKey = async (
+  key: string, 
+  deviceId: string
+): Promise<boolean> => {
+  try {
+    // Verificar formato de la clave
+    const parts = key.split('-');
+    if (parts.length !== 3 || parts[0] !== 'GYM') {
+      return false;
+    }
+    
+    // Recrear el hash para validación
+    const APP_SECRET = 'GymJudge2023SecretKey'; // Debería estar almacenado más seguramente
+    const crypto = await import('expo-crypto');
+    
+    const validationString = deviceId + APP_SECRET;
+    const expectedHash = await crypto.digestStringAsync(
+      crypto.CryptoDigestAlgorithm.SHA256,
+      validationString
+    );
+    
+    // Comparar solo los primeros 8 caracteres
+    const expectedShortHash = expectedHash.substring(0, 8);
+    const keyHash = parts[1];
+    
+    console.log("Validating key", key, "for device", deviceId);
+    console.log("Expected hash:", expectedShortHash, "Key hash:", keyHash);
+    
+    return keyHash === expectedShortHash;
+  } catch (error) {
+    console.error("Error validating activation key:", error);
+    return false;
+  }
+};
+
 
 // Helper function to validate objects in storage
 const validateItems = async <T>(key: string, validator: (item: any) => boolean): Promise<T[]> => {
@@ -254,7 +380,13 @@ export const getUserByUsername = async (username: string): Promise<User | null> 
   }
 };
 
-export const insertUser = async (username: string, password: string): Promise<boolean> => {
+export const insertUser = async (
+  username: string, 
+  password: string,
+  activationKey?: string,
+  deviceId?: string,
+  rol: string = "user" // Default role is "user"
+): Promise<number | false> => {
   try {
     if (!username || !password) {
       console.error("Username and password are required");
@@ -269,6 +401,22 @@ export const insertUser = async (username: string, password: string): Promise<bo
       console.error("User already exists.");
       return false;
     }
+    
+    // Si se proporciona deviceId y activationKey, verificar que sean válidos
+    if (deviceId && activationKey) {
+      const isValid = await validateActivationKey(activationKey, deviceId);
+      if (!isValid) {
+        console.error("Invalid activation key for device");
+        return false;
+      }
+      
+      // Verificar si el dispositivo ya está activado
+      const alreadyActivated = await isDeviceActivated(deviceId);
+      if (alreadyActivated) {
+        console.error("Device is already activated");
+        return false;
+      }
+    }
 
     // Find max ID
     let nextId = 1;
@@ -280,17 +428,37 @@ export const insertUser = async (username: string, password: string): Promise<bo
       }
     }
     
-    // Add new user with ID
-    const newUser: User = { id: nextId, username, password };
+    // Add new user with ID and role
+    const newUser: User = { id: nextId, username, password, rol };
     users.push(newUser);
     
     // Save updated users
     await saveItems(USERS_KEY, users);
     console.log("User added successfully. ID:", nextId);
-    return true;
+    
+    // Si se proporcionaron datos de activación, registrar el dispositivo
+    if (deviceId && activationKey) {
+      await registerActivatedDevice(deviceId, activationKey, nextId);
+    }
+    
+    return nextId;
   } catch (error) {
     console.error("Error inserting user:", error);
     return false;
+  }
+};
+
+export const initDatabase = async (): Promise<void> => {
+  try {
+    // Asegurar que todas las tablas estén configuradas
+    await setupActivatedDevicesTable();
+    
+    // Migración/limpieza de datos si es necesario
+    await cleanupData();
+    
+    console.log("Database initialized successfully");
+  } catch (error) {
+    console.error("Error initializing database:", error);
   }
 };
 
@@ -1486,12 +1654,23 @@ export const initializeApp = async (): Promise<void> => {
     // Check if any data exists
     const users = await getUsers();
     
-    // If no users, initialize with test data
+    // If no users, initialize with default users and test data
     if (users.length === 0) {
-      console.log("No users found. Initializing app with test data...");
+      console.log("No users found. Initializing app with default users and test data...");
       await addTestData();
     } else {
       console.log(`App initialized with ${users.length} existing users.`);
+      
+      // Ensure default users exist even if other users are present
+      const defaultUsernames = ["Bernabe", "Luis", "LuisAdmin"];
+      const missingUsers = defaultUsernames.filter(
+        username => !users.some(user => user.username === username)
+      );
+      
+      if (missingUsers.length > 0) {
+        console.log(`Adding missing default users: ${missingUsers.join(", ")}`);
+        await addTestData();
+      }
     }
   } catch (error) {
     console.error("Error initializing app:", error);

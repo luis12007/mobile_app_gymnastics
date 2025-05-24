@@ -19,13 +19,13 @@ interface VaultGroup {
 }
 
 // Props for the component
-interface WAGVaultSelectorModalProps {
+interface VaultSelectorModalProps {
   visible: boolean;
   onClose: () => void;
   onSelect: (vault: VaultOption, groupId: number, value: number, description: string) => void;
 }
 
-const WAGVaultSelectorModal: React.FC<WAGVaultSelectorModalProps> = ({
+const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
   visible,
   onClose,
   onSelect,
@@ -34,13 +34,13 @@ const WAGVaultSelectorModal: React.FC<WAGVaultSelectorModalProps> = ({
   const windowWidth = Dimensions.get('window').width;
   const isSmallScreen = windowWidth < 600;
 
-  // Use the same green color across all groups but with different shades
-  const baseGreen = "#8BC34A";
-  const lightGreen = "#C5E1A5";
-  const lighterGreen = "#DCEDC8";
-  const darkGreen = "#689F38";
+  // Green color scheme for WAG table
+  const baseGreen = "#4CAF50";
+  const lightGreen = "#81C784";
+  const lighterGreen = "#C8E6C9";
+  const darkGreen = "#388E3C";
   
-  // Define the vault groups with their data
+  // Define the vault groups with their data from the images
   const vaultGroups: VaultGroup[] = [
     {
       id: 1,
@@ -49,7 +49,7 @@ const WAGVaultSelectorModal: React.FC<WAGVaultSelectorModalProps> = ({
       vaults: [
         { id: "100", number: "100", value: 1.6, description: "Handspring forward" },
         { id: "101", number: "101", value: 2.0, description: "Handspring forward on - 1/2 turn (180°) off" },
-        { id: "102", number: "102", value: 2.6, description: "Handspring forward on - 1/2 turn (180°) off" },
+        { id: "102", number: "102", value: 2.6, description: "Handspring forward on - 1/1 turn (360°) off" },
         { id: "103", number: "103", value: 3.2, description: "Handspring forward on - 1 1/2 turn (540°) off (Kim)" },
         { id: "104", number: "104", value: 3.6, description: "Handspring forward on - 2/1 turn (720°) off" },
         { id: "105", number: "105", value: 4.0, description: "Handspring forward on - 2 1/2 turn (900°) off" },
@@ -70,7 +70,7 @@ const WAGVaultSelectorModal: React.FC<WAGVaultSelectorModalProps> = ({
         { id: "153", number: "153", value: 3.4, description: "Round-off, flic-flac with 1/2 turn (180°) on - 1 1/2 turn (540°) off" },
         { id: "160", number: "160", value: 2.4, description: "Round-off, flic-flac with 1/1 turn (360°) on - repulsion off" },
         { id: "161", number: "161", value: 2.8, description: "Round-off, flic-flac with 1/1 turn (360°) on - 1/2 turn (180°) off" },
-        { id: "162", number: "162", value: 3.2, description: "Round-off, flic-flac with 1/1 turn (360°) on - 1/1 turn (360°) off" },
+        { id: "162", number: "162", value: 3.2, description: "Round-off, flic-flac with 1/1 turn (360°) on - 1/1 turn (360°) off" }
       ]
     },
     {
@@ -85,14 +85,14 @@ const WAGVaultSelectorModal: React.FC<WAGVaultSelectorModalProps> = ({
         { id: "220", number: "220", value: 3.8, description: "Handspring forward on - piked salto forward off" },
         { id: "221", number: "221", value: 4.0, description: "Handspring forward on - piked salto fwd with 1/2 twist (180°) off, also - 1/2 turn (180°) and piked salto bwd off" },
         { id: "222", number: "222", value: 4.4, description: "Handspring forward on - piked salto fwd with 1/1 twist (360°) off (Chusovitina)" },
-        { id: "230", number: "230", value: 4.4, description: "Handspring forward on - stretched salto forward off (Produnova)" },
+        { id: "230", number: "230", value: 4.4, description: "Handspring forward on - stretched salto forward off (Evdokimova)" },
         { id: "231", number: "231", value: 4.6, description: "Handspring forward on - stretched salto forward with 1/2 twist (180°) off (Wang)" },
         { id: "232", number: "232", value: 5.0, description: "Handspring forward on - stretched salto forward with 1/1 twist (360°) off" },
         { id: "233", number: "233", value: 5.4, description: "Handspring forward on - stretched salto forward with 1 1/2 twist (540°) off (Chusovitina)" },
-        { id: "234", number: "234", value: 5.8, description: "Handspring forward on - stretched salto forward with 1/1 twist (360°) off" },
+        { id: "234", number: "234", value: 5.8, description: "Handspring forward on - stretched salto forward with 2/1 twist (720°) off (Yeo)" },
         { id: "240", number: "240", value: 4.8, description: "Handspring forward with 1/1 turn (360°) on - tucked salto forward off (Davydova)" },
         { id: "241", number: "241", value: 5.2, description: "Handspring forward with 1/1 turn (360°) on - piked salto forward off" },
-        { id: "250", number: "250", value: 6.0, description: "Handspring forward on - tucked double salto forward off (Produnova)" },
+        { id: "250", number: "250", value: 6.0, description: "Handspring forward on - tucked double salto forward off (Produnova)" }
       ]
     },
     {
@@ -104,14 +104,14 @@ const WAGVaultSelectorModal: React.FC<WAGVaultSelectorModalProps> = ({
         { id: "311", number: "311", value: 3.4, description: "Tsukahara tucked with 1/2 twist (180°) off" },
         { id: "312", number: "312", value: 3.8, description: "Tsukahara tucked with 1/1 twist (360°) off (Kim)" },
         { id: "313", number: "313", value: 4.2, description: "Tsukahara tucked with 1 1/2 twist (540°) off" },
-        { id: "314", number: "314", value: 4.6, description: "Tsukahara tucked with 2/1 twist (360°) off" },
+        { id: "314", number: "314", value: 4.6, description: "Tsukahara tucked with 2/1 twist (720°) off" },
         { id: "320", number: "320", value: 3.4, description: "Tsukahara piked" },
         { id: "330", number: "330", value: 3.8, description: "Tsukahara stretched" },
         { id: "331", number: "331", value: 4.0, description: "Tsukahara stretched with 1/2 twist (180°) off" },
         { id: "332", number: "332", value: 4.4, description: "Tsukahara stretched with 1/1 twist (360°) off (Kim)" },
         { id: "333", number: "333", value: 4.8, description: "Tsukahara stretched with 1 1/2 twist (540°) off" },
         { id: "334", number: "334", value: 5.2, description: "Tsukahara stretched with 2/1 twist (720°) off (Zamolodchikova)" },
-        { id: "335", number: "335", value: 5.6, description: "Tsukahara stretched with 2 1/2 twist (900°) off" },
+        { id: "335", number: "335", value: 5.6, description: "Tsukahara stretched with 2 1/2 twist (900°) off" }
       ]
     },
     {
@@ -125,7 +125,7 @@ const WAGVaultSelectorModal: React.FC<WAGVaultSelectorModalProps> = ({
         { id: "413", number: "413", value: 4.0, description: "Round-off, flic-flac on - tucked salto backward with 1 1/2 twist (540°) off" },
         { id: "414", number: "414", value: 4.4, description: "Round-off, flic-flac on - tucked salto backward with 2/1 twist (720°) off (Dungelova)" },
         { id: "420", number: "420", value: 3.2, description: "Round-off, flic-flac on - piked salto backward off" },
-        { id: "430", number: "430", value: 2.5, description: "Round-off, flic-flac on - stretched salto backward off" },
+        { id: "430", number: "430", value: 3.6, description: "Round-off, flic-flac on - stretched salto backward off" },
         { id: "431", number: "431", value: 3.8, description: "Round-off, flic-flac on - stretched salto backward with 1/2 twist (180°) off" },
         { id: "432", number: "432", value: 4.2, description: "Round-off, flic-flac on - stretched salto backward with 1/1 twist (360°) off" },
         { id: "433", number: "433", value: 4.6, description: "Round-off, flic-flac on - stretched salto backward with 1 1/2 twist (540°) off" },
@@ -138,7 +138,7 @@ const WAGVaultSelectorModal: React.FC<WAGVaultSelectorModalProps> = ({
         { id: "451", number: "451", value: 4.2, description: "Round-off, flic-flac with 3/4 turn (270°) on - stretched salto backward off" },
         { id: "452", number: "452", value: 4.6, description: "Round-off, flic-flac with 3/4 turn (270°) on - stretched salto backward with 1/2 twist (180°) off" },
         { id: "453", number: "453", value: 5.0, description: "Round-off, flic-flac with 3/4 turn (270°) on - stretched salto backward with 1/1 twist (360°) off" },
-        { id: "462", number: "462", value: 6.4, description: "Round-off, flic-flac on - double piked salto backward off (Biles)" },
+        { id: "462", number: "462", value: 6.4, description: "Round-off, flic-flac on - double piked salto backward off (Biles)" }
       ]
     },
     {
@@ -150,14 +150,14 @@ const WAGVaultSelectorModal: React.FC<WAGVaultSelectorModalProps> = ({
         { id: "511", number: "511", value: 4.0, description: "RO, flic-flac 1/2turn(180°) on-tucked salto fwd 1/2 twist(180°) off, also-1/2 turn(180°) & tucked salto bwd off (Servente)" },
         { id: "512", number: "512", value: 4.4, description: "Round-off, flic-flac with 1/2 turn (180°) on - tucked salto forward with 1/1 twist (360°) off" },
         { id: "513", number: "513", value: 4.8, description: "Round-off, flic-flac with 1/2 turn (180°) on - tucked salto forward with 1 1/2 twist (540°) off (Khorkina)" },
-        { id: "520", number: "520", value: 4.0, description: "Round-off, flic-flac with 1/2 turn (180°) on - piked salto forward off (Omeltchik)" },
+        { id: "520", number: "520", value: 4.0, description: "Round-off, flic-flac with 1/2 turn (180°) on - piked salto forward off (Omelianchik)" },
         { id: "521", number: "521", value: 4.2, description: "RO, flic-flac 1/2turn(180°) on-piked salto fwd 1/2 twist(180°) off, also-1/2 turn(180°) & piked salto bwd off (Podkopayeva)" },
         { id: "522", number: "522", value: 4.6, description: "Round-off, flic-flac with 1/2 turn (180°) on - piked salto forward with 1/1 twist (360°) off" },
         { id: "530", number: "530", value: 4.6, description: "Round-off, flic-flac with 1/2 turn (180°) on - stretched salto forward off" },
         { id: "531", number: "531", value: 4.8, description: "Round-off, flic-flac with 1/2 turn (180°) on - salto forward stretched with 1/2 twist (180°) off" },
         { id: "532", number: "532", value: 5.2, description: "Round-off, flic-flac with 1/2 turn (180°) on - stretched salto forward with 1/1 twist (360°) off" },
         { id: "533", number: "533", value: 5.6, description: "Round-off, flic-flac with 1/2 turn (180°) on - stretched salto forward with 1 1/2 twist (540°) off (Cheng)" },
-        { id: "534", number: "534", value: 6.0, description: "Round-off, flic-flac with 1/2 turn (180°) on - stretched salto forward with 2/1 twist (720°) off" },
+        { id: "534", number: "534", value: 6.0, description: "Round-off, flic-flac with 1/2 turn (180°) on - stretched salto forward with 2/1 twist (720°) off" }
       ]
     }
   ];
@@ -166,9 +166,6 @@ const WAGVaultSelectorModal: React.FC<WAGVaultSelectorModalProps> = ({
     setSelectedVaults({...selectedVaults, [groupId]: vault});
     onSelect(vault, groupId, value, description);
   };
-
-  // Title background color
-  const titleBackgroundColor = darkGreen;
 
   return (
     <Modal
@@ -179,7 +176,7 @@ const WAGVaultSelectorModal: React.FC<WAGVaultSelectorModalProps> = ({
     >
       <SafeAreaView style={styles.modalContainer}>
         <View style={styles.modalContent}>
-          <View style={[styles.modalHeader, { backgroundColor: titleBackgroundColor }]}>
+          <View style={[styles.modalHeader, { backgroundColor: darkGreen }]}>
             <Text style={styles.modalTitle}>WAG VAULT VALUE TABLE</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Ionicons name="close" size={24} color="#fff" />
@@ -200,7 +197,7 @@ const WAGVaultSelectorModal: React.FC<WAGVaultSelectorModalProps> = ({
                       style={[
                         styles.vaultItem,
                         selectedVaults[group.id]?.id === vault.id ? styles.selectedVault : {},
-                        { backgroundColor: lighterGreen }
+                        { backgroundColor: '#E8F5E9' }
                       ]}
                       onPress={() => handleSelect(vault, group.id, vault.value, vault.description)}
                     >
@@ -243,7 +240,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderRadius: 10,
     width: '96%',
-    maxWidth: 900,
+    maxWidth: 1000,
     maxHeight: '96%',
     overflow: 'hidden',
     shadowColor: '#000',
@@ -301,7 +298,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
   },
   vaultsContainerSmall: {
-    flexDirection: 'column',
   },
   vaultItem: {
     width: '31%',
@@ -320,6 +316,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 3,
     elevation: 5,
+    backgroundColor: '#C8E6C9',
   },
   vaultNumberValue: {
     flexDirection: 'row',
@@ -339,6 +336,7 @@ const styles = StyleSheet.create({
   vaultDescription: {
     fontSize: 12,
     color: '#333',
+    lineHeight: 16,
   },
   footer: {
     padding: 12,
@@ -361,4 +359,4 @@ const styles = StyleSheet.create({
   }
 });
 
-export default WAGVaultSelectorModal;
+export default VaultSelectorModal;

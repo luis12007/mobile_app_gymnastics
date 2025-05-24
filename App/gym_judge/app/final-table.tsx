@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from 'react';
 import {
+  Alert,
   Dimensions,
   Modal,
   SafeAreaView,
@@ -11,7 +12,7 @@ import {
   View
 } from 'react-native';
 import { getMainTablesByCompetenceId, getRateGeneralByTableId } from "../Database/database";
-import { exportToPDF } from '../components/exportToPDF';
+import { generateComprehensivePDF } from '../components/exportToPDF';
 
 interface MainTable {
   id: number;
@@ -137,17 +138,87 @@ const GymnasticsScoreTable: React.FC = () => {
     setModalVisible(true);
   };
 
-  const handleDownloadPDF = async () => {
+const handleDownloadPDF = async () => {
   try {
     setPdfExporting(true);
-    const filePath = await exportToPDF(tables);
+    
+    console.log('Starting comprehensive PDF generation...');
+    
+    // Prepare data for comprehensive PDF
+    const finalTableData = {
+      competition: {
+        title: "Gymnastics Competition Final Results",
+        event: event || "All Events",
+        discipline: discipline ? "MAG (Men's Artistic Gymnastics)" : "WAG (Women's Artistic Gymnastics)",
+        date: new Date().toLocaleString(),
+        totalParticipants: tables.length,
+        competenceId: competenceId || 1
+      },
+      participants: tables.map((table, index) => ({
+        position: index + 1,
+        number: table.number || index + 1,
+        name: table.name || "Unknown Gymnast",
+        noc: table.noc || "---",
+        event: table.event || event || "FX",
+        bib: table.bib || index + 1,
+        elements: {
+          j: table.j || 0,
+          i: table.i || 0,
+          h: table.h || 0,
+          g: table.g || 0,
+          f: table.f || 0,
+          e: table.e || 0,
+          d: table.d || 0,
+          c: table.c || 0,
+          b: table.b || 0,
+          a: table.a || 0
+        },
+        scores: {
+          difficultyValues: table.rateGeneral?.difficultyValues || 0,
+          elementGroups: table.rateGeneral?.elementGroups5 || 0,
+          stickBonus: table.rateGeneral?.stickBonus ? 0.1 : 0,
+          neutralDeductions: table.nd || 0,
+          connectionValue: table.cv || 0,
+          startValue: table.sv || 0,
+          executionScore: table.rateGeneral?.eScore || 0,
+          dScore: table.rateGeneral?.compD || 0,
+          eScore: table.rateGeneral?.compE || 0,
+          finalScore: table.rateGeneral?.compScore || 0,
+          myScorefinal: table.rateGeneral?.myScore || 0,
+        },
+        details: {
+          delta: table.delt || 0,
+          percentage: table.percentage || 0,
+          comments: table.rateGeneral?.comments || ""
+        }
+      }))
+    };
+
+    // Generate comprehensive PDF with individual pages + final table
+    await generateComprehensivePDF(tables, finalTableData);
+    
+    console.log('Comprehensive PDF generated successfully');
+    
     setPdfExporting(false);
     setModalVisible(false);
-    // Optionally open or share the PDF here
+    
+    Alert.alert(
+      "Success", 
+      `Comprehensive report generated!\n\n• Individual reports: ${tables.length} gymnasts\n• Final competition table included`,
+      [{ text: "OK" }]
+    );
+    
     router.push(`/main-menu?discipline=${discipline}`);
+    
   } catch (error) {
     console.error("Error exporting PDF:", error);
     setPdfExporting(false);
+    
+    Alert.alert(
+      "Error", 
+      `Failed to generate PDF: ${error.message}. Please try again.`,
+      [{ text: "OK" }]
+    );
   }
 };
 

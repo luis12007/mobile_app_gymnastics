@@ -1,4 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Crypto from 'expo-crypto';
+import * as Device from 'expo-device';
+import * as Linking from 'expo-linking';
 import { useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -9,15 +12,20 @@ import {
   Easing,
   Image,
   ImageStyle,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View
 } from "react-native";
-const CURRENT_USER_KEY = "currentUser";
 
-import { insertUser, validateUser } from "../Database/database";
+const CURRENT_USER_KEY = "currentUser";
+const DEVICE_ID_KEY = "deviceId";
+const APP_ACTIVATED_KEY = "appActivated";
+const FIRST_RUN_KEY = "app_first_run";
+
+import { insertUser, registerActivatedDevice, validateUser } from "../Database/database";
 
 const { width, height } = Dimensions.get("window");
 
@@ -30,6 +38,14 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showContent, setShowContent] = useState(false);
+  
+  // New states for device registration
+  const [showRegistration, setShowRegistration] = useState(false);
+  const [activationKey, setActivationKey] = useState("");
+  const [registerUsername, setRegisterUsername] = useState("");
+  const [registerPassword, setRegisterPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [deviceInfo, setDeviceInfo] = useState(null);
 
   // Animation values
   const logoScale = useRef(new Animated.Value(2)).current;
@@ -37,6 +53,46 @@ export default function LoginScreen() {
   const contentOpacity = useRef(new Animated.Value(0)).current;
   const inputsTranslateY = useRef(new Animated.Value(50)).current;
   const buttonTranslateY = useRef(new Animated.Value(50)).current;
+
+// Función para crear usuarios por defecto solo si no existen
+const createDefaultUsers = async () => {
+  try {
+    // Lista de usuarios predeterminados
+    const defaultUsers = [
+      { username: "Bernabe", password: "Bernabe2025", rol: "admin" },
+      { username: "Luis", password: "TestDev1", rol: "user" },
+      { username: "LuisAdmin", password: "TestDev2", rol: "admin" }
+    ];
+    
+    // Importar la función para verificar si un usuario existe
+    const { checkUserExists } = await import("../Database/database");
+    
+    // Crear cada usuario solo si no existe
+    for (const user of defaultUsers) {
+      // Verificar si el usuario ya existe
+      const exists = await checkUserExists(user.username);
+      
+      if (exists) {
+        console.log(`El usuario ${user.username} ya existe, no se creará nuevamente`);
+        continue; // Saltar al siguiente usuario
+      }
+      
+      // Crear usuario si no existe
+      const userId = await insertUser(user.username, user.password, "null", "null", user.rol);
+      
+      if (userId) {
+        console.log(`Usuario por defecto creado: ${user.username} (${user.rol})`);
+      } else {
+        console.error(`Error al crear usuario por defecto: ${user.username}`);
+      }
+    }
+    
+    console.log("Proceso de creación de usuarios por defecto completado");
+    
+  } catch (error) {
+    console.error("Error creando usuarios por defecto:", error);
+  }
+};
 
   useEffect(() => {
     // Start the animation sequence after a short delay
@@ -82,18 +138,48 @@ export default function LoginScreen() {
       });
     }, 300);
 
-    // Add a test user when the app starts
-    const addTestUser = async () => {
-      try {
-        await insertUser("Luis", "123");
-        console.log("Test user added (or already exists)");
-      } catch (error) {
-        console.error("Error adding test user:", error);
+    const checkFirstRun = async () => {
+    try {
+      const firstRun = await AsyncStorage.getItem(FIRST_RUN_KEY);
+      
+      if (firstRun === null) {
+        console.log("Primera ejecución de la aplicación - creando usuarios por defecto");
+        
+        // Crear usuarios por defecto
+        await createDefaultUsers();
+        
+        // Marcar que la app ya ha sido inicializada
+        await AsyncStorage.setItem(FIRST_RUN_KEY, 'false');
+      } else {
+        console.log("La aplicación ya había sido inicializada anteriormente");
       }
-    };
-    
-    addTestUser();
+      
+      // Verificar si el dispositivo está registrado (código existente)
+      checkDeviceRegistration();
+    } catch (error) {
+      console.error("Error al verificar primera ejecución:", error);
+    }
+  };
+  
+  // Iniciar la verificación
+  checkFirstRun();
+
+    // Check if device is already registered
+    checkDeviceRegistration();
   }, []);
+  
+  // Function to check if the device is already registered
+  const checkDeviceRegistration = async () => {
+    try {
+      const isActivated = await AsyncStorage.getItem(APP_ACTIVATED_KEY);
+      if (isActivated === 'true') {
+        // Device is already activated
+        console.log("Device is already activated");
+      }
+    } catch (error) {
+      console.error("Error checking device registration:", error);
+    }
+  };
 
   const handleLogin = async () => {
     try {
@@ -114,7 +200,7 @@ export default function LoginScreen() {
         console.log("User logged in successfully. User ID:", userId);
         
         // Navigate to the main menu after successful login
-        router.push('/select-sex');
+        router.push(`/select-sex?userId=${userId}`);
       } else {
         Alert.alert("Error", "Invalid username or password");
       }
@@ -125,33 +211,159 @@ export default function LoginScreen() {
       setIsLoading(false);
     }
   };
-
-  const handleRegister = async () => {
-    if (!username.trim() || !password.trim()) {
-      Alert.alert("Error", "Username and password cannot be empty");
+  
+  // Function to initiate the device registration process
+  const initiateRegistration = async () => {
+    setIsLoading(true);
+    try {
+      // Gather device information
+      const deviceData = await getDeviceInfo();
+      setDeviceInfo(deviceData);
+      
+      // Generate a unique device ID
+      const deviceId = await generateDeviceId(deviceData);
+      await AsyncStorage.setItem(DEVICE_ID_KEY, deviceId);
+      
+      // Create email with device information
+      const emailSubject = encodeURIComponent("GymJudge Device Registration Request");
+      const emailBody = encodeURIComponent(
+        `Hello,\n\nI would like to register my device for the GymJudge application.\n\n` +
+        `Device Information:\n${JSON.stringify(deviceData, null, 2)}\n\n` +
+        `Device ID: ${deviceId}\n\n` +
+        `Please send me an activation key for this device.\n\nThank you.`
+      );
+      
+      const mailtoLink = `mailto:luishdezmtz12@gmail.com?subject=${emailSubject}&body=${emailBody}`;
+      
+      // Open the user's mail client
+      const canOpen = await Linking.canOpenURL(mailtoLink);
+      
+      if (canOpen) {
+        await Linking.openURL(mailtoLink);
+        setShowRegistration(true);
+        Alert.alert(
+          "Registration Started",
+          "An email has been prepared with your device information. Send it to receive your activation key."
+        );
+      } else {
+        Alert.alert(
+          "Error",
+          "Could not open email client. Please contact support manually."
+        );
+      }
+    } catch (error) {
+      console.error("Error initiating registration:", error);
+      Alert.alert("Error", "Failed to start registration process");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  // Function to complete the registration process
+  const completeRegistration = async () => {
+    if (!activationKey.trim() || !registerUsername.trim() || !registerPassword.trim() || !confirmPassword.trim()) {
+      Alert.alert("Error", "All fields are required");
+      return;
+    }
+    
+    if (registerPassword !== confirmPassword) {
+      Alert.alert("Error", "Passwords do not match");
       return;
     }
     
     setIsLoading(true);
     
     try {
-      const success = await insertUser(username.trim(), password.trim());
-      if (success) {
-        Alert.alert("User Registered", "You can now log in.");
+      // Get the stored device ID
+      const deviceId = await AsyncStorage.getItem(DEVICE_ID_KEY);
+      
+      if (!deviceId) {
+        Alert.alert("Error", "Device information not found. Please restart the registration process.");
+        return;
+      }
+      
+      // Validate the activation key
+      const isValid = await validateActivationKey(activationKey, deviceId);
+      
+      if (isValid) {
+        // Register the new user
+        const userId = await insertUser(registerUsername, registerPassword);
+        
+        if (userId) {
+          // Mark the device as activated
+          await AsyncStorage.setItem(APP_ACTIVATED_KEY, 'true');
+          
+          // Register the activated device
+          await registerActivatedDevice(deviceId, activationKey, userId);
+          
+          Alert.alert(
+            "Registration Complete",
+            "Your account has been created successfully. You can now log in.",
+            [{ text: "OK", onPress: () => setShowRegistration(false) }]
+          );
+        } else {
+          Alert.alert("Registration Failed", "Username may already exist or registration failed.");
+        }
       } else {
-        Alert.alert("Registration Failed", "User already exists or registration failed.");
+        Alert.alert("Invalid Key", "The activation key is not valid for this device.");
       }
     } catch (error) {
-      console.error("Error registering:", error);
-      Alert.alert("Error", "Failed to register");
+      console.error("Error completing registration:", error);
+      Alert.alert("Error", "Failed to complete registration");
     } finally {
       setIsLoading(false);
     }
   };
+  
+  // Function to collect device information
+  const getDeviceInfo = async () => {
+    return {
+      deviceName: Device.deviceName || 'Unknown',
+      brand: Device.brand || 'Unknown',
+      modelName: Device.modelName || 'Unknown',
+      osName: Device.osName || 'Unknown',
+      osVersion: Device.osVersion || 'Unknown',
+      timestamp: new Date().toISOString()
+    };
+  };
+  
+  // Function to generate a unique device ID
+  const generateDeviceId = async (deviceInfo) => {
+    const deviceString = JSON.stringify(deviceInfo);
+    const hash = await Crypto.digestStringAsync(
+      Crypto.CryptoDigestAlgorithm.SHA256,
+      deviceString
+    );
+    return hash.substring(0, 16); // Use only first 16 characters for readability
+  };
+  
+  // Function to validate the activation key
+  const validateActivationKey = async (key, deviceId) => {
+    // Key format: GYM-[hash]-[timestamp]
+    const parts = key.split('-');
+    
+    if (parts.length !== 3 || parts[0] !== 'GYM') {
+      return false;
+    }
+    
+    // Extract the hash from the key
+    const keyHash = parts[1];
+    
+    // Recreate the hash using the device ID and app secret
+    const APP_SECRET = 'GymJudge2023SecretKey'; // Should be stored more securely
+    const validationString = deviceId + APP_SECRET;
+    
+    const expectedHash = await Crypto.digestStringAsync(
+      Crypto.CryptoDigestAlgorithm.SHA256,
+      validationString
+    );
+    
+    // Compare first 8 characters for simplicity
+    const expectedShortHash = expectedHash.substring(0, 8);
+    
+    return keyHash === expectedShortHash;
+  };
 
-  const gotoboard = () => {
-    router.push('/WhiteboardScreen');
-  }
   // Calculate logo transform based on animation values
   const logoTransform = [
     { scale: logoScale },
@@ -175,7 +387,7 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Background Images with fade-in animation - using ternary operator for sizes */}
+      {/* Background Images with fade-in animation */}
       <Animated.Image
         source={require("../assets/images/Vector2.png")}
         style={[
@@ -194,10 +406,9 @@ export default function LoginScreen() {
         resizeMode="cover"
       />
 
-
       {/* Content */}
       <View style={styles.contentContainer}>
-        {/* Logo Section with scale and position animation */}
+        {/* Logo Section */}
         <Animated.Image
           source={require("../assets/images/Logo_Background.png")}
           style={[
@@ -212,117 +423,268 @@ export default function LoginScreen() {
           resizeMode="contain"
         />
 
-        {/* Form elements with fade and slide animation */}
-        <Animated.View 
-          style={{ 
-            opacity: contentOpacity, 
-            transform: [{ translateY: inputsTranslateY }],
-            width: "100%",
-            alignItems: "center"
-          }}
-        >
-
-          {/* Username Input */}
-          <View
-            style={[
-              isLargeScreen ? styles.inputContainerLarge : styles.inputContainerSmall,
-            ]}
+        {/* Show Registration Form or Login Form based on state */}
+        {showRegistration ? (
+          // Registration Form
+          <ScrollView 
+            contentContainerStyle={{ alignItems: 'center' }}
+            style={{ width: '100%' }}
           >
-            <Image
-              source={require("../assets/images/user.png")}
-              style={[
-                isLargeScreen ? styles.image_inputLarge : styles.image_inputSmall
-              ]}
-              resizeMode="contain"
-            />
-            <TextInput
-              placeholder="Username"
-              style={[
-                isLargeScreen ? styles.inputTextLarge : styles.inputTextSmall
-              ]}
-              placeholderTextColor="#555"
-              value={username}
-              onChangeText={setUsername}
-              autoCapitalize="none"
-            />
-          </View>
+            <Animated.View 
+              style={{ 
+                opacity: contentOpacity, 
+                transform: [{ translateY: inputsTranslateY }],
+                width: "100%",
+                alignItems: "center",
+                paddingHorizontal: 20
+              }}
+            >
+              <Text style={styles.registrationTitle}>Complete Registration</Text>
+              <Text style={styles.registrationSubtitle}>
+                Enter the activation key you received by email and create your account
+              </Text>
 
-          {/* Password Input */}
-          <View
-            style={[
-              isLargeScreen ? styles.inputContainerLarge : styles.inputContainerSmall,
-            ]}
-          >
-            <Image
-              source={require("../assets/images/locked-computer.png")}
-              style={[
-                isLargeScreen ? styles.image_inputLarge : styles.image_inputSmall
-              ]}
-              resizeMode="contain"
-            />
-            <TextInput
-              placeholder="Password"
-              secureTextEntry
-              style={[
-                isLargeScreen ? styles.inputTextLarge : styles.inputTextSmall
-              ]}
-              placeholderTextColor="#555"
-              value={password}
-              onChangeText={setPassword}
-              autoCapitalize="none"
-            />
-          </View>
-        </Animated.View>
+              {/* Activation Key Input */}
+              <View style={[isLargeScreen ? styles.inputContainerLarge : styles.inputContainerSmall]}>
+                <Image
+                  source={require("../assets/images/locked-computer.png")}
+                  style={[isLargeScreen ? styles.image_inputLarge : styles.image_inputSmall]}
+                  resizeMode="contain"
+                />
+                <TextInput
+                  placeholder="Activation Key"
+                  style={[isLargeScreen ? styles.inputTextLarge : styles.inputTextSmall]}
+                  placeholderTextColor="#555"
+                  value={activationKey}
+                  onChangeText={setActivationKey}
+                  autoCapitalize="none"
+                />
+              </View>
 
-        {/* Login Button with slide animation */}
-        <Animated.View 
-          style={{ 
-            opacity: contentOpacity, 
-            transform: [{ translateY: buttonTranslateY }],
-            width: "100%",
-            alignItems: "center"
-          }}
-        >
-          <TouchableOpacity
-            onPress={handleLogin}
-            style={[
-              isLargeScreen ? styles.loginButtonLarge : styles.loginButtonSmall,
-            ]}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text
+              {/* Username Input */}
+              <View style={[isLargeScreen ? styles.inputContainerLarge : styles.inputContainerSmall]}>
+                <Image
+                  source={require("../assets/images/user.png")}
+                  style={[isLargeScreen ? styles.image_inputLarge : styles.image_inputSmall]}
+                  resizeMode="contain"
+                />
+                <TextInput
+                  placeholder="Username"
+                  style={[isLargeScreen ? styles.inputTextLarge : styles.inputTextSmall]}
+                  placeholderTextColor="#555"
+                  value={registerUsername}
+                  onChangeText={setRegisterUsername}
+                  autoCapitalize="none"
+                />
+              </View>
+
+              {/* Password Input */}
+              <View style={[isLargeScreen ? styles.inputContainerLarge : styles.inputContainerSmall]}>
+                <Image
+                  source={require("../assets/images/locked-computer.png")}
+                  style={[isLargeScreen ? styles.image_inputLarge : styles.image_inputSmall]}
+                  resizeMode="contain"
+                />
+                <TextInput
+                  placeholder="Password"
+                  secureTextEntry
+                  style={[isLargeScreen ? styles.inputTextLarge : styles.inputTextSmall]}
+                  placeholderTextColor="#555"
+                  value={registerPassword}
+                  onChangeText={setRegisterPassword}
+                  autoCapitalize="none"
+                />
+              </View>
+
+              {/* Confirm Password Input */}
+              <View style={[isLargeScreen ? styles.inputContainerLarge : styles.inputContainerSmall]}>
+                <Image
+                  source={require("../assets/images/locked-computer.png")}
+                  style={[isLargeScreen ? styles.image_inputLarge : styles.image_inputSmall]}
+                  resizeMode="contain"
+                />
+                <TextInput
+                  placeholder="Confirm Password"
+                  secureTextEntry
+                  style={[isLargeScreen ? styles.inputTextLarge : styles.inputTextSmall]}
+                  placeholderTextColor="#555"
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  autoCapitalize="none"
+                />
+              </View>
+
+              {/* Action Buttons */}
+              <View style={styles.buttonRow}>
+                <TouchableOpacity
+                  onPress={() => setShowRegistration(false)}
+                  style={[
+                    isLargeScreen ? styles.secondaryButtonLarge : styles.secondaryButtonSmall,
+                  ]}
+                >
+                  <Text style={styles.secondaryButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  onPress={completeRegistration}
+                  style={[
+                    isLargeScreen ? styles.loginButtonLargeRegister : styles.loginButtonSmallRegister,
+                    { marginLeft: 10,}
+                  ]}
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={[isLargeScreen ? styles.loginTextLargeRegister : styles.loginTextSmallRegister]}>
+                      Register
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+              
+              <Text style={styles.helpText}>
+                If you don't have an activation key, use the "Register New Device" button
+                on the login screen to request one.
+              </Text>
+            </Animated.View>
+          </ScrollView>
+        ) : (
+          // Login Form
+          <>
+            <Animated.View 
+              style={{ 
+                opacity: contentOpacity, 
+                transform: [{ translateY: inputsTranslateY }],
+                width: "100%",
+                alignItems: "center"
+              }}
+            >
+              {/* Username Input */}
+              <View
                 style={[
-                  isLargeScreen ? styles.loginTextLarge : styles.loginTextSmall,
+                  isLargeScreen ? styles.inputContainerLarge : styles.inputContainerSmall,
                 ]}
               >
-                Log In
-              </Text>
-            )}
-          </TouchableOpacity>
-        </Animated.View>
-        
-        {/* Default user credentials with fade animation */}
-        <Animated.View style={[
-          styles.defaultUserContainer, 
-          { opacity: contentOpacity },
-          !isLargeScreen && styles.defaultUserContainerSmall
-        ]}>
-          <Text style={[
-            isLargeScreen ? styles.defaultUserTextLarge : styles.defaultUserTextSmall
-          ]}>Default User:</Text>
-          <Text style={[
-            isLargeScreen ? styles.defaultUserTextLarge : styles.defaultUserTextSmall
-          ]}>Username: Luis</Text>
-          <Text style={[
-            isLargeScreen ? styles.defaultUserTextLarge : styles.defaultUserTextSmall
-          ]}>Password: 123</Text>
-          <Text style={[
-            isLargeScreen ? styles.defaultUserTextLarge : styles.defaultUserTextSmall
-          ]}>Width: {width} ~ Height: {height}</Text>
-        </Animated.View>
+                <Image
+                  source={require("../assets/images/user.png")}
+                  style={[
+                    isLargeScreen ? styles.image_inputLarge : styles.image_inputSmall
+                  ]}
+                  resizeMode="contain"
+                />
+                <TextInput
+                  placeholder="Username"
+                  style={[
+                    isLargeScreen ? styles.inputTextLarge : styles.inputTextSmall
+                  ]}
+                  placeholderTextColor="#555"
+                  value={username}
+                  onChangeText={setUsername}
+                  autoCapitalize="none"
+                />
+              </View>
+
+              {/* Password Input */}
+              <View
+                style={[
+                  isLargeScreen ? styles.inputContainerLarge : styles.inputContainerSmall,
+                ]}
+              >
+                <Image
+                  source={require("../assets/images/locked-computer.png")}
+                  style={[
+                    isLargeScreen ? styles.image_inputLarge : styles.image_inputSmall
+                  ]}
+                  resizeMode="contain"
+                />
+                <TextInput
+                  placeholder="Password"
+                  secureTextEntry
+                  style={[
+                    isLargeScreen ? styles.inputTextLarge : styles.inputTextSmall
+                  ]}
+                  placeholderTextColor="#555"
+                  value={password}
+                  onChangeText={setPassword}
+                  autoCapitalize="none"
+                />
+              </View>
+            </Animated.View>
+
+            {/* Login and Register Buttons */}
+            <Animated.View 
+              style={{ 
+                opacity: contentOpacity, 
+                transform: [{ translateY: buttonTranslateY }],
+                width: "100%",
+                alignItems: "center"
+              }}
+            >
+              {/* Login Button */}
+              <TouchableOpacity
+                onPress={handleLogin}
+                style={[
+                  isLargeScreen ? styles.loginButtonLarge : styles.loginButtonSmall,
+                ]}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text
+                    style={[
+                      isLargeScreen ? styles.loginTextLarge : styles.loginTextSmall,
+                    ]}
+                  >
+                    Log In
+                  </Text>
+                )}
+              </TouchableOpacity>
+              
+              {/* Register Device Button */}
+              <TouchableOpacity
+                onPress={initiateRegistration}
+                style={[
+                  isLargeScreen ? styles.registerButtonLarge : styles.registerButtonSmall,
+                ]}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text
+                    style={[
+                      isLargeScreen ? styles.registerTextLarge : styles.registerTextSmall,
+                    ]}
+                  >
+                    Register New Device
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </Animated.View>
+            
+            {/* Default user credentials */}
+            {/* <Animated.View style={[
+              styles.defaultUserContainer, 
+              { opacity: contentOpacity },
+              !isLargeScreen && styles.defaultUserContainerSmall
+            ]}>
+              <Text style={[
+                isLargeScreen ? styles.defaultUserTextLarge : styles.defaultUserTextSmall
+              ]}>Default User:</Text>
+              <Text style={[
+                isLargeScreen ? styles.defaultUserTextLarge : styles.defaultUserTextSmall
+              ]}>Username: Luis</Text>
+              <Text style={[
+                isLargeScreen ? styles.defaultUserTextLarge : styles.defaultUserTextSmall
+              ]}>Password: 123</Text>
+              <Text style={[
+                isLargeScreen ? styles.defaultUserTextLarge : styles.defaultUserTextSmall
+              ]}>Width: {width} ~ Height: {height}</Text>
+            </Animated.View> */}
+          </>
+        )}
       </View>
     </View>
   );
@@ -334,7 +696,7 @@ const styles = StyleSheet.create({
     position: "relative",
     backgroundColor: "#F1F3F5",
   },
-  // Background images - large variants (width >= 1000 && height >= 700)
+  // Background images - large variants
   backgroundImageLarge: {
     position: "absolute",
     top: 0,
@@ -349,7 +711,7 @@ const styles = StyleSheet.create({
     width: 300,
     height: 570,
   },
-  // Background images - small variants (width < 1000 || height < 700)
+  // Background images - small variants
   backgroundImageSmall: {
     position: "absolute",
     top: 0,
@@ -439,13 +801,29 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginTop: 10,
   },
+  loginButtonLargeRegister: {
+    backgroundColor: "#004aad",
+    borderRadius: 8,
+    paddingVertical: 7,
+    alignItems: "center",
+    width: "30%",
+    alignSelf: "center",
+  },
+  loginButtonSmallRegister: {
+    backgroundColor: "#004aad",
+    borderRadius: 6,
+    paddingVertical: 10,
+    alignItems: "center",
+    width: "34%",
+    alignSelf: "center",
+  },
+
   loginButtonSmall: {
     backgroundColor: "#004aad",
     borderRadius: 6,
     paddingVertical: 10,
     alignItems: "center",
-    width: "34%"
-    ,
+    width: "34%",
     alignSelf: "center",
     marginTop: 8,
   },
@@ -455,11 +833,25 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 30,
   },
+
+  loginTextLargeRegister: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 28,
+  },
+
+  loginTextSmallRegister: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 20,
+  },
+
   loginTextSmall: {
     color: "#fff",
     fontWeight: "bold",
     fontSize: 23,
   },
+  
   // Default user container styles
   defaultUserContainer: {
     marginTop: 20,
@@ -477,4 +869,79 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#555",
   },
+  // New styles for registration
+  registrationTitle: {
+    fontSize: width >= 1000 && height >= 700 ? 28 : 22,
+    fontWeight: "bold",
+    color: "#004aad",
+    marginBottom: 10,
+    textAlign: "center"
+  },
+  registrationSubtitle: {
+    fontSize: width >= 1000 && height >= 700 ? 16 : 14,
+    color: "#666",
+    marginBottom: 20,
+    textAlign: "center",
+    maxWidth: "80%"
+  },
+  registerButtonLarge: {
+    backgroundColor: "#2E8B57", // Dark Green
+    borderRadius: 8,
+    paddingVertical: 7,
+    alignItems: "center",
+    width: "30%",
+    alignSelf: "center",
+    marginTop: 10,
+  },
+  registerButtonSmall: {
+    backgroundColor: "#2E8B57", // Dark Green
+    borderRadius: 6,
+    paddingVertical: 10,
+    alignItems: "center",
+    width: "34%",
+    alignSelf: "center",
+    marginTop: 8,
+  },
+  registerTextLarge: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 24,
+  },
+  registerTextSmall: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 18,
+  },
+  buttonRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: 10
+  },
+  secondaryButtonLarge: {
+    backgroundColor: "#888",
+    borderRadius: 8,
+    paddingVertical: 7,
+    alignItems: "center",
+    width: "15%",
+  },
+  secondaryButtonSmall: {
+    backgroundColor: "#888",
+    borderRadius: 6,
+    paddingVertical: 10,
+    alignItems: "center",
+    width: "17%",
+  },
+  secondaryButtonText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: width >= 1000 && height >= 700 ? 30 : 23,
+  },
+  helpText: {
+    marginTop: 20,
+    fontSize: width >= 1000 && height >= 700 ? 14 : 12,
+    color: "#666",
+    textAlign: "center",
+    paddingHorizontal: 20,
+    marginBottom: 20
+  }
 });

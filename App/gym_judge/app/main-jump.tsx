@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 
+import SimplifiedNumberPad from "@/components/CustomNumberPad";
 import {
   getCompetenceById,
   getMainTableById,
@@ -184,6 +185,10 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
 
   const router = useRouter();
 
+  /* Keyboard usestates */
+const [isCustomKeyboardVisible, setIsCustomKeyboardVisible] = useState(false);
+const [ndInputValue, setNdInputValue] = useState("0.0");
+
   /* Define usestate */
   const [showNdModal, setShowNdModal] = useState(false);
   const [ndInput, setNdInput] = useState("");
@@ -317,23 +322,20 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
     fetchMainRateGeneral();
   }, [gymnastid]); // Re-fetch data when gymnastid changes
 
-  useEffect(() => {
-    if (showNdModal && ndInputRef.current) {
-      if (Platform.OS === "web") {
-        const input = ndInputRef.current;
-        if (input && input.focus) {
-          input.focus();
-          setTimeout(() => {
-            if (input.setSelectionRange) {
-              input.setSelectionRange(0, input.value.length);
-            }
-          }, 10);
+// Modificar el useEffect para mostrar el teclado personalizado
+useEffect(() => {
+  if (showNdModal) {
+    setIsCustomKeyboardVisible(true);
+    // Solo enfoca si es necesario para mostrar el cursor, pero sin activar el teclado
+    if (ndInputRef.current) {
+      setTimeout(() => {
+        if (Platform.OS === 'ios') {
+          ndInputRef.current?.focus();
         }
-      } else {
-        ndInputRef.current.focus();
-      }
+      }, 100);
     }
-  }, [showNdModal]);
+  }
+}, [showNdModal]);
 
   useEffect(() => {
     if (showNdModalcomp && ndInputRefcomp.current) {
@@ -354,61 +356,52 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   }, [showNdModalcomp]);
 
   useEffect(() => {
-    if (showDModal && dInputRef.current) {
-      if (Platform.OS === "web") {
-        const input = dInputRef.current;
-        if (input && input.focus) {
-          input.focus();
-          setTimeout(() => {
-            if (input.setSelectionRange) {
-              input.setSelectionRange(0, input.value.length);
-            }
-          }, 10);
+  if (showDModal) {
+    setIsCustomKeyboardVisible(true);
+    if (dInputRef.current) {
+      setTimeout(() => {
+        if (Platform.OS === 'ios') {
+          dInputRef.current?.blur();
+          dInputRef.current?.focus();
         }
-      } else {
-        dInputRef.current.focus();
-      }
+      }, 100);
     }
-  }, [showDModal]);
+  } else {
+    setIsCustomKeyboardVisible(false);
+  }
+}, [showDModal]);
 
-  useEffect(() => {
-    if (showEModal && eInputRef.current) {
-      if (Platform.OS === "web") {
-        const input = eInputRef.current;
-        if (input && input.focus) {
-          input.focus();
-          setTimeout(() => {
-            if (input.setSelectionRange) {
-              input.setSelectionRange(0, input.value.length);
-            }
-          }, 10);
+useEffect(() => {
+  if (showEModal) {
+    setIsCustomKeyboardVisible(true);
+    if (eInputRef.current) {
+      setTimeout(() => {
+        if (Platform.OS === 'ios') {
+          eInputRef.current?.blur();
+          eInputRef.current?.focus();
         }
-      } else {
-        eInputRef.current.focus();
-      }
+      }, 100);
     }
-  }, [showEModal]);
+  } else {
+    setIsCustomKeyboardVisible(false);
+  }
+}, [showEModal]);
 
-  useEffect(() => {
-    if (showExecutionModal && executionInputRef.current) {
-      if (Platform.OS === "web") {
-        // For web, use the underlying DOM node
-        const input = executionInputRef.current;
-        if (input && input.focus) {
-          input.focus();
-          // Select all text after a short delay (to ensure focus)
-          setTimeout(() => {
-            if (input.setSelectionRange) {
-              input.setSelectionRange(0, input.value.length);
-            }
-          }, 10);
+useEffect(() => {
+  if (showExecutionModal) {
+    setIsCustomKeyboardVisible(true);
+    if (executionInputRef.current) {
+      setTimeout(() => {
+        if (Platform.OS === 'ios') {
+          executionInputRef.current?.blur();
+          executionInputRef.current?.focus();
         }
-      } else {
-        // Native platforms
-        executionInputRef.current.focus();
-      }
+      }, 100);
     }
-  }, [showExecutionModal]);
+  } else {
+    setIsCustomKeyboardVisible(false);
+  }
+}, [showExecutionModal]);
 
   /* Buttons un the bottom */
 
@@ -637,448 +630,539 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
     return percentageTable[dedInterval - 1][deltIndex] || 0;
   }
 
+  useEffect(() => {
+  if (showNdCompModal) {
+    setIsCustomKeyboardVisible(true);
+    if (ndInputRefcomp.current) {
+      setTimeout(() => {
+        if (Platform.OS === 'ios') {
+          ndInputRefcomp.current?.blur();
+          ndInputRefcomp.current?.focus();
+        }
+      }, 100);
+    }
+  } else {
+    setIsCustomKeyboardVisible(false);
+  }
+}, [showNdCompModal]);
+
+
   return (
     <SafeAreaView style={styles.container}>
-      {showNdCompModal && (
-        <View
+{showNdCompModal && (
+  <View
+    style={{
+      position: "absolute",
+      left: 0,
+      right: 0,
+      zIndex: 10000,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(0,0,0,0.2)",
+      height: "105%",
+    }}
+  >
+    <View
+      style={{
+        backgroundColor: "#fff",
+        borderRadius: 16,
+        padding: 24,
+        minWidth: 250,
+        alignItems: "center",
+        elevation: 10,
+        marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
+      }}
+    >
+      
+        <TextInput
+          ref={ndInputRefcomp}
+          style={[
+            styles.infoValueText,
+            { fontSize: 40, marginBottom: 16, textAlign: "center" },
+          ]}
+          value={ndInputcomp}
+          keyboardType="phone-pad"
+          showSoftInputOnFocus={false}
+          caretHidden={Platform.OS === 'ios'}
+          onFocus={() => setIsCustomKeyboardVisible(true)}
+          selectTextOnFocus
+          onChangeText={(text) => {
+            if (/^\d*\.?\d*$/.test(text)) {
+              setNdInputcomp(text);
+            }
+          }}
+          maxLength={5}
+          autoFocus
+          editable={false}
+        />
+        <TouchableOpacity
           style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            zIndex: 10000,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: "rgba(0,0,0,0.2)",
-            height: "105%",
+            marginTop: 10,
+            padding: 10,
+            backgroundColor: "#0052b4",
+            borderRadius: 8,
+          }}
+          onPress={() => {
+            setShowNdCompModal(false);
+            setIsCustomKeyboardVisible(false);
+            ndInputRefcomp.current?.blur();
           }}
         >
-          <View
-            style={{
-              backgroundColor: "#fff",
-              borderRadius: 16,
-              padding: 24,
-              minWidth: 250,
-              alignItems: "center",
-              elevation: 10,
-              marginBottom: "30%",
-            }}
-          >
-            <TextInput
-              ref={ndInputRef}
-              style={[
-                styles.infoValueText,
-                { fontSize: 40, marginBottom: 16, textAlign: "center" },
-              ]}
-              value={ndInputcomp}
-              keyboardType="decimal-pad"
-              inputMode="decimal"
-              onFocus={(e) => {
-                if (
-                  Platform.OS === "web" &&
-                  e.target &&
-                  typeof (e.target as HTMLInputElement).select === "function"
-                ) {
-                  (e.target as HTMLInputElement).select();
-                }
-              }}
-              selectTextOnFocus
-              onChangeText={(text) => {
-                if (/^\d*\.?\d*$/.test(text)) {
-                  setNdInputcomp(text);
-                }
-              }}
-              maxLength={5}
-              autoFocus
-            />
-            <TouchableOpacity
-              style={{
-                marginTop: 10,
-                padding: 10,
-                backgroundColor: "#0052b4",
-                borderRadius: 8,
-              }}
-              onPress={() => {
-                const num = parseFloat(ndInputcomp.replace(",", "."));
-                if (!isNaN(num)) {
-                  const rounded = Math.round(num * 10) / 10;
-                  setndcomp(rounded);
-                  // Save to database
+          <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+        </TouchableOpacity>
+    </View>
+    
+    {isCustomKeyboardVisible && (
+      <SimplifiedNumberPad
+        visible={isCustomKeyboardVisible}
+        onNumberPress={(number) => {
+  // Verifica si todo el texto está seleccionado (primer toque)
+  if (ndInputcomp === ndcomp.toFixed(1)) {
+    setNdInputcomp(number);
+  } else {
+    let newValue = ndInputcomp;
+    if (ndInputcomp === "0" || ndInputcomp === "0.0") {
+      newValue = number;
+    } else {
+      newValue = ndInputcomp + number;
+    }
+    setNdInputcomp(newValue);
+  }
+}}
+        onDecimalPress={() => {
+          if (!ndInputcomp.includes(".")) {
+            setNdInputcomp(ndInputcomp + ".");
+          }
+        }}
+        onDeletePress={() => {
+          if (ndInputcomp.length > 0) {
+            setNdInputcomp(ndInputcomp.slice(0, -1));
+            if (ndInputcomp.length === 1) {
+              setNdInputcomp("0");
+            }
+          }
+        }}
+        onHidePress={() => {
+          setIsCustomKeyboardVisible(false);
+        }}
+        onSubmitPress={() => {
+          const num = parseFloat(ndInputcomp.replace(",", "."));
+          if (!isNaN(num)) {
+            const rounded = Math.round(num * 10) / 10;
+            setndcomp(rounded);
+            
+            const compscorecalc = d + e + (sb ? 0.1 : 0.0) - rounded;
+            setScore(compscorecalc);
+            updateRateGeneral(rateid, {
+              compNd: rounded,
+              compScore: compscorecalc,
+            });
+          }
+          setShowNdCompModal(false);
+          setIsCustomKeyboardVisible(false);
+        }}
+      />
+    )}
+  </View>
+)}
 
-                  const compscorecalc = d + e + (sb ? 0.1 : 0.0) - rounded;
-                  setScore(compscorecalc);
-                  updateRateGeneral(rateid, {
-                    compNd: rounded,
-                    compScore: compscorecalc,
-                  })
-                    .then((success) => {
-                      if (success) {
-                        console.log(
-                          `Saved ndcomp = ${rounded} in MainRateGeneral.`
-                        );
-                      } else {
-                        console.error(
-                          `Failed to save ndcomp in MainRateGeneral.`
-                        );
-                      }
-                    })
-                    .catch((error) => {
-                      console.error(
-                        "Error saving ndcomp to MainRateGeneral:",
-                        error
-                      );
-                    });
-                }
-                setShowNdCompModal(false);
-              }}
-            >
-              <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {showEModal && (
-        <View
+{showEModal && (
+  <View
+    style={{
+      position: "absolute",
+      left: 0,
+      right: 0,
+      zIndex: 10000,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(0,0,0,0.2)",
+      height: "105%",
+    }}
+  >
+    <View
+      style={{
+        backgroundColor: "#fff",
+        borderRadius: 16,
+        padding: 24,
+        minWidth: 250,
+        alignItems: "center",
+        elevation: 10,
+        marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
+      }}
+    >
+      
+        <TextInput
+          ref={eInputRef}
+          style={[
+            styles.infoValueText,
+            { fontSize: 40, marginBottom: 16, textAlign: "center" },
+          ]}
+          value={eInput}
+          keyboardType="decimal-pad"
+          showSoftInputOnFocus={false}
+          caretHidden={Platform.OS === 'ios'}
+          onFocus={() => setIsCustomKeyboardVisible(true)}
+          selectTextOnFocus
+          onChangeText={(text) => {
+            if (/^\d*\.?\d*$/.test(text)) {
+              setEInput(text);
+            }
+          }}
+          maxLength={5}
+          autoFocus
+          editable={false}
+        />
+        <TouchableOpacity
           style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            zIndex: 10000,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: "rgba(0,0,0,0.2)",
-            height: "105%",
+            marginTop: 10,
+            padding: 10,
+            backgroundColor: "#0052b4",
+            borderRadius: 8,
+          }}
+          onPress={() => {
+            setShowEModal(false);
+            setIsCustomKeyboardVisible(false);
+            eInputRef.current?.blur();
           }}
         >
-          <View
-            style={{
-              backgroundColor: "#fff",
-              borderRadius: 16,
-              padding: 24,
-              minWidth: 250,
-              alignItems: "center",
-              elevation: 10,
-              marginBottom: "30%",
-            }}
-          >
-            <TextInput
-              ref={eInputRef}
-              style={[
-                styles.infoValueText,
-                { fontSize: 40, marginBottom: 16, textAlign: "center" },
-              ]}
-              value={eInput}
-              keyboardType="decimal-pad"
-              inputMode="decimal"
-              onFocus={(e) => {
-                if (
-                  Platform.OS === "web" &&
-                  e.target &&
-                  typeof (e.target as HTMLInputElement).select === "function"
-                ) {
-                  (e.target as HTMLInputElement).select();
-                }
-              }}
-              selectTextOnFocus
-              onChangeText={(text) => {
-                if (/^\d*\.?\d*$/.test(text)) {
-                  setEInput(text);
-                }
-              }}
-              maxLength={5}
-              autoFocus
-            />
-            <TouchableOpacity
-              style={{
-                marginTop: 10,
-                padding: 10,
-                backgroundColor: "#0052b4",
-                borderRadius: 8,
-              }}
-              onPress={() => {
-                const num = parseFloat(eInput.replace(",", "."));
-                if (!isNaN(num)) {
-                  const rounded = Math.round(num * 1000) / 1000;
-                  setE(rounded);
-                  // Save to database
-                  const compscorecalc = d + rounded + (sb ? 0.1 : 0.0) - ndcomp;
-                  setScore(compscorecalc);
+          <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+        </TouchableOpacity>
+    </View>
+    
+    {isCustomKeyboardVisible && (
+      <SimplifiedNumberPad
+        visible={isCustomKeyboardVisible}
+        onNumberPress={(number) => {
+  // Verifica si todo el texto está seleccionado (primer toque)
+  if (eInput === e.toFixed(3)) {
+    setEInput(number);
+  } else {
+    let newValue = eInput;
+    if (eInput === "0" || eInput === "0.0") {
+      newValue = number;
+    } else {
+      newValue = eInput + number;
+    }
+    setEInput(newValue);
+  }
+}}
+        onDecimalPress={() => {
+          if (!eInput.includes(".")) {
+            setEInput(eInput + ".");
+          }
+        }}
+        onDeletePress={() => {
+          if (eInput.length > 0) {
+            setEInput(eInput.slice(0, -1));
+            if (eInput.length === 1) {
+              setEInput("0");
+            }
+          }
+        }}
+        onHidePress={() => {
+          setIsCustomKeyboardVisible(false);
+        }}
+        onSubmitPress={() => {
+          const num = parseFloat(eInput.replace(",", "."));
+          if (!isNaN(num)) {
+            const rounded = Math.round(num * 1000) / 1000;
+            setE(rounded);
+            // Save to database
+            const compscorecalc = d + rounded + (sb ? 0.1 : 0.0) - ndcomp;
+            setScore(compscorecalc);
 
-                  /* ============================================================== */
-                  const newdelt = Math.abs(
-                    Math.round((eScore - rounded) * 10) / 10
-                  );
-                  setDelt(newdelt);
-                  console.log("delt:", newdelt);
+            /* ============================================================== */
+            const newdelt = Math.abs(
+              Math.round((eScore - rounded) * 10) / 10
+            );
+            setDelt(newdelt);
+            
+            const newded = 10 - rounded;
+            setSetded(Number(newded.toFixed(1)));
+            
+            const dedInterval = getDeductionIntervalValue(
+              Number(newded.toFixed(1))
+            );
+            const percentageValue = getPercentageFromTable(
+              dedInterval,
+              newdelt
+            );
+            setpercentage(percentageValue);
 
-                  const newded = 10 - rounded;
-                  setSetded(Number(newded.toFixed(1)));
-                  console.log("ded:", Number(newded.toFixed(1)));
+            updateMainTable(gymnastid, {
+              delt: newdelt,
+              percentage: percentageValue,
+            });
 
-                  /* logic of the table */
+            /* ============================================================== */
+            updateRateGeneral(rateid, {
+              compE: rounded,
+              compScore: compscorecalc,
+              ded: newded,
+            });
+          }
+          setShowEModal(false);
+          setIsCustomKeyboardVisible(false);
+        }}
+      />
+    )}
+  </View>
+)}
 
-                  const dedInterval = getDeductionIntervalValue(
-                    Number(newded.toFixed(1))
-                  );
-                  console.log("dedInterval:", dedInterval);
-                  const percentageValue = getPercentageFromTable(
-                    dedInterval,
-                    newdelt
-                  );
-                  console.log("percentageValue:", percentageValue);
-                  setpercentage(percentageValue);
-
-                  updateMainTable(gymnastid, {
-                    delt: newdelt,
-                    percentage: percentageValue,
-                  });
-                  console.log("percentage:", percentageValue);
-
-                  /* ============================================================== */
-
-                  updateRateGeneral(rateid, {
-                    compE: rounded,
-                    compScore: compscorecalc,
-                    ded: newded,
-                  })
-                    .then((success) => {
-                      if (success) {
-                        console.log(`Saved e = ${rounded} in MainTable.`);
-                      } else {
-                        console.error(`Failed to save e in MainTable.`);
-                      }
-                    })
-                    .catch((error) => {
-                      console.error("Error saving e to MainTable:", error);
-                    });
-                }
-                setShowEModal(false);
-              }}
-            >
-              <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {showDModal && (
-        <View
+{showDModal && (
+  <View
+    style={{
+      position: "absolute",
+      left: 0,
+      right: 0,
+      zIndex: 10000,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(0,0,0,0.2)",
+      height: "105%",
+    }}
+  >
+    <View
+      style={{
+        backgroundColor: "#fff",
+        borderRadius: 16,
+        padding: 24,
+        minWidth: 250,
+        alignItems: "center",
+        elevation: 10,
+        marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
+      }}
+    >
+      
+        <TextInput
+          ref={dInputRef}
+          style={[
+            styles.infoValueText,
+            { fontSize: 40, marginBottom: 16, textAlign: "center" },
+          ]}
+          value={dInput}
+          keyboardType="decimal-pad"
+          showSoftInputOnFocus={false}
+caretHidden={Platform.OS === 'ios'}
+          onFocus={() => setIsCustomKeyboardVisible(true)}
+          selectTextOnFocus
+          onChangeText={(text) => {
+            if (/^\d*\.?\d*$/.test(text)) {
+              setDInput(text);
+            }
+          }}
+          maxLength={5}
+          autoFocus
+          editable={false}
+        />
+        <TouchableOpacity
           style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            zIndex: 10000,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: "rgba(0,0,0,0.2)",
-            height: "105%",
+            marginTop: 10,
+            padding: 10,
+            backgroundColor: "#0052b4",
+            borderRadius: 8,
+          }}
+          onPress={() => {
+            setShowDModal(false);
+            setIsCustomKeyboardVisible(false);
+            dInputRef.current?.blur();
           }}
         >
-          <View
-            style={{
-              backgroundColor: "#fff",
-              borderRadius: 16,
-              padding: 24,
-              minWidth: 250,
-              alignItems: "center",
-              elevation: 10,
-              marginBottom: "30%",
-            }}
-          >
-            <TextInput
-              ref={dInputRef}
-              style={[
-                styles.infoValueText,
-                { fontSize: 40, marginBottom: 16, textAlign: "center" },
-              ]}
-              value={dInput}
-              keyboardType="decimal-pad"
-              inputMode="decimal"
-              onFocus={(e) => {
-                if (
-                  Platform.OS === "web" &&
-                  e.target &&
-                  typeof (e.target as HTMLInputElement).select === "function"
-                ) {
-                  (e.target as HTMLInputElement).select();
-                }
-              }}
-              selectTextOnFocus
-              onChangeText={(text) => {
-                if (/^\d*\.?\d*$/.test(text)) {
-                  setDInput(text);
-                }
-              }}
-              maxLength={5}
-              autoFocus
-            />
-            <TouchableOpacity
-              style={{
-                marginTop: 10,
-                padding: 10,
-                backgroundColor: "#0052b4",
-                borderRadius: 8,
-              }}
-              onPress={() => {
-                const num = parseFloat(dInput.replace(",", "."));
-                if (!isNaN(num)) {
-                  const rounded = Math.round(num * 10) / 10;
-                  setD(rounded);
+          <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+        </TouchableOpacity>
+    </View>
+    
+    {isCustomKeyboardVisible && (
+      <SimplifiedNumberPad
+        visible={isCustomKeyboardVisible}
+        onNumberPress={(number) => {
+  // Verifica si todo el texto está seleccionado (primer toque)
+  if (dInput === d.toFixed(1)) {
+    setDInput(number);
+  } else {
+    let newValue = dInput;
+    if (dInput === "0" || dInput === "0.0") {
+      newValue = number;
+    } else {
+      newValue = dInput + number;
+    }
+    setDInput(newValue);
+  }
+}}
+        onDecimalPress={() => {
+          if (!dInput.includes(".")) {
+            setDInput(dInput + ".");
+          }
+        }}
+        onDeletePress={() => {
+          if (dInput.length > 0) {
+            setDInput(dInput.slice(0, -1));
+            if (dInput.length === 1) {
+              setDInput("0");
+            }
+          }
+        }}
+        onHidePress={() => {
+          setIsCustomKeyboardVisible(false);
+        }}
+        onSubmitPress={() => {
+          const num = parseFloat(dInput.replace(",", "."));
+          if (!isNaN(num)) {
+            const rounded = Math.round(num * 10) / 10;
+            setD(rounded);
 
-                  const compscorecalc = rounded + e + (sb ? 0.1 : 0.0) - ndcomp;
-                  setScore(compscorecalc);
-                  // Save to database
-                  updateRateGeneral(rateid, {
-                    compD: rounded,
-                    compScore: compscorecalc,
-                  })
-                    .then((success) => {
-                      if (success) {
-                        console.log(`Saved d = ${rounded} in MainTable.`);
-                      } else {
-                        console.error(`Failed to save d in MainTable.`);
-                      }
-                    })
-                    .catch((error) => {
-                      console.error("Error saving d to MainTable:", error);
-                    });
-                }
-                setShowDModal(false);
-              }}
-            >
-              <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
+            const compscorecalc = rounded + e + (sb ? 0.1 : 0.0) - ndcomp;
+            setScore(compscorecalc);
+            updateRateGeneral(rateid, {
+              compD: rounded,
+              compScore: compscorecalc,
+            });
+          }
+          setShowDModal(false);
+          setIsCustomKeyboardVisible(false);
+        }}
+      />
+    )}
+  </View>
+)}
 
-      {showExecutionModal && (
-        <View
+{showExecutionModal && (
+  <View
+    style={{
+      position: "absolute",
+      left: 0,
+      right: 0,
+      zIndex: 10000,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(0,0,0,0.2)",
+      height: "105%",
+    }}
+  >
+    <View
+      style={{
+        backgroundColor: "#fff",
+        borderRadius: 16,
+        padding: 24,
+        minWidth: 250,
+        alignItems: "center",
+        elevation: 10,
+        marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
+      }}
+    >
+      
+        <TextInput
+          ref={executionInputRef}
+          style={[
+            styles.infoValueText,
+            { fontSize: 40, marginBottom: 16, textAlign: "center" },
+          ]}
+          value={executionInput}
+          keyboardType="number-pad"
+          showSoftInputOnFocus={false}
+caretHidden={Platform.OS === 'ios'}
+          onFocus={() => setIsCustomKeyboardVisible(true)}
+          selectTextOnFocus
+          onChangeText={(text) => {
+            if (/^\d*\.?\d*$/.test(text)) {
+              setExecutionInput(text);
+            }
+          }}
+          maxLength={5}
+          autoFocus
+          editable={false}
+        />
+        <TouchableOpacity
           style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            zIndex: 10000,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: "rgba(0,0,0,0.2)",
-            height: "105%",
+            marginTop: 10,
+            padding: 10,
+            backgroundColor: "#0052b4",
+            borderRadius: 8,
+          }}
+          onPress={() => {
+            setShowExecutionModal(false);
+            setIsCustomKeyboardVisible(false);
+            executionInputRef.current?.blur();
           }}
         >
-          <View
-            style={{
-              backgroundColor: "#fff",
-              borderRadius: 16,
-              padding: 24,
-              minWidth: 250,
-              alignItems: "center",
-              elevation: 10,
-              marginBottom: "30%",
-            }}
-          >
-            <TextInput
-              ref={executionInputRef}
-              style={[
-                styles.infoValueText,
-                { fontSize: 40, marginBottom: 16, textAlign: "center" },
-              ]}
-              value={executionInput}
-              keyboardType="numeric"
-              onFocus={(e) => {
-                if (Platform.OS === "web" && e.target && e.target.select) {
-                  e.target.select();
-                }
-              }}
-              selectTextOnFocus
-              onChangeText={(text) => {
-                // Only update the input string, not the number
-                if (/^\d*\.?\d*$/.test(text)) {
-                  setExecutionInput(text);
-                }
-              }}
-              maxLength={5}
-              autoFocus
-            />
-            <TouchableOpacity
-              style={{
-                marginTop: 10,
-                padding: 10,
-                backgroundColor: "#0052b4",
-                borderRadius: 8,
-              }}
-              onPress={() => {
-                // Parse and update only when closing
-                const num = parseFloat(executionInput.replace(",", "."));
-                if (!isNaN(num)) {
-                  const rounded = Math.round(num * 10) / 10;
-                  setExecution(rounded);
-                  const eScore = Number((10 - rounded).toFixed(3));
-                  const newmyscore =
-                    eScore + sv + (stickbonus ? 0.1 : 0.0) - nd;
-                  setMyScore(newmyscore);
+          <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+        </TouchableOpacity>
+    </View>
+    
+    {/* Teclado personalizado */}
+    {isCustomKeyboardVisible && (
+      <SimplifiedNumberPad
+        visible={isCustomKeyboardVisible}
+        onNumberPress={(number) => {
+  // Verifica si todo el texto está seleccionado (primer toque)
+  if (executionInput === execution.toFixed(1)) {
+    setExecutionInput(number);
+  } else {
+    let newValue = executionInput;
+    if (executionInput === "0" || executionInput === "0.0") {
+      newValue = number;
+    } else {
+      newValue = executionInput + number;
+    }
+    setExecutionInput(newValue);
+  }
+}}
+        onDecimalPress={() => {
+          if (!executionInput.includes(".")) {
+            setExecutionInput(executionInput + ".");
+          }
+        }}
+        onDeletePress={() => {
+          if (executionInput.length > 0) {
+            setExecutionInput(executionInput.slice(0, -1));
+            if (executionInput.length === 1) {
+              setExecutionInput("0");
+            }
+          }
+        }}
+        onHidePress={() => {
+          setIsCustomKeyboardVisible(false);
+        }}
+        onSubmitPress={() => {
+          // Parse y actualizar solo al cerrar
+          const num = parseFloat(executionInput.replace(",", "."));
+          if (!isNaN(num)) {
+            const rounded = Math.round(num * 10) / 10;
+            setExecution(rounded);
+            const eScore = Number((10 - rounded).toFixed(3));
+            const newmyscore = eScore + sv + (stickbonus ? 0.1 : 0.0) - nd;
+            setMyScore(newmyscore);
 
-                  /* ============================================================== */
-                  const newdelt = Math.abs(Math.round((eScore - e) * 10) / 10);
-                  setDelt(newdelt);
-                  console.log("delt:", newdelt);
+            /* Lógica de delt existente */
+            const newdelt = Math.abs(Math.round((eScore - e) * 10) / 10);
+            setDelt(newdelt);
 
-                  const newded = 10 - e;
-                  setSetded(Number(newded.toFixed(1)));
-                  console.log("ded:", Number(newded.toFixed(1)));
+            const newded = 10 - e;
+            setSetded(Number(newded.toFixed(1)));
 
-                  /* logic of the table */
+            const dedInterval = getDeductionIntervalValue(Number(newded.toFixed(1)));
+            const percentageValue = getPercentageFromTable(dedInterval, newdelt);
+            setpercentage(percentageValue);
 
-                  const dedInterval = getDeductionIntervalValue(
-                    Number(newded.toFixed(1))
-                  );
-                  console.log("dedInterval:", dedInterval);
-                  const percentageValue = getPercentageFromTable(
-                    dedInterval,
-                    newdelt
-                  );
-                  console.log("percentageValue:", percentageValue);
-                  setpercentage(percentageValue);
+            updateMainTable(gymnastid, {
+              delt: newdelt,
+              percentage: percentageValue,
+            });
 
-                  updateMainTable(gymnastid, {
-                    delt: newdelt,
-                    percentage: percentageValue,
-                  });
-                  console.log("percentage:", percentageValue);
-
-                  /* ============================================================== */
-
-                  setEScore(eScore);
-                  updateRateGeneral(rateid, {
-                    execution: rounded,
-                    eScore,
-                    myScore: newmyscore,
-                  })
-                    .then((success) => {
-                      if (success) {
-                        console.log(
-                          `Saved execution = ${rounded}, eScore = ${eScore} in MainRateGeneral.`
-                        );
-                      } else {
-                        console.error(
-                          `Failed to save execution/eScore in MainRateGeneral.`
-                        );
-                      }
-                    })
-                    .catch((error) => {
-                      console.error(
-                        "Error saving execution/eScore to MainRateGeneral:",
-                        error
-                      );
-                    });
-                }
-                setShowExecutionModal(false);
-              }}
-            >
-              <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
+            setEScore(eScore);
+            updateRateGeneral(rateid, {
+              execution: rounded,
+              eScore,
+              myScore: newmyscore,
+            });
+          }
+          setShowExecutionModal(false);
+          setIsCustomKeyboardVisible(false);
+        }}
+      />
+    )}
+  </View>
+)}
 
       {showCommentsModal && (
         <View
@@ -1178,98 +1262,137 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         </View>
       )}
 
-      {showNdModal && (
-        <View
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            zIndex: 10000,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: "rgba(0,0,0,0.2)",
-            height: "105%",
-          }}
-        >
-          <View
-            style={{
-              backgroundColor: "#fff",
-              borderRadius: 16,
-              padding: 24,
-              minWidth: 250,
-              alignItems: "center",
-              elevation: 10,
-              marginBottom: "30%",
-            }}
-          >
-            <TextInput
-              ref={ndInputRef}
-              style={[
-                styles.infoValueText,
-                { fontSize: 40, marginBottom: 16, textAlign: "center" },
-              ]}
-              value={ndInput}
-              keyboardType="decimal-pad"
-              inputMode="decimal"
-              onFocus={(e) => {
-                if (
-                  Platform.OS === "web" &&
-                  e.target &&
-                  typeof (e.target as HTMLInputElement).select === "function"
-                ) {
-                  (e.target as HTMLInputElement).select();
-                }
-              }}
-              selectTextOnFocus
-              onChangeText={(text) => {
-                if (/^\d*\.?\d*$/.test(text)) {
-                  setNdInput(text);
-                }
-              }}
-              maxLength={5}
-              autoFocus
-            />
-            <TouchableOpacity
-              style={{
-                marginTop: 10,
-                padding: 10,
-                backgroundColor: "#0052b4",
-                borderRadius: 8,
-              }}
-              onPress={() => {
-                const num = parseFloat(ndInput.replace(",", "."));
-                if (!isNaN(num)) {
-                  const rounded = Math.round(num * 10) / 10;
-                  setNd(rounded);
+{showNdModal && (
+  <View
+    style={{
+      position: "absolute",
+      left: 0,
+      right: 0,
+      zIndex: 10000,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(0,0,0,0.2)",
+      height: "105%",
+    }}
+  >
+    <View
+      style={{
+        backgroundColor: "#fff",
+        borderRadius: 16,
+        padding: 24,
+        minWidth: 250,
+        alignItems: "center",
+        elevation: 10,
+        marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
+      }}
+    >
 
-                  const newmyscore = eScore + sv + (stickbonus ? 0.1 : 0.0) - rounded;
-                  setMyScore(newmyscore);
-                  updateRateGeneral(rateid, {
-                    myScore: newmyscore,
-                  });
-                  // Save to database
-                  updateMainTable(gymnastid, {
-                    nd: rounded,
-                  })
-                    .then((success) => {
-                      if (success) {
-                        console.log(`Saved nd = ${rounded} in MainTable.`);
-                      } else {
-                        console.error(`Failed to save nd in MainTable.`);
-                      }
-                    })
-                    .catch((error) => {
-                      console.error("Error saving nd to MainTable:", error);
-                    });
+      <TextInput
+        ref={ndInputRef}
+        style={[
+          styles.infoValueText,
+          { fontSize: 40, marginBottom: 16, textAlign: "center" },
+        ]}
+        value={ndInput}
+        keyboardType="phone-pad"
+        showSoftInputOnFocus={false}
+caretHidden={Platform.OS === 'ios'}
+        onFocus={() => setIsCustomKeyboardVisible(true)}
+        selectTextOnFocus
+        onChangeText={(text) => {
+          if (/^\d*\.?\d*$/.test(text)) {
+            setNdInput(text);
+          }
+        }}
+        maxLength={5}
+        autoFocus
+        editable={false}
+      />
+      <TouchableOpacity
+        style={{
+          marginTop: 10,
+          padding: 10,
+          backgroundColor: "#0052b4",
+          borderRadius: 8,
+        }}
+        onPress={() => {
+          // Tu lógica existente de onPress
+  // Tu lógica existente...
+  setShowNdModal(false);
+  setIsCustomKeyboardVisible(false);
+  // Asegúrate de quitar el enfoque
+  ndInputRef.current?.blur();
+        }}
+      >
+        <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+      </TouchableOpacity>
+
+    </View>
+    
+    {/* Añadir el teclado personalizado */}
+    {isCustomKeyboardVisible && (
+      <SimplifiedNumberPad
+        visible={isCustomKeyboardVisible}
+        onNumberPress={(number) => {
+  // Verifica si todo el texto está seleccionado (primer toque)
+  if (ndInput === nd.toFixed(1)) {
+    setNdInput(number);
+  } else {
+    let newValue = ndInput;
+    if (ndInput === "0" || ndInput === "0.0") {
+      newValue = number;
+    } else {
+      newValue = ndInput + number;
+    }
+    setNdInput(newValue);
+  }
+}}
+        onDecimalPress={() => {
+          if (!ndInput.includes(".")) {
+            setNdInput(ndInput + ".");
+          }
+        }}
+        onDeletePress={() => {
+          if (ndInput.length > 0) {
+            setNdInput(ndInput.slice(0, -1));
+            if (ndInput.length === 1) {
+              setNdInput("0");
+            }
+          }
+        }}
+        onHidePress={() => {
+          setIsCustomKeyboardVisible(false);
+        }}
+        onSubmitPress={() => {
+          // Obtener el valor actual y procesarlo
+          const num = parseFloat(ndInput.replace(",", "."));
+          if (!isNaN(num)) {
+            const rounded = Math.round(num * 10) / 10;
+            setNd(rounded);
+            const newmyscore = eScore + sv + (stickbonus ? 0.1 : 0.0) - rounded;
+            setMyScore(newmyscore);
+            updateRateGeneral(rateid, { myScore: newmyscore });
+            
+            // Guardar en la base de datos
+            updateMainTable(gymnastid, { nd: rounded })
+              .then((success) => {
+                if (success) {
+                  console.log(`Saved nd = ${rounded} in MainTable.`);
+                } else {
+                  console.error(`Failed to save nd in MainTable.`);
                 }
-                setShowNdModal(false);
-              }}
-            >
-              <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
+              })
+              .catch((error) => {
+                console.error("Error saving nd to MainTable:", error);
+              });
+          }
+          setShowNdModal(false);
+          setIsCustomKeyboardVisible(false);
+        }}
+      />
+    )}
+  </View>
+)}
 
       {showmodalmag && (
         <ModalvaultMag
@@ -1901,7 +2024,6 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#333",
   },
-
   eValueText: {
     fontSize: 25,
     fontWeight: "bold",
@@ -1917,7 +2039,6 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#333",
   },
-
   dValueText: {
     fontSize: 25,
     fontWeight: "bold",
@@ -1933,7 +2054,6 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#333",
   },
-
   scrollContainer: {
     flexGrow: 1,
   },
@@ -2004,8 +2124,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#64b5f6",
     justifyContent: "center",
     paddingLeft: 10,
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   cellHeaderText: {
     fontSize: 25,
@@ -2030,8 +2150,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffca28",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   svValueText: {
     fontSize: 26,
@@ -2061,45 +2181,44 @@ const styles = StyleSheet.create({
     paddingTop: 2,
   },
   ndCell: {
-    flex: 1,
+    width: isLargeDevice ? 105 : isSmallDevice ? 80 : 60,
     backgroundColor: "#64b5f6",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   sbCell: {
-    flex: 1,
+    width: isLargeDevice ? 105 : isSmallDevice ? 80 : 60,
     backgroundColor: "#64b5f6",
-
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   executionCell: {
-    flex: 2,
+    width: isLargeDevice ? 210 : isSmallDevice ? 160 : 120,
     backgroundColor: "#64b5f6",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   myScoreCell: {
-    flex: 2,
+    flex: 1,
     backgroundColor: "#64b5f6",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   vaultValueCell: {
     width: isLargeDevice ? 700 : isSmallDevice ? 500 : 300,
     backgroundColor: "#f5f5f5",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   vaultValueText: {
     fontSize: 20,
@@ -2121,16 +2240,16 @@ const styles = StyleSheet.create({
     borderLeftWidth: 0.5,
     borderRightWidth: 0.5,
     borderBottomWidth: 0.5,
-    borderColor: "#999",
+    borderColor: "black",
     zIndex: -1,
   },
   ndValueCell: {
-    flex: 1,
+    width: isLargeDevice ? 105 : isSmallDevice ? 80 : 60,
     backgroundColor: "#f5f5f5",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   valueText: {
     fontSize: 20,
@@ -2148,39 +2267,37 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   sbValueCell: {
+    width: isLargeDevice ? 105 : isSmallDevice ? 80 : 60,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+  executionValueCell: {
     flex: 1,
     backgroundColor: "#f5f5f5",
     justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
-  },
-  executionValueCell: {
-    flex: 2,
-    backgroundColor: "#f5f5f5",
-    justifyContent: "center",
-    width: "100%",
     height: "100%",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   executionValueCellflex: {
-    flex: 2,
+    width: isLargeDevice ? 210 : isSmallDevice ? 160 : 120,
     flexDirection: "row",
     backgroundColor: "#f5f5f5",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderColor: "black",
   },
   myScoreValueCell: {
-    flex: 2,
+    flex: 1,
     backgroundColor: "#f5f5f5",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   scoreValueText: {
     fontSize: 20,
@@ -2201,23 +2318,23 @@ const styles = StyleSheet.create({
     width: isLargeDevice ? 250 : isSmallDevice ? 180 : 120,
     backgroundColor: "#64b5f6",
     justifyContent: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   descriptionCell: {
     width: isLargeDevice ? 450 : isSmallDevice ? 320 : 180,
     backgroundColor: "#64b5f6",
     justifyContent: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   compDeductionHeaderCell: {
     width: isLargeDevice ? 210 : isSmallDevice ? 160 : 110,
     backgroundColor: "#4caf50",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   compDeductionText: {
     fontSize: 15,
@@ -2248,8 +2365,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#A3A3A3",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   smallCellText: {
     fontSize: 16,
@@ -2286,8 +2403,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#4caf50",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   smallValueText: {
     fontSize: 23,
@@ -2295,12 +2412,12 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   smallValueTextSmall: {
-    fontSize: 19,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#000",
   },
   smallValueTextTiny: {
-    fontSize: 14,
+    fontSize: 10,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2309,72 +2426,72 @@ const styles = StyleSheet.create({
     backgroundColor: "#A3A3A3",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   eValueCell: {
     flex: 0.7,
     backgroundColor: "#4caf50",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   sdCell: {
     flex: 0.5,
     backgroundColor: "#A3A3A3",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   sdValueCell: {
     flex: 0.5,
     backgroundColor: "#4caf50",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   ndDeductionCell: {
     flex: 0.5,
     backgroundColor: "#A3A3A3",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   ndDeductionValueCell: {
     flex: 0.5,
     backgroundColor: "#4caf50",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   scoreHeaderCell: {
     flex: 0.5,
     backgroundColor: "#A3A3A3",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   scoreTotalCell: {
     flex: 0.7,
     backgroundColor: "#4caf50",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   startValueValueCell: {
     width: isLargeDevice ? 250 : isSmallDevice ? 180 : 120,
     backgroundColor: "#f5f5f5",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   startValueValueText: {
     fontSize: 30,
@@ -2396,11 +2513,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#f5f5f5",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   descriptionValueText: {
-    fontSize: 30,
+    fontSize: 20,
     color: "#000",
   },
   descriptionValueTextSmall: {
@@ -2416,8 +2533,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#4caf50",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   gymnastInfoText: {
     fontSize: 17,
@@ -2448,16 +2565,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#f5f5f5",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   neutralValueCellname: {
     flex: 4,
     backgroundColor: "#f5f5f5",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   neutralText: {
     fontSize: 30,
@@ -2479,8 +2596,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#f5f5f5",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 0.5,
-    borderColor: "#999",
+    borderWidth: 1,
+    borderColor: "black",
   },
   neutralTotalText: {
     fontSize: 30,
@@ -2596,6 +2713,12 @@ const styles = StyleSheet.create({
     fontSize: 23,
     fontWeight: "bold",
     color: "#333",
+  },  
+  modalWithKeyboard: {
+    marginBottom: "50%",
+  },
+  modalWithoutKeyboard: {
+    marginBottom: "30%",
   },
 });
 

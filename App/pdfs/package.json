@@ -1,0 +1,23 @@
+{
+  "name": "pdfs",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "generate": "node generate-jump-pdf.js",
+    "dev": "nodemon lifejump.js",
+    "start": "node lifejump.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.1.0",
+    "puppeteer": "^24.9.0",
+    "nodemon": "^3.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}

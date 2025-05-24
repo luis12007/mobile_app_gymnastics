@@ -224,13 +224,7 @@ const FolderItem: React.FC<FolderItemProps> = ({
                 {date}
               </Text>
             </View>
-
-            
           </View>
-          
-
-          
-            
         </View>
         
         
@@ -274,6 +268,7 @@ const MainMenu: React.FC = () => {
   const [editingFolder, setEditingFolder] = useState<Folder | null>(null);
   const params = useLocalSearchParams();
   const discipline = params.discipline === "true";
+    const userIdparams = params.userId;
 
 
   // variables competition
@@ -573,7 +568,7 @@ const performDelete = async () => {
   };
 
   const goBack = () => {
-    router.push(`/select-sex`);
+    router.push(`/select-sex?userId=${userIdparams}`);
   };
 
   useEffect(() => {

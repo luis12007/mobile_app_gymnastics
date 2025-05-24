@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Dimensions, Easing, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Dimensions, Easing, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import {
   Gesture,
   GestureDetector,
@@ -8,8 +8,20 @@ import {
 import Svg, { Path } from 'react-native-svg';
 import { getRateGeneralByTableId, updateRateGeneral } from "../Database/database"; // Import database functions
 
-const { width, height } = Dimensions.get('window');
-
+const { width, height } = Dimensions.get("window");
+const isLargeScreen = width >= 1000 && height >= 700;
+var isLargeDevice = false;
+var isSmallDevice = false;
+var isTinyDevice = false;
+if (width >= 1368 && height >= 1025) {
+  isLargeDevice = true;
+}
+if (width < 1367 && width >= 945) {
+  isSmallDevice = true;
+}
+if (width < 949) {
+  isTinyDevice = true;
+}
 // Available colors for drawing
 const COLORS = ["black", "red", "blue", "green", "orange"];
 // Available stroke widths
@@ -24,6 +36,7 @@ interface PathData {
   color: string;
   strokeWidth: number;
   isEraser: boolean;
+  penType?: number; // 0: Normal, 1: Telestrator, 2: Highlighter
 }
 
 // Interface for MainRateGeneral
@@ -80,7 +93,7 @@ const OptimizedWhiteboardDebug = ({
   const [saving, setSaving] = useState<boolean>(false);
   
   // Debug state
-  const [debugMode, setDebugMode] = useState<boolean>(true);
+  const [debugMode, setDebugMode] = useState<boolean>(false);
   const [lastTouchInfo, setLastTouchInfo] = useState<any>({});
   const [touchSource, setTouchSource] = useState<string>('None');
   const [pointerTypeValue, setPointerTypeValue] = useState<string>('Unknown');
@@ -104,6 +117,7 @@ const OptimizedWhiteboardDebug = ({
   const pathBufferRef = useRef<string>('');
   const lastPointRef = useRef<{x: number, y: number}>({ x: 0, y: 0 });
   const pointsBufferRef = useRef<Array<{x: number, y: number}>>([]);
+  const [selectedPen, setSelectedPen] = useState<number>(0); // 0: Normal, 1: Telestrator, 2: Highlighter
   
   // Save timeout ref to handle debouncing
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -158,8 +172,13 @@ const OptimizedWhiteboardDebug = ({
             // Parse the stored paths data
             const parsedPaths = JSON.parse(rateGeneral.paths);
             if (Array.isArray(parsedPaths)) {
-              setPaths(parsedPaths);
-            }
+  // Ensure penType is set for all paths
+  const fixedPaths = parsedPaths.map(p => ({
+    ...p,
+    penType: typeof p.penType === "number" ? p.penType : 0
+  }));
+  setPaths(fixedPaths);
+}
             
             // Also load stick bonus state
             if (typeof rateGeneral.stickBonus === 'boolean') {
@@ -235,12 +254,10 @@ const OptimizedWhiteboardDebug = ({
   
   // Track changes to paths and save when needed
   useEffect(() => {
-    // Don't save on initial load
-    if (!loading && paths.length > 0) {
-      console.log("Paths changed, now has", paths.length, "items");
-      debouncedSave();
-    }
-  }, [paths]);
+  if (!loading) {
+    debouncedSave();
+  }
+}, [paths]);
   
   // Toggle menu open/closed with animation
   const toggleMenu = () => {
@@ -330,7 +347,7 @@ const OptimizedWhiteboardDebug = ({
   // Compute menu height for animation
   const menuHeight = menuAnimation.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, 270],
+    outputRange: [0, 220],
   });
   
   // Optimization: Pre-save all points immediately to avoid missing any
@@ -381,8 +398,11 @@ const OptimizedWhiteboardDebug = ({
         setTouchSource(isPencil ? 'Likely Stylus/Pen' : 'Likely Finger');
       }
       
-      // Only proceed with drawing if it's a pen
-      if (isPencil) {
+      // --- CHANGE: On Android, allow drawing with any pointer type ---
+      const allowDrawing = Platform.OS === 'android' ? true : isPencil;
+      // --------------------------------------------------------------
+      
+      if (allowDrawing) {
         // Immediately save the starting point without waiting for validation
         const { x, y } = event;
         
@@ -461,13 +481,20 @@ const OptimizedWhiteboardDebug = ({
             finalPath += ` L${point.x} ${point.y}`;
           }
           
+          // For highlighter pen (type 2), automatically close the path
+          if (selectedPen === 2) {
+            // Close back to the first point to create a fillable shape
+            finalPath += ` Z`;
+          }
+          
           // Add the final path to paths array if it has actual content
           setPaths(prev => {
             const newPaths = [...prev, { 
               path: finalPath, 
-              color: selectedColor,
-              strokeWidth: selectedStrokeWidth,
-              isEraser: isEraser
+              color: selectedPen === 1 ? "red" : selectedPen === 2 ? "yellow" : selectedColor, // Force colors for special pens
+              strokeWidth: selectedPen === 1 ? 2 : selectedStrokeWidth, // Force thin stroke for telestrator
+              isEraser: isEraser,
+              penType: selectedPen
             }];
             
             // Force an immediate save instead of debouncing
@@ -491,6 +518,66 @@ const OptimizedWhiteboardDebug = ({
       }
     });
   
+    // Only for web
+const [webDrawing, setWebDrawing] = useState(false);
+
+const handleWebTouchStart = (e: React.TouchEvent | React.MouseEvent) => {
+  if (Platform.OS !== 'web') return;
+  let x, y;
+  if ('touches' in e && e.touches.length > 0) {
+    x = e.touches[0].clientX;
+    y = e.touches[0].clientY;
+  } else if ('clientX' in e) {
+    x = e.clientX;
+    y = e.clientY;
+  }
+    lastPointRef.current = { x, y };
+    pathBufferRef.current = `M${x} ${y}`;
+    pointsBufferRef.current = [{ x, y }];
+    setCurrentPath(`M${x} ${y}`);
+    setWebDrawing(true);
+};
+
+const handleWebTouchMove = (e: React.TouchEvent | React.MouseEvent) => {
+  if (Platform.OS !== 'web' || !webDrawing) return;
+  let x, y;
+  if ('touches' in e && e.touches.length > 0) {
+    x = e.touches[0].clientX;
+    y = e.touches[0].clientY;
+  } else if ('clientX' in e) {
+    x = e.clientX;
+    y = e.clientY;
+  }
+    pointsBufferRef.current.push({ x, y });
+    pathBufferRef.current += ` L${x} ${y}`;
+    setCurrentPath(pathBufferRef.current);
+};
+
+const handleWebTouchEnd = () => {
+  if (Platform.OS !== 'web' || !webDrawing) return;
+  if (pointsBufferRef.current.length > 1) {
+    const firstPoint = pointsBufferRef.current[0];
+    let finalPath = `M${firstPoint.x} ${firstPoint.y}`;
+    for (let i = 1; i < pointsBufferRef.current.length; i++) {
+      const point = pointsBufferRef.current[i];
+      finalPath += ` L${point.x} ${point.y}`;
+    }
+    setPaths(prev => [
+      ...prev,
+      {
+        path: finalPath,
+        color: selectedPen === 1 ? "red" : selectedPen === 2 ? "yellow" : selectedColor,
+        strokeWidth: selectedPen === 1 ? 2 : selectedStrokeWidth,
+        isEraser: isEraser,
+        penType: selectedPen,
+      },
+    ]);
+  }
+  setCurrentPath('');
+  pathBufferRef.current = '';
+  pointsBufferRef.current = [];
+  setWebDrawing(false);
+};
   return (
     <GestureHandlerRootView style={styles.container}>
       {/* Debug panel */}
@@ -520,35 +607,102 @@ const OptimizedWhiteboardDebug = ({
       
       {/* Drawing canvas */}
       <GestureDetector gesture={panGesture}>
-        <View style={styles.canvas}>
-            {/* Background image */}
-  <Image
-    source={require('../assets/images/Jump.png')}
-    style={styles.backgroundImage}
-    resizeMode="contain"
-    pointerEvents="none" // <-- This is important!
-  />
+        <View 
+        style={[
+                  isLargeDevice ? styles.canvas : null,
+                  isSmallDevice ? styles.canvasSmall : null,
+                  isTinyDevice ? styles.canvasTiny : null,
+                ]}
+        onTouchStart={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchStart : undefined}
+    onTouchMove={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchMove : undefined}
+    onTouchEnd={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchEnd : undefined}
+    onMouseDown={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchStart : undefined}
+    onMouseMove={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchMove : undefined}
+    onMouseUp={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchEnd : undefined}
+        >
+          {/* Background image */}
+          <Image
+            source={require('../assets/images/Jump.png')}
+            style={styles.backgroundImage}
+            resizeMode="contain"
+            pointerEvents="none" // <-- This is important!
+          />
           <Svg height="100%" width="100%">
-            {/* Render completed paths */}
-            {paths.map((pathData, index) => (
-              <Path
-                key={`path-${index}`}
-                d={pathData.path}
-                stroke={pathData.isEraser ? CANVAS_BACKGROUND : pathData.color}
-                strokeWidth={pathData.strokeWidth}
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
+            {/* Normal pen paths (type 0) */}
+            {paths
+              .filter(pathData => pathData.penType === 0)
+              .map((pathData, index) => (
+                <Path
+                  key={`normal-path-${index}`}
+                  d={pathData.path}
+                  stroke={pathData.isEraser ? CANVAS_BACKGROUND : pathData.color}
+                  strokeWidth={pathData.strokeWidth}
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
             ))}
+
+            {/* Telestrator paths (type 1) */}
+            {paths
+              .filter(pathData => pathData.penType === 1)
+              .map((pathData, index) => (
+                <Path
+                  key={`telestrator-path-${index}`}
+                  d={pathData.path}
+                  stroke={pathData.isEraser ? CANVAS_BACKGROUND : "red"}
+                  strokeWidth={2} // Always thin for telestrator
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  // Removed strokeDasharray for a plain line
+                  opacity={0.8} // Semi-transparent
+                />
+            ))}
+
+            {/* Highlighter paths (type 2) - renders as filled areas */}
+            {paths
+              .filter(pathData => pathData.penType === 2)
+              .map((pathData, index) => {
+                // For highlighter, we need to close the path to create a filled area
+                let fillPath = pathData.path;
+                
+                // Only try to close the path if it has content
+                if (fillPath && fillPath.length > 0) {
+                  // Check if the path already has a Z command to close it
+                  if (!fillPath.endsWith('Z')) {
+                    // If not, close it by adding a Z command
+                    fillPath += ' Z';
+                  }
+                }
+                
+                return (
+                  <Path
+                    key={`highlighter-path-${index}`}
+                    d={fillPath}
+                    stroke={pathData.isEraser ? CANVAS_BACKGROUND : "yellow"}
+                    strokeWidth={1}
+                    fill={pathData.isEraser ? CANVAS_BACKGROUND : "yellow"}
+                    fillOpacity={0.3} // Very transparent fill
+                    strokeOpacity={0.5}
+                  />
+                );
+            })}
             
             {/* Render current path */}
             {currentPath ? (
               <Path
                 d={currentPath}
-                stroke={isEraser ? CANVAS_BACKGROUND : selectedColor}
-                strokeWidth={selectedStrokeWidth}
-                fill="none"
+                stroke={isEraser ? CANVAS_BACKGROUND : (
+                  selectedPen === 1 ? "red" : 
+                  selectedPen === 2 ? "yellow" : 
+                  selectedColor
+                )}
+                strokeWidth={selectedPen === 1 ? 2 : selectedStrokeWidth}
+                fill={selectedPen === 2 ? "yellow" : "none"}
+                fillOpacity={selectedPen === 2 ? 0.3 : 0}
+                strokeOpacity={selectedPen === 1 ? 0.8 : 1}
+                
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
@@ -557,8 +711,6 @@ const OptimizedWhiteboardDebug = ({
         </View>
       </GestureDetector>
 
-
-      
       {/* Menu button in top left with animation */}
       <Animated.View style={[
         styles.menuButtonContainer,
@@ -618,73 +770,130 @@ const OptimizedWhiteboardDebug = ({
         pointerEvents={menuOpen ? "auto" : "none"}
       >
         <View style={styles.menuContent}>
-          {/* Colors */}
-          <View style={styles.menuSection}>
-            <Text style={styles.menuSectionTitle}>Colors</Text>
-            <View style={styles.colorRow}>
-              {COLORS.map(color => (
-                <TouchableOpacity
-                  key={color}
-                  style={[
-                    styles.colorOption,
-                    { backgroundColor: color },
-                    selectedColor === color && !isEraser && styles.selectedOption
-                  ]}
-                  onPress={() => {
-                    setSelectedColor(color);
-                    setIsEraser(false);
-                  }}
-                />
-              ))}
-            </View>
-          </View>
-          
-          {/* Stroke Widths */}
-          <View style={styles.menuSection}>
-            <Text style={styles.menuSectionTitle}>Stroke Width</Text>
-            <View style={styles.widthRow}>
-              {STROKE_WIDTHS.map(width => (
-                <TouchableOpacity
-                  key={`width-${width}`}
-                  style={[
-                    styles.widthOption,
-                    selectedStrokeWidth === width && styles.selectedOption
-                  ]}
-                  onPress={() => setSelectedStrokeWidth(width)}
-                >
-                  <View style={[
-                    styles.widthCircle, 
-                    { 
-                      width, 
-                      height: width, 
-                      borderRadius: width / 2,
-                      backgroundColor: isEraser ? "#ccc" : selectedColor 
-                    }
-                  ]} />
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-          
-          {/* Eraser and Clear */}
-          <View style={styles.menuSection}>
-            <Text style={styles.menuSectionTitle}>Tools</Text>
-            <View style={styles.toolsRow}>
-              <TouchableOpacity
-                style={[
-                  styles.toolButton,
-                  isEraser && styles.selectedOption
-                ]}
-                onPress={toggleEraser}
-              >
-                <Text style={styles.toolButtonText}>Eraser</Text>
-              </TouchableOpacity>
+          <View style={{flexDirection: 'row'}}>
+            {/* Left Column */}
+            <View style={{flex: 1, marginRight: 10}}>
+              {/* Colors */}
+              <View style={styles.menuSection}>
+                <Text style={styles.menuSectionTitle}>Colors</Text>
+                <View style={styles.colorRow}>
+                  {COLORS.map(color => (
+                    <TouchableOpacity
+                      key={color}
+                      style={[
+                        styles.colorOption,
+                        { backgroundColor: color },
+                        selectedColor === color && !isEraser && styles.selectedOption
+                      ]}
+                      onPress={() => {
+                        setSelectedColor(color);
+                        setIsEraser(false);
+                      }}
+                    />
+                  ))}
+                </View>
+              </View>
 
+              {/* Eraser */}
+              <View style={styles.menuSection}>
+                <Text style={styles.menuSectionTitle}>Tools</Text>
+                <View style={styles.toolsRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.toolButton,
+                      isEraser && styles.selectedOption
+                    ]}
+                    onPress={toggleEraser}
+                  >
+                    <Text style={styles.toolButtonText}>Eraser</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+
+            {/* Right Column */}
+            <View style={{flex: 1}}>
+              {/* Pens */}
+              <View style={styles.menuSection}>
+                <Text style={styles.menuSectionTitle}>Pen</Text>
+                <View style={styles.penRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.penOption,
+                      selectedPen === 0 && styles.selectedOption
+                    ]}
+                    onPress={() => {
+                      setSelectedPen(0);
+                      setSelectedColor("black"); // Normal pen defaults to black
+                      setIsEraser(false);
+                    }}
+                  >
+                    <Text style={styles.toolButtonText}>✏️</Text>
+                    <Text style={{fontSize: 10, marginTop: 2}}>Normal</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.penOption,
+                      selectedPen === 1 && styles.selectedOption
+                    ]}
+                    onPress={() => {
+                      setSelectedPen(1);
+                      setSelectedColor("red"); // Telestrator pen defaults to red
+                      setSelectedStrokeWidth(2); // Thinner stroke for telestrator
+                      setIsEraser(false);
+                    }}
+                  >
+                    <Text style={styles.toolButtonText}>🖍️</Text>
+                    <Text style={{fontSize: 10, marginTop: 2}}>Telestrator</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.penOption,
+                      selectedPen === 2 && styles.selectedOption
+                    ]}
+                    onPress={() => {
+                      setSelectedPen(2);
+                      setSelectedColor("yellow"); // Highlighter defaults to yellow
+                      setIsEraser(false);
+                    }}
+                  >
+                    <Text style={styles.toolButtonText}>⭐</Text>
+                    <Text style={{fontSize: 10, marginTop: 2}}>Highlighter</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              
+              {/* Stroke Widths */}
+              <View style={styles.menuSection}>
+                <Text style={styles.menuSectionTitle}>Stroke Width</Text>
+                <View style={styles.widthRow}>
+                  {STROKE_WIDTHS.map(width => (
+                    <TouchableOpacity
+                      key={`width-${width}`}
+                      style={[
+                        styles.widthOption,
+                        selectedStrokeWidth === width && styles.selectedOption
+                      ]}
+                      onPress={() => setSelectedStrokeWidth(width)}
+                    >
+                      <View style={[
+                        styles.widthCircle, 
+                        { 
+                          width: width * 1.2, // slightly bigger
+                          height: width * 1.2, 
+                          borderRadius: (width * 1.2) / 2,
+                          backgroundColor: isEraser ? "#ccc" : selectedColor 
+                        }
+                      ]} />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
             </View>
           </View>
-          
-          {/* Debug Toggle */}
-          <View style={styles.menuSection}>
+
+          {/* Debug Toggle - Full Width at Bottom */}
+          {/* <View style={styles.menuSection}>
             <Text style={styles.menuSectionTitle}>Settings</Text>
             <TouchableOpacity
               style={[
@@ -697,7 +906,7 @@ const OptimizedWhiteboardDebug = ({
                 {debugMode ? 'Debug ON' : 'Debug OFF'}
               </Text>
             </TouchableOpacity>
-          </View>
+          </View> */}
         </View>
       </Animated.View>
       
@@ -740,11 +949,65 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: '#f5f5f5',
   },
+    colorPenRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+    colorRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginRight: 12,
+  },
+  penRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    marginTop: 2,
+  },
+  penOption: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 5,
+    marginRight: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    minWidth: 32,
+    alignItems: 'center',
+  },
   canvas: {
     height: 460,
     backgroundColor: CANVAS_BACKGROUND,
     borderWidth: 1,
     borderColor: '#ddd',
+  },
+  canvasSmall: {
+    height: 460,
+    backgroundColor: CANVAS_BACKGROUND,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  canvasTiny: {
+    height: 20,
+    backgroundColor: CANVAS_BACKGROUND,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  menuContainer: {
+    position: 'absolute',
+    top: 70,
+    left: 10,
+    width: 550, // wider to fit all sections
+    backgroundColor: 'rgba(245, 245, 245, 0.95)',
+    borderRadius: 10,
+    zIndex: 10,
+    overflow: 'hidden',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   menuButtonContainer: {
     position: 'absolute',
@@ -830,24 +1093,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#999',
     opacity: 0.5,
   },
-  menuContainer: {
-    position: 'absolute',
-    top: 70,
-    left: 10,
-    width: 250,
-    backgroundColor: 'rgba(245, 245, 245, 0.95)',
-    borderRadius: 10,
-    zIndex: 10,
-    overflow: 'hidden',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
+  
   menuContent: {
     padding: 15,
   },
@@ -860,10 +1106,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     color: '#333',
   },
-  colorRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
+
   colorOption: {
     width: 30,
     height: 30,
@@ -1020,7 +1263,7 @@ backgroundImage: {
   left: '12.5%',
   opacity: 0.8,
   zIndex: 0,
-},
+}
 });
 
 export default OptimizedWhiteboardDebug;

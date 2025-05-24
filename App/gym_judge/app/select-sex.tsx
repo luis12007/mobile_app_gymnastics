@@ -1,18 +1,22 @@
-import React, { useRef, useEffect } from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Image,
-  Dimensions,
-  Platform,
-  Animated,
-  Easing,
-} from "react-native";
+import * as Crypto from 'expo-crypto';
 import { useFonts } from "expo-font";
-import * as SplashScreen from "expo-splash-screen";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  Alert,
+  Animated,
+  Clipboard,
+  Dimensions,
+  Easing,
+  Image,
+  Modal,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from "react-native";
+import { getUserById } from "../Database/database";
 
 const { width, height } = Dimensions.get("window");
 
@@ -20,6 +24,19 @@ export default function SelectSex() {
   // Use simpler ternary operators for device size detection
   const isLargeScreen = width >= 1000 && height >= 700;
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const userId = typeof params.userId === 'string' ? parseInt(params.userId, 10) : 0;
+
+  // Estados para el modal de generación de claves
+  const [modalVisible, setModalVisible] = useState(false);
+  const [deviceInfo, setDeviceInfo] = useState('');
+  const [deviceId, setDeviceId] = useState('');
+  const [generatedKey, setGeneratedKey] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  
+  // Estados para validación de usuario
+  const [currentUser, setCurrentUser] = useState(null);
+  const [showKeysButton, setShowKeysButton] = useState(false);
 
   // Load the custom font
   const [fontsLoaded] = useFonts({
@@ -33,8 +50,29 @@ export default function SelectSex() {
   const leftButtonTranslateX = useRef(new Animated.Value(-100)).current;
   const rightButtonTranslateX = useRef(new Animated.Value(100)).current;
   const buttonsOpacity = useRef(new Animated.Value(0)).current;
+  const adminButtonOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    // Verificar información del usuario actual
+    const checkUserPermissions = async () => {
+      try {
+        if (userId) {
+          const user = await getUserById(userId);
+          if (user) {
+            setCurrentUser(user);
+            // Verificar si es Bernabe con rol admin
+            if (user.username === "Bernabe" && user.rol === "admin") {
+              setShowKeysButton(true);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error checking user permissions:", error);
+      }
+    };
+
+    checkUserPermissions();
+
     // Start animation sequence after component mounts
     Animated.sequence([
       // First fade in the background
@@ -71,6 +109,13 @@ export default function SelectSex() {
           useNativeDriver: true,
           easing: Easing.out(Easing.back(1.5)),
         }),
+        // Admin button animation
+        Animated.timing(adminButtonOpacity, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.ease),
+        }),
       ]),
     ]).start();
 
@@ -81,10 +126,81 @@ export default function SelectSex() {
       useNativeDriver: true,
       easing: Easing.out(Easing.back(1.2)),
     }).start();
-  }, []);
+  }, [userId]);
 
   const handleSelect = (discipline: boolean) => {
-    router.push(`/main-menu?discipline=${discipline}`); // Pass the value as a query parameter
+    router.push(`/main-menu?discipline=${discipline}&userId=${userId}`); // Pass the value as a query parameter
+  };
+
+  // Función para generar clave de activación
+  const generateActivationKey = async () => {
+    if (!deviceId.trim()) {
+      Alert.alert("Error", "Por favor ingrese el ID del dispositivo");
+      return;
+    }
+
+    setIsGenerating(true);
+
+    try {
+      // Secreto compartido (debe ser el mismo en el método de validación)
+      const APP_SECRET = 'GymJudge2023SecretKey';
+      const timestamp = Date.now().toString(36);
+      
+      // Crear string para hashear
+      const stringToHash = deviceId + APP_SECRET;
+      
+      // Generar hash
+      const hash = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        stringToHash
+      );
+      
+      // Usar sólo los primeros 8 caracteres del hash
+      const shortHash = hash.substring(0, 8);
+      
+      // Formato: GYM-[hash]-[timestamp]
+      const activationKey = `GYM-${shortHash}-${timestamp}`;
+      
+      setGeneratedKey(activationKey);
+      
+      // Log para debugging
+      console.log(`Clave generada para dispositivo ${deviceId}: ${activationKey}`);
+    } catch (error) {
+      console.error("Error generando clave:", error);
+      Alert.alert("Error", "No se pudo generar la clave de activación");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Función para copiar la clave al portapapeles
+  const copyToClipboard = () => {
+    if (generatedKey) {
+      Clipboard.setString(generatedKey);
+      Alert.alert("Éxito", "Clave copiada al portapapeles");
+    }
+  };
+
+  // Función para extraer el deviceId del texto pegado
+  const parseDeviceInfo = (text) => {
+    try {
+      // Buscar el patrón "Device ID: XXX" en el texto
+      const match = text.match(/Device ID:\s*([a-zA-Z0-9]+)/);
+      if (match && match[1]) {
+        setDeviceId(match[1]);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error("Error al analizar información del dispositivo:", error);
+      return false;
+    }
+  };
+
+  // Manejar el cambio en el texto del dispositivo
+  const handleDeviceInfoChange = (text) => {
+    setDeviceInfo(text);
+    parseDeviceInfo(text);
   };
 
   return (
@@ -107,6 +223,28 @@ export default function SelectSex() {
         ]}
         resizeMode="cover"
       />
+
+      {/* Admin Key Button - solo visible para usuario Bernabe con rol admin */}
+      {showKeysButton && (
+        <Animated.View 
+          style={[
+            styles.adminKeyButton,
+            { opacity: adminButtonOpacity }
+          ]}
+        >
+          <TouchableOpacity 
+            onPress={() => setModalVisible(true)}
+            style={styles.keyButtonContainer}
+          >
+            <Image
+              source={require("../assets/images/key.png")}
+              style={styles.keyIcon}
+              resizeMode="contain"
+            />
+            <Text style={styles.keyButtonText}>Keys</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      )}
 
       {/* Animated Title */}
       <Animated.Text
@@ -179,6 +317,83 @@ export default function SelectSex() {
           </TouchableOpacity>
         </Animated.View>
       </View>
+
+      {/* Modal para generar claves */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Generador de Claves de Activación</Text>
+            
+            {/* Información del usuario actual */}
+            {currentUser && (
+              <View style={styles.userInfoContainer}>
+                <Text style={styles.userInfoText}>
+                  Usuario: {currentUser.username} ({currentUser.rol})
+                </Text>
+              </View>
+            )}
+            
+            <Text style={styles.modalLabel}>Pegue la información del dispositivo:</Text>
+            <TextInput
+              style={styles.modalTextInput}
+              multiline
+              numberOfLines={8}
+              value={deviceInfo}
+              onChangeText={handleDeviceInfoChange}
+              placeholder="Pegue aquí el correo con la información del dispositivo..."
+            />
+            
+            <View style={styles.deviceIdContainer}>
+              <Text style={styles.modalLabel}>ID del Dispositivo:</Text>
+              <Text style={styles.deviceIdText}>{deviceId || "No detectado"}</Text>
+            </View>
+            
+            <TouchableOpacity 
+              style={[
+                styles.generateButton,
+                !deviceId.trim() && styles.disabledButton,
+                isGenerating && styles.loadingButton
+              ]}
+              onPress={generateActivationKey}
+              disabled={!deviceId.trim() || isGenerating}
+            >
+              <Text style={styles.buttonText}>
+                {isGenerating ? 'Generando...' : 'Generar Clave'}
+              </Text>
+            </TouchableOpacity>
+            
+            {generatedKey ? (
+              <View style={styles.keyResultContainer}>
+                <Text style={styles.resultLabel}>Clave de Activación:</Text>
+                <TouchableOpacity 
+                  style={styles.copyContainer}
+                  onPress={copyToClipboard}
+                >
+                  <Text style={styles.generatedKeyText}>{generatedKey}</Text>
+                  <Text style={styles.copyText}>Tocar para copiar</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+            
+            <TouchableOpacity 
+              style={styles.closeButton}
+              onPress={() => {
+                setModalVisible(false);
+                setDeviceInfo('');
+                setDeviceId('');
+                setGeneratedKey('');
+              }}
+            >
+              <Text style={styles.closeButtonText}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -297,5 +512,151 @@ const styles = StyleSheet.create({
     width: "50%",
     height: "60%",
     top: -15,
+  },
+  // Admin key button styles
+  adminKeyButton: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    zIndex: 10,
+  },
+  keyButtonContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#004aad',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+    alignItems: 'center',
+  },
+  keyIcon: {
+    width: 20,
+    height: 20,
+    marginRight: 5,
+    tintColor: 'white',
+  },
+  keyButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContainer: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 20,
+    width: width >= 1000 ? '50%' : '85%',
+    maxHeight: '80%',
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    color: '#004aad',
+    textAlign: 'center',
+  },
+  userInfoContainer: {
+    backgroundColor: '#e8f4ff',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#bbd8f9',
+  },
+  userInfoText: {
+    fontSize: 14,
+    color: '#004aad',
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  modalLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 5,
+    color: '#333',
+  },
+  modalTextInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 10,
+    minHeight: 120,
+    marginBottom: 15,
+    textAlignVertical: 'top',
+  },
+  deviceIdContainer: {
+    backgroundColor: '#f5f5f5',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 15,
+  },
+  deviceIdText: {
+    fontSize: 16,
+    color: '#004aad',
+    fontWeight: 'bold',
+  },
+  generateButton: {
+    backgroundColor: '#004aad',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  disabledButton: {
+    backgroundColor: '#cccccc',
+  },
+  loadingButton: {
+    backgroundColor: '#6c8eb4',
+  },
+  buttonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  keyResultContainer: {
+    marginTop: 15,
+    backgroundColor: '#e8f4ff',
+    padding: 15,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#bbd8f9',
+  },
+  resultLabel: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 5,
+    color: '#333',
+  },
+  copyContainer: {
+    alignItems: 'center',
+  },
+  generatedKeyText: {
+    fontSize: 18,
+    color: '#004aad',
+    fontWeight: 'bold',
+    marginBottom: 5,
+    textAlign: 'center',
+  },
+  copyText: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  closeButton: {
+    backgroundColor: '#666',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  closeButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });
