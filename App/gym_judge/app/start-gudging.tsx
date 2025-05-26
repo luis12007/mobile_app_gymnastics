@@ -1973,7 +1973,7 @@ const styles = StyleSheet.create({
   confirmationModal: {
     backgroundColor: "#fff",
     width: "50%",
-    height: 170,
+    height: 190,
     maxHeight: "80%",
     borderRadius: 10,
     padding: 20,
@@ -1987,7 +1987,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     width: "70%",
     height: 150,
-    maxHeight: "80%",
     borderRadius: 10,
     padding: 15,
     elevation: 5,
@@ -2137,7 +2136,7 @@ const styles = StyleSheet.create({
   importButton: {
     position: "absolute",
     top: 22,
-    right: 150, // Posicionado a la izquierda del botón "Go Back"
+    right: 220, // Posicionado a la izquierda del botón "Go Back"
     marginRight: 15,
     zIndex: 1000,
   },

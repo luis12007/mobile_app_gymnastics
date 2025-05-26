@@ -13,10 +13,10 @@ const isLargeScreen = width >= 1000 && height >= 700;
 var isLargeDevice = false;
 var isSmallDevice = false;
 var isTinyDevice = false;
-if (width >= 1368 && height >= 1025) {
+if (width >= 1368) {
   isLargeDevice = true;
 }
-if (width < 1367 && width >= 945) {
+if (width >= 1200 && width < 1368) {
   isSmallDevice = true;
 }
 if (width < 949) {
@@ -347,7 +347,7 @@ const OptimizedWhiteboardDebug = ({
   // Compute menu height for animation
   const menuHeight = menuAnimation.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, 220],
+    outputRange: [0, 270],
   });
   
   // Optimization: Pre-save all points immediately to avoid missing any
@@ -772,7 +772,7 @@ const handleWebTouchEnd = () => {
         <View style={styles.menuContent}>
           <View style={{flexDirection: 'row'}}>
             {/* Left Column */}
-            <View style={{flex: 1, marginRight: 10}}>
+            <View style={{flex: 0.65}}>
               {/* Colors */}
               <View style={styles.menuSection}>
                 <Text style={styles.menuSectionTitle}>Colors</Text>
@@ -983,10 +983,11 @@ const styles = StyleSheet.create({
     borderColor: '#ddd',
   },
   canvasSmall: {
-    height: 460,
+    height: 620,
     backgroundColor: CANVAS_BACKGROUND,
     borderWidth: 1,
     borderColor: '#ddd',
+    
   },
   canvasTiny: {
     height: 20,
@@ -998,7 +999,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 70,
     left: 10,
-    width: 550, // wider to fit all sections
+    width: 600, // wider to fit all sections
     backgroundColor: 'rgba(245, 245, 245, 0.95)',
     borderRadius: 10,
     zIndex: 10,
@@ -1207,7 +1208,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#3AAA35", // Green when active
   },
   buttonText: {
-    fontSize: 16,
+    fontSize: 12,
     color: "white",
     fontWeight: "bold",
   },

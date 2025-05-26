@@ -2081,7 +2081,7 @@ useEffect(() => {
                     ) : (
                       showDropdown.I && (
                         <View style={styles.dropdownContainer}>
-                          <ScrollView style={{ maxHeight: 150 }}>
+                          <ScrollView style={{ maxHeight: 300 }}>
                             {[0.5, 0.3, 0.0].map((value) => (
                               <TouchableOpacity
                                 key={`I-${value}`}
@@ -2138,7 +2138,7 @@ useEffect(() => {
                     ) : (
                       showDropdown.II && (
                         <View style={styles.dropdownContainer}>
-                          <ScrollView style={{ maxHeight: 150 }}>
+                          <ScrollView style={{ maxHeight: 300 }}>
                             {[0.5, 0.3, 0.0].map((value) => (
                               <TouchableOpacity
                                 key={`II-${value}`}
@@ -2195,7 +2195,7 @@ useEffect(() => {
                     ) : (
                       showDropdown.III && (
                         <View style={styles.dropdownContainer}>
-                          <ScrollView style={{ maxHeight: 150 }}>
+                          <ScrollView style={{ maxHeight: 300 }}>
                             {[0.5, 0.3, 0.0].map((value) => (
                               <TouchableOpacity
                                 key={`III-${value}`}
@@ -2258,7 +2258,7 @@ useEffect(() => {
                     ) : (
                       showDropdown.IV && (
                         <View style={styles.dropdownContainer}>
-                          <ScrollView style={{ maxHeight: 150 }}>
+                          <ScrollView style={{ maxHeight: 300 }}>
                             {(gymnastEvent === "PH"
                               ? [
                                   0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8,
@@ -2774,12 +2774,13 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
   labelText: {
-    fontSize: 20,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#333",
   },
   numberCell: {
     flex: 1,
+
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
@@ -2796,7 +2797,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#a9def9",
   },
   numberText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#333",
   },
@@ -2818,7 +2819,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#ccc",
   },
   selectedCellText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#333",
   },
@@ -2848,7 +2849,7 @@ const styles = StyleSheet.create({
     width: 200,
   },
   infoLabelText: {
-    fontSize: 14,
+    fontSize: 7,
     fontWeight: "bold",
     color: "#333",
   },
@@ -2919,7 +2920,7 @@ const styles = StyleSheet.create({
   },
 
   infoValueText: {
-    fontSize: 23,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#333",
   },
@@ -2950,12 +2951,12 @@ const styles = StyleSheet.create({
     borderColor: "white",
   },
   elementGroupText: {
-    fontSize: 25,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#333",
   },
   elementGroupValue: {
-    fontSize: 25,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#333",
   },
@@ -2977,7 +2978,7 @@ const styles = StyleSheet.create({
     borderColor: "black",
   },
   bonusLabelText: {
-    fontSize: 23,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#333",
     textAlign: "center",
@@ -2989,7 +2990,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   bonusLabelTextStickBonusSmall: {
-    fontSize: 10,
+    fontSize: 7,
     fontWeight: "bold",
     color: "#333",
     textAlign: "center",
@@ -3001,7 +3002,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   bonusValueText: {
-    fontSize: 23,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3044,12 +3045,12 @@ const styles = StyleSheet.create({
     borderColor: "black",
   },
   svLabelText: {
-    fontSize: 25,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#333",
   },
   svValueText: {
-    fontSize: 25,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3063,12 +3064,12 @@ const styles = StyleSheet.create({
     borderBottomColor: "black",
   },
   scoreValueText: {
-    fontSize: 25,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#333",
   },
   scoreValueTextSmall: {
-    fontSize: 15,
+    fontSize: 10,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3105,7 +3106,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   myScoreValueText: {
-    fontSize: 25,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3115,7 +3116,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   myScoreLabelTextScoreSmall: {
-    fontSize: 16,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3158,12 +3159,12 @@ const styles = StyleSheet.create({
     borderColor: "black",
   },
   dLabelText: {
-    fontSize: 25,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#333",
   },
   dLabelTextSmall: {
-    fontSize: 20,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3178,7 +3179,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   dValueTextSmall: {
-    fontSize: 20,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3211,7 +3212,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   eLabelTextSmall: {
-    fontSize: 20,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3226,7 +3227,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   eValueTextSmall: {
-    fontSize: 17,
+    fontSize: 10,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3259,7 +3260,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   sdLabelTextSmall: {
-    fontSize: 20,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3274,7 +3275,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   sdValueTextSmall: {
-    fontSize: 20,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3307,7 +3308,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   ndLabelTextSmall: {
-    fontSize: 20,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3322,7 +3323,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   ndValueTextSmall: {
-    fontSize: 20,
+    fontSize: 14,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3355,7 +3356,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   scoreLabelTextSmall: {
-    fontSize: 16,
+    fontSize: 10,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3389,7 +3390,7 @@ const styles = StyleSheet.create({
     borderColor: "black",
   },
   overtimeValueText: {
-    fontSize: 17,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3403,7 +3404,7 @@ const styles = StyleSheet.create({
     borderColor: "black",
   },
   lineValueText: {
-    fontSize: 17,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3417,7 +3418,7 @@ const styles = StyleSheet.create({
     borderColor: "black",
   },
   otherValueText: {
-    fontSize: 17,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3431,7 +3432,7 @@ const styles = StyleSheet.create({
     borderColor: "black",
   },
   neutralTotalValueText: {
-    fontSize: 17,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3510,6 +3511,7 @@ const styles = StyleSheet.create({
     elevation: 8,
     zIndex: 9999, // Increased zIndex
     maxHeight: 200,
+    height: 200,
     overflow: "visible",
     borderWidth: 1,
     borderColor: "rgba(0, 0, 0, 0.1)",

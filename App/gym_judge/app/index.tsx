@@ -28,10 +28,23 @@ const FIRST_RUN_KEY = "app_first_run";
 import { insertUser, registerActivatedDevice, validateUser } from "../Database/database";
 
 const { width, height } = Dimensions.get("window");
+var isLargeDevice = false;
+var isMediumLargeDevice = false;
+var isSmallDevice = false;
+var isTinyDevice = false;
+
+if (width >= 1368 ) {
+  isLargeDevice = true;
+} else if (width >= 1200 && width < 1368) {
+  isMediumLargeDevice = true;
+} else if (width >= 945 && width < 1200) {
+  isSmallDevice = true;
+} else if (width < 945) {
+  isTinyDevice = true;
+}
 
 export default function LoginScreen() {
   // Use simpler ternary operators for device size detection
-  const isLargeScreen = width >= 1000 && height >= 700;
   const router = useRouter();
 
   const [username, setUsername] = useState("");
@@ -166,6 +179,20 @@ const createDefaultUsers = async () => {
 
     // Check if device is already registered
     checkDeviceRegistration();
+
+
+    const addTestUser = async () => {
+      try {
+        await insertUser("Luis", "123");
+        console.log("Test user added (or already exists)");
+      } catch (error) {
+        console.error("Error adding test user:", error);
+      }
+    };
+    
+    addTestUser();
+
+
   }, []);
   
   // Function to check if the device is already registered
@@ -391,7 +418,10 @@ const createDefaultUsers = async () => {
       <Animated.Image
         source={require("../assets/images/Vector2.png")}
         style={[
-          isLargeScreen ? styles.backgroundImageLarge : styles.backgroundImageSmall,
+          isLargeDevice ? styles.backgroundImageLarge : null,
+          isMediumLargeDevice ? styles.backgroundImageMediumLarge : null,
+          isSmallDevice ? styles.backgroundImageSmall : null,
+          isTinyDevice ? styles.backgroundImageTiny : null,
           { opacity: contentOpacity },
         ]}
         resizeMode="cover"
@@ -400,7 +430,10 @@ const createDefaultUsers = async () => {
       <Animated.Image
         source={require("../assets/images/Vector3.png")}
         style={[
-          isLargeScreen ? styles.backgroundImageRightLarge : styles.backgroundImageRightSmall,
+          isLargeDevice ? styles.backgroundImageRightLarge : null,
+          isMediumLargeDevice ? styles.backgroundImageRightMediumLarge : null,
+          isSmallDevice ? styles.backgroundImageRightSmall : null,
+          isTinyDevice ? styles.backgroundImageRightTiny : null,
           { opacity: contentOpacity },
         ]}
         resizeMode="cover"
@@ -412,7 +445,10 @@ const createDefaultUsers = async () => {
         <Animated.Image
           source={require("../assets/images/Logo_Background.png")}
           style={[
-            isLargeScreen ? styles.logoLarge : styles.logoSmall,
+            isLargeDevice ? styles.logoLarge : null,
+            isMediumLargeDevice ? styles.logoMediumLarge : null,
+            isSmallDevice ? styles.logoSmall : null,
+            isTinyDevice ? styles.logoTiny : null,
             ...(logoPosition.interpolate({
               inputRange: [0, 0.5],
               outputRange: [1, 0],
@@ -439,21 +475,46 @@ const createDefaultUsers = async () => {
                 paddingHorizontal: 20
               }}
             >
-              <Text style={styles.registrationTitle}>Complete Registration</Text>
-              <Text style={styles.registrationSubtitle}>
+              <Text style={[
+                isLargeDevice ? styles.registrationTitleLarge : null,
+                isMediumLargeDevice ? styles.registrationTitleMediumLarge : null,
+                isSmallDevice ? styles.registrationTitleSmall : null,
+                isTinyDevice ? styles.registrationTitleTiny : null,
+              ]}>Complete Registration</Text>
+              <Text style={[
+                isLargeDevice ? styles.registrationSubtitleLarge : null,
+                isMediumLargeDevice ? styles.registrationSubtitleMediumLarge : null,
+                isSmallDevice ? styles.registrationSubtitleSmall : null,
+                isTinyDevice ? styles.registrationSubtitleTiny : null,
+              ]}>
                 Enter the activation key you received by email and create your account
               </Text>
 
               {/* Activation Key Input */}
-              <View style={[isLargeScreen ? styles.inputContainerLarge : styles.inputContainerSmall]}>
+              <View style={[
+                isLargeDevice ? styles.inputContainerLarge : null,
+                isMediumLargeDevice ? styles.inputContainerMediumLarge : null,
+                isSmallDevice ? styles.inputContainerSmall : null,
+                isTinyDevice ? styles.inputContainerTiny : null,
+              ]}>
                 <Image
                   source={require("../assets/images/locked-computer.png")}
-                  style={[isLargeScreen ? styles.image_inputLarge : styles.image_inputSmall]}
+                  style={[
+                    isLargeDevice ? styles.image_inputLarge : null,
+                    isMediumLargeDevice ? styles.image_inputMediumLarge : null,
+                    isSmallDevice ? styles.image_inputSmall : null,
+                    isTinyDevice ? styles.image_inputTiny : null,
+                  ]}
                   resizeMode="contain"
                 />
                 <TextInput
                   placeholder="Activation Key"
-                  style={[isLargeScreen ? styles.inputTextLarge : styles.inputTextSmall]}
+                  style={[
+                    isLargeDevice ? styles.inputTextLarge : null,
+                    isMediumLargeDevice ? styles.inputTextMediumLarge : null,
+                    isSmallDevice ? styles.inputTextSmall : null,
+                    isTinyDevice ? styles.inputTextTiny : null,
+                  ]}
                   placeholderTextColor="#555"
                   value={activationKey}
                   onChangeText={setActivationKey}
@@ -462,15 +523,30 @@ const createDefaultUsers = async () => {
               </View>
 
               {/* Username Input */}
-              <View style={[isLargeScreen ? styles.inputContainerLarge : styles.inputContainerSmall]}>
+              <View style={[
+                isLargeDevice ? styles.inputContainerLarge : null,
+                isMediumLargeDevice ? styles.inputContainerMediumLarge : null,
+                isSmallDevice ? styles.inputContainerSmall : null,
+                isTinyDevice ? styles.inputContainerTiny : null,
+              ]}>
                 <Image
                   source={require("../assets/images/user.png")}
-                  style={[isLargeScreen ? styles.image_inputLarge : styles.image_inputSmall]}
+                  style={[
+                    isLargeDevice ? styles.image_inputLarge : null,
+                    isMediumLargeDevice ? styles.image_inputMediumLarge : null,
+                    isSmallDevice ? styles.image_inputSmall : null,
+                    isTinyDevice ? styles.image_inputTiny : null,
+                  ]}
                   resizeMode="contain"
                 />
                 <TextInput
                   placeholder="Username"
-                  style={[isLargeScreen ? styles.inputTextLarge : styles.inputTextSmall]}
+                  style={[
+                    isLargeDevice ? styles.inputTextLarge : null,
+                    isMediumLargeDevice ? styles.inputTextMediumLarge : null,
+                    isSmallDevice ? styles.inputTextSmall : null,
+                    isTinyDevice ? styles.inputTextTiny : null,
+                  ]}
                   placeholderTextColor="#555"
                   value={registerUsername}
                   onChangeText={setRegisterUsername}
@@ -479,16 +555,31 @@ const createDefaultUsers = async () => {
               </View>
 
               {/* Password Input */}
-              <View style={[isLargeScreen ? styles.inputContainerLarge : styles.inputContainerSmall]}>
+              <View style={[
+                isLargeDevice ? styles.inputContainerLarge : null,
+                isMediumLargeDevice ? styles.inputContainerMediumLarge : null,
+                isSmallDevice ? styles.inputContainerSmall : null,
+                isTinyDevice ? styles.inputContainerTiny : null,
+              ]}>
                 <Image
                   source={require("../assets/images/locked-computer.png")}
-                  style={[isLargeScreen ? styles.image_inputLarge : styles.image_inputSmall]}
+                  style={[
+                    isLargeDevice ? styles.image_inputLarge : null,
+                    isMediumLargeDevice ? styles.image_inputMediumLarge : null,
+                    isSmallDevice ? styles.image_inputSmall : null,
+                    isTinyDevice ? styles.image_inputTiny : null,
+                  ]}
                   resizeMode="contain"
                 />
                 <TextInput
                   placeholder="Password"
                   secureTextEntry
-                  style={[isLargeScreen ? styles.inputTextLarge : styles.inputTextSmall]}
+                  style={[
+                    isLargeDevice ? styles.inputTextLarge : null,
+                    isMediumLargeDevice ? styles.inputTextMediumLarge : null,
+                    isSmallDevice ? styles.inputTextSmall : null,
+                    isTinyDevice ? styles.inputTextTiny : null,
+                  ]}
                   placeholderTextColor="#555"
                   value={registerPassword}
                   onChangeText={setRegisterPassword}
@@ -497,16 +588,31 @@ const createDefaultUsers = async () => {
               </View>
 
               {/* Confirm Password Input */}
-              <View style={[isLargeScreen ? styles.inputContainerLarge : styles.inputContainerSmall]}>
+              <View style={[
+                isLargeDevice ? styles.inputContainerLarge : null,
+                isMediumLargeDevice ? styles.inputContainerMediumLarge : null,
+                isSmallDevice ? styles.inputContainerSmall : null,
+                isTinyDevice ? styles.inputContainerTiny : null,
+              ]}>
                 <Image
                   source={require("../assets/images/locked-computer.png")}
-                  style={[isLargeScreen ? styles.image_inputLarge : styles.image_inputSmall]}
+                  style={[
+                    isLargeDevice ? styles.image_inputLarge : null,
+                    isMediumLargeDevice ? styles.image_inputMediumLarge : null,
+                    isSmallDevice ? styles.image_inputSmall : null,
+                    isTinyDevice ? styles.image_inputTiny : null,
+                  ]}
                   resizeMode="contain"
                 />
                 <TextInput
                   placeholder="Confirm Password"
                   secureTextEntry
-                  style={[isLargeScreen ? styles.inputTextLarge : styles.inputTextSmall]}
+                  style={[
+                    isLargeDevice ? styles.inputTextLarge : null,
+                    isMediumLargeDevice ? styles.inputTextMediumLarge : null,
+                    isSmallDevice ? styles.inputTextSmall : null,
+                    isTinyDevice ? styles.inputTextTiny : null,
+                  ]}
                   placeholderTextColor="#555"
                   value={confirmPassword}
                   onChangeText={setConfirmPassword}
@@ -519,31 +625,52 @@ const createDefaultUsers = async () => {
                 <TouchableOpacity
                   onPress={() => setShowRegistration(false)}
                   style={[
-                    isLargeScreen ? styles.secondaryButtonLarge : styles.secondaryButtonSmall,
+                    isLargeDevice ? styles.secondaryButtonLarge : null,
+                    isMediumLargeDevice ? styles.secondaryButtonMediumLarge : null,
+                    isSmallDevice ? styles.secondaryButtonSmall : null,
+                    isTinyDevice ? styles.secondaryButtonTiny : null,
                   ]}
                 >
-                  <Text style={styles.secondaryButtonText}>Cancel</Text>
+                  <Text style={[
+                    isLargeDevice ? styles.secondaryButtonTextLarge : null,
+                    isMediumLargeDevice ? styles.secondaryButtonTextMediumLarge : null,
+                    isSmallDevice ? styles.secondaryButtonTextSmall : null,
+                    isTinyDevice ? styles.secondaryButtonTextTiny : null,
+                  ]}>Cancel</Text>
                 </TouchableOpacity>
                 
                 <TouchableOpacity
                   onPress={completeRegistration}
                   style={[
-                    isLargeScreen ? styles.loginButtonLargeRegister : styles.loginButtonSmallRegister,
-                    { marginLeft: 10,}
+                    isLargeDevice ? styles.loginButtonLargeRegister : null,
+                    isMediumLargeDevice ? styles.loginButtonMediumLargeRegister : null,
+                    isSmallDevice ? styles.loginButtonSmallRegister : null,
+                    isTinyDevice ? styles.loginButtonTinyRegister : null,
+                    { marginLeft: 10 }
                   ]}
                   disabled={isLoading}
                 >
                   {isLoading ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
-                    <Text style={[isLargeScreen ? styles.loginTextLargeRegister : styles.loginTextSmallRegister]}>
+                    <Text style={[
+                      isLargeDevice ? styles.loginTextLargeRegister : null,
+                      isMediumLargeDevice ? styles.loginTextMediumLargeRegister : null,
+                      isSmallDevice ? styles.loginTextSmallRegister : null,
+                      isTinyDevice ? styles.loginTextTinyRegister : null,
+                    ]}>
                       Register
                     </Text>
                   )}
                 </TouchableOpacity>
               </View>
               
-              <Text style={styles.helpText}>
+              <Text style={[
+                isLargeDevice ? styles.helpTextLarge : null,
+                isMediumLargeDevice ? styles.helpTextMediumLarge : null,
+                isSmallDevice ? styles.helpTextSmall : null,
+                isTinyDevice ? styles.helpTextTiny : null,
+              ]}>
                 If you don't have an activation key, use the "Register New Device" button
                 on the login screen to request one.
               </Text>
@@ -561,22 +688,29 @@ const createDefaultUsers = async () => {
               }}
             >
               {/* Username Input */}
-              <View
-                style={[
-                  isLargeScreen ? styles.inputContainerLarge : styles.inputContainerSmall,
-                ]}
-              >
+              <View style={[
+                isLargeDevice ? styles.inputContainerLarge : null,
+                isMediumLargeDevice ? styles.inputContainerMediumLarge : null,
+                isSmallDevice ? styles.inputContainerSmall : null,
+                isTinyDevice ? styles.inputContainerTiny : null,
+              ]}>
                 <Image
                   source={require("../assets/images/user.png")}
                   style={[
-                    isLargeScreen ? styles.image_inputLarge : styles.image_inputSmall
+                    isLargeDevice ? styles.image_inputLarge : null,
+                    isMediumLargeDevice ? styles.image_inputMediumLarge : null,
+                    isSmallDevice ? styles.image_inputSmall : null,
+                    isTinyDevice ? styles.image_inputTiny : null,
                   ]}
                   resizeMode="contain"
                 />
                 <TextInput
                   placeholder="Username"
                   style={[
-                    isLargeScreen ? styles.inputTextLarge : styles.inputTextSmall
+                    isLargeDevice ? styles.inputTextLarge : null,
+                    isMediumLargeDevice ? styles.inputTextMediumLarge : null,
+                    isSmallDevice ? styles.inputTextSmall : null,
+                    isTinyDevice ? styles.inputTextTiny : null,
                   ]}
                   placeholderTextColor="#555"
                   value={username}
@@ -586,15 +720,19 @@ const createDefaultUsers = async () => {
               </View>
 
               {/* Password Input */}
-              <View
-                style={[
-                  isLargeScreen ? styles.inputContainerLarge : styles.inputContainerSmall,
-                ]}
-              >
+              <View style={[
+                isLargeDevice ? styles.inputContainerLarge : null,
+                isMediumLargeDevice ? styles.inputContainerMediumLarge : null,
+                isSmallDevice ? styles.inputContainerSmall : null,
+                isTinyDevice ? styles.inputContainerTiny : null,
+              ]}>
                 <Image
                   source={require("../assets/images/locked-computer.png")}
                   style={[
-                    isLargeScreen ? styles.image_inputLarge : styles.image_inputSmall
+                    isLargeDevice ? styles.image_inputLarge : null,
+                    isMediumLargeDevice ? styles.image_inputMediumLarge : null,
+                    isSmallDevice ? styles.image_inputSmall : null,
+                    isTinyDevice ? styles.image_inputTiny : null,
                   ]}
                   resizeMode="contain"
                 />
@@ -602,7 +740,10 @@ const createDefaultUsers = async () => {
                   placeholder="Password"
                   secureTextEntry
                   style={[
-                    isLargeScreen ? styles.inputTextLarge : styles.inputTextSmall
+                    isLargeDevice ? styles.inputTextLarge : null,
+                    isMediumLargeDevice ? styles.inputTextMediumLarge : null,
+                    isSmallDevice ? styles.inputTextSmall : null,
+                    isTinyDevice ? styles.inputTextTiny : null,
                   ]}
                   placeholderTextColor="#555"
                   value={password}
@@ -625,18 +766,22 @@ const createDefaultUsers = async () => {
               <TouchableOpacity
                 onPress={handleLogin}
                 style={[
-                  isLargeScreen ? styles.loginButtonLarge : styles.loginButtonSmall,
+                  isLargeDevice ? styles.loginButtonLarge : null,
+                  isMediumLargeDevice ? styles.loginButtonMediumLarge : null,
+                  isSmallDevice ? styles.loginButtonSmall : null,
+                  isTinyDevice ? styles.loginButtonTiny : null,
                 ]}
                 disabled={isLoading}
               >
                 {isLoading ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Text
-                    style={[
-                      isLargeScreen ? styles.loginTextLarge : styles.loginTextSmall,
-                    ]}
-                  >
+                  <Text style={[
+                    isLargeDevice ? styles.loginTextLarge : null,
+                    isMediumLargeDevice ? styles.loginTextMediumLarge : null,
+                    isSmallDevice ? styles.loginTextSmall : null,
+                    isTinyDevice ? styles.loginTextTiny : null,
+                  ]}>
                     Log In
                   </Text>
                 )}
@@ -646,7 +791,10 @@ const createDefaultUsers = async () => {
               <TouchableOpacity
                 onPress={initiateRegistration}
                 style={[
-                  isLargeScreen ? styles.registerButtonLarge : styles.registerButtonSmall,
+                  isLargeDevice ? styles.registerButtonLarge : null,
+                  isMediumLargeDevice ? styles.registerButtonMediumLarge : null,
+                  isSmallDevice ? styles.registerButtonSmall : null,
+                  isTinyDevice ? styles.registerButtonTiny : null,
                 ]}
                 disabled={isLoading}
               >
@@ -655,7 +803,10 @@ const createDefaultUsers = async () => {
                 ) : (
                   <Text
                     style={[
-                      isLargeScreen ? styles.registerTextLarge : styles.registerTextSmall,
+                      isLargeDevice ? styles.registerTextLarge : null,
+                      isMediumLargeDevice ? styles.registerTextMediumLarge : null,
+                      isSmallDevice ? styles.registerTextSmall : null,
+                      isTinyDevice ? styles.registerTextTiny : null,
                     ]}
                   >
                     Register New Device
@@ -665,24 +816,21 @@ const createDefaultUsers = async () => {
             </Animated.View>
             
             {/* Default user credentials */}
-            {/* <Animated.View style={[
-              styles.defaultUserContainer, 
-              { opacity: contentOpacity },
-              !isLargeScreen && styles.defaultUserContainerSmall
+            <Animated.View style={[
+              isLargeDevice ? styles.defaultUserContainerLarge : null,
+              isMediumLargeDevice ? styles.defaultUserContainerMediumLarge : null,
+              isSmallDevice ? styles.defaultUserContainerSmall : null,
+              isTinyDevice ? styles.defaultUserContainerTiny : null,
+              { opacity: contentOpacity }
             ]}>
+              
               <Text style={[
-                isLargeScreen ? styles.defaultUserTextLarge : styles.defaultUserTextSmall
-              ]}>Default User:</Text>
-              <Text style={[
-                isLargeScreen ? styles.defaultUserTextLarge : styles.defaultUserTextSmall
-              ]}>Username: Luis</Text>
-              <Text style={[
-                isLargeScreen ? styles.defaultUserTextLarge : styles.defaultUserTextSmall
-              ]}>Password: 123</Text>
-              <Text style={[
-                isLargeScreen ? styles.defaultUserTextLarge : styles.defaultUserTextSmall
-              ]}>Width: {width} ~ Height: {height}</Text>
-            </Animated.View> */}
+                isLargeDevice ? styles.defaultUserTextLarge : null,
+                isMediumLargeDevice ? styles.defaultUserTextMediumLarge : null,
+                isSmallDevice ? styles.defaultUserTextSmall : null,
+                isTinyDevice ? styles.defaultUserTextTiny : null,
+              ]}>Width: {width} ~ Height: {height}</Text> 
+            </Animated.View> 
           </>
         )}
       </View>
@@ -696,7 +844,7 @@ const styles = StyleSheet.create({
     position: "relative",
     backgroundColor: "#F1F3F5",
   },
-  // Background images - large variants
+  // Background images - Large Device
   backgroundImageLarge: {
     position: "absolute",
     top: 0,
@@ -710,16 +858,47 @@ const styles = StyleSheet.create({
     right: 0,
     width: 300,
     height: 570,
+    
   },
-  // Background images - small variants
+  // Background images - Medium Large Device
+  backgroundImageMediumLarge: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: 250,
+    height: 490,
+  },
+  backgroundImageRightMediumLarge: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 250,
+    height: 470,
+  },
+  // Background images - Small Device
   backgroundImageSmall: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: 180,
+    height: 360,
+  },
+  backgroundImageRightSmall: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 180,
+    height: 360,
+  },
+  // Background images - Tiny Device
+  backgroundImageTiny: {
     position: "absolute",
     top: 0,
     left: 0,
     width: 140,
     height: 280,
   },
-  backgroundImageRightSmall: {
+  backgroundImageRightTiny: {
     position: "absolute",
     bottom: 0,
     right: 0,
@@ -731,7 +910,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     zIndex: 1,
   },
-  // Logo styles
+  // Logo styles - Large Device
   logoLarge: {
     alignSelf: "center",
     width: "30%",
@@ -739,14 +918,35 @@ const styles = StyleSheet.create({
     position: "relative",
     bottom: -40,
   },
+  // Logo styles - Medium Large Device
+  logoMediumLarge: {
+    alignSelf: "center",
+    width: "38%",
+    height: "38%",
+    position: "relative",
+    bottom: -35,
+
+    
+  },
+  // Logo styles - Small Device
   logoSmall: {
+    alignSelf: "center",
+    width: "26%",
+    height: "36%",
+    position: "relative",
+    bottom: -25,
+    
+  },
+  // Logo styles - Tiny Device
+  logoTiny: {
     alignSelf: "center",
     width: "25%",
     height: "40%",
     position: "relative",
     bottom: -20,
+    
   },
-  // Input container styles
+  // Input container styles - Large Device
   inputContainerLarge: {
     backgroundColor: "#D9D9D9",
     borderRadius: 8,
@@ -757,7 +957,30 @@ const styles = StyleSheet.create({
     position: "relative",
     alignSelf: "center",
   },
+  // Input container styles - Medium Large Device
+  inputContainerMediumLarge: {
+    backgroundColor: "#D9D9D9",
+    borderRadius: 8,
+    paddingHorizontal: 25,
+    paddingVertical: 9,
+    marginBottom: 18,
+    width: "32%",
+    position: "relative",
+    alignSelf: "center",
+  },
+  // Input container styles - Small Device
   inputContainerSmall: {
+    backgroundColor: "#D9D9D9",
+    borderRadius: 7,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    marginBottom: 15,
+    width: "38%",
+    position: "relative",
+    alignSelf: "center",
+  },
+  // Input container styles - Tiny Device
+  inputContainerTiny: {
     backgroundColor: "#D9D9D9",
     borderRadius: 6,
     paddingHorizontal: 15,
@@ -767,7 +990,7 @@ const styles = StyleSheet.create({
     position: "relative",
     alignSelf: "center",
   },
-  // Input icon styles
+  // Input icon styles - Large Device
   image_inputLarge: {
     position: "absolute",
     top: 5,
@@ -775,23 +998,51 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
   },
+  // Input icon styles - Medium Large Device
+  image_inputMediumLarge: {
+    position: "absolute",
+    top: 10,
+    left: 9,
+    width: 28,
+    height: 28,
+  },
+  // Input icon styles - Small Device
   image_inputSmall: {
+    position: "absolute",
+    top: 4,
+    left: 8,
+    width: 24,
+    height: 24,
+  },
+  // Input icon styles - Tiny Device
+  image_inputTiny: {
     position: "absolute",
     top: 15,
     left: 7,
     width: 20,
     height: 20,
   },
-  // Input text styles
+  // Input text styles - Large Device
   inputTextLarge: {
     paddingLeft: 25,
     fontSize: 16,
   },
+  // Input text styles - Medium Large Device
+  inputTextMediumLarge: {
+    paddingLeft: 24,
+    fontSize: 15,
+  },
+  // Input text styles - Small Device
   inputTextSmall: {
+    paddingLeft: 22,
+    fontSize: 14,
+  },
+  // Input text styles - Tiny Device
+  inputTextTiny: {
     paddingLeft: 20,
     fontSize: 14,
   },
-  // Login button styles
+  // Login button styles - Large Device
   loginButtonLarge: {
     backgroundColor: "#004aad",
     borderRadius: 8,
@@ -809,16 +1060,44 @@ const styles = StyleSheet.create({
     width: "30%",
     alignSelf: "center",
   },
-  loginButtonSmallRegister: {
+  // Login button styles - Medium Large Device
+  loginButtonMediumLarge: {
     backgroundColor: "#004aad",
-    borderRadius: 6,
-    paddingVertical: 10,
+    borderRadius: 8,
+    paddingVertical: 8,
     alignItems: "center",
-    width: "34%",
+    width: "32%",
+    alignSelf: "center",
+    marginTop: 9,
+  },
+  loginButtonMediumLargeRegister: {
+    backgroundColor: "#004aad",
+    borderRadius: 8,
+    paddingVertical: 8,
+    alignItems: "center",
+    width: "32%",
     alignSelf: "center",
   },
-
+  // Login button styles - Small Device
   loginButtonSmall: {
+    backgroundColor: "#004aad",
+    borderRadius: 7,
+    paddingVertical: 9,
+    alignItems: "center",
+    width: "36%",
+    alignSelf: "center",
+    marginTop: 8,
+  },
+  loginButtonSmallRegister: {
+    backgroundColor: "#004aad",
+    borderRadius: 7,
+    paddingVertical: 9,
+    alignItems: "center",
+    width: "36%",
+    alignSelf: "center",
+  },
+  // Login button styles - Tiny Device
+  loginButtonTiny: {
     backgroundColor: "#004aad",
     borderRadius: 6,
     paddingVertical: 10,
@@ -827,63 +1106,60 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginTop: 8,
   },
-  // Login text styles
+  loginButtonTinyRegister: {
+    backgroundColor: "#004aad",
+    borderRadius: 6,
+    paddingVertical: 10,
+    alignItems: "center",
+    width: "34%",
+    alignSelf: "center",
+  },
+  // Login text styles - Large Device
   loginTextLarge: {
     color: "#fff",
     fontWeight: "bold",
     fontSize: 30,
   },
-
   loginTextLargeRegister: {
     color: "#fff",
     fontWeight: "bold",
     fontSize: 28,
   },
-
+  // Login text styles - Medium Large Device
+  loginTextMediumLarge: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 27,
+  },
+  loginTextMediumLargeRegister: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 25,
+  },
+  // Login text styles - Small Device
+  loginTextSmall: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 24,
+  },
   loginTextSmallRegister: {
     color: "#fff",
     fontWeight: "bold",
-    fontSize: 20,
+    fontSize: 22,
   },
-
-  loginTextSmall: {
+  // Login text styles - Tiny Device
+  loginTextTiny: {
     color: "#fff",
     fontWeight: "bold",
     fontSize: 23,
   },
-  
-  // Default user container styles
-  defaultUserContainer: {
-    marginTop: 20,
-    alignItems: "center",
-  },
-  defaultUserContainerSmall: {
-    marginTop: 10,
-  },
-  // Default user text styles
-  defaultUserTextLarge: {
-    fontSize: 14,
-    color: "#555",
-  },
-  defaultUserTextSmall: {
-    fontSize: 12,
-    color: "#555",
-  },
-  // New styles for registration
-  registrationTitle: {
-    fontSize: width >= 1000 && height >= 700 ? 28 : 22,
+  loginTextTinyRegister: {
+    color: "#fff",
     fontWeight: "bold",
-    color: "#004aad",
-    marginBottom: 10,
-    textAlign: "center"
+    fontSize: 20,
   },
-  registrationSubtitle: {
-    fontSize: width >= 1000 && height >= 700 ? 16 : 14,
-    color: "#666",
-    marginBottom: 20,
-    textAlign: "center",
-    maxWidth: "80%"
-  },
+  
+  // Register Device Button styles - Large Device
   registerButtonLarge: {
     backgroundColor: "#2E8B57", // Dark Green
     borderRadius: 8,
@@ -893,7 +1169,28 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginTop: 10,
   },
+  // Register Device Button styles - Medium Large Device
+  registerButtonMediumLarge: {
+    backgroundColor: "#2E8B57", // Dark Green
+    borderRadius: 8,
+    paddingVertical: 8,
+    alignItems: "center",
+    width: "32%",
+    alignSelf: "center",
+    marginTop: 9,
+  },
+  // Register Device Button styles - Small Device
   registerButtonSmall: {
+    backgroundColor: "#2E8B57", // Dark Green
+    borderRadius: 7,
+    paddingVertical: 9,
+    alignItems: "center",
+    width: "36%",
+    alignSelf: "center",
+    marginTop: 8,
+  },
+  // Register Device Button styles - Tiny Device
+  registerButtonTiny: {
     backgroundColor: "#2E8B57", // Dark Green
     borderRadius: 6,
     paddingVertical: 10,
@@ -902,21 +1199,145 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginTop: 8,
   },
+  // Register text styles - Large Device
   registerTextLarge: {
     color: "#fff",
     fontWeight: "bold",
     fontSize: 24,
   },
+  // Register text styles - Medium Large Device
+  registerTextMediumLarge: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 15,
+  },
+  // Register text styles - Small Device
   registerTextSmall: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 20,
+  },
+  // Register text styles - Tiny Device
+  registerTextTiny: {
     color: "#fff",
     fontWeight: "bold",
     fontSize: 18,
   },
+  
+  // Default user container styles - Large Device
+  defaultUserContainerLarge: {
+    marginTop: 20,
+    alignItems: "center",
+  },
+  // Default user container styles - Medium Large Device
+  defaultUserContainerMediumLarge: {
+    marginTop: 18,
+    alignItems: "center",
+  },
+  // Default user container styles - Small Device
+  defaultUserContainerSmall: {
+    marginTop: 15,
+    alignItems: "center",
+  },
+  // Default user container styles - Tiny Device
+  defaultUserContainerTiny: {
+    marginTop: 10,
+    alignItems: "center",
+  },
+  // Default user text styles - Large Device
+  defaultUserTextLarge: {
+    fontSize: 14,
+    color: "#555",
+  },
+  // Default user text styles - Medium Large Device
+  defaultUserTextMediumLarge: {
+    fontSize: 13,
+    color: "#555",
+  },
+  // Default user text styles - Small Device
+  defaultUserTextSmall: {
+    fontSize: 12,
+    color: "#555",
+  },
+  // Default user text styles - Tiny Device
+  defaultUserTextTiny: {
+    fontSize: 12,
+    color: "#555",
+  },
+  
+  // Registration title styles - Large Device
+  registrationTitleLarge: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: "#004aad",
+    marginBottom: 10,
+    textAlign: "center"
+  },
+  // Registration title styles - Medium Large Device
+  registrationTitleMediumLarge: {
+    fontSize: 26,
+    fontWeight: "bold",
+    color: "#004aad",
+    marginBottom: 9,
+    textAlign: "center"
+  },
+  // Registration title styles - Small Device
+  registrationTitleSmall: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#004aad",
+    marginBottom: 8,
+    textAlign: "center"
+  },
+  // Registration title styles - Tiny Device
+  registrationTitleTiny: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#004aad",
+    marginBottom: 10,
+    textAlign: "center"
+  },
+  
+  // Registration subtitle styles - Large Device
+  registrationSubtitleLarge: {
+    fontSize: 16,
+    color: "#666",
+    marginBottom: 20,
+    textAlign: "center",
+    maxWidth: "80%"
+  },
+  // Registration subtitle styles - Medium Large Device
+  registrationSubtitleMediumLarge: {
+    fontSize: 15,
+    color: "#666",
+    marginBottom: 18,
+    textAlign: "center",
+    maxWidth: "80%"
+  },
+  // Registration subtitle styles - Small Device
+  registrationSubtitleSmall: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 15,
+    textAlign: "center",
+    maxWidth: "80%"
+  },
+  // Registration subtitle styles - Tiny Device
+  registrationSubtitleTiny: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 20,
+    textAlign: "center",
+    maxWidth: "80%"
+  },
+  
   buttonRow: {
     flexDirection: "row",
     justifyContent: "center",
     marginTop: 10
   },
+  
+  // Secondary button styles - Large Device
   secondaryButtonLarge: {
     backgroundColor: "#888",
     borderRadius: 8,
@@ -924,21 +1345,87 @@ const styles = StyleSheet.create({
     alignItems: "center",
     width: "15%",
   },
+  // Secondary button styles - Medium Large Device
+  secondaryButtonMediumLarge: {
+    backgroundColor: "#888",
+    borderRadius: 8,
+    paddingVertical: 8,
+    alignItems: "center",
+    width: "16%",
+  },
+  // Secondary button styles - Small Device
   secondaryButtonSmall: {
+    backgroundColor: "#888",
+    borderRadius: 7,
+    paddingVertical: 9,
+    alignItems: "center",
+    width: "18%",
+  },
+  // Secondary button styles - Tiny Device
+  secondaryButtonTiny: {
     backgroundColor: "#888",
     borderRadius: 6,
     paddingVertical: 10,
     alignItems: "center",
     width: "17%",
   },
-  secondaryButtonText: {
+  
+  // Secondary button text styles - Large Device
+  secondaryButtonTextLarge: {
     color: "#fff",
     fontWeight: "bold",
-    fontSize: width >= 1000 && height >= 700 ? 30 : 23,
+    fontSize: 30,
   },
-  helpText: {
+  // Secondary button text styles - Medium Large Device
+  secondaryButtonTextMediumLarge: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 27,
+  },
+  // Secondary button text styles - Small Device
+  secondaryButtonTextSmall: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 25,
+  },
+  // Secondary button text styles - Tiny Device
+  secondaryButtonTextTiny: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 23,
+  },
+  
+  // Help text styles - Large Device
+  helpTextLarge: {
     marginTop: 20,
-    fontSize: width >= 1000 && height >= 700 ? 14 : 12,
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    paddingHorizontal: 20,
+    marginBottom: 20
+  },
+  // Help text styles - Medium Large Device
+  helpTextMediumLarge: {
+    marginTop: 18,
+    fontSize: 13,
+    color: "#666",
+    textAlign: "center",
+    paddingHorizontal: 20,
+    marginBottom: 18
+  },
+  // Help text styles - Small Device
+  helpTextSmall: {
+    marginTop: 15,
+    fontSize: 12,
+    color: "#666",
+    textAlign: "center",
+    paddingHorizontal: 20,
+    marginBottom: 15
+  },
+  // Help text styles - Tiny Device
+  helpTextTiny: {
+    marginTop: 20,
+    fontSize: 12,
     color: "#666",
     textAlign: "center",
     paddingHorizontal: 20,

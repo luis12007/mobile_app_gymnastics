@@ -29,19 +29,21 @@ import {
   insertCompetence, insertFolder, insertMainTable, updateFolder
 } from "../Database/database"; // Adjust the path based on your project structure
 const { width, height } = Dimensions.get("window");
-const isLargeScreen = width >= 1000 && height >= 700;
-var isLargeDevice = false
-var isSmallDevice = false
-var isTinyDevice = false
-if (width > 1368) {
-  isLargeDevice = true
+var isLargeDevice = false;
+var isMediumLargeDevice = false;
+var isSmallDevice = false;
+var isTinyDevice = false;
+
+if (width >= 1368 ) {
+  isLargeDevice = true;
+} else if (width >= 1200 && width < 1368) {
+  isMediumLargeDevice = true;
+} else if (width >= 945 && width < 1200) {
+  isSmallDevice = true;
+} else if (width < 945) {
+  isTinyDevice = true;
 }
-if (width < 1367 && width >= 945) {
-  isSmallDevice = true
-}
-if (width < 949 ) {
-  isTinyDevice = true
-}
+
 // Update this interface to match the props being passed
 interface FolderItemProps {
   id: number; // Add this
@@ -149,7 +151,8 @@ const FolderItem: React.FC<FolderItemProps> = ({
         style={[
           folderType === 1 ? styles.folderType1 : null,
           folderType === 2 ? styles.folderType2 : null,
-          isLargeDevice ? styles.folderItem : null,
+          isLargeDevice ? styles.folderItemLarge : null,
+          isMediumLargeDevice ? styles.folderItemMediumLarge : null,
           isSmallDevice ? styles.folderItemSmall : null, 
           isTinyDevice ? styles.folderItemTiny : null,
           selected ? styles.selectedFolder : null,
@@ -165,22 +168,25 @@ const FolderItem: React.FC<FolderItemProps> = ({
   }
 
   style={[
-    isLargeDevice ? styles.folderIcon : null, 
+    isLargeDevice ? styles.folderIconLarge : null, 
     isSmallDevice ? styles.folderIconSmall : null, 
+    isMediumLargeDevice ? styles.folderIconMediumLarge : null,
     isTinyDevice ? styles.folderIconTiny : null,
   ]}
   resizeMode="cover"
 />
           
           <View style={[
-            isLargeDevice ? styles.folderInfo : null, 
+            isLargeDevice ? styles.folderInfoLarge : null, 
             isSmallDevice ? styles.folderInfoSmall : null, 
+            isMediumLargeDevice ? styles.folderInfoMediumLarge : null,
             isTinyDevice ? styles.folderInfoTiny : null, 
           ]}>
             <Text 
               style={[
-                isLargeDevice ? styles.folderTitle : null, 
+                isLargeDevice ? styles.folderTitleLarge : null, 
                 isSmallDevice ? styles.folderTitleSmall : null, 
+                isMediumLargeDevice ? styles.folderTitleMediumLarge : null,
                 isTinyDevice ? styles.folderTitleTiny : null, 
               ]}
             >
@@ -189,8 +195,9 @@ const FolderItem: React.FC<FolderItemProps> = ({
             
             <Text 
               style={[
-                isLargeDevice ? styles.folderDescription : null, 
+                isLargeDevice ? styles.folderDescriptionLarge : null, 
                 isSmallDevice ? styles.folderDescriptionSmall : null, 
+                isMediumLargeDevice ? styles.folderDescriptionMediumLarge : null,
                 isTinyDevice ? styles.folderDescriptionTiny : null, 
               ]}
             >
@@ -198,8 +205,9 @@ const FolderItem: React.FC<FolderItemProps> = ({
             </Text>
             
             <View style={[
-              isLargeDevice ? styles.folderFooter : null, 
+              isLargeDevice ? styles.folderFooterSmall : null, 
               isSmallDevice ? styles.folderFooterSmall : null, 
+              isMediumLargeDevice ? styles.folderFooterMediumLarge : null,
               isTinyDevice ? styles.folderFooterTiny : null, 
             ]}>
 {/*               <TouchableOpacity 
@@ -216,8 +224,9 @@ const FolderItem: React.FC<FolderItemProps> = ({
               
               <Text 
                 style={[
-                  isLargeDevice ? styles.dateText : null, 
+                  isLargeDevice ? styles.dateTextLarge : null, 
                   isSmallDevice ? styles.dateTextSmall : null, 
+                  isMediumLargeDevice ? styles.dateTextMediumLarge : null,
                   isTinyDevice ? styles.dateTextTiny : null, 
                 ]}
               >
@@ -230,7 +239,7 @@ const FolderItem: React.FC<FolderItemProps> = ({
         
         {selected && (
           <View style={styles.checkmark}>
-            <Ionicons name="checkmark" size={isLargeScreen ? 20 : 16} color="#000" />
+            <Ionicons name="checkmark" size={17} color="#000" />
           </View>
         )}
       </TouchableOpacity>
@@ -754,27 +763,36 @@ const confirmFolderForCompetition = () => {
   }
 };
 
-  return (
+ return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
       
       {/* Header with Animation */}
       <Animated.View 
         style={[
-          styles.header,
+          isLargeDevice ? styles.headerLarge : null,
+          isMediumLargeDevice ? styles.headerMediumLarge : null,
+          isSmallDevice ? styles.headerSmall : null,
+          isTinyDevice ? styles.headerTiny : null,
           { 
             opacity: headerAnimOpacity,
             transform: [{ translateY: headerAnimY }]
           }
         ]}
       >
-        <TouchableOpacity style={styles.backButton} onPress={goBack}>
+        <TouchableOpacity style={[
+          isLargeDevice ? styles.backButtonLarge : null,
+          isMediumLargeDevice ? styles.backButtonMediumLarge : null,
+          isSmallDevice ? styles.backButtonSmall : null,
+          isTinyDevice ? styles.backButtonTiny : null,
+        ]} onPress={goBack}>
           <Ionicons name="arrow-back" size={24} color="#000" />
           <Text 
             style={[
-              isLargeDevice ? styles.headerTitle : null, 
-              isSmallDevice ? styles.headerTitle : null, 
-              isTinyDevice ? styles.headerTitleTiny : null, 
+              isLargeDevice ? styles.headerTitleLarge : null,
+              isMediumLargeDevice ? styles.headerTitleMediumLarge : null,
+              isSmallDevice ? styles.headerTitleSmall : null,
+              isTinyDevice ? styles.headerTitleTiny : null,
             ]}
           >
             Select Discipline
@@ -783,7 +801,12 @@ const confirmFolderForCompetition = () => {
         
         {selectionMode ? (
           <TouchableOpacity onPress={cancelSelectionMode}>
-            <Text style={styles.cancelSelectionText}>Cancel</Text>
+            <Text style={[
+              isLargeDevice ? styles.cancelSelectionTextLarge : null,
+              isMediumLargeDevice ? styles.cancelSelectionTextMediumLarge : null,
+              isSmallDevice ? styles.cancelSelectionTextSmall : null,
+              isTinyDevice ? styles.cancelSelectionTextTiny : null,
+            ]}>Cancel</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity onPress={() => setMenuVisible(true)}>
@@ -793,8 +816,18 @@ const confirmFolderForCompetition = () => {
       </Animated.View>
       
       {/* Folders Grid */}
-      <ScrollView style={styles.scrollView}>
-        <View style={isLargeScreen ? styles.foldersGrid : styles.foldersGridSmall}>
+      <ScrollView style={[
+        isLargeDevice ? styles.scrollViewLarge : null,
+        isMediumLargeDevice ? styles.scrollViewMediumLarge : null,
+        isSmallDevice ? styles.scrollViewSmall : null,
+        isTinyDevice ? styles.scrollViewTiny : null,
+      ]}>
+        <View style={[
+          isLargeDevice ? styles.foldersGridLarge : null,
+          isMediumLargeDevice ? styles.foldersGridMediumLarge : null,
+          isSmallDevice ? styles.foldersGridSmall : null,
+          isTinyDevice ? styles.foldersGridTiny : null,
+        ]}>
           {folders.map((folder, index) => (
             <FolderItem
               key={folder.id}
@@ -815,50 +848,86 @@ const confirmFolderForCompetition = () => {
       </ScrollView>
       
       {/* Add Competition Button with Animation */}
-<Animated.View 
-  style={[
-    styles.buttonContainer,
-    {
-      opacity: buttonAnimOpacity,
-      transform: [{ translateY: buttonAnimY }]
-    }
-  ]}
->
-  {!selectionMode ? (
-    <TouchableOpacity 
-      style={isLargeScreen ? styles.addButton : styles.addButtonSmall} 
-      onPress={() => setAddCompetitionModalVisible(true)}
-    >
-      <Text style={isLargeScreen ? styles.addButtonText : styles.addButtonTextSmall}>
-        Add Competition
-      </Text>
-    </TouchableOpacity>
-  ) : selectionAction === 'edit' && selectedFolders.length === 1 ? (
-    <TouchableOpacity 
-      style={isLargeScreen ? styles.editConfirmButton : styles.editConfirmButtonSmall} 
-      onPress={handleEditConfirm}
-    >
-      <Text style={isLargeScreen ? styles.editConfirmButtonText : styles.editConfirmButtonTextSmall}>
-        Edit Selected
-      </Text>
-    </TouchableOpacity>
-  ) : folderSelectionForCompetition && selectedFolders.length === 1 ? (
-    <TouchableOpacity 
-      style={isLargeScreen ? styles.confirmButton : styles.confirmButtonSmall} 
-      onPress={confirmFolderForCompetition}
-    >
-      <Text style={isLargeScreen ? styles.confirmButtonText : styles.confirmButtonTextSmall}>
-        Use Selected Folder
-      </Text>
-    </TouchableOpacity>
-  ) : null}
-</Animated.View>
+      <Animated.View 
+        style={[
+          isLargeDevice ? styles.buttonContainerLarge : null,
+          isMediumLargeDevice ? styles.buttonContainerMediumLarge : null,
+          isSmallDevice ? styles.buttonContainerSmall : null,
+          isTinyDevice ? styles.buttonContainerTiny : null,
+          {
+            opacity: buttonAnimOpacity,
+            transform: [{ translateY: buttonAnimY }]
+          }
+        ]}
+      >
+        {!selectionMode ? (
+          <TouchableOpacity 
+            style={[
+              isLargeDevice ? styles.addButtonLarge : null,
+              isMediumLargeDevice ? styles.addButtonMediumLarge : null,
+              isSmallDevice ? styles.addButtonSmall : null,
+              isTinyDevice ? styles.addButtonTiny : null,
+            ]} 
+            onPress={() => setAddCompetitionModalVisible(true)}
+          >
+            <Text style={[
+              isLargeDevice ? styles.addButtonTextLarge : null,
+              isMediumLargeDevice ? styles.addButtonTextMediumLarge : null,
+              isSmallDevice ? styles.addButtonTextSmall : null,
+              isTinyDevice ? styles.addButtonTextTiny : null,
+            ]}>
+              Add Competition
+            </Text>
+          </TouchableOpacity>
+        ) : selectionAction === 'edit' && selectedFolders.length === 1 ? (
+          <TouchableOpacity 
+            style={[
+              isLargeDevice ? styles.editConfirmButtonLarge : null,
+              isMediumLargeDevice ? styles.editConfirmButtonMediumLarge : null,
+              isSmallDevice ? styles.editConfirmButtonSmall : null,
+              isTinyDevice ? styles.editConfirmButtonTiny : null,
+            ]} 
+            onPress={handleEditConfirm}
+          >
+            <Text style={[
+              isLargeDevice ? styles.editConfirmButtonTextLarge : null,
+              isMediumLargeDevice ? styles.editConfirmButtonTextMediumLarge : null,
+              isSmallDevice ? styles.editConfirmButtonTextSmall : null,
+              isTinyDevice ? styles.editConfirmButtonTextTiny : null,
+            ]}>
+              Edit Selected
+            </Text>
+          </TouchableOpacity>
+        ) : folderSelectionForCompetition && selectedFolders.length === 1 ? (
+          <TouchableOpacity 
+            style={[
+              isLargeDevice ? styles.confirmButtonLarge : null,
+              isMediumLargeDevice ? styles.confirmButtonMediumLarge : null,
+              isSmallDevice ? styles.confirmButtonSmall : null,
+              isTinyDevice ? styles.confirmButtonTiny : null,
+            ]} 
+            onPress={confirmFolderForCompetition}
+          >
+            <Text style={[
+              isLargeDevice ? styles.confirmButtonTextLarge : null,
+              isMediumLargeDevice ? styles.confirmButtonTextMediumLarge : null,
+              isSmallDevice ? styles.confirmButtonTextSmall : null,
+              isTinyDevice ? styles.confirmButtonTextTiny : null,
+            ]}>
+              Use Selected Folder
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+      </Animated.View>
   
       {/* Delete Confirmation Button (appears when in delete mode) */}
       {selectionMode && selectionAction === 'delete' && selectedFolders.length > 0 && (
         <Animated.View 
           style={[
-            styles.deleteButtonContainer,
+            isLargeDevice ? styles.deleteButtonContainerLarge : null,
+            isMediumLargeDevice ? styles.deleteButtonContainerMediumLarge : null,
+            isSmallDevice ? styles.deleteButtonContainerSmall : null,
+            isTinyDevice ? styles.deleteButtonContainerTiny : null,
             {
               opacity: deleteButtonAnim,
               transform: [{ scale: deleteButtonAnim }]
@@ -866,10 +935,15 @@ const confirmFolderForCompetition = () => {
           ]}
         >
           <TouchableOpacity 
-            style={isLargeScreen ? styles.deleteButton : styles.deleteButtonSmall} 
+            style={[
+              isLargeDevice ? styles.deleteButtonLarge : null,
+              isMediumLargeDevice ? styles.deleteButtonMediumLarge : null,
+              isSmallDevice ? styles.deleteButtonSmall : null,
+              isTinyDevice ? styles.deleteButtonTiny : null,
+            ]} 
             onPress={confirmDelete}
           >
-            <Ionicons name="trash" size={isLargeScreen ? 24 : 20} color="#fff" />
+            <Ionicons name="trash" size={isLargeDevice ? 24 : isMediumLargeDevice ? 22 : isSmallDevice ? 20 : 20} color="#fff" />
           </TouchableOpacity>
         </Animated.View>
       )}
@@ -882,46 +956,107 @@ const confirmFolderForCompetition = () => {
         onRequestClose={() => setMenuVisible(false)}
       >
         <TouchableOpacity 
-          style={styles.modalOverlay} 
+          style={[
+            isLargeDevice ? styles.modalOverlayLarge : null,
+            isMediumLargeDevice ? styles.modalOverlayMediumLarge : null,
+            isSmallDevice ? styles.modalOverlaySmall : null,
+            isTinyDevice ? styles.modalOverlayTiny : null,
+          ]} 
           activeOpacity={1} 
           onPress={() => setMenuVisible(false)}
         >
           <View 
             style={[
-              isLargeDevice ? styles.menuModal : null, 
-              isSmallDevice ? styles.menuModalSmall : null, 
-              isTinyDevice ? styles.menuModalTiny : null, 
+              isLargeDevice ? styles.menuModalLarge : null,
+              isMediumLargeDevice ? styles.menuModalMediumLarge : null,
+              isSmallDevice ? styles.menuModalSmall : null,
+              isTinyDevice ? styles.menuModalTiny : null,
             ]}
           >
-            <TouchableOpacity style={styles.menuItem} onPress={handleAddOption}>
+            <TouchableOpacity style={[
+              isLargeDevice ? styles.menuItemLarge : null,
+              isMediumLargeDevice ? styles.menuItemMediumLarge : null,
+              isSmallDevice ? styles.menuItemSmall : null,
+              isTinyDevice ? styles.menuItemTiny : null,
+            ]} onPress={handleAddOption}>
               <Image
                 source={require("../assets/images/add.png")}
-                style={styles.menuIconPlaceholder}
+                style={[
+                  isLargeDevice ? styles.menuIconPlaceholderLarge : null,
+                  isMediumLargeDevice ? styles.menuIconPlaceholderMediumLarge : null,
+                  isSmallDevice ? styles.menuIconPlaceholderSmall : null,
+                  isTinyDevice ? styles.menuIconPlaceholderTiny : null,
+                ]}
                 resizeMode="cover"
               />
-              <Text style={isLargeScreen ? styles.menuText : styles.menuTextSmall}>Add</Text>
+              <Text style={[
+                isLargeDevice ? styles.menuTextLarge : null,
+                isMediumLargeDevice ? styles.menuTextMediumLarge : null,
+                isSmallDevice ? styles.menuTextSmall : null,
+                isTinyDevice ? styles.menuTextTiny : null,
+              ]}>Add</Text>
             </TouchableOpacity>
             
-            <View style={styles.menuDivider} />
+            <View style={[
+              isLargeDevice ? styles.menuDividerLarge : null,
+              isMediumLargeDevice ? styles.menuDividerMediumLarge : null,
+              isSmallDevice ? styles.menuDividerSmall : null,
+              isTinyDevice ? styles.menuDividerTiny : null,
+            ]} />
             
-            <TouchableOpacity style={styles.menuItem} onPress={handleEditOption}>
+            <TouchableOpacity style={[
+              isLargeDevice ? styles.menuItemLarge : null,
+              isMediumLargeDevice ? styles.menuItemMediumLarge : null,
+              isSmallDevice ? styles.menuItemSmall : null,
+              isTinyDevice ? styles.menuItemTiny : null,
+            ]} onPress={handleEditOption}>
               <Image
                 source={require("../assets/images/edit.png")}
-                style={styles.menuIconPlaceholder}
+                style={[
+                  isLargeDevice ? styles.menuIconPlaceholderLarge : null,
+                  isMediumLargeDevice ? styles.menuIconPlaceholderMediumLarge : null,
+                  isSmallDevice ? styles.menuIconPlaceholderSmall : null,
+                  isTinyDevice ? styles.menuIconPlaceholderTiny : null,
+                ]}
                 resizeMode="cover"
               />
-              <Text style={isLargeScreen ? styles.menuText : styles.menuTextSmall}>Edit</Text>
+              <Text style={[
+                isLargeDevice ? styles.menuTextLarge : null,
+                isMediumLargeDevice ? styles.menuTextMediumLarge : null,
+                isSmallDevice ? styles.menuTextSmall : null,
+                isTinyDevice ? styles.menuTextTiny : null,
+              ]}>Edit</Text>
             </TouchableOpacity>
             
-            <View style={styles.menuDivider} />
+            <View style={[
+              isLargeDevice ? styles.menuDividerLarge : null,
+              isMediumLargeDevice ? styles.menuDividerMediumLarge : null,
+              isSmallDevice ? styles.menuDividerSmall : null,
+              isTinyDevice ? styles.menuDividerTiny : null,
+            ]} />
             
-            <TouchableOpacity style={styles.menuItem} onPress={handleDeleteOption}>
+            <TouchableOpacity style={[
+              isLargeDevice ? styles.menuItemLarge : null,
+              isMediumLargeDevice ? styles.menuItemMediumLarge : null,
+              isSmallDevice ? styles.menuItemSmall : null,
+              isTinyDevice ? styles.menuItemTiny : null,
+            ]} onPress={handleDeleteOption}>
               <Image
                 source={require("../assets/images/delete.png")}
-                style={styles.menuIconPlaceholder}
+                style={[
+                  isLargeDevice ? styles.menuIconPlaceholderLarge : null,
+                  isMediumLargeDevice ? styles.menuIconPlaceholderMediumLarge : null,
+                  isSmallDevice ? styles.menuIconPlaceholderSmall : null,
+                  isTinyDevice ? styles.menuIconPlaceholderTiny : null,
+                ]}
                 resizeMode="cover"
               />
-              <Text style={isLargeScreen ? styles.menuText : styles.menuTextSmall}>Delete</Text>
+              <Text style={[
+                isLargeDevice ? styles.menuTextLarge : null,
+                isMediumLargeDevice ? styles.menuTextMediumLarge : null,
+                isSmallDevice ? styles.menuTextSmall : null,
+                isTinyDevice ? styles.menuTextTiny : null,
+              ]}>Delete</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -934,18 +1069,34 @@ const confirmFolderForCompetition = () => {
         visible={addFolderModalVisible}
         onRequestClose={() => setAddFolderModalVisible(false)}
       >
-        <View style={styles.addModalOverlay}>
+        <View style={[
+          isLargeDevice ? styles.addModalOverlayLarge : null,
+          isMediumLargeDevice ? styles.addModalOverlayMediumLarge : null,
+          isSmallDevice ? styles.addModalOverlaySmall : null,
+          isTinyDevice ? styles.addModalOverlayTiny : null,
+        ]}>
           <View 
             style={[
-              isLargeDevice ? styles.addFolderModal : null, 
-              isSmallDevice ? styles.addFolderModalSmall : null, 
-              isTinyDevice ? styles.addFolderModalTiny : null, 
+              isLargeDevice ? styles.addFolderModalLarge : null,
+              isMediumLargeDevice ? styles.addFolderModalMediumLarge : null,
+              isSmallDevice ? styles.addFolderModalSmall : null,
+              isTinyDevice ? styles.addFolderModalTiny : null,
             ]}
           >
-            <Text style={isLargeScreen ? styles.addFolderTitle : styles.addFolderTitleSmall}>Add Folder</Text>
+            <Text style={[
+              isLargeDevice ? styles.addFolderTitleLarge : null,
+              isMediumLargeDevice ? styles.addFolderTitleMediumLarge : null,
+              isSmallDevice ? styles.addFolderTitleSmall : null,
+              isTinyDevice ? styles.addFolderTitleTiny : null,
+            ]}>Add Folder</Text>
   
             <TextInput
-              style={styles.folderInput}
+              style={[
+                isLargeDevice ? styles.folderInputLarge : null,
+                isMediumLargeDevice ? styles.folderInputMediumLarge : null,
+                isSmallDevice ? styles.folderInputSmall : null,
+                isTinyDevice ? styles.folderInputTiny : null,
+              ]}
               placeholder="Folder's name"
               placeholderTextColor="#888"
               onChange={(e) => setFolderName(e.nativeEvent.text)}
@@ -953,7 +1104,12 @@ const confirmFolderForCompetition = () => {
             />
   
             <TextInput
-              style={styles.folderInput}
+              style={[
+                isLargeDevice ? styles.folderInputLarge : null,
+                isMediumLargeDevice ? styles.folderInputMediumLarge : null,
+                isSmallDevice ? styles.folderInputSmall : null,
+                isTinyDevice ? styles.folderInputTiny : null,
+              ]}
               placeholder="Folder's description"
               placeholderTextColor="#888"
               multiline
@@ -961,57 +1117,44 @@ const confirmFolderForCompetition = () => {
               value={folderDescription}
             />
   
-            {/* <View style={styles.optionsRow}>
-              Training Option 
-              <TouchableOpacity
-                style={[
-                  styles.optionButton,
-                  folderType === true && styles.selectedOptionButton,
-                ]}
-                onPress={() => setFolderType(true)}
-              >
-                <Text
-                  style={[
-                    styles.optionText,
-                    folderType === true && styles.selectedOptionText,
-                  ]}
-                >
-                  Training
-                </Text>
-              </TouchableOpacity>
-  
-               Competence Option 
-              <TouchableOpacity
-                style={[
-                  styles.optionButton,
-                  folderType === false && styles.selectedOptionButton,
-                ]}
-                onPress={() => setFolderType(false)}
-              >
-                <Text
-                  style={[
-                    styles.optionText,
-                    folderType === false && styles.selectedOptionText,
-                  ]}
-                >
-                  Competence
-                </Text>
-              </TouchableOpacity>
-            </View> */}
-  
-            <View style={styles.buttonsContainer}>
+            <View style={[
+              isLargeDevice ? styles.buttonsContainerLarge : null,
+              isMediumLargeDevice ? styles.buttonsContainerMediumLarge : null,
+              isSmallDevice ? styles.buttonsContainerSmall : null,
+              isTinyDevice ? styles.buttonsContainerTiny : null,
+            ]}>
               <TouchableOpacity 
-                style={isLargeScreen ? styles.confirmButton : styles.confirmButtonSmall}
+                style={[
+                  isLargeDevice ? styles.confirmButtonLarge : null,
+                  isMediumLargeDevice ? styles.confirmButtonMediumLarge : null,
+                  isSmallDevice ? styles.confirmButtonSmall : null,
+                  isTinyDevice ? styles.confirmButtonTiny : null,
+                ]}
                 onPress={addNewFolder}
               >
-                <Text style={isLargeScreen ? styles.confirmButtonText : styles.confirmButtonTextSmall}>Confirm</Text>
+                <Text style={[
+                  isLargeDevice ? styles.confirmButtonTextLarge : null,
+                  isMediumLargeDevice ? styles.confirmButtonTextMediumLarge : null,
+                  isSmallDevice ? styles.confirmButtonTextSmall : null,
+                  isTinyDevice ? styles.confirmButtonTextTiny : null,
+                ]}>Confirm</Text>
               </TouchableOpacity>
   
               <TouchableOpacity 
-                style={isLargeScreen ? styles.cancelButton : styles.cancelButtonSmall}
+                style={[
+                  isLargeDevice ? styles.cancelButtonLarge : null,
+                  isMediumLargeDevice ? styles.cancelButtonMediumLarge : null,
+                  isSmallDevice ? styles.cancelButtonSmall : null,
+                  isTinyDevice ? styles.cancelButtonTiny : null,
+                ]}
                 onPress={() => setAddFolderModalVisible(false)}
               >
-                <Text style={isLargeScreen ? styles.cancelButtonText : styles.cancelButtonTextSmall}>Cancel</Text>
+                <Text style={[
+                  isLargeDevice ? styles.cancelButtonTextLarge : null,
+                  isMediumLargeDevice ? styles.cancelButtonTextMediumLarge : null,
+                  isSmallDevice ? styles.cancelButtonTextSmall : null,
+                  isTinyDevice ? styles.cancelButtonTextTiny : null,
+                ]}>Cancel</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1025,18 +1168,34 @@ const confirmFolderForCompetition = () => {
         visible={editFolderModalVisible}
         onRequestClose={() => setEditFolderModalVisible(false)}
       >
-        <View style={styles.addModalOverlay}>
+        <View style={[
+          isLargeDevice ? styles.addModalOverlayLarge : null,
+          isMediumLargeDevice ? styles.addModalOverlayMediumLarge : null,
+          isSmallDevice ? styles.addModalOverlaySmall : null,
+          isTinyDevice ? styles.addModalOverlayTiny : null,
+        ]}>
           <View 
             style={[
-              isLargeDevice ? styles.addFolderModal : null, 
-              isSmallDevice ? styles.addFolderModalSmall : null, 
-              isTinyDevice ? styles.addFolderModalTiny : null, 
+              isLargeDevice ? styles.addFolderModalLarge : null,
+              isMediumLargeDevice ? styles.addFolderModalMediumLarge : null,
+              isSmallDevice ? styles.addFolderModalSmall : null,
+              isTinyDevice ? styles.addFolderModalTiny : null,
             ]}
           >
-            <Text style={isLargeScreen ? styles.addFolderTitle : styles.addFolderTitleSmall}>Edit Folder</Text>
+            <Text style={[
+              isLargeDevice ? styles.addFolderTitleLarge : null,
+              isMediumLargeDevice ? styles.addFolderTitleMediumLarge : null,
+              isSmallDevice ? styles.addFolderTitleSmall : null,
+              isTinyDevice ? styles.addFolderTitleTiny : null,
+            ]}>Edit Folder</Text>
   
             <TextInput
-              style={styles.folderInput}
+              style={[
+                isLargeDevice ? styles.folderInputLarge : null,
+                isMediumLargeDevice ? styles.folderInputMediumLarge : null,
+                isSmallDevice ? styles.folderInputSmall : null,
+                isTinyDevice ? styles.folderInputTiny : null,
+              ]}
               placeholder="Folder's name"
               placeholderTextColor="#888"
               onChange={(e) => setFolderName(e.nativeEvent.text)}
@@ -1044,7 +1203,12 @@ const confirmFolderForCompetition = () => {
             />
   
             <TextInput
-              style={styles.folderInput}
+              style={[
+                isLargeDevice ? styles.folderInputLarge : null,
+                isMediumLargeDevice ? styles.folderInputMediumLarge : null,
+                isSmallDevice ? styles.folderInputSmall : null,
+                isTinyDevice ? styles.folderInputTiny : null,
+              ]}
               placeholder="Folder's description"
               placeholderTextColor="#888"
               multiline
@@ -1052,57 +1216,44 @@ const confirmFolderForCompetition = () => {
               value={folderDescription}
             />
   
-            {/* <View style={styles.optionsRow}>
-              Training Option 
-              <TouchableOpacity
-                style={[
-                  styles.optionButton,
-                  folderType === true && styles.selectedOptionButton,
-                ]}
-                onPress={() => setFolderType(true)}
-              >
-                <Text
-                  style={[
-                    styles.optionText,
-                    folderType === true && styles.selectedOptionText,
-                  ]}
-                >
-                  Training
-                </Text>
-              </TouchableOpacity>
-  
-              Competence Option
-              <TouchableOpacity
-                style={[
-                  styles.optionButton,
-                  folderType === false && styles.selectedOptionButton,
-                ]}
-                onPress={() => setFolderType(false)}
-              >
-                <Text
-                  style={[
-                    styles.optionText,
-                    folderType === false && styles.selectedOptionText,
-                  ]}
-                >
-                  Competence
-                </Text>
-              </TouchableOpacity>
-            </View> */}
-  
-            <View style={styles.buttonsContainer}>
+            <View style={[
+              isLargeDevice ? styles.buttonsContainerLarge : null,
+              isMediumLargeDevice ? styles.buttonsContainerMediumLarge : null,
+              isSmallDevice ? styles.buttonsContainerSmall : null,
+              isTinyDevice ? styles.buttonsContainerTiny : null,
+            ]}>
               <TouchableOpacity 
-                style={isLargeScreen ? styles.confirmButton : styles.confirmButtonSmall}
+                style={[
+                  isLargeDevice ? styles.confirmButtonLarge : null,
+                  isMediumLargeDevice ? styles.confirmButtonMediumLarge : null,
+                  isSmallDevice ? styles.confirmButtonSmall : null,
+                  isTinyDevice ? styles.confirmButtonTiny : null,
+                ]}
                 onPress={saveEditedFolder}
               >
-                <Text style={isLargeScreen ? styles.confirmButtonText : styles.confirmButtonTextSmall}>Save</Text>
+                <Text style={[
+                  isLargeDevice ? styles.confirmButtonTextLarge : null,
+                  isMediumLargeDevice ? styles.confirmButtonTextMediumLarge : null,
+                  isSmallDevice ? styles.confirmButtonTextSmall : null,
+                  isTinyDevice ? styles.confirmButtonTextTiny : null,
+                ]}>Save</Text>
               </TouchableOpacity>
   
               <TouchableOpacity 
-                style={isLargeScreen ? styles.cancelButton : styles.cancelButtonSmall}
+                style={[
+                  isLargeDevice ? styles.cancelButtonLarge : null,
+                  isMediumLargeDevice ? styles.cancelButtonMediumLarge : null,
+                  isSmallDevice ? styles.cancelButtonSmall : null,
+                  isTinyDevice ? styles.cancelButtonTiny : null,
+                ]}
                 onPress={() => setEditFolderModalVisible(false)}
               >
-                <Text style={isLargeScreen ? styles.cancelButtonText : styles.cancelButtonTextSmall}>Cancel</Text>
+                <Text style={[
+                  isLargeDevice ? styles.cancelButtonTextLarge : null,
+                  isMediumLargeDevice ? styles.cancelButtonTextMediumLarge : null,
+                  isSmallDevice ? styles.cancelButtonTextSmall : null,
+                  isTinyDevice ? styles.cancelButtonTextTiny : null,
+                ]}>Cancel</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1116,31 +1267,67 @@ const confirmFolderForCompetition = () => {
         visible={confirmationModel}
         onRequestClose={() => setConfirmationModel(false)}
       >
-        <View style={styles.addModalOverlay}>
+        <View style={[
+          isLargeDevice ? styles.addModalOverlayLarge : null,
+          isMediumLargeDevice ? styles.addModalOverlayMediumLarge : null,
+          isSmallDevice ? styles.addModalOverlaySmall : null,
+          isTinyDevice ? styles.addModalOverlayTiny : null,
+        ]}>
           <View 
             style={[
-              isLargeDevice ? styles.confirmationModal : null, 
-              isSmallDevice ? styles.confirmationmodalSmall : null, 
-              isTinyDevice ? styles.confirmationmodalTiny : null, 
+              isLargeDevice ? styles.confirmationModalLarge : null,
+              isMediumLargeDevice ? styles.confirmationModalMediumLarge : null,
+              isSmallDevice ? styles.confirmationModalSmall : null,
+              isTinyDevice ? styles.confirmationModalTiny : null,
             ]}
           >
-            <Text style={isLargeScreen ? styles.addFolderTitle : styles.addFolderTitleSmall}>
+            <Text style={[
+              isLargeDevice ? styles.addFolderTitleLarge : null,
+              isMediumLargeDevice ? styles.addFolderTitleMediumLarge : null,
+              isSmallDevice ? styles.addFolderTitleSmall : null,
+              isTinyDevice ? styles.addFolderTitleTiny : null,
+            ]}>
               Delete {selectedFolders.length} folder{selectedFolders.length > 1 ? 's' : ''}?
             </Text>
   
-            <View style={styles.buttonsContainer}>
+            <View style={[
+              isLargeDevice ? styles.buttonsContainerLarge : null,
+              isMediumLargeDevice ? styles.buttonsContainerMediumLarge : null,
+              isSmallDevice ? styles.buttonsContainerSmall : null,
+              isTinyDevice ? styles.buttonsContainerTiny : null,
+            ]}>
               <TouchableOpacity 
-                style={isLargeScreen ? styles.confirmButton : styles.confirmButtonSmall}
+                style={[
+                  isLargeDevice ? styles.confirmButtonLarge : null,
+                  isMediumLargeDevice ? styles.confirmButtonMediumLarge : null,
+                  isSmallDevice ? styles.confirmButtonSmall : null,
+                  isTinyDevice ? styles.confirmButtonTiny : null,
+                ]}
                 onPress={performDelete}
               >
-                <Text style={isLargeScreen ? styles.confirmButtonText : styles.confirmButtonTextSmall}>Confirm</Text>
+                <Text style={[
+                  isLargeDevice ? styles.confirmButtonTextLarge : null,
+                  isMediumLargeDevice ? styles.confirmButtonTextMediumLarge : null,
+                  isSmallDevice ? styles.confirmButtonTextSmall : null,
+                  isTinyDevice ? styles.confirmButtonTextTiny : null,
+                ]}>Confirm</Text>
               </TouchableOpacity>
   
               <TouchableOpacity 
-                style={isLargeScreen ? styles.cancelButton : styles.cancelButtonSmall}
+                style={[
+                  isLargeDevice ? styles.cancelButtonLarge : null,
+                  isMediumLargeDevice ? styles.cancelButtonMediumLarge : null,
+                  isSmallDevice ? styles.cancelButtonSmall : null,
+                  isTinyDevice ? styles.cancelButtonTiny : null,
+                ]}
                 onPress={() => setConfirmationModel(false)}
               >
-                <Text style={isLargeScreen ? styles.cancelButtonText : styles.cancelButtonTextSmall}>Cancel</Text>
+                <Text style={[
+                  isLargeDevice ? styles.cancelButtonTextLarge : null,
+                  isMediumLargeDevice ? styles.cancelButtonTextMediumLarge : null,
+                  isSmallDevice ? styles.cancelButtonTextSmall : null,
+                  isTinyDevice ? styles.cancelButtonTextTiny : null,
+                ]}>Cancel</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1155,116 +1342,154 @@ const confirmFolderForCompetition = () => {
         onRequestClose={() => setFeedbackAcceptModel(false)}
       >
         <TouchableOpacity
-          style={styles.addModalOverlay}
+          style={[
+            isLargeDevice ? styles.addModalOverlayLarge : null,
+            isMediumLargeDevice ? styles.addModalOverlayMediumLarge : null,
+            isSmallDevice ? styles.addModalOverlaySmall : null,
+            isTinyDevice ? styles.addModalOverlayTiny : null,
+          ]}
           activeOpacity={1}
           onPress={() => setFeedbackAcceptModel(false)}
         >
           <View style={[
-      isLargeDevice ? styles.addFolderfeedback : null,
-      isSmallDevice ? styles.addFolderfeedbackSmall : null,
-      isTinyDevice ? styles.addFolderfeedbackTiny : null,
-    ]}>
-            <Text style={isLargeScreen ? styles.addFolderTitle : styles.addFolderTitleSmall}>
+            isLargeDevice ? styles.addFolderfeedbackLarge : null,
+            isMediumLargeDevice ? styles.addFolderfeedbackMediumLarge : null,
+            isSmallDevice ? styles.addFolderfeedbackSmall : null,
+            isTinyDevice ? styles.addFolderfeedbackTiny : null,
+          ]}>
+            <Text style={[
+              isLargeDevice ? styles.addFolderTitleLarge : null,
+              isMediumLargeDevice ? styles.addFolderTitleMediumLarge : null,
+              isSmallDevice ? styles.addFolderTitleSmall : null,
+              isTinyDevice ? styles.addFolderTitleTiny : null,
+            ]}>
               {selectionAction === 'delete' ? 'Delete Complete' : 'Change Processed'}
             </Text>
             <Image
               source={require("../assets/images/checked.png")}
-              style={styles.feedbackIcon}
+              style={[
+                isLargeDevice ? styles.feedbackIconLarge : null,
+                isMediumLargeDevice ? styles.feedbackIconMediumLarge : null,
+                isSmallDevice ? styles.feedbackIconSmall : null,
+                isTinyDevice ? styles.feedbackIconTiny : null,
+              ]}
               resizeMode="cover"
             />
           </View>
         </TouchableOpacity>
       </Modal>
   
-  
       {/* Add Competition Modal */}
-<Modal
-  animationType="fade"
-  transparent={true}
-  visible={addCompetitionModalVisible}
-  onRequestClose={() => setAddCompetitionModalVisible(false)}
->
-  <View style={styles.addModalOverlay}>
-    <View 
-      style={[
-        isLargeDevice ? styles.addFolderModal2 : null, 
-        isSmallDevice ? styles.addFolderModal2Small : null, 
-        isTinyDevice ? styles.addFolderModal2Tiny : null, 
-      ]}
-    >
-      <Text style={isLargeScreen ? styles.addFolderTitle : styles.addFolderTitleSmall}>Add Competition</Text>
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={addCompetitionModalVisible}
+        onRequestClose={() => setAddCompetitionModalVisible(false)}
+      >
+        <View style={[
+          isLargeDevice ? styles.addModalOverlayLarge : null,
+          isMediumLargeDevice ? styles.addModalOverlayMediumLarge : null,
+          isSmallDevice ? styles.addModalOverlaySmall : null,
+          isTinyDevice ? styles.addModalOverlayTiny : null,
+        ]}>
+          <View 
+            style={[
+              isLargeDevice ? styles.addFolderModal2Large : null,
+              isMediumLargeDevice ? styles.addFolderModal2MediumLarge : null,
+              isSmallDevice ? styles.addFolderModal2Small : null,
+              isTinyDevice ? styles.addFolderModal2Tiny : null,
+            ]}
+          >
+            <Text style={[
+              isLargeDevice ? styles.addFolderTitleLarge : null,
+              isMediumLargeDevice ? styles.addFolderTitleMediumLarge : null,
+              isSmallDevice ? styles.addFolderTitleSmall : null,
+              isTinyDevice ? styles.addFolderTitleTiny : null,
+            ]}>Add Competition</Text>
 
-      <TextInput
-        style={styles.folderInput}
-        placeholder="Competition name"
-        placeholderTextColor="#888"
-        value={competitionName}
-        onChange={(e) => setCompetitionName(e.nativeEvent.text)}
-      />
+            <TextInput
+              style={[
+                isLargeDevice ? styles.folderInputLarge : null,
+                isMediumLargeDevice ? styles.folderInputMediumLarge : null,
+                isSmallDevice ? styles.folderInputSmall : null,
+                isTinyDevice ? styles.folderInputTiny : null,
+              ]}
+              placeholder="Competition name"
+              placeholderTextColor="#888"
+              value={competitionName}
+              onChange={(e) => setCompetitionName(e.nativeEvent.text)}
+            />
 
-      <TextInput
-        style={styles.folderInput}
-        placeholder="Competition description"
-        placeholderTextColor="#888"
-        value={competitionDescription}
-        onChange={(e) => setCompetitionDescription(e.nativeEvent.text)}
-      />
+            <TextInput
+              style={[
+                isLargeDevice ? styles.folderInputLarge : null,
+                isMediumLargeDevice ? styles.folderInputMediumLarge : null,
+                isSmallDevice ? styles.folderInputSmall : null,
+                isTinyDevice ? styles.folderInputTiny : null,
+              ]}
+              placeholder="Competition description"
+              placeholderTextColor="#888"
+              value={competitionDescription}
+              onChange={(e) => setCompetitionDescription(e.nativeEvent.text)}
+            />
 
-      <TextInput
-        style={styles.folderInput}
-        placeholder="Number of participants"
-        placeholderTextColor="#888"
-        keyboardType="numeric"
-        value={competitionParticipants}
-        onChange={(e) => setCompetitionParticipants(e.nativeEvent.text)}
-      />
+            <TextInput
+              style={[
+                isLargeDevice ? styles.folderInputLarge : null,
+                isMediumLargeDevice ? styles.folderInputMediumLarge : null,
+                isSmallDevice ? styles.folderInputSmall : null,
+                isTinyDevice ? styles.folderInputTiny : null,
+              ]}
+              placeholder="Number of participants"
+              placeholderTextColor="#888"
+              keyboardType="numeric"
+              value={competitionParticipants}
+              onChange={(e) => setCompetitionParticipants(e.nativeEvent.text)}
+            />
 
-      {/* <View style={styles.optionsRow}>
-        <TouchableOpacity 
-          style={[
-            styles.optionButton,
-            competitionType === "Floor" && styles.selectedOptionButton,
-          ]}
-          onPress={() => setCompetitionType("Floor")}
-        >
-          <Text style={[
-            styles.optionText,
-            competitionType === "Floor" && styles.selectedOptionText,
-          ]}>Floor</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[
-            styles.optionButton,
-            competitionType === "Jump" && styles.selectedOptionButton,
-          ]}
-          onPress={() => setCompetitionType("Jump")}
-        >
-          <Text style={[
-            styles.optionText,
-            competitionType === "Jump" && styles.selectedOptionText,
-          ]}>Jump</Text>
-        </TouchableOpacity>
-      </View> */}
+            <View style={[
+              isLargeDevice ? styles.buttonsContainerLarge : null,
+              isMediumLargeDevice ? styles.buttonsContainerMediumLarge : null,
+              isSmallDevice ? styles.buttonsContainerSmall : null,
+              isTinyDevice ? styles.buttonsContainerTiny : null,
+            ]}>
+              <TouchableOpacity 
+                style={[
+                  isLargeDevice ? styles.confirmButtonLarge : null,
+                  isMediumLargeDevice ? styles.confirmButtonMediumLarge : null,
+                  isSmallDevice ? styles.confirmButtonSmall : null,
+                  isTinyDevice ? styles.confirmButtonTiny : null,
+                ]}
+                onPress={addNewCompetition}
+              >
+                <Text style={[
+                  isLargeDevice ? styles.confirmButtonTextLarge : null,
+                  isMediumLargeDevice ? styles.confirmButtonTextMediumLarge : null,
+                  isSmallDevice ? styles.confirmButtonTextSmall : null,
+                  isTinyDevice ? styles.confirmButtonTextTiny : null,
+                ]}>{ConfirmButtomText}</Text>
+              </TouchableOpacity>
 
-      <View style={styles.buttonsContainer}>
-        <TouchableOpacity 
-          style={isLargeScreen ? styles.confirmButton : styles.confirmButtonSmall}
-          onPress={addNewCompetition}
-        >
-          <Text style={isLargeScreen ? styles.confirmButtonText : styles.confirmButtonTextSmall}>{ConfirmButtomText}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={isLargeScreen ? styles.cancelButton : styles.cancelButtonSmall}
-          onPress={() => setAddCompetitionModalVisible(false)}
-        >
-          <Text style={isLargeScreen ? styles.cancelButtonText : styles.cancelButtonTextSmall}>Cancel</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  </View>
-</Modal>
-
+              <TouchableOpacity 
+                style={[
+                  isLargeDevice ? styles.cancelButtonLarge : null,
+                  isMediumLargeDevice ? styles.cancelButtonMediumLarge : null,
+                  isSmallDevice ? styles.cancelButtonSmall : null,
+                  isTinyDevice ? styles.cancelButtonTiny : null,
+                ]}
+                onPress={() => setAddCompetitionModalVisible(false)}
+              >
+                <Text style={[
+                  isLargeDevice ? styles.cancelButtonTextLarge : null,
+                  isMediumLargeDevice ? styles.cancelButtonTextMediumLarge : null,
+                  isSmallDevice ? styles.cancelButtonTextSmall : null,
+                  isTinyDevice ? styles.cancelButtonTextTiny : null,
+                ]}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
     </SafeAreaView>
   );
@@ -1274,7 +1499,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#E6F0F7',
   },
-  header: {
+  
+  // Header styles - Large Device (width >= 1368)
+  headerLarge: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -1284,11 +1511,63 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     margin: 16,
   },
-  backButton: {
+  // Header styles - Medium Large Device (width >= 1200 && width < 1368)
+  headerMediumLarge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    backgroundColor: '#999',
+    borderRadius: 28,
+    margin: 14,
+  },
+  // Header styles - Small Device (width >= 945 && width < 1200)
+  headerSmall: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#999',
+    borderRadius: 25,
+    margin: 12,
+  },
+  // Header styles - Tiny Device (width < 945)
+  headerTiny: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#999',
+    borderRadius: 30,
+    margin: 16,
+  },
+  
+  // Back button styles - Large Device
+  backButtonLarge: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  headerTitle: {
+  // Back button styles - Medium Large Device
+  backButtonMediumLarge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  // Back button styles - Small Device
+  backButtonSmall: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  // Back button styles - Tiny Device
+  backButtonTiny: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  
+  // Header title styles - Large Device
+  headerTitleLarge: {
     fontSize: 22,
     fontWeight: 'bold',
     marginLeft: 3,
@@ -1296,6 +1575,25 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontFamily: 'Rajdhani-medium',
   },
+  // Header title styles - Medium Large Device
+  headerTitleMediumLarge: {
+    fontSize: 21,
+    fontWeight: 'bold',
+    marginLeft: 3,
+    top: 1,
+    color: '#fff',
+    fontFamily: 'Rajdhani-medium',
+  },
+  // Header title styles - Small Device
+  headerTitleSmall: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginLeft: 3,
+    top: 1,
+    color: '#fff',
+    fontFamily: 'Rajdhani-medium',
+  },
+  // Header title styles - Tiny Device
   headerTitleTiny: {
     fontSize: 22,
     fontWeight: 'bold',
@@ -1303,35 +1601,93 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontFamily: 'Rajdhani-medium',
   },
-  cancelSelectionText: {
+  
+  // Cancel selection text styles - Large Device
+  cancelSelectionTextLarge: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#fff',
     padding: 8,
   },
-  scrollView: {
+  // Cancel selection text styles - Medium Large Device
+  cancelSelectionTextMediumLarge: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#fff',
+    padding: 7,
+  },
+  // Cancel selection text styles - Small Device
+  cancelSelectionTextSmall: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#fff',
+    padding: 6,
+  },
+  // Cancel selection text styles - Tiny Device
+  cancelSelectionTextTiny: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+    padding: 8,
+  },
+  
+  // Scroll view styles - Large Device
+  scrollViewLarge: {
     flex: 1,
     paddingHorizontal: 20,
   },
-  // Responsive grid styles
-  foldersGrid: {
+  // Scroll view styles - Medium Large Device
+  scrollViewMediumLarge: {
+    flex: 1,
+    paddingHorizontal: 18,
+  },
+  // Scroll view styles - Small Device
+  scrollViewSmall: {
+    flex: 1,
+    paddingHorizontal: 15,
+  },
+  // Scroll view styles - Tiny Device
+  scrollViewTiny: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  
+  // Folders grid styles - Large Device
+  foldersGridLarge: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     padding: 8,
     justifyContent: 'flex-start',
   },
+  // Folders grid styles - Medium Large Device
+  foldersGridMediumLarge: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    padding: 7,
+    justifyContent: 'flex-start',
+  },
+  // Folders grid styles - Small Device
   foldersGridSmall: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    padding: 6,
+    justifyContent: 'flex-start',
+  },
+  // Folders grid styles - Tiny Device
+  foldersGridTiny: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     padding: 4,
     justifyContent: 'flex-start',
   },
+  
   folderItemContainer: {
     width: '33.0%',
     marginBottom: 12,
   },
-  // Folder item styles - large screen
-  folderItem: {
+  
+  // Folder item styles - Large Device
+  folderItemLarge: {
     height: 160,
     width: '96%',
     backgroundColor: '#F1F3F5',
@@ -1339,15 +1695,25 @@ const styles = StyleSheet.create({
     padding: 8,
     position: 'relative',
   },
-  // Folder item styles - small screen
+  // Folder item styles - Medium Large Device
+  folderItemMediumLarge: {
+    height: 150,
+    width: '96%',
+    backgroundColor: '#F1F3F5',
+    borderRadius: 9,
+    padding: 7,
+    position: 'relative',
+  },
+  // Folder item styles - Small Device
   folderItemSmall: {
-    height: 160,
+    height: 140,
     width: '96%',
     backgroundColor: '#F1F3F5',
-    borderRadius: 10,
-    padding: 8,
+    borderRadius: 8,
+    padding: 6,
     position: 'relative',
   },
+  // Folder item styles - Tiny Device
   folderItemTiny: {
     height: 125,
     backgroundColor: '#F1F3F5',
@@ -1355,6 +1721,7 @@ const styles = StyleSheet.create({
     padding: 6,
     position: 'relative',
   },
+  
   selectedFolder: {
     backgroundColor: '#DADADA',
     borderWidth: 1,
@@ -1365,20 +1732,13 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     elevation: 5,
   },
-  feedbackIcon: {
-    width: 200,
-    height: 200,
-    borderRadius: 5,
-    marginBottom: 6,
-    position: 'relative',
-    alignSelf: 'center',
-    top: 5,
-  },
+  
   folderContent: {
     alignItems: 'stretch',
   },
-  // Folder icon - large screen
-  folderIcon: {
+  
+  // Folder icon styles - Large Device
+  folderIconLarge: {
     width: 90,
     height: 95,
     borderRadius: 5,
@@ -1387,16 +1747,27 @@ const styles = StyleSheet.create({
     top: 20,
     left: 20,
   },
-  // Folder icon - small screen
+  // Folder icon styles - Medium Large Device
+  folderIconMediumLarge: {
+    width: 85,
+    height: 90,
+    borderRadius: 5,
+    marginBottom: 5,
+    position: 'absolute',
+    top: 18,
+    left: 18,
+  },
+  // Folder icon styles - Small Device
   folderIconSmall: {
-    width: 90,
-    height: 95,
+    width: 75,
+    height: 80,
     borderRadius: 5,
     marginBottom: 4,
     position: 'absolute',
-    top: 20,
-    left: 10,
+    top: 15,
+    left: 12,
   },
+  // Folder icon styles - Tiny Device
   folderIconTiny: {
     width: 50,
     height: 55,
@@ -1406,68 +1777,87 @@ const styles = StyleSheet.create({
     top: 10,
     left: 5,
   },
-  folderType1: {
-
-  },
-  folderType2: {
-
-  },
-  // Folder info - large screen
-  folderInfo: {
+  
+  folderType1: {},
+  folderType2: {},
+  
+  // Folder info styles - Large Device
+  folderInfoLarge: {
     width: '70%',
     height: 135,
     right: 5,
     position: 'absolute',
   },
-  // Folder info - small screen
-  folderInfoSmall: {
-    width: '65%',
-    height: 150,
+  // Folder info styles - Medium Large Device
+  folderInfoMediumLarge: {
+    width: '68%',
+    height: 125,
     right: 5,
     position: 'absolute',
-    
-    
   },
+  // Folder info styles - Small Device
+  folderInfoSmall: {
+    width: '67%',
+    height: 115,
+    right: 5,
+    position: 'absolute',
+  },
+  // Folder info styles - Tiny Device
   folderInfoTiny: {
     width: '65%',
     height: 100,
     right: 5,
     position: 'absolute',
   },
-  // Folder title - large screen
-  folderTitle: {
+  
+  // Folder title styles - Large Device
+  folderTitleLarge: {
     fontSize: 40,
     textAlign: 'center',
     fontFamily: 'Rajdhani-medium',
   },
-  // Folder title - small screen
-  folderTitleSmall: {
-    fontSize: 30,
+  // Folder title styles - Medium Large Device
+  folderTitleMediumLarge: {
+    fontSize: 17,
     textAlign: 'center',
     fontFamily: 'Rajdhani-medium',
-    
   },
+  // Folder title styles - Small Device
+  folderTitleSmall: {
+    fontSize: 32,
+    textAlign: 'center',
+    fontFamily: 'Rajdhani-medium',
+  },
+  // Folder title styles - Tiny Device
   folderTitleTiny: {
     fontSize: 24,
     textAlign: 'center',
     fontFamily: 'Rajdhani-medium',
   },
-  // Folder description - large screen
-  folderDescription: {
+  
+  // Folder description styles - Large Device
+  folderDescriptionLarge: {
     fontSize: 20,
     textAlign: 'center',
     fontFamily: 'Rajdhani-medium',
     marginVertical: 1,
   },
-  // Folder description - small screen
-  folderDescriptionSmall: {
-    fontSize: 20,
+  // Folder description styles - Medium Large Device
+  folderDescriptionMediumLarge: {
+    fontSize: 10,
     textAlign: 'center',
     fontFamily: 'Rajdhani-medium',
-    marginVertical: 10,
-    marginLeft: 4,
-    
+    marginVertical: 2,
   },
+  // Folder description styles - Small Device
+  folderDescriptionSmall: {
+    fontSize: 16,
+    textAlign: 'center',
+    fontFamily: 'Rajdhani-medium',
+    marginVertical: 3,
+    marginLeft: 4,
+  },
+  // Folder description styles - Tiny Device
   folderDescriptionTiny: {
     fontSize: 14,
     textAlign: 'center',
@@ -1476,80 +1866,37 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     marginBottom: 7,
   },
-  folderFooter: {
+  
+  // Folder footer styles - Large Device
+  folderFooterLarge: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     flex: 1,
   },
+  // Folder footer styles - Medium Large Device
+  folderFooterMediumLarge: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flex: 1,
+  },
+  // Folder footer styles - Small Device
   folderFooterSmall: {
     textAlign: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
     flex: 1,
   },
+  // Folder footer styles - Tiny Device
   folderFooterTiny: {
     justifyContent: 'space-between',
     alignItems: 'center',
     flex: 1,
   },
-
-  // Entrainement button - large screen
-  entrainementButton: {
-    backgroundColor: '#DADADA',
-    borderRadius: 12,
-    paddingHorizontal: 4,
-    borderWidth: 2,
-    borderColor: '#999',
-    width: 110,
-    height: 30,
-    paddingVertical: 2,
-    position: 'absolute',
-    bottom: 5,
-  },
-  // Entrainement button - small screen
-  entrainementButtonSmall: {
-    backgroundColor: '#DADADA',
-    borderRadius: 8,
-    paddingHorizontal: 2,
-    borderWidth: 1,
-    borderColor: '#999',
-    width: 120,
-    height: 27,
-    paddingVertical: 2,
-    position: 'absolute',
-    bottom: 5,
-  },
-  entrainementButtonTiny: {
-    backgroundColor: '#DADADA',
-    borderRadius: 8,
-    paddingHorizontal: 2,
-    borderWidth: 1,
-    borderColor: '#999',
-    width: 80,
-    height: 19,
-    paddingVertical: 2,
-    position: 'absolute',
-    bottom: 5,
-  },
-  // Entrainement text - large screen
-  entrainementText: {
-    fontSize: 18,
-    bottom: 2,
-    position: 'relative',
-    alignSelf: 'center',
-    color: '#333',
-  },
-  // Entrainement text - small screen
-  entrainementTextSmall: {
-    fontSize: 10,
-    bottom: 1,
-    position: 'relative',
-    alignSelf: 'center',
-    color: '#333',
-  },
-  // Date text - large screen
-  dateText: {
+  
+  // Date text styles - Large Device
+  dateTextLarge: {
     fontSize: 25,
     color: '#333',
     fontFamily: 'Rajdhani-medium',
@@ -1559,18 +1906,29 @@ const styles = StyleSheet.create({
     textAlign: 'center', 
     bottom: 0,
   },
-  // Date text - small screen
+  // Date text styles - Medium Large Device
+  dateTextMediumLarge: {
+    fontSize: 14,
+    color: '#333',
+    fontFamily: 'Rajdhani-medium',
+    position: 'absolute',
+    alignSelf: 'center',
+    width: '100%',
+    textAlign: 'center', 
+    bottom: 2,
+  },
+  // Date text styles - Small Device
   dateTextSmall: {
-    fontSize: 17,
+    fontSize: 19,
     color: '#333',
     fontFamily: 'Rajdhani-medium',
     position: 'absolute', 
     alignSelf: 'center',
     width: '100%',
     textAlign: 'center', 
-    bottom: 10,
-
+    bottom: 5,
   },
+  // Date text styles - Tiny Device
   dateTextTiny: {
     fontSize: 14,
     color: '#333',
@@ -1581,6 +1939,7 @@ const styles = StyleSheet.create({
     textAlign: 'center', 
     bottom: 1,
   },
+  
   checkmark: {
     position: 'absolute',
     top: 5,
@@ -1596,11 +1955,26 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 1.5,
   },
-  buttonContainer: {
+  
+  // Button container styles - Large Device
+  buttonContainerLarge: {
     padding: 16,
   },
-  // Add button - large screen
-  addButton: {
+  // Button container styles - Medium Large Device
+  buttonContainerMediumLarge: {
+    padding: 14,
+  },
+  // Button container styles - Small Device
+  buttonContainerSmall: {
+    padding: 12,
+  },
+  // Button container styles - Tiny Device
+  buttonContainerTiny: {
+    padding: 16,
+  },
+  
+  // Add button styles - Large Device
+  addButtonLarge: {
     backgroundColor: '#0047AB',
     borderRadius: 12,
     padding: 12,
@@ -1609,31 +1983,64 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'center',
   },
-  // Add button - small screen
+  // Add button styles - Medium Large Device
+  addButtonMediumLarge: {
+    backgroundColor: '#0047AB',
+    borderRadius: 11,
+    padding: 11,
+    width: '35%',
+    position: 'relative',
+    alignItems: 'center',
+    alignSelf: 'center',
+  },
+  // Add button styles - Small Device
   addButtonSmall: {
     backgroundColor: '#0047AB',
     borderRadius: 10,
+    padding: 10,
+    width: '45%',
+    position: 'relative',
+    alignItems: 'center',
+    alignSelf: 'center',
+  },
+  // Add button styles - Tiny Device
+  addButtonTiny: {
+    backgroundColor: '#0047AB',
+    borderRadius: 10,
     padding: 8,
     width: '50%',
     position: 'relative',
     alignItems: 'center',
     alignSelf: 'center',
   },
-  // Add button text - large screen
-  addButtonText: {
+  
+  // Add button text styles - Large Device
+  addButtonTextLarge: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 30,
   },
-  // Add button text - small screen
+  // Add button text styles - Medium Large Device
+  addButtonTextMediumLarge: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 26,
+  },
+  // Add button text styles - Small Device
   addButtonTextSmall: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 22,
+  },
+  // Add button text styles - Tiny Device
+  addButtonTextTiny: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 20,
   },
   
-  // Edit confirm button
-  editConfirmButton: {
+  // Edit confirm button styles - Large Device
+  editConfirmButtonLarge: {
     backgroundColor: '#4285F4',
     borderRadius: 12,
     padding: 12,
@@ -1642,7 +2049,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'center',
   },
+  // Edit confirm button styles - Medium Large Device
+  editConfirmButtonMediumLarge: {
+    backgroundColor: '#4285F4',
+    borderRadius: 11,
+    padding: 11,
+    width: '35%',
+    position: 'relative',
+    alignItems: 'center',
+    alignSelf: 'center',
+  },
+  // Edit confirm button styles - Small Device
   editConfirmButtonSmall: {
+    backgroundColor: '#4285F4',
+    borderRadius: 10,
+    padding: 10,
+    width: '45%',
+    position: 'relative',
+    alignItems: 'center',
+    alignSelf: 'center',
+  },
+  // Edit confirm button styles - Tiny Device
+  editConfirmButtonTiny: {
     backgroundColor: '#4285F4',
     borderRadius: 10,
     padding: 8,
@@ -1651,25 +2079,63 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'center',
   },
-  editConfirmButtonText: {
+  
+  // Edit confirm button text styles - Large Device
+  editConfirmButtonTextLarge: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 30,
   },
+  // Edit confirm button text styles - Medium Large Device
+  editConfirmButtonTextMediumLarge: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 26,
+  },
+  // Edit confirm button text styles - Small Device
   editConfirmButtonTextSmall: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 22,
+  },
+  // Edit confirm button text styles - Tiny Device
+  editConfirmButtonTextTiny: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 20,
   },
   
-  // Delete button container (floating button)
-  deleteButtonContainer: {
+  // Delete button container styles - Large Device
+  deleteButtonContainerLarge: {
     position: 'absolute',
     bottom: 20,
     right: 20,
     zIndex: 10,
   },
-  deleteButton: {
+  // Delete button container styles - Medium Large Device
+  deleteButtonContainerMediumLarge: {
+    position: 'absolute',
+    bottom: 18,
+    right: 18,
+    zIndex: 10,
+  },
+  // Delete button container styles - Small Device
+  deleteButtonContainerSmall: {
+    position: 'absolute',
+    bottom: 15,
+    right: 15,
+    zIndex: 10,
+  },
+  // Delete button container styles - Tiny Device
+  deleteButtonContainerTiny: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    zIndex: 10,
+  },
+  
+  // Delete button styles - Large Device
+  deleteButtonLarge: {
     backgroundColor: '#DC3545',
     width: 60,
     height: 60,
@@ -1682,6 +2148,21 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 5,
   },
+  // Delete button styles - Medium Large Device
+  deleteButtonMediumLarge: {
+    backgroundColor: '#DC3545',
+    width: 55,
+    height: 55,
+    borderRadius: 27.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  // Delete button styles - Small Device
   deleteButtonSmall: {
     backgroundColor: '#DC3545',
     width: 50,
@@ -1695,16 +2176,52 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 5,
   },
+  // Delete button styles - Tiny Device
+  deleteButtonTiny: {
+    backgroundColor: '#DC3545',
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 5,
+  },
   
-  // Modal Menu Styles
-  modalOverlay: {
+  // Modal overlay styles - Large Device
+  modalOverlayLarge: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-start',
     alignItems: 'flex-end',
   },
-  // Menu modal - large screen
-  menuModal: {
+  // Modal overlay styles - Medium Large Device
+  modalOverlayMediumLarge: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+  },
+  // Modal overlay styles - Small Device
+  modalOverlaySmall: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+  },
+  // Modal overlay styles - Tiny Device
+  modalOverlayTiny: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+  },
+  
+  // Menu modal styles - Large Device
+  menuModalLarge: {
     backgroundColor: '#999',
     width: 180,
     marginTop: 60,
@@ -1717,12 +2234,26 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
   },
-  // Menu modal - small screen
+  // Menu modal styles - Medium Large Device
+  menuModalMediumLarge: {
+    backgroundColor: '#999',
+    width: 160,
+    marginTop: 55,
+    marginRight: 22,
+    borderRadius: 7,
+    overflow: 'hidden',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  // Menu modal styles - Small Device
   menuModalSmall: {
     backgroundColor: '#999',
     width: 140,
-    marginTop: 80,
-    marginRight: 25,
+    marginTop: 50,
+    marginRight: 20,
     borderRadius: 6,
     overflow: 'hidden',
     elevation: 4,
@@ -1731,6 +2262,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
   },
+  // Menu modal styles - Tiny Device
   menuModalTiny: {
     backgroundColor: '#999',
     width: 120,
@@ -1744,43 +2276,123 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
   },
-  menuItem: {
+  
+  // Menu item styles - Large Device
+  menuItemLarge: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 16,
   },
-  menuIconPlaceholder: {
+  // Menu item styles - Medium Large Device
+  menuItemMediumLarge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+  },
+  // Menu item styles - Small Device
+  menuItemSmall: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  // Menu item styles - Tiny Device
+  menuItemTiny: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  
+  // Menu icon placeholder styles - Large Device
+  menuIconPlaceholderLarge: {
     width: 24,
     height: 24,
     marginRight: 16,
   },
-  // Menu text - large screen
-  menuText: {
+  // Menu icon placeholder styles - Medium Large Device
+  menuIconPlaceholderMediumLarge: {
+    width: 22,
+    height: 22,
+    marginRight: 14,
+  },
+  // Menu icon placeholder styles - Small Device
+  menuIconPlaceholderSmall: {
+    width: 20,
+    height: 20,
+    marginRight: 12,
+  },
+  // Menu icon placeholder styles - Tiny Device
+  menuIconPlaceholderTiny: {
+    width: 24,
+    height: 24,
+    marginRight: 16,
+  },
+  
+  // Menu text styles - Large Device
+  menuTextLarge: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '500',
   },
-  // Menu text - small screen
+  // Menu text styles - Medium Large Device
+  menuTextMediumLarge: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  // Menu text styles - Small Device
   menuTextSmall: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '500',
   },
-  menuDivider: {
+  // Menu text styles - Tiny Device
+  menuTextTiny: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  
+  // Menu divider styles - Tiny Device
+  menuDividerTiny: {
     height: 1,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   
-  // Add Folder Modal Styles
-  addModalOverlay: {
+  // Add modal overlay styles - Large Device
+  addModalOverlayLarge: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  // Feedback modal - large screen
-  addFolderfeedback: {
+  // Add modal overlay styles - Medium Large Device
+  addModalOverlayMediumLarge: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Add modal overlay styles - Small Device
+  addModalOverlaySmall: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Add modal overlay styles - Tiny Device
+  addModalOverlayTiny: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  
+  // Feedback modal styles - Large Device
+  addFolderfeedbackLarge: {
     backgroundColor: '#fff',
     width: '30%',
     height: 300,
@@ -1793,12 +2405,26 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
   },
-  // Feedback modal - small screen
+  // Feedback modal styles - Medium Large Device
+  addFolderfeedbackMediumLarge: {
+    backgroundColor: '#fff',
+    width: '40%',
+    height: 320,
+    maxHeight: '80%',
+    borderRadius: 18,
+    padding: 18,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  // Feedback modal styles - Small Device
   addFolderfeedbackSmall: {
     backgroundColor: '#fff',
     width: '50%',
-    height: 295,
-    maxHeight: '90%',
+    height: 280,
+    maxHeight: '85%',
     borderRadius: 15,
     padding: 15,
     elevation: 5,
@@ -1807,6 +2433,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
   },
+  // Feedback modal styles - Tiny Device
   addFolderfeedbackTiny: {
     backgroundColor: '#fff',
     width: '50%',
@@ -1820,8 +2447,50 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
   },
-  // Confirmation modal - large screen
-  confirmationModal: {
+  
+  // Feedback icon styles - Large Device
+  feedbackIconLarge: {
+    width: 200,
+    height: 200,
+    borderRadius: 5,
+    marginBottom: 6,
+    position: 'relative',
+    alignSelf: 'center',
+    top: 5,
+  },
+  // Feedback icon styles - Medium Large Device
+  feedbackIconMediumLarge: {
+    width: 180,
+    height: 180,
+    borderRadius: 5,
+    marginBottom: 6,
+    position: 'relative',
+    alignSelf: 'center',
+    top: 5,
+  },
+  // Feedback icon styles - Small Device
+  feedbackIconSmall: {
+    width: 160,
+    height: 160,
+    borderRadius: 5,
+    marginBottom: 6,
+    position: 'relative',
+    alignSelf: 'center',
+    top: 5,
+  },
+  // Feedback icon styles - Tiny Device
+  feedbackIconTiny: {
+    width: 200,
+    height: 200,
+    borderRadius: 5,
+    marginBottom: 6,
+    position: 'relative',
+    alignSelf: 'center',
+    top: 5,
+  },
+  
+  // Confirmation modal styles - Large Device
+  confirmationModalLarge: {
     backgroundColor: '#fff',
     width: '50%',
     height: 170,
@@ -1834,7 +2503,36 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
   },
-  confirmationmodalSmall: {
+  // Confirmation modal styles - Medium Large Device
+  confirmationModalMediumLarge: {
+    backgroundColor: '#fff',
+    width: '60%',
+    height: 160,
+    maxHeight: '80%',
+    borderRadius: 9,
+    padding: 18,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  // Confirmation modal styles - Small Device
+  confirmationModalSmall: {
+    backgroundColor: '#fff',
+    width: '70%',
+    height: 150,
+    maxHeight: '80%',
+    borderRadius: 8,
+    padding: 15,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  // Confirmation modal styles - Tiny Device
+  confirmationModalTiny: {
     backgroundColor: '#fff',
     width: '70%',
     height: 150,
@@ -1847,21 +2545,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
   },
-  confirmationmodalTiny: {
-    backgroundColor: '#fff',
-    width: '70%',
-    height: 150,
-    maxHeight: '80%',
-    borderRadius: 10,
-    padding: 15,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-  },
-  // Add folder modal - large screen
-  addFolderModal: {
+  
+  // Add folder modal styles - Large Device
+  addFolderModalLarge: {
     backgroundColor: '#fff',
     width: '50%',
     height: 305,
@@ -1874,20 +2560,35 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
   },
-  // Add folder modal - small screen
-  addFolderModalSmall: {
+  // Add folder modal styles - Medium Large Device
+  addFolderModalMediumLarge: {
     backgroundColor: '#fff',
-    width: '70%',
-    height: 270,
+    width: '60%',
+    height: 330,
     maxHeight: '80%',
-    borderRadius: 10,
-    padding: 15,
+    borderRadius: 9,
+    padding: 20,
     elevation: 5,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
   },
+  // Add folder modal styles - Small Device
+  addFolderModalSmall: {
+    backgroundColor: '#fff',
+    width: '70%',
+    height: 225,
+    maxHeight: '80%',
+    borderRadius: 8,
+    padding: 18,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  // Add folder modal styles - Tiny Device
   addFolderModalTiny: {
     backgroundColor: '#fff',
     width: '70%',
@@ -1904,8 +2605,25 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
   },
 
-  // Add competition modal - large screen
-  addFolderModal2: {
+   menuDividerLarge: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  // Menu divider styles - Medium Large Device
+  menuDividerMediumLarge: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  // Menu divider styles - Small Device
+  menuDividerSmall: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+
+  
+
+  // Add competition modal styles - Large Device
+  addFolderModal2Large: {
     backgroundColor: '#fff',
     width: '50%',
     height: 340,
@@ -1918,20 +2636,35 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
   },
-  // Add competition modal - small screen
-  addFolderModal2Small: {
+  // Add competition modal styles - Medium Large Device
+  addFolderModal2MediumLarge: {
     backgroundColor: '#fff',
-    width: '70%',
-    height: 310,
-    maxHeight: '90%',
-    borderRadius: 10,
-    padding: 15,
+    width: '60%',
+    height: 395,
+    maxHeight: '80%',
+    borderRadius: 9,
+    padding: 18,
     elevation: 5,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
   },
+  // Add competition modal styles - Small Device
+  addFolderModal2Small: {
+    backgroundColor: '#fff',
+    width: '70%',
+    height: 275,
+    maxHeight: '85%',
+    borderRadius: 8,
+    padding: 16,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  // Add competition modal styles - Tiny Device
   addFolderModal2Tiny: {
     backgroundColor: '#fff',
     width: '70%',
@@ -1948,21 +2681,37 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
   },
 
-  // Add folder title - large screen
-  addFolderTitle: {
+  // Add folder title styles - Large Device
+  addFolderTitleLarge: {
     fontSize: 40,
     textAlign: 'center',
     marginBottom: 20,
     fontFamily: 'Rajdhani-medium',
   },
-  // Add folder title - small screen
+  // Add folder title styles - Medium Large Device
+  addFolderTitleMediumLarge: {
+    fontSize: 36,
+    textAlign: 'center',
+    marginBottom: 18,
+    fontFamily: 'Rajdhani-medium',
+  },
+  // Add folder title styles - Small Device
   addFolderTitleSmall: {
+    fontSize: 32,
+    textAlign: 'center',
+    marginBottom: 16,
+    fontFamily: 'Rajdhani-medium',
+  },
+  // Add folder title styles - Tiny Device
+  addFolderTitleTiny: {
     fontSize: 30,
     textAlign: 'center',
     marginBottom: 15,
     fontFamily: 'Rajdhani-medium',
   },
-  folderInput: {
+  
+  // Folder input styles - Large Device
+  folderInputLarge: {
     borderColor: '#ddd',
     backgroundColor: '#F8F8F8',
     borderRadius: 10,
@@ -1970,39 +2719,61 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     fontSize: 15,
   },
-  optionsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  optionButton: {
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 5,
-    padding: 10,
-    width: "45%",
-    backgroundColor: "#f8f8f8", // Default background
-  },
-  selectedOptionButton: {
-    borderColor: "rgb(0, 0, 0)", // Highlighted border color
-    backgroundColor: "rgb(224, 224, 224)", // Highlighted background color
-  },
-  optionText: {
+  // Folder input styles - Medium Large Device
+  folderInputMediumLarge: {
+    borderColor: '#ddd',
+    backgroundColor: '#F8F8F8',
+    borderRadius: 9,
+    padding: 9,
+    marginBottom: 14,
     fontSize: 14,
-    textAlign: "center",
-    color: "#333", // Default text color
   },
-  selectedOptionText: {
-    color: "#4285F4", // Highlighted text color
+  // Folder input styles - Small Device
+  folderInputSmall: {
+    borderColor: '#ddd',
+    backgroundColor: '#F8F8F8',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 12,
+    fontSize: 13,
   },
-  buttonsContainer: {
+  // Folder input styles - Tiny Device
+  folderInputTiny: {
+    borderColor: '#ddd',
+    backgroundColor: '#F8F8F8',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 15,
+    fontSize: 15,
+  },
+  
+  // Buttons container styles - Large Device
+  buttonsContainerLarge: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  // Confirm button - large screen
-  confirmButton: {
+  // Buttons container styles - Medium Large Device
+  buttonsContainerMediumLarge: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Buttons container styles - Small Device
+  buttonsContainerSmall: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Buttons container styles - Tiny Device
+  buttonsContainerTiny: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  
+  // Confirm button styles - Large Device
+  confirmButtonLarge: {
     backgroundColor: '#0047AB',
     borderRadius: 10,
     padding: 12,
@@ -2016,8 +2787,37 @@ const styles = StyleSheet.create({
     marginRight: 50,
     alignItems: 'center',
   },
-  // Confirm button - small screen
+  // Confirm button styles - Medium Large Device
+  confirmButtonMediumLarge: {
+    backgroundColor: '#0047AB',
+    borderRadius: 9,
+    padding: 11,
+    width: '40%',
+    shadowColor: '#000',
+    alignSelf: 'center',
+    shadowOffset: { width: 0, height: 2.5 },
+    shadowOpacity: 0.55,
+    shadowRadius: 3.84,
+    elevation: 5,
+    marginRight: 40,
+    alignItems: 'center',
+  },
+  // Confirm button styles - Small Device
   confirmButtonSmall: {
+    backgroundColor: '#0047AB',
+    borderRadius: 8,
+    padding: 10,
+    width: '40%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.55,
+    shadowRadius: 3,
+    elevation: 5,
+    marginRight: 35,
+    alignItems: 'center',
+  },
+  // Confirm button styles - Tiny Device
+  confirmButtonTiny: {
     backgroundColor: '#0047AB',
     borderRadius: 8,
     padding: 10,
@@ -2030,20 +2830,34 @@ const styles = StyleSheet.create({
     marginRight: 30,
     alignItems: 'center',
   },
-  // Confirm button text - large screen
-  confirmButtonText: {
+  
+  // Confirm button text styles - Large Device
+  confirmButtonTextLarge: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 26,
   },
-  // Confirm button text - small screen
+  // Confirm button text styles - Medium Large Device
+  confirmButtonTextMediumLarge: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 24,
+  },
+  // Confirm button text styles - Small Device
   confirmButtonTextSmall: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 22,
+  },
+  // Confirm button text styles - Tiny Device
+  confirmButtonTextTiny: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 20,
   },
-  // Cancel button - large screen
-  cancelButton: {
+  
+  // Cancel button styles - Large Device
+  cancelButtonLarge: {
     backgroundColor: '#DC3545',
     borderRadius: 10,
     padding: 12,
@@ -2056,8 +2870,36 @@ const styles = StyleSheet.create({
     width: '40%',
     alignItems: 'center',
   },
-  // Cancel button - small screen
+  // Cancel button styles - Medium Large Device
+  cancelButtonMediumLarge: {
+    backgroundColor: '#DC3545',
+    borderRadius: 9,
+    padding: 11,
+    marginLeft: 40,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2.5 },
+    shadowOpacity: 0.55,
+    shadowRadius: 3.84,
+    elevation: 5,
+    width: '40%',
+    alignItems: 'center',
+  },
+  // Cancel button styles - Small Device
   cancelButtonSmall: {
+    backgroundColor: '#DC3545',
+    borderRadius: 8,
+    padding: 10,
+    marginLeft: 35,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.55,
+    shadowRadius: 3,
+    elevation: 5,
+    width: '40%',
+    alignItems: 'center',
+  },
+  // Cancel button styles - Tiny Device
+  cancelButtonTiny: {
     backgroundColor: '#DC3545',
     borderRadius: 8,
     padding: 10,
@@ -2070,14 +2912,27 @@ const styles = StyleSheet.create({
     width: '40%',
     alignItems: 'center',
   },
-  // Cancel button text - large screen
-  cancelButtonText: {
+  
+  // Cancel button text styles - Large Device
+  cancelButtonTextLarge: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 26,
   },
-  // Cancel button text - small screen
+  // Cancel button text styles - Medium Large Device
+  cancelButtonTextMediumLarge: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 24,
+  },
+  // Cancel button text styles - Small Device
   cancelButtonTextSmall: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 22,
+  },
+  // Cancel button text styles - Tiny Device
+  cancelButtonTextTiny: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 20,

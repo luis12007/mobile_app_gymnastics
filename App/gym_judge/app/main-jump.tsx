@@ -31,10 +31,10 @@ const isLargeScreen = width >= 1000 && height >= 700;
 var isLargeDevice = false;
 var isSmallDevice = false;
 var isTinyDevice = false;
-if (width >= 1368 && height >= 1025) {
+if (width >= 14685) {
   isLargeDevice = true;
 }
-if (width < 1367 && width >= 945) {
+if (width >= 1200 && width < 1368) {
   isSmallDevice = true;
 }
 if (width < 949) {
@@ -1193,7 +1193,7 @@ caretHidden={Platform.OS === 'ios'}
             }}
           >
             <Text
-              style={{ fontWeight: "bold", fontSize: 20, marginBottom: 10 }}
+              style={{ fontWeight: "bold", fontSize: 12, marginBottom: 10 }}
             >
               Edit Comments
             </Text>
@@ -2000,7 +2000,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   ndValueTextSmall: {
-    fontSize: 20,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#333",
   },
@@ -2015,7 +2015,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   sdValueTextSmall: {
-    fontSize: 20,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#333",
   },
@@ -2030,7 +2030,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   eValueTextSmall: {
-    fontSize: 17,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#333",
   },
@@ -2045,7 +2045,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   dValueTextSmall: {
-    fontSize: 20,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#333",
   },
@@ -2101,7 +2101,7 @@ const styles = StyleSheet.create({
     left: 10,
   },
   codeTableText: {
-    fontSize: 20,
+    fontSize: 12,
     color: "white",
   },
   codeTableTextSmall: {
@@ -2134,7 +2134,7 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   cellHeaderTextSmall: {
-    fontSize: 20,
+    fontSize: 12,
     fontWeight: "bold",
     alignSelf: "center",
     color: "#000",
@@ -2163,13 +2163,13 @@ const styles = StyleSheet.create({
     paddingTop: 6,
   },
   svValueTextSmall: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: "bold",
     color: "#000",
     textAlign: "center",
     alignSelf: "center",
     height: "100%",
-    paddingTop: 9,
+    paddingTop: 5,
   },
   svValueTextTiny: {
     fontSize: 18,
@@ -2221,7 +2221,7 @@ const styles = StyleSheet.create({
     borderColor: "black",
   },
   vaultValueText: {
-    fontSize: 20,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2252,7 +2252,7 @@ const styles = StyleSheet.create({
     borderColor: "black",
   },
   valueText: {
-    fontSize: 20,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2300,7 +2300,7 @@ const styles = StyleSheet.create({
     borderColor: "black",
   },
   scoreValueText: {
-    fontSize: 20,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2345,7 +2345,7 @@ const styles = StyleSheet.create({
     paddingRight: 10,
   },
   compDeductionTextSmall: {
-    fontSize: 12,
+    fontSize: 8,
     fontWeight: "bold",
     color: "#000",
     textAlign: "left",
@@ -2374,7 +2374,7 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   smallCellTextSmall: {
-    fontSize: 23,
+    fontSize: 17,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2389,7 +2389,7 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   ScoresmallCellTextSmall: {
-    fontSize: 11,
+    fontSize: 7,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2407,17 +2407,17 @@ const styles = StyleSheet.create({
     borderColor: "black",
   },
   smallValueText: {
-    fontSize: 23,
+    fontSize: 17,
     fontWeight: "bold",
     color: "#000",
   },
   smallValueTextSmall: {
-    fontSize: 15,
+    fontSize: 11,
     fontWeight: "bold",
     color: "#000",
   },
   smallValueTextTiny: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2499,7 +2499,7 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   startValueValueTextSmall: {
-    fontSize: 25,
+    fontSize: 17,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2517,11 +2517,11 @@ const styles = StyleSheet.create({
     borderColor: "black",
   },
   descriptionValueText: {
-    fontSize: 20,
+    fontSize: 12,
     color: "#000",
   },
   descriptionValueTextSmall: {
-    fontSize: 18,
+    fontSize: 10,
     color: "#000",
   },
   descriptionValueTextTiny: {
@@ -2537,7 +2537,7 @@ const styles = StyleSheet.create({
     borderColor: "black",
   },
   gymnastInfoText: {
-    fontSize: 17,
+    fontSize: 9,
     fontWeight: "bold",
     color: "#000",
     textAlign: "right",
@@ -2545,7 +2545,7 @@ const styles = StyleSheet.create({
     paddingRight: 10,
   },
   gymnastInfoTextSmall: {
-    fontSize: 14,
+    fontSize: 8,
     fontWeight: "bold",
     color: "#000",
     textAlign: "right",
@@ -2553,7 +2553,7 @@ const styles = StyleSheet.create({
     paddingRight: 8,
   },
   gymnastInfoTextTiny: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#000",
     textAlign: "right",
@@ -2582,7 +2582,7 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   neutralTextSmall: {
-    fontSize: 25,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2605,7 +2605,7 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   neutralTotalTextSmall: {
-    fontSize: 25,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2618,12 +2618,12 @@ const styles = StyleSheet.create({
     padding: 10,
   },
   commentsText: {
-    fontSize: 23,
+    fontSize: 17,
     fontWeight: "bold",
     color: "#333",
   },
   commentsTextSmall: {
-    fontSize: 20,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#333",
   },
@@ -2673,7 +2673,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   buttonText: {
-    fontSize: 16,
+    fontSize: 12,
     color: "#fff",
     fontWeight: "bold",
   },
@@ -2710,7 +2710,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   infoValueText: {
-    fontSize: 23,
+    fontSize: 16,
     fontWeight: "bold",
     color: "#333",
   },  
