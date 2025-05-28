@@ -207,6 +207,51 @@ export const checkUserExists = async (username: string): Promise<boolean> => {
   }
 };
 
+// Insertar usuario sin validar clave de activación (para uso interno/admin)
+export const insertUserWithoutValidation = async (
+  username: string, 
+  password: string,
+  rol: string = "user" // Default role is "user"
+): Promise<number | false> => {
+  try {
+    if (!username || !password) {
+      console.error("Username and password are required");
+      return false;
+    }
+    
+    const users = await getUsers();
+    
+    // Check if user exists
+    const userExists = users.some(user => user.username === username);
+    if (userExists) {
+      console.error("User already exists.");
+      return false;
+    }
+
+    // Find max ID
+    let nextId = 1;
+    if (users.length > 0) {
+      // Filter out any users without an ID
+      const usersWithId = users.filter(user => typeof user.id === 'number');
+      if (usersWithId.length > 0) {
+        nextId = Math.max(...usersWithId.map(user => user.id)) + 1;
+      }
+    }
+    
+    // Add new user with ID and role
+    const newUser: User = { id: nextId, username, password, rol };
+    users.push(newUser);
+    
+    // Save updated users
+    await saveItems(USERS_KEY, users);
+    console.log("User added successfully without validation. ID:", nextId);
+    
+    return nextId;
+  } catch (error) {
+    console.error("Error inserting user without validation:", error);
+    return false;
+  }
+};
 
 // Validar una clave de activación para un dispositivo específico
 export const validateActivationKey = async (

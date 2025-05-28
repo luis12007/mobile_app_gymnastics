@@ -961,7 +961,7 @@ const styles = StyleSheet.create({
     borderColor: '#ddd',
   },
     canvasSmall: {
-    height: 460,
+    height: 510,
     backgroundColor: CANVAS_BACKGROUND,
     borderWidth: 1,
     borderColor: '#ddd',

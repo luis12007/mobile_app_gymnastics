@@ -989,7 +989,7 @@ const styles = StyleSheet.create({
     borderColor: '#ddd',
   },
   canvasTiny: {
-    height: 20,
+    height: 240,
     backgroundColor: CANVAS_BACKGROUND,
     borderWidth: 1,
     borderColor: '#ddd',
