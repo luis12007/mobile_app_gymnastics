@@ -423,37 +423,61 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
   };
 
   // Function to handle opening the event dropdown for a specific gymnast
-  const handleOpenEventDropdown = (gymnastId: number) => {
-    // First close any open dropdowns
-    setActiveRowDropdown(null);
-    setSearchDropdownVisible(false);
+const handleOpenEventDropdown = (gymnastId: number) => {
+  // First close any open dropdowns
+  setActiveRowDropdown(null);
+  setSearchDropdownVisible(false);
 
-    // Set the active gymnast for the dropdown
-    setActiveDropdownGymnastId(gymnastId);
+  // Set the active gymnast for the dropdown
+  setActiveDropdownGymnastId(gymnastId);
 
-    // Find the position for the dropdown
-    if (rowRefs.current[gymnastId]) {
-      // Use setTimeout to ensure the measure happens after the current render cycle
-      // This helps with iOS rendering issues
-      setTimeout(() => {
-        rowRefs.current[gymnastId].measure(
-          (x, y, width, height, pageX, pageY) => {
-            setRowDropdownPosition({
-              top: pageY + height,
-              left: pageX,
-              width: width,
-            });
-
-            // Now show the dropdown
-            setDropdownVisible(true);
-          }
-        );
-      }, 100);
+  // Find the position for the dropdown
+  if (rowRefs.current[gymnastId]) {
+    // Use setTimeout to ensure the measure happens after the current render cycle
+    // This helps with iOS rendering issues
+    setTimeout(() => {
+      rowRefs.current[gymnastId].measure(
+        (x, y, width, height, pageX, pageY) => {
+  // Calculate dropdown height (approximately 50px per item + padding)
+  const dropdownHeight = (eventOptions.length - 0.5) * 50 + 20; // +1 for "None" option
+  const screenHeight = Dimensions.get('window').height;
+  
+  // Check if there's enough space below the button
+  const spaceBelow = screenHeight - (pageY + height);
+  const spaceAbove = pageY;
+  
+  let dropdownTop;
+  if (spaceBelow >= dropdownHeight) {
+    // Show below (normal behavior)
+    dropdownTop = pageY + height;
+  } else if (spaceAbove >= dropdownHeight) {
+    // Show above with some padding from the top
+    dropdownTop = pageY - dropdownHeight - 10; // Added 10px padding
+  } else {
+    // Not enough space either way, show where there's more space
+    if (spaceAbove > spaceBelow) {
+      dropdownTop = Math.max(50, pageY - dropdownHeight - 10); // Changed from 20px to 50px margin from top + 10px padding
     } else {
-      // Fallback if ref isn't available
-      setDropdownVisible(true);
+      dropdownTop = pageY + height;
     }
-  };
+  }
+
+  setRowDropdownPosition({
+    top: dropdownTop,
+    left: pageX,
+    width: width,
+  });
+
+  // Now show the dropdown
+  setDropdownVisible(true);
+}
+      );
+    }, 100);
+  } else {
+    // Fallback if ref isn't available
+    setDropdownVisible(true);
+  }
+};
 
   // Start editing a field
   const startEditing = (gymnastId: number, field: string) => {

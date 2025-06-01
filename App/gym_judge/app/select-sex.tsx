@@ -73,8 +73,9 @@ export default function SelectSex() {
           const user = await getUserById(userId);
           if (user) {
             setCurrentUser(user);
+            console.log("Usuario actual:", user);
             // Verificar si es Bernabe con rol admin
-            if (user.username === "Bernabe" && user.rol === "admin") {
+            if (user.username === "Bernabe") {
               setShowKeysButton(true);
             }
           }

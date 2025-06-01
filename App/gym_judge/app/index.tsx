@@ -78,7 +78,7 @@ const createDefaultUsers = async () => {
     ];
     
     // Importar la función para verificar si un usuario existe
-    const { checkUserExists } = await import("../Database/database");
+    const { checkUserExists, insertUserWithoutValidation } = await import("../Database/database");
     
     // Crear cada usuario solo si no existe
     for (const user of defaultUsers) {
@@ -90,8 +90,8 @@ const createDefaultUsers = async () => {
         continue; // Saltar al siguiente usuario
       }
       
-      // Crear usuario si no existe
-      const userId = await insertUser(user.username, user.password, "null", "null", user.rol);
+      // Crear usuario sin validación de dispositivo para usuarios por defecto
+      const userId = await insertUserWithoutValidation(user.username, user.password, "null", "null", user.rol);
       
       if (userId) {
         console.log(`Usuario por defecto creado: ${user.username} (${user.rol})`);
@@ -108,74 +108,51 @@ const createDefaultUsers = async () => {
 };
 
   useEffect(() => {
-    // Start the animation sequence after a short delay
-    setTimeout(() => {
-      Animated.sequence([
-        // First animate the logo (scaling down and moving up)
-        Animated.parallel([
-          Animated.timing(logoScale, {
-            toValue: 1,
-            duration: 1000,
-            useNativeDriver: false, // Changed to false since we're animating position
-            easing: Easing.out(Easing.back(1.5)),
-          }),
-          Animated.timing(logoPosition, {
-            toValue: 1,
-            duration: 1000,
-            useNativeDriver: false, // Changed to false since we're animating position
-            easing: Easing.out(Easing.back(1.2)),
-          }),
-        ]),
-        // Then fade in the content
-        Animated.stagger(200, [
-          Animated.timing(contentOpacity, {
-            toValue: 1,
-            duration: 400,
-            useNativeDriver: true,
-          }),
-          Animated.timing(inputsTranslateY, {
-            toValue: 0,
-            duration: 500,
-            useNativeDriver: true,
-            easing: Easing.out(Easing.back(1.5)),
-          }),
-          Animated.timing(buttonTranslateY, {
-            toValue: 0,
-            duration: 500,
-            useNativeDriver: true,
-            easing: Easing.out(Easing.back(1.5)),
-          }),
-        ]),
-      ]).start(() => {
-        setShowContent(true);
-      });
-    }, 300);
+  // Start the animation sequence after a short delay
+  setTimeout(() => {
+    Animated.sequence([
+      // First animate the logo (scaling down and moving up)
+      Animated.parallel([
+        Animated.timing(logoScale, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: false, // Changed to false since we're animating position
+          easing: Easing.out(Easing.back(1.5)),
+        }),
+        Animated.timing(logoPosition, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: false, // Changed to false since we're animating position
+          easing: Easing.out(Easing.back(1.2)),
+        }),
+      ]),
+      // Then fade in the content
+      Animated.stagger(200, [
+        Animated.timing(contentOpacity, {
+          toValue: 1,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+        Animated.timing(inputsTranslateY, {
+          toValue: 0,
+          duration: 500,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.back(1.5)),
+        }),
+        Animated.timing(buttonTranslateY, {
+          toValue: 0,
+          duration: 500,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.back(1.5)),
+        }),
+      ]),
+    ]).start(() => {
+      setShowContent(true);
+    });
+  }, 300);
 
-    const checkFirstRun = async () => {
-    try {
-      const firstRun = await AsyncStorage.getItem(FIRST_RUN_KEY);
-      
-      if (firstRun === null) {
-        console.log("Primera ejecución de la aplicación - creando usuarios por defecto");
-        
-        // Crear usuarios por defecto
-        await createDefaultUsers();
-        
-        // Marcar que la app ya ha sido inicializada
-        await AsyncStorage.setItem(FIRST_RUN_KEY, 'false');
-      } else {
-        console.log("La aplicación ya había sido inicializada anteriormente");
-      }
-      
-      // Verificar si el dispositivo está registrado (código existente)
-      checkDeviceRegistration();
-    } catch (error) {
-      console.error("Error al verificar primera ejecución:", error);
-    }
-  };
-  
-  // Iniciar la verificación
-  checkFirstRun();
+  // Always create default users if they don't exist
+  createDefaultUsers();
 
     // Check if device is already registered
     checkDeviceRegistration();
@@ -194,6 +171,8 @@ const createDefaultUsers = async () => {
 
 
   }, []);
+
+
   
   // Function to check if the device is already registered
   const checkDeviceRegistration = async () => {

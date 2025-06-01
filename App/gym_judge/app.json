@@ -1,23 +1,30 @@
 {
   "expo": {
-    "name": "gym_judge",
+    "name": "gym judge",
     "slug": "gym_judge",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "orientation": "landscape",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/iconapp.png",
     "scheme": "gymjudge",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.gym.judge",
+      "buildNumber": "5",
+      "icon": "./assets/images/iconapp.png",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "foregroundImage": "./assets/images/iconapp.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
-      "package": "com.anonymous.gym_judge"
+      "icon": "./assets/images/iconapp.png",
+      "package": "com.gym.judge",
+      "versionCode": 2
     },
     "web": {
       "bundler": "metro",
@@ -39,6 +46,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d375ebda-3dfb-4b37-ba5d-4d306e8690b1"
+      }
     }
   }
 }
