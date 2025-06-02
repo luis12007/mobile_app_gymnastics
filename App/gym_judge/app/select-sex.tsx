@@ -1,4 +1,4 @@
-import * as Crypto from 'expo-crypto';
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFonts } from "expo-font";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
@@ -34,11 +34,13 @@ if (width >= 1368 ) {
   isTinyDevice = true;
 }
 
+const DEFAULT_DISCIPLINE_KEY = "defaultDiscipline";
+
 export default function SelectSex() {
-  // Use simpler ternary operators for device size detection
   const router = useRouter();
   const params = useLocalSearchParams();
   const userId = typeof params.userId === 'string' ? parseInt(params.userId, 10) : 0;
+  const changeDis = params.changeDis === 'true';
 
   // Estados para el modal de generación de claves
   const [modalVisible, setModalVisible] = useState(false);
@@ -50,6 +52,10 @@ export default function SelectSex() {
   // Estados para validación de usuario
   const [currentUser, setCurrentUser] = useState(null);
   const [showKeysButton, setShowKeysButton] = useState(false);
+
+  // Estados para disciplina por defecto
+  const [defaultDiscipline, setDefaultDiscipline] = useState<boolean | null>(null); // true = MAG, false = WAG, null = no default
+  const [isLoadingDefault, setIsLoadingDefault] = useState(true);
 
   // Load the custom font
   const [fontsLoaded] = useFonts({
@@ -64,6 +70,51 @@ export default function SelectSex() {
   const rightButtonTranslateX = useRef(new Animated.Value(100)).current;
   const buttonsOpacity = useRef(new Animated.Value(0)).current;
   const adminButtonOpacity = useRef(new Animated.Value(0)).current;
+  const toggleButtonOpacity = useRef(new Animated.Value(0)).current;
+
+  // Cargar disciplina por defecto
+  const loadDefaultDiscipline = async () => {
+    try {
+      const storedDefault = await AsyncStorage.getItem(DEFAULT_DISCIPLINE_KEY);
+      if (storedDefault !== null) {
+        setDefaultDiscipline(storedDefault === 'true');
+      }
+    } catch (error) {
+      console.error("Error loading default discipline:", error);
+    } finally {
+      setIsLoadingDefault(false);
+    }
+  };
+
+  // Guardar disciplina por defecto
+  const saveDefaultDiscipline = async (discipline: boolean | null) => {
+    try {
+      if (discipline === null) {
+        await AsyncStorage.removeItem(DEFAULT_DISCIPLINE_KEY);
+      } else {
+        await AsyncStorage.setItem(DEFAULT_DISCIPLINE_KEY, discipline.toString());
+      }
+      setDefaultDiscipline(discipline);
+    } catch (error) {
+      console.error("Error saving default discipline:", error);
+    }
+  };
+
+  // Auto-route si no hay changeDis y hay disciplina por defecto
+  const checkAutoRoute = async () => {
+    if (!changeDis && !isLoadingDefault && defaultDiscipline !== null) {
+      // Auto-route con la disciplina por defecto
+      router.replace(`/main-menu?discipline=${defaultDiscipline}&userId=${userId}`);
+    }
+  };
+
+  useEffect(() => {
+    loadDefaultDiscipline();
+  }, []);
+
+  useEffect(() => {
+    checkAutoRoute();
+  }, [changeDis, isLoadingDefault, defaultDiscipline]);
 
   useEffect(() => {
     // Verificar información del usuario actual
@@ -73,8 +124,9 @@ export default function SelectSex() {
           const user = await getUserById(userId);
           if (user) {
             setCurrentUser(user);
+            console.log("Usuario actual:", user);
             // Verificar si es Bernabe con rol admin
-            if (user.username === "Bernabe" && user.rol === "admin") {
+            if (user.username === "Bernabe") {
               setShowKeysButton(true);
             }
           }
@@ -86,63 +138,87 @@ export default function SelectSex() {
 
     checkUserPermissions();
 
-    // Start animation sequence after component mounts
-    Animated.sequence([
-      // First fade in the background
-      Animated.timing(backgroundOpacity, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-        easing: Easing.out(Easing.ease),
-      }),
-      // Then animate the title
-      Animated.timing(titleOpacity, {
-        toValue: 1,
-        duration: 700,
-        useNativeDriver: true,
-        easing: Easing.out(Easing.ease),
-      }),
-      // Followed by buttons animation
-      Animated.parallel([
-        Animated.timing(buttonsOpacity, {
+    // Solo mostrar animaciones si changeDis es true o no hay disciplina por defecto
+    if (changeDis || defaultDiscipline === null) {
+      // Start animation sequence after component mounts
+      Animated.sequence([
+        // First fade in the background
+        Animated.timing(backgroundOpacity, {
           toValue: 1,
           duration: 600,
           useNativeDriver: true,
           easing: Easing.out(Easing.ease),
         }),
-        Animated.timing(leftButtonTranslateX, {
-          toValue: 0,
-          duration: 600,
-          useNativeDriver: true,
-          easing: Easing.out(Easing.back(1.5)),
-        }),
-        Animated.timing(rightButtonTranslateX, {
-          toValue: 0,
-          duration: 600,
-          useNativeDriver: true,
-          easing: Easing.out(Easing.back(1.5)),
-        }),
-        // Admin button animation
-        Animated.timing(adminButtonOpacity, {
+        // Then animate the title
+        Animated.timing(titleOpacity, {
           toValue: 1,
-          duration: 800,
+          duration: 700,
           useNativeDriver: true,
           easing: Easing.out(Easing.ease),
         }),
-      ]),
-    ]).start();
+        // Followed by buttons animation
+        Animated.parallel([
+          Animated.timing(buttonsOpacity, {
+            toValue: 1,
+            duration: 600,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.ease),
+          }),
+          Animated.timing(leftButtonTranslateX, {
+            toValue: 0,
+            duration: 600,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.back(1.5)),
+          }),
+          Animated.timing(rightButtonTranslateX, {
+            toValue: 0,
+            duration: 600,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.back(1.5)),
+          }),
+          // Admin button animation
+          Animated.timing(adminButtonOpacity, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.ease),
+          }),
+          // Toggle button animation
+          Animated.timing(toggleButtonOpacity, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.ease),
+          }),
+        ]),
+      ]).start();
 
-    // Animate title from top to position
-    Animated.timing(titleTranslateY, {
-      toValue: 0,
-      duration: 800,
-      useNativeDriver: true,
-      easing: Easing.out(Easing.back(1.2)),
-    }).start();
-  }, [userId]);
+      // Animate title from top to position
+      Animated.timing(titleTranslateY, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.back(1.2)),
+      }).start();
+    }
+  }, [userId, changeDis, defaultDiscipline]);
 
   const handleSelect = (discipline: boolean) => {
-    router.push(`/main-menu?discipline=${discipline}&userId=${userId}`); // Pass the value as a query parameter
+    router.push(`/main-menu?discipline=${discipline}&userId=${userId}`);
+  };
+
+  // Toggle disciplina por defecto
+  const toggleDefaultDiscipline = () => {
+    if (defaultDiscipline === null) {
+      // Si no hay default, establecer MAG como default
+      saveDefaultDiscipline(true);
+    } else if (defaultDiscipline === true) {
+      // Si es MAG, cambiar a WAG
+      saveDefaultDiscipline(false);
+    } else {
+      // Si es WAG, quitar default
+      saveDefaultDiscipline(null);
+    }
   };
 
   // Función para generar clave de activación
@@ -215,6 +291,15 @@ export default function SelectSex() {
     setDeviceInfo(text);
     parseDeviceInfo(text);
   };
+
+  // Si está cargando o debe auto-route, mostrar loading o nada
+  if (isLoadingDefault || (!changeDis && defaultDiscipline !== null)) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={{ fontSize: 18, color: '#004aad' }}>Loading...</Text>
+      </View>
+    );
+  }
 
 return (
     <View style={styles.container}>
@@ -320,6 +405,7 @@ return (
               isMediumLargeDevice ? styles.grayRectangleMediumLarge : null,
               isSmallDevice ? styles.grayRectangleSmall : null,
               isTinyDevice ? styles.grayRectangleTiny : null,
+              defaultDiscipline === true && styles.defaultSelectedButton
             ]}
             onPress={() => handleSelect(true)}
           >
@@ -339,6 +425,21 @@ return (
               isSmallDevice ? styles.rectangleTextSmall : null,
               isTinyDevice ? styles.rectangleTextTiny : null,
             ]}>MAG</Text>
+            {defaultDiscipline === true && (
+              <View style={[
+                isLargeDevice ? styles.defaultBadgeLarge : null,
+                isMediumLargeDevice ? styles.defaultBadgeMediumLarge : null,
+                isSmallDevice ? styles.defaultBadgeSmall : null,
+                isTinyDevice ? styles.defaultBadgeTiny : null,
+              ]}>
+                <Text style={[
+                  isLargeDevice ? styles.defaultBadgeTextLarge : null,
+                  isMediumLargeDevice ? styles.defaultBadgeTextMediumLarge : null,
+                  isSmallDevice ? styles.defaultBadgeTextSmall : null,
+                  isTinyDevice ? styles.defaultBadgeTextTiny : null,
+                ]}>DEFAULT</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </Animated.View>
 
@@ -356,6 +457,7 @@ return (
               isMediumLargeDevice ? styles.grayRectangleMediumLarge : null,
               isSmallDevice ? styles.grayRectangleSmall : null,
               isTinyDevice ? styles.grayRectangleTiny : null,
+              defaultDiscipline === false && styles.defaultSelectedButton
             ]}
             onPress={() => handleSelect(false)}
           >
@@ -375,9 +477,62 @@ return (
               isSmallDevice ? styles.rectangleTextSmall : null,
               isTinyDevice ? styles.rectangleTextTiny : null,
             ]}>WAG</Text>
+            {defaultDiscipline === false && (
+              <View style={[
+                isLargeDevice ? styles.defaultBadgeLarge : null,
+                isMediumLargeDevice ? styles.defaultBadgeMediumLarge : null,
+                isSmallDevice ? styles.defaultBadgeSmall : null,
+                isTinyDevice ? styles.defaultBadgeTiny : null,
+              ]}>
+                <Text style={[
+                  isLargeDevice ? styles.defaultBadgeTextLarge : null,
+                  isMediumLargeDevice ? styles.defaultBadgeTextMediumLarge : null,
+                  isSmallDevice ? styles.defaultBadgeTextSmall : null,
+                  isTinyDevice ? styles.defaultBadgeTextTiny : null,
+                ]}>DEFAULT</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </Animated.View>
       </View>
+
+      {/* Toggle Default Discipline Button */}
+      <Animated.View style={{ opacity: toggleButtonOpacity }}>
+        <TouchableOpacity
+          style={[
+            isLargeDevice ? styles.toggleButtonLarge : null,
+            isMediumLargeDevice ? styles.toggleButtonMediumLarge : null,
+            isSmallDevice ? styles.toggleButtonSmall : null,
+            isTinyDevice ? styles.toggleButtonTiny : null,
+          ]}
+          onPress={toggleDefaultDiscipline}
+        >
+          <Text style={[
+            isLargeDevice ? styles.toggleButtonTextLarge : null,
+            isMediumLargeDevice ? styles.toggleButtonTextMediumLarge : null,
+            isSmallDevice ? styles.toggleButtonTextSmall : null,
+            isTinyDevice ? styles.toggleButtonTextTiny : null,
+          ]}>
+            {defaultDiscipline === null 
+              ? "SET AS DEFAULT" 
+              : defaultDiscipline === true 
+                ? "MAG DEFAULT → WAG DEFAULT" 
+                : "WAG DEFAULT → REMOVE DEFAULT"
+            }
+          </Text>
+          <Text style={[
+            isLargeDevice ? styles.toggleSubtextLarge : null,
+            isMediumLargeDevice ? styles.toggleSubtextMediumLarge : null,
+            isSmallDevice ? styles.toggleSubtextSmall : null,
+            isTinyDevice ? styles.toggleSubtextTiny : null,
+          ]}>
+            {defaultDiscipline === null 
+              ? "Tap to set MAG as default" 
+              : "Tap to change default discipline"
+            }
+          </Text>
+        </TouchableOpacity>
+      </Animated.View>
 
       {/* Modal para generar claves */}
       <Modal
@@ -400,24 +555,7 @@ return (
               isTinyDevice ? styles.modalTitleTiny : null,
             ]}>Generador de Claves de Activación</Text>
             
-            {/* Información del usuario actual */}
-            {currentUser && (
-              <View style={[
-                isLargeDevice ? styles.userInfoContainerLarge : null,
-                isMediumLargeDevice ? styles.userInfoContainerMediumLarge : null,
-                isSmallDevice ? styles.userInfoContainerSmall : null,
-                isTinyDevice ? styles.userInfoContainerTiny : null,
-              ]}>
-                <Text style={[
-                  isLargeDevice ? styles.userInfoTextLarge : null,
-                  isMediumLargeDevice ? styles.userInfoTextMediumLarge : null,
-                  isSmallDevice ? styles.userInfoTextSmall : null,
-                  isTinyDevice ? styles.userInfoTextTiny : null,
-                ]}>
-                  Usuario: {currentUser.username} ({currentUser.rol})
-                </Text>
-              </View>
-            )}
+
             
             <Text style={[
               isLargeDevice ? styles.modalLabelLarge : null,
@@ -481,7 +619,7 @@ return (
               </Text>
             </TouchableOpacity>
             
-            {generatedKey ? (
+            {/* {generatedKey ? (
               <View style={[
                 isLargeDevice ? styles.keyResultContainerLarge : null,
                 isMediumLargeDevice ? styles.keyResultContainerMediumLarge : null,
@@ -517,7 +655,7 @@ return (
                   ]}>Tocar para copiar</Text>
                 </TouchableOpacity>
               </View>
-            ) : null}
+            ) : null} */}
             
             <TouchableOpacity 
               style={[
@@ -732,6 +870,20 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     position: "relative",
   },
+
+  // Default selected button style
+  defaultSelectedButton: {
+    borderWidth: 4,
+    borderColor: "#004aad",
+    shadowColor: "#004aad",
+    shadowOffset: {
+      width: 0,
+      height: 0,
+    },
+    shadowOpacity: 0.8,
+    shadowRadius: 8,
+    elevation: 10,
+  },
   
   // Text styles for buttons - Large Device
   rectangleTextLarge: {
@@ -789,6 +941,211 @@ const styles = StyleSheet.create({
     width: "50%",
     height: "60%",
     top: -15,
+  },
+
+  // Default badge styles - Large Device
+  defaultBadgeLarge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: '#004aad',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 15,
+  },
+  // Default badge styles - Medium Large Device
+  defaultBadgeMediumLarge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#004aad',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  // Default badge styles - Small Device
+  defaultBadgeSmall: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: '#004aad',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  // Default badge styles - Tiny Device
+  defaultBadgeTiny: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#004aad',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+
+  // Default badge text styles - Large Device
+  defaultBadgeTextLarge: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  // Default badge text styles - Medium Large Device
+  defaultBadgeTextMediumLarge: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  // Default badge text styles - Small Device
+  defaultBadgeTextSmall: {
+    color: 'white',
+    fontSize: 8,
+    fontWeight: 'bold',
+  },
+  // Default badge text styles - Tiny Device
+  defaultBadgeTextTiny: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+
+  // Toggle button styles - Large Device
+  toggleButtonLarge: {
+    backgroundColor: "#4A5568",
+    marginTop: 40,
+    marginHorizontal: 60,
+    paddingVertical: 20,
+    paddingHorizontal: 30,
+    borderRadius: 25,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  // Toggle button styles - Medium Large Device
+  toggleButtonMediumLarge: {
+    backgroundColor: "#4A5568",
+    marginTop: 35,
+    marginHorizontal: 50,
+    paddingVertical: 18,
+    paddingHorizontal: 25,
+    borderRadius: 22,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  // Toggle button styles - Small Device
+  toggleButtonSmall: {
+    backgroundColor: "#4A5568",
+    marginTop: 30,
+    marginHorizontal: 40,
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  // Toggle button styles - Tiny Device
+  toggleButtonTiny: {
+    backgroundColor: "#4A5568",
+    marginTop: 25,
+    marginHorizontal: 30,
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderRadius: 18,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+
+  // Toggle button text styles - Large Device
+  toggleButtonTextLarge: {
+    color: "#F1F3F5",
+    fontSize: 18,
+    fontWeight: "bold",
+    fontFamily: "Rajdhani-Bold",
+    textAlign: "center",
+  },
+  // Toggle button text styles - Medium Large Device
+  toggleButtonTextMediumLarge: {
+    color: "#F1F3F5",
+    fontSize: 16,
+    fontWeight: "bold",
+    fontFamily: "Rajdhani-Bold",
+    textAlign: "center",
+  },
+  // Toggle button text styles - Small Device
+  toggleButtonTextSmall: {
+    color: "#F1F3F5",
+    fontSize: 14,
+    fontWeight: "bold",
+    fontFamily: "Rajdhani-Bold",
+    textAlign: "center",
+  },
+  // Toggle button text styles - Tiny Device
+  toggleButtonTextTiny: {
+    color: "#F1F3F5",
+    fontSize: 12,
+    fontWeight: "bold",
+    fontFamily: "Rajdhani-Bold",
+    textAlign: "center",
+  },
+
+  // Toggle subtext styles - Large Device
+  toggleSubtextLarge: {
+    color: "#CBD5E0",
+    fontSize: 14,
+    marginTop: 5,
+    textAlign: "center",
+    fontStyle: "italic",
+  },
+  // Toggle subtext styles - Medium Large Device
+  toggleSubtextMediumLarge: {
+    color: "#CBD5E0",
+    fontSize: 12,
+    marginTop: 4,
+    textAlign: "center",
+    fontStyle: "italic",
+  },
+  // Toggle subtext styles - Small Device
+  toggleSubtextSmall: {
+    color: "#CBD5E0",
+    fontSize: 10,
+    marginTop: 3,
+    textAlign: "center",
+    fontStyle: "italic",
+  },
+  // Toggle subtext styles - Tiny Device
+  toggleSubtextTiny: {
+    color: "#CBD5E0",
+    fontSize: 9,
+    marginTop: 3,
+    textAlign: "center",
+    fontStyle: "italic",
   },
   
   // Admin key button styles - Large Device

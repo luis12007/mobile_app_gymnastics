@@ -423,37 +423,61 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
   };
 
   // Function to handle opening the event dropdown for a specific gymnast
-  const handleOpenEventDropdown = (gymnastId: number) => {
-    // First close any open dropdowns
-    setActiveRowDropdown(null);
-    setSearchDropdownVisible(false);
+const handleOpenEventDropdown = (gymnastId: number) => {
+  // First close any open dropdowns
+  setActiveRowDropdown(null);
+  setSearchDropdownVisible(false);
 
-    // Set the active gymnast for the dropdown
-    setActiveDropdownGymnastId(gymnastId);
+  // Set the active gymnast for the dropdown
+  setActiveDropdownGymnastId(gymnastId);
 
-    // Find the position for the dropdown
-    if (rowRefs.current[gymnastId]) {
-      // Use setTimeout to ensure the measure happens after the current render cycle
-      // This helps with iOS rendering issues
-      setTimeout(() => {
-        rowRefs.current[gymnastId].measure(
-          (x, y, width, height, pageX, pageY) => {
-            setRowDropdownPosition({
-              top: pageY + height,
-              left: pageX,
-              width: width,
-            });
-
-            // Now show the dropdown
-            setDropdownVisible(true);
-          }
-        );
-      }, 100);
+  // Find the position for the dropdown
+  if (rowRefs.current[gymnastId]) {
+    // Use setTimeout to ensure the measure happens after the current render cycle
+    // This helps with iOS rendering issues
+    setTimeout(() => {
+      rowRefs.current[gymnastId].measure(
+        (x, y, width, height, pageX, pageY) => {
+  // Calculate dropdown height (approximately 50px per item + padding)
+  const dropdownHeight = (eventOptions.length - 0.5) * 50 + 20; // +1 for "None" option
+  const screenHeight = Dimensions.get('window').height;
+  
+  // Check if there's enough space below the button
+  const spaceBelow = screenHeight - (pageY + height);
+  const spaceAbove = pageY;
+  
+  let dropdownTop;
+  if (spaceBelow >= dropdownHeight) {
+    // Show below (normal behavior)
+    dropdownTop = pageY + height;
+  } else if (spaceAbove >= dropdownHeight) {
+    // Show above with some padding from the top
+    dropdownTop = pageY - dropdownHeight - 10; // Added 10px padding
+  } else {
+    // Not enough space either way, show where there's more space
+    if (spaceAbove > spaceBelow) {
+      dropdownTop = Math.max(50, pageY - dropdownHeight - 10); // Changed from 20px to 50px margin from top + 10px padding
     } else {
-      // Fallback if ref isn't available
-      setDropdownVisible(true);
+      dropdownTop = pageY + height;
     }
-  };
+  }
+
+  setRowDropdownPosition({
+    top: dropdownTop,
+    left: pageX,
+    width: width,
+  });
+
+  // Now show the dropdown
+  setDropdownVisible(true);
+}
+      );
+    }, 100);
+  } else {
+    // Fallback if ref isn't available
+    setDropdownVisible(true);
+  }
+};
 
   // Start editing a field
   const startEditing = (gymnastId: number, field: string) => {
@@ -683,7 +707,7 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
   const handleSelectStart = () => {
     // Validate gymnasts for empty fields
     const invalids = gymnasts
-      .filter((g) => !g.name || !g.event || !g.noc || !g.bib)
+      .filter((g) => !g.name || !g.event || !g.noc)
       .map((g) => g.id);
 
     if (invalids.length > 0) {
@@ -887,15 +911,16 @@ const handleImportPress = async () => {
           return;
         }
         
-        // Ignoramos la primera fila (encabezados) y tomamos las 3 primeras columnas de cada fila
+        // Mapear las columnas correctamente: name, event, noc, bib
         data = rawData.slice(1).map((row) => {
           const formattedRow = Array.isArray(row) ? row : [row];
-          while (formattedRow.length < 3) formattedRow.push("");
+          while (formattedRow.length < 4) formattedRow.push("");
           
           return {
-            name: formattedRow[0]?.toString() || "",
-            noc: formattedRow[1]?.toString() || "",
-            bib: formattedRow[2]?.toString() || "",
+            name: formattedRow[0]?.toString() || "",      // Columna 1: gymnastname
+            event: formattedRow[1]?.toString() || "",     // Columna 2: EVENT
+            noc: formattedRow[2]?.toString() || "",       // Columna 3: NOC
+            bib: formattedRow[3]?.toString() || "",       // Columna 4: BIB
           };
         });
         
@@ -967,16 +992,17 @@ const handleImportPress = async () => {
           return;
         }
 
-        // Ignoramos la primera fila (encabezados) y tomamos las 3 primeras columnas de cada fila
+        // Mapear las columnas correctamente: name, event, noc, bib
         data = rawData.slice(1).map((row) => {
-          // Asegurar que tenemos 3 columnas por fila
+          // Asegurar que tenemos 4 columnas por fila
           const formattedRow = Array.isArray(row) ? row : [row];
-          while (formattedRow.length < 3) formattedRow.push("");
+          while (formattedRow.length < 4) formattedRow.push("");
 
           return {
-            name: formattedRow[0]?.toString() || "",
-            noc: formattedRow[1]?.toString() || "",
-            bib: formattedRow[2]?.toString() || "",
+            name: formattedRow[0]?.toString() || "",      // Columna 1: gymnastname
+            event: formattedRow[1]?.toString() || "",     // Columna 2: EVENT
+            noc: formattedRow[2]?.toString() || "",       // Columna 3: NOC
+            bib: formattedRow[3]?.toString() || "",       // Columna 4: BIB
           };
         });
 
@@ -1025,6 +1051,22 @@ const handleImportPress = async () => {
       });
       console.log("Number to gymnast map:", numberToGymnastMap);
 
+      // Función para validar si el evento es válido
+      const validateEvent = (eventName) => {
+        if (!eventName) return "";
+        
+        // Convertir a mayúsculas para comparación
+        const upperEvent = eventName.toUpperCase().trim();
+        
+        // Verificar si coincide con algún evento válido
+        if (eventOptions.includes(upperEvent)) {
+          return upperEvent;
+        }
+        
+        // Si no coincide, devolver string vacío
+        return "";
+      };
+
       // Preparar datos para importar
       let updatedCount = 0;
       let createdCount = 0;
@@ -1038,6 +1080,9 @@ const handleImportPress = async () => {
         try {
           const row = data[i];
           const bibNumber = parseInt(row.bib) || 0;
+          
+          // Validar el evento
+          const validEvent = validateEvent(row.event);
           
           // Usamos i+1 como número de gimnasta para la importación
           // Esto significa que la primera fila (índice 0) corresponde al gimnasta número 1
@@ -1053,6 +1098,7 @@ const handleImportPress = async () => {
               name: row.name || existingGymnast.name,
               noc: row.noc || existingGymnast.noc,
               bib: bibNumber || existingGymnast.bib,
+              event: validEvent || existingGymnast.event, // Solo actualizar si el evento es válido
             };
             
             // Guardar en la base de datos
@@ -1061,7 +1107,13 @@ const handleImportPress = async () => {
             // Actualizar en el estado local
             setGymnasts(prev => 
               prev.map(g => g.id === existingGymnast.id ? 
-                { ...g, name: updatedGymnast.name, noc: updatedGymnast.noc, bib: updatedGymnast.bib } : g
+                { 
+                  ...g, 
+                  name: updatedGymnast.name, 
+                  noc: updatedGymnast.noc, 
+                  bib: updatedGymnast.bib,
+                  event: updatedGymnast.event
+                } : g
               )
             );
             
@@ -1090,7 +1142,7 @@ const handleImportPress = async () => {
               competenceId: competenceId,
               number: newNumber,
               name: row.name || "",
-              event: "", // Event vacío por defecto
+              event: validEvent, // Solo asignar si el evento es válido, sino queda vacío
               noc: row.noc || "",
               bib: bibNumber,
               // Valores por defecto para otros campos

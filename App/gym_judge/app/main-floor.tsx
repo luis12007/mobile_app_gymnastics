@@ -1007,31 +1007,27 @@ useEffect(() => {
         marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
       }}
     >
-<TextInput
-  ref={ndInputRef}
-  style={[
-    styles.infoValueText,
-    { fontSize: 40, marginBottom: 16, textAlign: "center" },
-  ]}
-  value={ndInputcomp}
-  keyboardType="decimal-pad"
-  showSoftInputOnFocus={false} // Esto debería prevenir el teclado, pero no siempre funciona en iOS
-  caretHidden={true} // Oculta el cursor de edición
-  onFocus={() => {
-    // Desenfoque inmediato para evitar que aparezca el teclado
-    ndInputRef.current?.blur();
-    // Luego mostrar nuestro teclado personalizado
-    setIsCustomKeyboardVisible(true);
-  }}
-  selectTextOnFocus
-  onChangeText={(text) => {
-    if (/^\d*\.?\d*$/.test(text)) {
-      setNdInputcomp(text);
-    }
-  }}
-  maxLength={5}
-  editable={false} // Esta es la clave - hace que el campo no sea editable
-/>
+      <TextInput
+        ref={ndInputRef}
+        style={[
+          styles.infoValueText,
+          { fontSize: 40, marginBottom: 16, textAlign: "center" },
+        ]}
+        value={ndInputcomp}
+        keyboardType="decimal-pad"
+        showSoftInputOnFocus={false}
+        caretHidden={Platform.OS === 'ios'}
+        onFocus={() => setIsCustomKeyboardVisible(true)}
+        selectTextOnFocus
+        onChangeText={(text) => {
+          if (/^\d*\.?\d*$/.test(text)) {
+            setNdInputcomp(text);
+          }
+        }}
+        maxLength={5}
+        autoFocus
+        editable={false}
+      />
       <TouchableOpacity
         style={{
           marginTop: 10,
@@ -1053,7 +1049,7 @@ useEffect(() => {
       <SimplifiedNumberPad
         visible={isCustomKeyboardVisible}
         onNumberPress={(number) => {
-          // Verifica si todo el texto está seleccionado (primer toque)
+          // If ndInputcomp equals the current ndcomp value, replace it entirely
           if (ndInputcomp === ndcomp.toFixed(1)) {
             setNdInputcomp(number);
           } else {
@@ -1067,8 +1063,16 @@ useEffect(() => {
           }
         }}
         onDecimalPress={() => {
-          if (!ndInputcomp.includes(".")) {
-            setNdInputcomp(ndInputcomp + ".");
+          // If ndInputcomp equals the current ndcomp value (first interaction), set to "0."
+          if (ndInputcomp === ndcomp.toFixed(1)) {
+            setNdInputcomp("0.");
+          } else if (!ndInputcomp.includes(".")) {
+            // If ndInputcomp is empty, "0", or "0.0", set it to "0."
+            if (!ndInputcomp || ndInputcomp === "0" || ndInputcomp === "0.0") {
+              setNdInputcomp("0.");
+            } else {
+              setNdInputcomp(ndInputcomp + ".");
+            }
           }
         }}
         onDeletePress={() => {
@@ -1083,7 +1087,28 @@ useEffect(() => {
           setIsCustomKeyboardVisible(false);
         }}
         onSubmitPress={() => {
-          const num = parseFloat(ndInputcomp.replace(",", "."));
+          console.log("ndInputcomp:", ndInputcomp);
+          
+          // First check if ndInputcomp exists and is not empty
+          if (!ndInputcomp || ndInputcomp === "" || ndInputcomp === ".") {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter a ND value.",
+              [{ text: "OK" }]
+            );
+            return;
+          }
+          
+          // Handle case where input ends with "." - add "0"
+          let processedInput = ndInputcomp;
+          if (ndInputcomp.endsWith(".")) {
+            processedInput = ndInputcomp + "0";
+          }
+          
+          // Make sure processedInput is a string before using replace
+          const inputString = processedInput.toString();
+          const num = parseFloat(inputString.replace(",", "."));
+          
           if (!isNaN(num)) {
             const rounded = Math.round(num * 10) / 10;
             setndcomp(rounded);
@@ -1111,6 +1136,13 @@ useEffect(() => {
                   error
                 );
               });
+          } else {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter a valid ND value.",
+              [{ text: "OK" }]
+            );
+            return;
           }
           setShowNdCompModal(false);
           setIsCustomKeyboardVisible(false);
@@ -1186,7 +1218,7 @@ useEffect(() => {
       <SimplifiedNumberPad
         visible={isCustomKeyboardVisible}
         onNumberPress={(number) => {
-          // Verifica si todo el texto está seleccionado (primer toque)
+          // If eInput equals the current e value, replace it entirely
           if (eInput === e.toFixed(3)) {
             setEInput(number);
           } else {
@@ -1200,8 +1232,16 @@ useEffect(() => {
           }
         }}
         onDecimalPress={() => {
-          if (!eInput.includes(".")) {
-            setEInput(eInput + ".");
+          // If eInput equals the current e value (first interaction), set to "0."
+          if (eInput === e.toFixed(3)) {
+            setEInput("0.");
+          } else if (!eInput.includes(".")) {
+            // If eInput is empty, "0", or "0.0", set it to "0."
+            if (!eInput || eInput === "0" || eInput === "0.0") {
+              setEInput("0.");
+            } else {
+              setEInput(eInput + ".");
+            }
           }
         }}
         onDeletePress={() => {
@@ -1216,7 +1256,28 @@ useEffect(() => {
           setIsCustomKeyboardVisible(false);
         }}
         onSubmitPress={() => {
-          const num = parseFloat(eInput.replace(",", "."));
+          console.log("eInput:", eInput);
+          
+          // First check if eInput exists and is not empty
+          if (!eInput || eInput === "" || eInput === ".") {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter an E value.",
+              [{ text: "OK" }]
+            );
+            return;
+          }
+          
+          // Handle case where input ends with "." - add "0"
+          let processedInput = eInput;
+          if (eInput.endsWith(".")) {
+            processedInput = eInput + "0";
+          }
+          
+          // Make sure processedInput is a string before using replace
+          const inputString = processedInput.toString();
+          const num = parseFloat(inputString.replace(",", "."));
+          
           if (!isNaN(num)) {
             const rounded = Math.round(num * 1000) / 1000;
             setE(rounded);
@@ -1232,12 +1293,12 @@ useEffect(() => {
             console.log("delt:", newdelt);
 
             const newded = 10 - rounded;
-            setSetded(Number(newded.toFixed(1)));
-            console.log("ded:", Number(newded.toFixed(1)));
+            setSetded(Number(newded));
+            console.log("ded:", Number(newded));
 
             /* logic of the table */
             const dedInterval = getDeductionIntervalValue(
-              Number(newded.toFixed(1))
+              Number(newded)
             );
             console.log("dedInterval:", dedInterval);
             const percentageValue = getPercentageFromTable(
@@ -1270,6 +1331,13 @@ useEffect(() => {
               .catch((error) => {
                 console.error("Error saving e to MainTable:", error);
               });
+          } else {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter a valid E value.",
+              [{ text: "OK" }]
+            );
+            return;
           }
           setShowEModal(false);
           setIsCustomKeyboardVisible(false);
@@ -1443,7 +1511,7 @@ useEffect(() => {
       <SimplifiedNumberPad
         visible={isCustomKeyboardVisible}
         onNumberPress={(number) => {
-          // Verifica si todo el texto está seleccionado (primer toque)
+          // If dInput equals the current d value, replace it entirely
           if (dInput === d.toFixed(1)) {
             setDInput(number);
           } else {
@@ -1457,8 +1525,16 @@ useEffect(() => {
           }
         }}
         onDecimalPress={() => {
-          if (!dInput.includes(".")) {
-            setDInput(dInput + ".");
+          // If dInput equals the current d value (first interaction), set to "0."
+          if (dInput === d.toFixed(1)) {
+            setDInput("0.");
+          } else if (!dInput.includes(".")) {
+            // If dInput is empty, "0", or "0.0", set it to "0."
+            if (!dInput || dInput === "0" || dInput === "0.0") {
+              setDInput("0.");
+            } else {
+              setDInput(dInput + ".");
+            }
           }
         }}
         onDeletePress={() => {
@@ -1473,7 +1549,28 @@ useEffect(() => {
           setIsCustomKeyboardVisible(false);
         }}
         onSubmitPress={() => {
-          const num = parseFloat(dInput.replace(",", "."));
+          console.log("dInput:", dInput);
+          
+          // First check if dInput exists and is not empty
+          if (!dInput || dInput === "" || dInput === ".") {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter a D value.",
+              [{ text: "OK" }]
+            );
+            return;
+          }
+          
+          // Handle case where input ends with "." - add "0"
+          let processedInput = dInput;
+          if (dInput.endsWith(".")) {
+            processedInput = dInput + "0";
+          }
+          
+          // Make sure processedInput is a string before using replace
+          const inputString = processedInput.toString();
+          const num = parseFloat(inputString.replace(",", "."));
+          
           if (!isNaN(num)) {
             const rounded = Math.round(num * 10) / 10;
             setD(rounded);
@@ -1495,6 +1592,13 @@ useEffect(() => {
               .catch((error) => {
                 console.error("Error saving d to MainTable:", error);
               });
+          } else {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter a valid D value.",
+              [{ text: "OK" }]
+            );
+            return;
           }
           setShowDModal(false);
           setIsCustomKeyboardVisible(false);
@@ -1570,7 +1674,7 @@ useEffect(() => {
       <SimplifiedNumberPad
         visible={isCustomKeyboardVisible}
         onNumberPress={(number) => {
-          // Verifica si todo el texto está seleccionado (primer toque)
+          // If ndInput equals the current nd value, replace it entirely
           if (ndInput === nd.toFixed(1)) {
             setNdInput(number);
           } else {
@@ -1584,8 +1688,16 @@ useEffect(() => {
           }
         }}
         onDecimalPress={() => {
-          if (!ndInput.includes(".")) {
-            setNdInput(ndInput + ".");
+          // If ndInput equals the current nd value (first interaction), set to "0."
+          if (ndInput === nd.toFixed(1)) {
+            setNdInput("0.");
+          } else if (!ndInput.includes(".")) {
+            // If ndInput is empty, "0", or "0.0", set it to "0."
+            if (!ndInput || ndInput === "0" || ndInput === "0.0") {
+              setNdInput("0.");
+            } else {
+              setNdInput(ndInput + ".");
+            }
           }
         }}
         onDeletePress={() => {
@@ -1602,18 +1714,24 @@ useEffect(() => {
         onSubmitPress={() => {
           console.log("ndInput:", ndInput);
           
-          // First check if ndInput exists
-          if (!ndInput) {
+          // First check if ndInput exists and is not empty
+          if (!ndInput || ndInput === "" || ndInput === ".") {
             Alert.alert(
               "Invalid Input",
-              "Please enter a value.",
+              "Please enter a ND value.",
               [{ text: "OK" }]
             );
             return;
           }
           
-          // Make sure ndInput is a string before using replace
-          const inputString = ndInput.toString();
+          // Handle case where input ends with "." - add "0"
+          let processedInput = ndInput;
+          if (ndInput.endsWith(".")) {
+            processedInput = ndInput + "0";
+          }
+          
+          // Make sure processedInput is a string before using replace
+          const inputString = processedInput.toString();
           const num = parseFloat(inputString.replace(",", "."));
           
           if (!isNaN(num)) {
@@ -1635,6 +1753,13 @@ useEffect(() => {
               .catch((error) => {
                 console.error("Error saving nd to MainTable:", error);
               });
+          } else {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter a valid ND value.",
+              [{ text: "OK" }]
+            );
+            return;
           }
           setShowNdModal(false);
           setIsCustomKeyboardVisible(false);
@@ -1710,24 +1835,32 @@ useEffect(() => {
       <SimplifiedNumberPad
         visible={isCustomKeyboardVisible}
         onNumberPress={(number) => {
-          // Verifica si todo el texto está seleccionado (primer toque)
-          if (cvInput === cv.toFixed(1)) {
-            setCvInput(number);
-          } else {
-            let newValue = cvInput;
-            if (cvInput === "0" || cvInput === "0.0") {
-              newValue = number;
-            } else {
-              newValue = cvInput + number;
-            }
-            setCvInput(newValue);
-          }
-        }}
+  // If cvInput equals the current cv value, replace it entirely
+  if (cvInput === cv.toFixed(1)) {
+    setCvInput(number);
+  } else {
+    let newValue = cvInput;
+    if (cvInput === "0" || cvInput === "0.0") {
+      newValue = number;
+    } else {
+      newValue = cvInput + number;
+    }
+    setCvInput(newValue);
+  }
+}}
         onDecimalPress={() => {
-          if (!cvInput.includes(".")) {
-            setCvInput(cvInput + ".");
-          }
-        }}
+  // If cvInput equals the current cv value (first interaction), set to "0."
+  if (cvInput === cv.toFixed(1)) {
+    setCvInput("0.");
+  } else if (!cvInput.includes(".")) {
+    // If cvInput is empty, "0", or "0.0", set it to "0."
+    if (!cvInput || cvInput === "0" || cvInput === "0.0") {
+      setCvInput("0.");
+    } else {
+      setCvInput(cvInput + ".");
+    }
+  }
+}}
         onDeletePress={() => {
           if (cvInput.length > 0) {
             setCvInput(cvInput.slice(0, -1));
@@ -1742,9 +1875,8 @@ useEffect(() => {
         onSubmitPress={() => {
           console.log("cvInput:", cvInput);
           
-          // First check if cvInput exists
-          if (!cvInput) {
-            // Handle the case where cvInput is undefined or empty
+          // First check if cvInput exists and is not empty
+          if (!cvInput || cvInput === "" || cvInput === ".") {
             Alert.alert(
               "Invalid Input",
               "Please enter a CV value.",
@@ -1753,18 +1885,14 @@ useEffect(() => {
             return;
           }
           
-          // Then check if it's "0"
-          if (cvInput === "0" || cvInput.toString() === "0") {
-            Alert.alert(
-              "Invalid CV",
-              "Please enter a valid CV value.",
-              [{ text: "OK" }]
-            );
-            return;
+          // Handle case where input ends with "." - add "0"
+          let processedInput = cvInput;
+          if (cvInput.endsWith(".")) {
+            processedInput = cvInput + "0";
           }
-
-          // Make sure cvInput is a string before using replace
-          const inputString = cvInput.toString();
+          
+          // Make sure processedInput is a string before using replace
+          const inputString = processedInput.toString();
           const num = parseFloat(inputString.replace(",", "."));
           
           if (!isNaN(num)) {
@@ -1799,6 +1927,13 @@ useEffect(() => {
               .catch((error) => {
                 console.error("Error saving cv and sv to MainTable:", error);
               });
+          } else {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter a valid CV value.",
+              [{ text: "OK" }]
+            );
+            return;
           }
           setShowCvModal(false);
           setIsCustomKeyboardVisible(false);
@@ -1845,7 +1980,6 @@ useEffect(() => {
         onFocus={() => setIsCustomKeyboardVisible(true)}
         selectTextOnFocus
         onChangeText={(text) => {
-          // Only update the input string, not the number
           if (/^\d*\.?\d*$/.test(text)) {
             setExecutionInput(text);
           }
@@ -1871,12 +2005,11 @@ useEffect(() => {
       </TouchableOpacity>
     </View>
     
-    {/* Teclado personalizado */}
     {isCustomKeyboardVisible && (
       <SimplifiedNumberPad
         visible={isCustomKeyboardVisible}
         onNumberPress={(number) => {
-          // Verifica si todo el texto está seleccionado (primer toque)
+          // If executionInput equals the current execution value, replace it entirely
           if (executionInput === execution.toFixed(1)) {
             setExecutionInput(number);
           } else {
@@ -1890,8 +2023,16 @@ useEffect(() => {
           }
         }}
         onDecimalPress={() => {
-          if (!executionInput.includes(".")) {
-            setExecutionInput(executionInput + ".");
+          // If executionInput equals the current execution value (first interaction), set to "0."
+          if (executionInput === execution.toFixed(1)) {
+            setExecutionInput("0.");
+          } else if (!executionInput.includes(".")) {
+            // If executionInput is empty, "0", or "0.0", set it to "0."
+            if (!executionInput || executionInput === "0" || executionInput === "0.0") {
+              setExecutionInput("0.");
+            } else {
+              setExecutionInput(executionInput + ".");
+            }
           }
         }}
         onDeletePress={() => {
@@ -1906,8 +2047,28 @@ useEffect(() => {
           setIsCustomKeyboardVisible(false);
         }}
         onSubmitPress={() => {
-          // Parse y actualizar solo al cerrar
-          const num = parseFloat(executionInput.replace(",", "."));
+          console.log("executionInput:", executionInput);
+          
+          // First check if executionInput exists and is not empty
+          if (!executionInput || executionInput === "" || executionInput === ".") {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter an Execution value.",
+              [{ text: "OK" }]
+            );
+            return;
+          }
+          
+          // Handle case where input ends with "." - add "0"
+          let processedInput = executionInput;
+          if (executionInput.endsWith(".")) {
+            processedInput = executionInput + "0";
+          }
+          
+          // Make sure processedInput is a string before using replace
+          const inputString = processedInput.toString();
+          const num = parseFloat(inputString.replace(",", "."));
+          
           if (!isNaN(num)) {
             const rounded = Math.round(num * 10) / 10;
             setExecution(rounded);
@@ -1921,12 +2082,12 @@ useEffect(() => {
             console.log("delt:", newdelt);
 
             const newded = 10 - e;
-            setSetded(Number(newded.toFixed(1)));
-            console.log("ded:", Number(newded.toFixed(1)));
+            setSetded(Number(newded));
+            console.log("ded:", Number(newded));
 
             /* logic of the table */
             const dedInterval = getDeductionIntervalValue(
-              Number(newded.toFixed(1))
+              Number(newded)
             );
             console.log("dedInterval:", dedInterval);
             const percentageValue = getPercentageFromTable(
@@ -1941,8 +2102,6 @@ useEffect(() => {
               percentage: percentageValue,
             });
             console.log("percentage:", percentageValue);
-
-            /* ============================================================== */
 
             setEScore(eScore);
             updateRateGeneral(rateid, {
@@ -1967,6 +2126,13 @@ useEffect(() => {
                   error
                 );
               });
+          } else {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter a valid Execution value.",
+              [{ text: "OK" }]
+            );
+            return;
           }
           setShowExecutionModal(false);
           setIsCustomKeyboardVisible(false);
@@ -2301,13 +2467,13 @@ useEffect(() => {
                 </View>
                 <View style={styles.infovalueCellText}>
                   <TouchableOpacity
-                    onPress={() => {
-                      setCvInput(cv); // Set value BEFORE opening modal
-                      setShowCvModal(true);
-                    }}
-                  >
-                    <Text style={styles.infoValueText}>{cv.toFixed(1)}</Text>
-                  </TouchableOpacity>
+  onPress={() => {
+    setCvInput(cv.toFixed(1)); // Set current value before opening modal
+    setShowCvModal(true);
+  }}
+>
+  <Text style={styles.infoValueText}>{cv.toFixed(1)}</Text>
+</TouchableOpacity>
                 </View>
                 <View style={styles.stickBonusCell}>
                   <Text
@@ -2331,14 +2497,14 @@ useEffect(() => {
                   <Text style={styles.bonusLabelText}>ND</Text>
                 </View>
                 <View style={styles.ndCellText}>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setNdInput(nd); // Set value BEFORE opening modal
-                      setShowNdModal(true);
-                    }}
-                  >
-                    <Text style={styles.bonusValueText}>{nd.toFixed(1)}</Text>
-                  </TouchableOpacity>
+  <TouchableOpacity
+  onPress={() => {
+    setNdInput(nd.toFixed(1)); // Set current value before opening modal
+    setShowNdModal(true);
+  }}
+>
+  <Text style={styles.bonusValueText}>{nd.toFixed(1)}</Text>
+</TouchableOpacity>
                 </View>
                 <View style={styles.svCell}>
                   <Text style={styles.svLabelText}>SV</Text>
@@ -2353,13 +2519,13 @@ useEffect(() => {
                   <Text style={styles.infoLabelText}>EXECUTION</Text>
                 </View>
                 <TouchableOpacity style={styles.infoValueCellBlue2} onPress={() => {
-                      setExecutionInput(execution.toFixed(1)); // Set value BEFORE opening modal
-                      setShowExecutionModal(true);
-                    }}>
-                    <Text style={styles.infoValueText}>
-                      {execution.toFixed(1)}
-                    </Text>  
-                  </TouchableOpacity>
+  setExecutionInput(execution.toFixed(1)); // Set current value before opening modal
+  setShowExecutionModal(true);
+}}>
+  <Text style={styles.infoValueText}>
+    {execution.toFixed(1)}
+  </Text>  
+</TouchableOpacity>
               </View>
 
               <View style={styles.infoRow}>
@@ -2406,21 +2572,21 @@ useEffect(() => {
                 </View>
                 <View style={styles.dCellText}>
                   <TouchableOpacity
-                    onPress={() => {
-                      setDInput(d.toFixed(1)); // Set value BEFORE opening modal
-                      setShowDModal(true);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        isLargeDevice ? styles.dValueText : null,
-                        isSmallDevice ? styles.dValueTextSmall : null,
-                        isTinyDevice ? styles.dValueTextTiny : null,
-                      ]}
-                    >
-                      {d.toFixed(1)}
-                    </Text>
-                  </TouchableOpacity>
+  onPress={() => {
+    setDInput(d.toFixed(1)); // Set current value before opening modal
+    setShowDModal(true);
+  }}
+>
+  <Text
+    style={[
+      isLargeDevice ? styles.dValueText : null,
+      isSmallDevice ? styles.dValueTextSmall : null,
+      isTinyDevice ? styles.dValueTextTiny : null,
+    ]}
+  >
+    {d.toFixed(1)}
+  </Text>
+</TouchableOpacity>
                 </View>
 
                 <View style={styles.eCell}>
@@ -2437,21 +2603,21 @@ useEffect(() => {
 
                 <View style={styles.eCellText}>
                   <TouchableOpacity
-                    onPress={() => {
-                      setEInput(e.toFixed(3)); // Set value BEFORE opening modal
-                      setShowEModal(true);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        isLargeDevice ? styles.eValueText : null,
-                        isSmallDevice ? styles.eValueTextSmall : null,
-                        isTinyDevice ? styles.eValueTextTiny : null,
-                      ]}
-                    >
-                      {e.toFixed(3)}
-                    </Text>
-                  </TouchableOpacity>
+  onPress={() => {
+    setEInput(e.toFixed(3)); // Set current value before opening modal
+    setShowEModal(true);
+  }}
+>
+  <Text
+    style={[
+      isLargeDevice ? styles.eValueText : null,
+      isSmallDevice ? styles.eValueTextSmall : null,
+      isTinyDevice ? styles.eValueTextTiny : null,
+    ]}
+  >
+    {e.toFixed(3)}
+  </Text>
+</TouchableOpacity>
                 </View>
 
                 <View style={styles.sdCell}>
@@ -2524,21 +2690,21 @@ useEffect(() => {
 
                 <View style={styles.ndDeductionCellText}>
                   <TouchableOpacity
-                    onPress={() => {
-                      setNdInputcomp(ndcomp.toFixed(1)); // Set value BEFORE opening modal
-                      setShowNdCompModal(true); // Open the ND COMP modal
-                    }}
-                  >
-                    <Text
-                      style={[
-                        isLargeDevice ? styles.ndValueText : null,
-                        isSmallDevice ? styles.ndValueTextSmall : null,
-                        isTinyDevice ? styles.ndValueTextTiny : null,
-                      ]}
-                    >
-                      {ndcomp.toFixed(1)}
-                    </Text>
-                  </TouchableOpacity>
+  onPress={() => {
+    setNdInputcomp(ndcomp.toFixed(1)); // Set value BEFORE opening modal
+    setShowNdCompModal(true); // Open the ND COMP modal
+  }}
+>
+  <Text
+    style={[
+      isLargeDevice ? styles.ndValueText : null,
+      isSmallDevice ? styles.ndValueTextSmall : null,
+      isTinyDevice ? styles.ndValueTextTiny : null,
+    ]}
+  >
+    {ndcomp.toFixed(1)}
+  </Text>
+</TouchableOpacity>
                 </View>
 
                 <View style={styles.scoreCell}>

@@ -179,36 +179,40 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
             </TouchableOpacity>
           </View>
           
-          <ScrollView style={styles.scrollView}>
-            {vaultGroups.map((group) => (
-              <View key={group.id} style={styles.groupContainer}>
-                <View style={[styles.groupHeader, { backgroundColor: group.color }]}>
-                  <Text style={styles.groupTitle}>{group.title}</Text>
+          <ScrollView style={styles.scrollView} horizontal={true}>
+            <View style={styles.groupsContainer}>
+              {vaultGroups.map((group) => (
+                <View key={group.id} style={styles.groupColumn}>
+                  <View style={[styles.groupHeader, { backgroundColor: group.color }]}>
+                    <Text style={styles.groupTitle}>{group.title}</Text>
+                  </View>
+                  
+                  <ScrollView style={styles.vaultsScrollContainer} nestedScrollEnabled={true}>
+                    <View style={styles.vaultsContainer}>
+                      {group.vaults.map((vault) => (
+                        <TouchableOpacity
+                          key={vault.id}
+                          style={[
+                            styles.vaultItem,
+                            selectedVaults[group.id]?.id === vault.id ? styles.selectedVault : {},
+                            { backgroundColor: group.color + '20' } // Add transparency
+                          ]}
+                          onPress={() => handleSelect(vault, group.id, vault.value, vault.description)}
+                        >
+                          <View style={styles.vaultNumberValue}>
+                            <Text style={styles.vaultNumber}>{vault.number}</Text>
+                            <Text style={styles.vaultValue}>{vault.value.toFixed(1)}</Text>
+                          </View>
+                          <Text style={styles.vaultDescription}>
+                            {vault.description}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
                 </View>
-                
-                <View style={[styles.vaultsContainer, isSmallScreen ? styles.vaultsContainerSmall : {}]}>
-                  {group.vaults.map((vault) => (
-                    <TouchableOpacity
-                      key={vault.id}
-                      style={[
-                        styles.vaultItem,
-                        selectedVaults[group.id]?.id === vault.id ? styles.selectedVault : {},
-                        { backgroundColor: group.color + '20' } // Add transparency
-                      ]}
-                      onPress={() => handleSelect(vault, group.id, vault.value, vault.description)}
-                    >
-                      <View style={styles.vaultNumberValue}>
-                        <Text style={styles.vaultNumber}>{vault.number}</Text>
-                        <Text style={styles.vaultValue}>{vault.value.toFixed(1)}</Text>
-                      </View>
-                      <Text style={styles.vaultDescription} numberOfLines={2}>
-                        {vault.description}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            ))}
+              ))}
+            </View>
           </ScrollView>
           
           <View style={styles.footer}>
@@ -235,9 +239,9 @@ const styles = StyleSheet.create({
   modalContent: {
     backgroundColor: 'white',
     borderRadius: 10,
-    width: '96%',
-    maxWidth: 1000,
-    maxHeight: '96%',
+    width: '98%',
+    maxWidth: 1200,
+    maxHeight: '98%',
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -254,7 +258,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#ddd',
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
     flex: 1,
@@ -264,7 +268,16 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   scrollView: {
-    maxHeight: '80%',
+    maxHeight: '85%',
+  },
+  groupsContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 6,
+  },
+  groupColumn: {
+    width: 280,
+    marginHorizontal: 4,
+    flex: 1,
   },
   groupContainer: {
     marginBottom: 8,
@@ -277,32 +290,37 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#333',
     borderBottomWidth: 0,
+    minHeight: 80,
+    justifyContent: 'center',
   },
   groupTitle: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: 'bold',
     color: '#333',
+    textAlign: 'center',
+  },
+  vaultsScrollContainer: {
+    maxHeight: '100%',
   },
   vaultsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     padding: 8,
     borderWidth: 1,
     borderColor: '#333',
     borderBottomLeftRadius: 5,
     borderBottomRightRadius: 5,
     backgroundColor: 'white',
+    borderTopWidth: 0,
   },
   vaultsContainerSmall: {
   },
   vaultItem: {
-    width: '31%',
-    margin: '1%',
-    padding: 8,
+    width: '100%',
+    padding: 10,
     borderRadius: 3,
     borderWidth: 1,
     borderColor: '#333',
-    marginBottom: 6,
+    marginBottom: 8,
+    minHeight: 100,
   },
   selectedVault: {
     borderWidth: 2,
@@ -332,6 +350,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#333',
     lineHeight: 16,
+    flexWrap: 'wrap',
   },
   footer: {
     padding: 12,

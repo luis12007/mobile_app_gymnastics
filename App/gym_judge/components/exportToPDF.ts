@@ -153,8 +153,10 @@ export const generateMainJumpPDF = async (data?: MainTableWithRateGeneral[]) => 
         if (pathData.path) {
           // Simple scaling by replacing coordinate values
           scaledPath = pathData.path.replace(/([ML])\s*([0-9.-]+)\s*([0-9.-]+)/g, (match, command, x, y) => {
-            const scaledX = parseFloat(x) * 1.6 - 240;
-            const scaledY = parseFloat(y) * 1.6;
+            /* const scaledX = parseFloat(x) * 1.6 - 240;
+            const scaledY = parseFloat(y) * 1.6; */
+            const scaledX = parseFloat(x) * 1;
+            const scaledY = parseFloat(y) * 1;
             return `${command} ${scaledX} ${scaledY}`;
           });
         }
@@ -704,8 +706,10 @@ export const generateMainFloorPDF = async (data?: MainTableWithRateGeneral[]) =>
         if (pathData.path) {
           // Simple scaling by replacing coordinate values
           scaledPath = pathData.path.replace(/([ML])\s*([0-9.-]+)\s*([0-9.-]+)/g, (match, command, x, y) => {
-            const scaledX = parseFloat(x) * 1.6 - 240;
-            const scaledY = parseFloat(y) * 1.6;
+            /* const scaledX = parseFloat(x) * 1.6 - 240;
+            const scaledY = parseFloat(y) * 1.6; */
+            const scaledX = parseFloat(x) * 1;
+            const scaledY = parseFloat(y) * 1;
             return `${command} ${scaledX} ${scaledY}`;
           });
         }
@@ -1925,9 +1929,23 @@ export const generateAndShareMainFloorPDF = async (data?: MainTableWithRateGener
 
 // Replace the existing generateComprehensivePDF function with this corrected version:
 
+interface Competence {
+  id: number;
+  name: string;
+  description: string;
+  date: string; // ISO date string
+  type: string; // "Floor", "Jump", etc.
+  gender: boolean; // mag and wag
+  sessionId: number;
+  folderId: number;
+  userId: number;
+  numberOfParticipants: number;
+}
+
 export const generateComprehensivePDF = async (
   individualData: MainTableWithRateGeneral[], 
-  finalTableData: FinalTableData
+  finalTableData: FinalTableData,
+  competence: Competence
 ) => {
   console.log('Generating comprehensive PDF...');
   
@@ -1951,8 +1969,10 @@ export const generateComprehensivePDF = async (
         
         if (pathData.path) {
           scaledPath = pathData.path.replace(/([ML])\s*([0-9.-]+)\s*([0-9.-]+)/g, (match, command, x, y) => {
-            const scaledX = parseFloat(x) * 1.6 - 240;
-            const scaledY = parseFloat(y) * 1.6;
+            /* const scaledX = parseFloat(x) * 1.6 - 240;
+            const scaledY = parseFloat(y) * 1.6; */
+            const scaledX = parseFloat(x) * 1;
+            const scaledY = parseFloat(y) * 1;
             return `${command} ${scaledX} ${scaledY}`;
           });
         }
@@ -1984,7 +2004,7 @@ export const generateComprehensivePDF = async (
           pathElement = `
             <path 
               d="${scaledPath}" 
-              stroke="${pathData.isEraser ? '#e0e0e0' : (pathData.color || 'black')}" 
+              stroke="${pathData.isEraser ? 'white' : (pathData.color || 'black')}" 
               stroke-width="${pathData.strokeWidth || 3}" 
               fill="none" 
               stroke-linecap="round" 
@@ -3178,15 +3198,24 @@ export const generateComprehensivePDF = async (
   try {
     const { uri } = await Print.printToFileAsync({ 
       html,
-      base64: false 
+      base64: false,
+      
     });
+    if (true) {
+      const newUri = `${FileSystem.documentDirectory}${competence.name}-${competence.date.split('T')[0]}.pdf`;
+      await FileSystem.copyAsync({
+        from: uri,
+        to: newUri
+      });
+      
+      await shareAsync(newUri, { 
+        UTI: '.pdf', 
+        mimeType: 'application/pdf' 
+      });
+      
+      return newUri;
+    }
     
-    await shareAsync(uri, { 
-      UTI: '.pdf', 
-      mimeType: 'application/pdf' 
-    });
-    
-    return uri;
   } catch (error) {
     console.error('Error generating comprehensive PDF:', error);
     throw error;

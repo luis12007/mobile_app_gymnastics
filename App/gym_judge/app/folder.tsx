@@ -354,7 +354,7 @@ const Folder: React.FC = () => {
   // Replace your existing addNewCompetition function with this updated version
 const addNewCompetition = async () => {
   // Validate inputs
-  if (competitionName.trim() === "" || competitionDescription.trim() === "") {
+  if (competitionName.trim() === "") {
     Alert.alert("Error", "Please fill in all required fields.");
     return;
   }
@@ -667,7 +667,7 @@ const performDelete = async () => {
   const saveEditedCompetition = async (id: number) => {
     if (!editingCompetition) return;
     
-    if (competitionName.trim() === "" || competitionDescription.trim() === "") {
+    if (competitionName.trim() === "") {
       Alert.alert("Error", "Please fill in all required fields.");
       return;
     }
@@ -1642,8 +1642,8 @@ const styles = StyleSheet.create({
   },
   // Folder icon styles - Medium Large Device
   folderIconMediumLarge: {
-    width: 140,
-    height: 140,
+    width: 130,
+    height: 130,
     borderRadius: 5,
     marginBottom: 5,
     position: 'absolute',
@@ -1652,8 +1652,8 @@ const styles = StyleSheet.create({
   },
   // Folder icon styles - Small Device
   folderIconSmall: {
-    width: 100,
-    height: 100,
+    width: 130,
+    height: 130,
     borderRadius: 5,
     marginBottom: 4,
     position: 'absolute',
@@ -1662,8 +1662,8 @@ const styles = StyleSheet.create({
   },
   // Folder icon styles - Tiny Device
   folderIconTiny: {
-    width: 120,
-    height: 120,
+    width: 150,
+    height: 150,
     borderRadius: 5,
     marginBottom: 6,
     position: 'absolute',

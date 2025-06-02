@@ -9,17 +9,18 @@ import Svg, { Path } from 'react-native-svg';
 import { getRateGeneralByTableId, updateRateGeneral } from "../Database/database"; // Import database functions
 
 const { width, height } = Dimensions.get("window");
-const isLargeScreen = width >= 1000 && height >= 700;
 var isLargeDevice = false;
+var isMediumLargeDevice = false;
 var isSmallDevice = false;
 var isTinyDevice = false;
-if (width >= 1368) {
+
+if (width >= 1368 ) {
   isLargeDevice = true;
-}
-if (width >= 1200 && width < 1368) {
+} else if (width >= 1200 && width < 1368) {
+  isMediumLargeDevice = true;
+} else if (width >= 945 && width < 1200) {
   isSmallDevice = true;
-}
-if (width < 949) {
+} else if (width < 945) {
   isTinyDevice = true;
 }
 // Available colors for drawing
@@ -313,6 +314,10 @@ const OptimizedWhiteboardDebug = ({
   
   // Toggle eraser mode
   const toggleEraser = () => {
+    // When turning on eraser, first switch to normal pen (pen type 0)
+    if (!isEraser) {
+      setSelectedPen(0);
+    }
     setIsEraser(!isEraser);
   };
   
@@ -580,54 +585,35 @@ const handleWebTouchEnd = () => {
 };
   return (
     <GestureHandlerRootView style={styles.container}>
-      {/* Debug panel */}
-      {/* {debugMode && (
-        <View style={styles.debugPanel}>
-          <Text style={styles.debugTitle}>TOUCH DEBUG INFO</Text>
-          <Text style={styles.debugText}>
-            Raw pointerType: <Text style={styles.highlightText}>{pointerTypeValue}</Text>
-          </Text>
-          <Text style={styles.debugText}>
-            Detected as: <Text style={styles.highlightText}>{touchSource}</Text>
-          </Text>
-          <Text style={styles.debugText}>
-            Drawing enabled: <Text style={styles.highlightText}>{drawing ? 'Yes' : 'No'}</Text>
-          </Text>
-          <Text style={styles.debugText}>
-            Points in buffer: <Text style={styles.highlightText}>{pointsBufferRef.current.length}</Text>
-          </Text>
-          <Text style={styles.debugText}>
-            Position: <Text style={styles.highlightText}>
-              X: {Math.round(lastTouchInfo.x || 0)}, Y: {Math.round(lastTouchInfo.y || 0)}
-            </Text>
-          </Text>
-        </View>
-      )} */}
-      
-      
       {/* Drawing canvas */}
       <GestureDetector gesture={panGesture}>
         <View 
         style={[
-                  isLargeDevice ? styles.canvas : null,
-                  isSmallDevice ? styles.canvasSmall : null,
-                  isTinyDevice ? styles.canvasTiny : null,
-                ]}
+          isLargeDevice ? styles.canvasLarge : null,
+          isMediumLargeDevice ? styles.canvasMediumLarge : null,
+          isSmallDevice ? styles.canvasSmall : null,
+          isTinyDevice ? styles.canvasTiny : null,
+        ]}
         onTouchStart={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchStart : undefined}
-    onTouchMove={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchMove : undefined}
-    onTouchEnd={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchEnd : undefined}
-    onMouseDown={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchStart : undefined}
-    onMouseMove={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchMove : undefined}
-    onMouseUp={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchEnd : undefined}
+        onTouchMove={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchMove : undefined}
+        onTouchEnd={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchEnd : undefined}
+        onMouseDown={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchStart : undefined}
+        onMouseMove={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchMove : undefined}
+        onMouseUp={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchEnd : undefined}
         >
-          {/* Background image */}
+          {/* Background image - outside SVG to stay on top */}
           <Image
             source={require('../assets/images/Jump.png')}
-            style={styles.backgroundImage}
+            style={[
+              isLargeDevice ? styles.backgroundImageLarge : null,
+              isMediumLargeDevice ? styles.backgroundImageMediumLarge : null,
+              isSmallDevice ? styles.backgroundImageSmall : null,
+              isTinyDevice ? styles.backgroundImageTiny : null,
+            ]}
             resizeMode="contain"
-            pointerEvents="none" // <-- This is important!
+            pointerEvents="none"
           />
-          <Svg height="100%" width="100%">
+          <Svg height="100%" width="100%" style={{ position: 'absolute', top: 0, left: 0 }}>
             {/* Normal pen paths (type 0) */}
             {paths
               .filter(pathData => pathData.penType === 0)
@@ -636,7 +622,7 @@ const handleWebTouchEnd = () => {
                   key={`normal-path-${index}`}
                   d={pathData.path}
                   stroke={pathData.isEraser ? CANVAS_BACKGROUND : pathData.color}
-                  strokeWidth={pathData.strokeWidth}
+                  strokeWidth={pathData.isEraser ? pathData.strokeWidth * 3 : pathData.strokeWidth}
                   fill="none"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -651,12 +637,11 @@ const handleWebTouchEnd = () => {
                   key={`telestrator-path-${index}`}
                   d={pathData.path}
                   stroke={pathData.isEraser ? CANVAS_BACKGROUND : "red"}
-                  strokeWidth={2} // Always thin for telestrator
+                  strokeWidth={pathData.isEraser ? 6 : 2}
                   fill="none"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  // Removed strokeDasharray for a plain line
-                  opacity={0.8} // Semi-transparent
+                  opacity={0.8}
                 />
             ))}
 
@@ -664,14 +649,10 @@ const handleWebTouchEnd = () => {
             {paths
               .filter(pathData => pathData.penType === 2)
               .map((pathData, index) => {
-                // For highlighter, we need to close the path to create a filled area
                 let fillPath = pathData.path;
                 
-                // Only try to close the path if it has content
                 if (fillPath && fillPath.length > 0) {
-                  // Check if the path already has a Z command to close it
                   if (!fillPath.endsWith('Z')) {
-                    // If not, close it by adding a Z command
                     fillPath += ' Z';
                   }
                 }
@@ -681,9 +662,9 @@ const handleWebTouchEnd = () => {
                     key={`highlighter-path-${index}`}
                     d={fillPath}
                     stroke={pathData.isEraser ? CANVAS_BACKGROUND : "yellow"}
-                    strokeWidth={1}
+                    strokeWidth={pathData.isEraser ? 3 : 1}
                     fill={pathData.isEraser ? CANVAS_BACKGROUND : "yellow"}
-                    fillOpacity={0.3} // Very transparent fill
+                    fillOpacity={0.3}
                     strokeOpacity={0.5}
                   />
                 );
@@ -698,11 +679,10 @@ const handleWebTouchEnd = () => {
                   selectedPen === 2 ? "yellow" : 
                   selectedColor
                 )}
-                strokeWidth={selectedPen === 1 ? 2 : selectedStrokeWidth}
-                fill={selectedPen === 2 ? "yellow" : "none"}
-                fillOpacity={selectedPen === 2 ? 0.3 : 0}
+                strokeWidth={isEraser ? (selectedPen === 1 ? 6 : selectedStrokeWidth * 3) : (selectedPen === 1 ? 2 : selectedStrokeWidth)}
+                fill={selectedPen === 2 && !isEraser ? "yellow" : "none"}
+                fillOpacity={selectedPen === 2 && !isEraser ? 0.3 : 0}
                 strokeOpacity={selectedPen === 1 ? 0.8 : 1}
-                
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
@@ -713,75 +693,136 @@ const handleWebTouchEnd = () => {
 
       {/* Menu button in top left with animation */}
       <Animated.View style={[
-        styles.menuButtonContainer,
+        isLargeDevice ? styles.menuButtonContainerLarge : null,
+        isMediumLargeDevice ? styles.menuButtonContainerMediumLarge : null,
+        isSmallDevice ? styles.menuButtonContainerSmall : null,
+        isTinyDevice ? styles.menuButtonContainerTiny : null,
         { transform: [{ translateX: menuButtonAnim }] }
       ]}>
         <TouchableOpacity 
-          style={styles.menuButton}
+          style={[
+            isLargeDevice ? styles.menuButtonLarge : null,
+            isMediumLargeDevice ? styles.menuButtonMediumLarge : null,
+            isSmallDevice ? styles.menuButtonSmall : null,
+            isTinyDevice ? styles.menuButtonTiny : null,
+          ]}
           onPress={toggleMenu}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Text style={styles.menuButtonText}>☰</Text>
+          <Text style={[
+            isLargeDevice ? styles.menuButtonTextLarge : null,
+            isMediumLargeDevice ? styles.menuButtonTextMediumLarge : null,
+            isSmallDevice ? styles.menuButtonTextSmall : null,
+            isTinyDevice ? styles.menuButtonTextTiny : null,
+          ]}>☰</Text>
         </TouchableOpacity>
       </Animated.View>
       
       {/* Undo button next to menu button */}
       <Animated.View style={[
-        styles.undoButtonContainer,
+        isLargeDevice ? styles.undoButtonContainerLarge : null,
+        isMediumLargeDevice ? styles.undoButtonContainerMediumLarge : null,
+        isSmallDevice ? styles.undoButtonContainerSmall : null,
+        isTinyDevice ? styles.undoButtonContainerTiny : null,
         { transform: [{ translateX: undoButtonAnim }] }
       ]}>
         <TouchableOpacity 
           style={[
-            styles.undoButton,
+            isLargeDevice ? styles.undoButtonLarge : null,
+            isMediumLargeDevice ? styles.undoButtonMediumLarge : null,
+            isSmallDevice ? styles.undoButtonSmall : null,
+            isTinyDevice ? styles.undoButtonTiny : null,
             paths.length === 0 && styles.disabledButton
           ]}
           onPress={handleUndo}
           disabled={paths.length === 0}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Text style={styles.undoButtonText}>↩</Text>
+          <Text style={[
+            isLargeDevice ? styles.undoButtonTextLarge : null,
+            isMediumLargeDevice ? styles.undoButtonTextMediumLarge : null,
+            isSmallDevice ? styles.undoButtonTextSmall : null,
+            isTinyDevice ? styles.undoButtonTextTiny : null,
+          ]}>↩</Text>
         </TouchableOpacity>
       </Animated.View>
       
       {/* Redo button next to undo button */}
       <Animated.View style={[
-        styles.redoButtonContainer,
+        isLargeDevice ? styles.redoButtonContainerLarge : null,
+        isMediumLargeDevice ? styles.redoButtonContainerMediumLarge : null,
+        isSmallDevice ? styles.redoButtonContainerSmall : null,
+        isTinyDevice ? styles.redoButtonContainerTiny : null,
         { transform: [{ translateX: redoButtonAnim }] }
       ]}>
         <TouchableOpacity 
           style={[
-            styles.redoButton,
+            isLargeDevice ? styles.redoButtonLarge : null,
+            isMediumLargeDevice ? styles.redoButtonMediumLarge : null,
+            isSmallDevice ? styles.redoButtonSmall : null,
+            isTinyDevice ? styles.redoButtonTiny : null,
             undoStack.length === 0 && styles.disabledButton
           ]}
           onPress={handleRedo}
           disabled={undoStack.length === 0}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Text style={styles.redoButtonText}>↪</Text>
+          <Text style={[
+            isLargeDevice ? styles.redoButtonTextLarge : null,
+            isMediumLargeDevice ? styles.redoButtonTextMediumLarge : null,
+            isSmallDevice ? styles.redoButtonTextSmall : null,
+            isTinyDevice ? styles.redoButtonTextTiny : null,
+          ]}>↪</Text>
         </TouchableOpacity>
       </Animated.View>
       
       {/* The menu itself */}
       <Animated.View 
         style={[
-          styles.menuContainer, 
+          isLargeDevice ? styles.menuContainerLarge : null,
+          isMediumLargeDevice ? styles.menuContainerMediumLarge : null,
+          isSmallDevice ? styles.menuContainerSmall : null,
+          isTinyDevice ? styles.menuContainerTiny : null,
           { height: menuHeight, opacity: menuAnimation }
         ]}
         pointerEvents={menuOpen ? "auto" : "none"}
       >
-        <View style={styles.menuContent}>
+        <View style={[
+          isLargeDevice ? styles.menuContentLarge : null,
+          isMediumLargeDevice ? styles.menuContentMediumLarge : null,
+          isSmallDevice ? styles.menuContentSmall : null,
+          isTinyDevice ? styles.menuContentTiny : null,
+        ]}>
           <View style={{flexDirection: 'row'}}>
             {/* Left Column */}
             <View style={{flex: 0.65}}>
               {/* Colors */}
-              <View style={styles.menuSection}>
-                <Text style={styles.menuSectionTitle}>Colors</Text>
-                <View style={styles.colorRow}>
+              <View style={[
+                isLargeDevice ? styles.menuSectionLarge : null,
+                isMediumLargeDevice ? styles.menuSectionMediumLarge : null,
+                isSmallDevice ? styles.menuSectionSmall : null,
+                isTinyDevice ? styles.menuSectionTiny : null,
+              ]}>
+                <Text style={[
+                  isLargeDevice ? styles.menuSectionTitleLarge : null,
+                  isMediumLargeDevice ? styles.menuSectionTitleMediumLarge : null,
+                  isSmallDevice ? styles.menuSectionTitleSmall : null,
+                  isTinyDevice ? styles.menuSectionTitleTiny : null,
+                ]}>Colors</Text>
+                <View style={[
+                  isLargeDevice ? styles.colorRowLarge : null,
+                  isMediumLargeDevice ? styles.colorRowMediumLarge : null,
+                  isSmallDevice ? styles.colorRowSmall : null,
+                  isTinyDevice ? styles.colorRowTiny : null,
+                ]}>
                   {COLORS.map(color => (
                     <TouchableOpacity
                       key={color}
                       style={[
-                        styles.colorOption,
+                        isLargeDevice ? styles.colorOptionLarge : null,
+                        isMediumLargeDevice ? styles.colorOptionMediumLarge : null,
+                        isSmallDevice ? styles.colorOptionSmall : null,
+                        isTinyDevice ? styles.colorOptionTiny : null,
                         { backgroundColor: color },
                         selectedColor === color && !isEraser && styles.selectedOption
                       ]}
@@ -795,17 +836,40 @@ const handleWebTouchEnd = () => {
               </View>
 
               {/* Eraser */}
-              <View style={styles.menuSection}>
-                <Text style={styles.menuSectionTitle}>Tools</Text>
-                <View style={styles.toolsRow}>
+              <View style={[
+                isLargeDevice ? styles.menuSectionLarge : null,
+                isMediumLargeDevice ? styles.menuSectionMediumLarge : null,
+                isSmallDevice ? styles.menuSectionSmall : null,
+                isTinyDevice ? styles.menuSectionTiny : null,
+              ]}>
+                <Text style={[
+                  isLargeDevice ? styles.menuSectionTitleLarge : null,
+                  isMediumLargeDevice ? styles.menuSectionTitleMediumLarge : null,
+                  isSmallDevice ? styles.menuSectionTitleSmall : null,
+                  isTinyDevice ? styles.menuSectionTitleTiny : null,
+                ]}>Tools</Text>
+                <View style={[
+                  isLargeDevice ? styles.toolsRowLarge : null,
+                  isMediumLargeDevice ? styles.toolsRowMediumLarge : null,
+                  isSmallDevice ? styles.toolsRowSmall : null,
+                  isTinyDevice ? styles.toolsRowTiny : null,
+                ]}>
                   <TouchableOpacity
                     style={[
-                      styles.toolButton,
+                      isLargeDevice ? styles.toolButtonLarge : null,
+                      isMediumLargeDevice ? styles.toolButtonMediumLarge : null,
+                      isSmallDevice ? styles.toolButtonSmall : null,
+                      isTinyDevice ? styles.toolButtonTiny : null,
                       isEraser && styles.selectedOption
                     ]}
                     onPress={toggleEraser}
                   >
-                    <Text style={styles.toolButtonText}>Eraser</Text>
+                    <Text style={[
+                      isLargeDevice ? styles.toolButtonTextLarge : null,
+                      isMediumLargeDevice ? styles.toolButtonTextMediumLarge : null,
+                      isSmallDevice ? styles.toolButtonTextSmall : null,
+                      isTinyDevice ? styles.toolButtonTextTiny : null,
+                    ]}>Eraser</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -814,64 +878,136 @@ const handleWebTouchEnd = () => {
             {/* Right Column */}
             <View style={{flex: 1}}>
               {/* Pens */}
-              <View style={styles.menuSection}>
-                <Text style={styles.menuSectionTitle}>Pen</Text>
-                <View style={styles.penRow}>
+              <View style={[
+                isLargeDevice ? styles.menuSectionLarge : null,
+                isMediumLargeDevice ? styles.menuSectionMediumLarge : null,
+                isSmallDevice ? styles.menuSectionSmall : null,
+                isTinyDevice ? styles.menuSectionTiny : null,
+              ]}>
+                <Text style={[
+                  isLargeDevice ? styles.menuSectionTitleLarge : null,
+                  isMediumLargeDevice ? styles.menuSectionTitleMediumLarge : null,
+                  isSmallDevice ? styles.menuSectionTitleSmall : null,
+                  isTinyDevice ? styles.menuSectionTitleTiny : null,
+                ]}>Pen</Text>
+                <View style={[
+                  isLargeDevice ? styles.penRowLarge : null,
+                  isMediumLargeDevice ? styles.penRowMediumLarge : null,
+                  isSmallDevice ? styles.penRowSmall : null,
+                  isTinyDevice ? styles.penRowTiny : null,
+                ]}>
                   <TouchableOpacity
                     style={[
-                      styles.penOption,
+                      isLargeDevice ? styles.penOptionLarge : null,
+                      isMediumLargeDevice ? styles.penOptionMediumLarge : null,
+                      isSmallDevice ? styles.penOptionSmall : null,
+                      isTinyDevice ? styles.penOptionTiny : null,
                       selectedPen === 0 && styles.selectedOption
                     ]}
                     onPress={() => {
                       setSelectedPen(0);
-                      setSelectedColor("black"); // Normal pen defaults to black
+                      setSelectedColor("black");
                       setIsEraser(false);
                     }}
                   >
-                    <Text style={styles.toolButtonText}>✏️</Text>
-                    <Text style={{fontSize: 10, marginTop: 2}}>Normal</Text>
+                    <Text style={[
+                      isLargeDevice ? styles.toolButtonTextLarge : null,
+                      isMediumLargeDevice ? styles.toolButtonTextMediumLarge : null,
+                      isSmallDevice ? styles.toolButtonTextSmall : null,
+                      isTinyDevice ? styles.toolButtonTextTiny : null,
+                    ]}>✏️</Text>
+                    <Text style={[
+                      isLargeDevice ? styles.penLabelLarge : null,
+                      isMediumLargeDevice ? styles.penLabelMediumLarge : null,
+                      isSmallDevice ? styles.penLabelSmall : null,
+                      isTinyDevice ? styles.penLabelTiny : null,
+                    ]}>Normal</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[
-                      styles.penOption,
+                      isLargeDevice ? styles.penOptionLarge : null,
+                      isMediumLargeDevice ? styles.penOptionMediumLarge : null,
+                      isSmallDevice ? styles.penOptionSmall : null,
+                      isTinyDevice ? styles.penOptionTiny : null,
                       selectedPen === 1 && styles.selectedOption
                     ]}
                     onPress={() => {
                       setSelectedPen(1);
-                      setSelectedColor("red"); // Telestrator pen defaults to red
-                      setSelectedStrokeWidth(2); // Thinner stroke for telestrator
+                      setSelectedColor("red");
+                      setSelectedStrokeWidth(2);
                       setIsEraser(false);
                     }}
                   >
-                    <Text style={styles.toolButtonText}>🖍️</Text>
-                    <Text style={{fontSize: 10, marginTop: 2}}>Telestrator</Text>
+                    <Text style={[
+                      isLargeDevice ? styles.toolButtonTextLarge : null,
+                      isMediumLargeDevice ? styles.toolButtonTextMediumLarge : null,
+                      isSmallDevice ? styles.toolButtonTextSmall : null,
+                      isTinyDevice ? styles.toolButtonTextTiny : null,
+                    ]}>🖍️</Text>
+                    <Text style={[
+                      isLargeDevice ? styles.penLabelLarge : null,
+                      isMediumLargeDevice ? styles.penLabelMediumLarge : null,
+                      isSmallDevice ? styles.penLabelSmall : null,
+                      isTinyDevice ? styles.penLabelTiny : null,
+                    ]}>Telestrator</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[
-                      styles.penOption,
+                      isLargeDevice ? styles.penOptionLarge : null,
+                      isMediumLargeDevice ? styles.penOptionMediumLarge : null,
+                      isSmallDevice ? styles.penOptionSmall : null,
+                      isTinyDevice ? styles.penOptionTiny : null,
                       selectedPen === 2 && styles.selectedOption
                     ]}
                     onPress={() => {
                       setSelectedPen(2);
-                      setSelectedColor("yellow"); // Highlighter defaults to yellow
+                      setSelectedColor("yellow");
                       setIsEraser(false);
                     }}
                   >
-                    <Text style={styles.toolButtonText}>⭐</Text>
-                    <Text style={{fontSize: 10, marginTop: 2}}>Highlighter</Text>
+                    <Text style={[
+                      isLargeDevice ? styles.toolButtonTextLarge : null,
+                      isMediumLargeDevice ? styles.toolButtonTextMediumLarge : null,
+                      isSmallDevice ? styles.toolButtonTextSmall : null,
+                      isTinyDevice ? styles.toolButtonTextTiny : null,
+                    ]}>⭐</Text>
+                    <Text style={[
+                      isLargeDevice ? styles.penLabelLarge : null,
+                      isMediumLargeDevice ? styles.penLabelMediumLarge : null,
+                      isSmallDevice ? styles.penLabelSmall : null,
+                      isTinyDevice ? styles.penLabelTiny : null,
+                    ]}>Highlighter</Text>
                   </TouchableOpacity>
                 </View>
               </View>
               
               {/* Stroke Widths */}
-              <View style={styles.menuSection}>
-                <Text style={styles.menuSectionTitle}>Stroke Width</Text>
-                <View style={styles.widthRow}>
+              <View style={[
+                isLargeDevice ? styles.menuSectionLarge : null,
+                isMediumLargeDevice ? styles.menuSectionMediumLarge : null,
+                isSmallDevice ? styles.menuSectionSmall : null,
+                isTinyDevice ? styles.menuSectionTiny : null,
+              ]}>
+                <Text style={[
+                  isLargeDevice ? styles.menuSectionTitleLarge : null,
+                  isMediumLargeDevice ? styles.menuSectionTitleMediumLarge : null,
+                  isSmallDevice ? styles.menuSectionTitleSmall : null,
+                  isTinyDevice ? styles.menuSectionTitleTiny : null,
+                ]}>Stroke Width</Text>
+                <View style={[
+                  isLargeDevice ? styles.widthRowLarge : null,
+                  isMediumLargeDevice ? styles.widthRowMediumLarge : null,
+                  isSmallDevice ? styles.widthRowSmall : null,
+                  isTinyDevice ? styles.widthRowTiny : null,
+                ]}>
                   {STROKE_WIDTHS.map(width => (
                     <TouchableOpacity
                       key={`width-${width}`}
                       style={[
-                        styles.widthOption,
+                        isLargeDevice ? styles.widthOptionLarge : null,
+                        isMediumLargeDevice ? styles.widthOptionMediumLarge : null,
+                        isSmallDevice ? styles.widthOptionSmall : null,
+                        isTinyDevice ? styles.widthOptionTiny : null,
                         selectedStrokeWidth === width && styles.selectedOption
                       ]}
                       onPress={() => setSelectedStrokeWidth(width)}
@@ -879,7 +1015,7 @@ const handleWebTouchEnd = () => {
                       <View style={[
                         styles.widthCircle, 
                         { 
-                          width: width * 1.2, // slightly bigger
+                          width: width * 1.2,
                           height: width * 1.2, 
                           borderRadius: (width * 1.2) / 2,
                           backgroundColor: isEraser ? "#ccc" : selectedColor 
@@ -891,56 +1027,67 @@ const handleWebTouchEnd = () => {
               </View>
             </View>
           </View>
-
-          {/* Debug Toggle - Full Width at Bottom */}
-          {/* <View style={styles.menuSection}>
-            <Text style={styles.menuSectionTitle}>Settings</Text>
-            <TouchableOpacity
-              style={[
-                styles.toolButton,
-                debugMode && styles.selectedOption
-              ]}
-              onPress={toggleDebugMode}
-            >
-              <Text style={styles.toolButtonText}>
-                {debugMode ? 'Debug ON' : 'Debug OFF'}
-              </Text>
-            </TouchableOpacity>
-          </View> */}
         </View>
       </Animated.View>
       
       {/* Stick bonus button in the bottom right */}
       <Animated.View style={[
-        styles.bottomButtonsContainer,
+        isLargeDevice ? styles.bottomButtonsContainerLarge : null,
+        isMediumLargeDevice ? styles.bottomButtonsContainerMediumLarge : null,
+        isSmallDevice ? styles.bottomButtonsContainerSmall : null,
+        isTinyDevice ? styles.bottomButtonsContainerTiny : null,
         { transform: [{ translateY: bottomButtonsAnim }] }
       ]}>
         <TouchableOpacity 
           style={[
-            styles.stickButton,
+            isLargeDevice ? styles.stickButtonLarge : null,
+            isMediumLargeDevice ? styles.stickButtonMediumLarge : null,
+            isSmallDevice ? styles.stickButtonSmall : null,
+            isTinyDevice ? styles.stickButtonTiny : null,
             stickBonus && styles.stickButtonActive
           ]}
           onPress={toggleStickBonus}
         >
-          <Text style={styles.buttonText}>STICK BONUS</Text>
+          <Text style={[
+            isLargeDevice ? styles.buttonTextLarge : null,
+            isMediumLargeDevice ? styles.buttonTextMediumLarge : null,
+            isSmallDevice ? styles.buttonTextSmall : null,
+            isTinyDevice ? styles.buttonTextTiny : null,
+          ]}>STICK BONUS</Text>
         </TouchableOpacity>
       </Animated.View>
 
       <Animated.View style={[
-        styles.bottomButtonsContainercodetable,
+        isLargeDevice ? styles.bottomButtonsContainercodetableLarge : null,
+        isMediumLargeDevice ? styles.bottomButtonsContainercodetableMediumLarge : null,
+        isSmallDevice ? styles.bottomButtonsContainercodetableSmall : null,
+        isTinyDevice ? styles.bottomButtonsContainercodetableTiny : null,
         { transform: [{ translateY: bottomButtonsAnim }] }
       ]}>
         <TouchableOpacity 
           style={[
-            styles.stickButton
+            isLargeDevice ? styles.stickButtonLarge : null,
+            isMediumLargeDevice ? styles.stickButtonMediumLarge : null,
+            isSmallDevice ? styles.stickButtonSmall : null,
+            isTinyDevice ? styles.stickButtonTiny : null,
           ]}
           onPress={oncodetable}
         >
-          <Text style={styles.buttonText}>CODE TABLE</Text>
+          <Text style={[
+            isLargeDevice ? styles.buttonTextLarge : null,
+            isMediumLargeDevice ? styles.buttonTextMediumLarge : null,
+            isSmallDevice ? styles.buttonTextSmall : null,
+            isTinyDevice ? styles.buttonTextTiny : null,
+          ]}>CODE TABLE</Text>
         </TouchableOpacity>
       </Animated.View>
 
-      <Text style={styles.finalcalcContainer}>{percentage}</Text>
+      <Text style={[
+        isLargeDevice ? styles.finalcalcContainerLarge : null,
+        isMediumLargeDevice ? styles.finalcalcContainerMediumLarge : null,
+        isSmallDevice ? styles.finalcalcContainerSmall : null,
+        isTinyDevice ? styles.finalcalcContainerTiny : null,
+      ]}>{percentage}</Text>
     </GestureHandlerRootView>
   );
 };
@@ -949,57 +1096,99 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: '#f5f5f5',
   },
-    colorPenRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-    colorRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginRight: 12,
-  },
-  penRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-    marginTop: 2,
-  },
-  penOption: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 5,
-    marginRight: 10,
+  
+  // Canvas styles - Large Device
+  canvasLarge: {
+    height: 540,
+    backgroundColor: CANVAS_BACKGROUND,
     borderWidth: 1,
     borderColor: '#ddd',
-    minWidth: 32,
-    alignItems: 'center',
   },
-  canvas: {
+  // Canvas styles - Medium Large Device
+  canvasMediumLarge: {
     height: 460,
     backgroundColor: CANVAS_BACKGROUND,
     borderWidth: 1,
     borderColor: '#ddd',
   },
+  // Canvas styles - Small Device
   canvasSmall: {
-    height: 620,
+    height: 380,
     backgroundColor: CANVAS_BACKGROUND,
     borderWidth: 1,
     borderColor: '#ddd',
-    
   },
+  // Canvas styles - Tiny Device
   canvasTiny: {
-    height: 20,
+    height: 240,
     backgroundColor: CANVAS_BACKGROUND,
     borderWidth: 1,
     borderColor: '#ddd',
   },
-  menuContainer: {
+  
+  // Background image styles - Large Device
+  backgroundImageLarge: {
+    position: 'absolute',
+    width: '78%',
+    height: '78%',
+    top: '11%',
+    left: '11%',
+    opacity: 0.8,
+    zIndex: 1,
+  },
+  // Background image styles - Medium Large Device
+  backgroundImageMediumLarge: {
+    position: 'absolute',
+    width: '75%',
+    height: '75%',
+    top: '12.5%',
+    left: '12.5%',
+    opacity: 0.8,
+    zIndex: 1,
+  },
+  // Background image styles - Small Device
+  backgroundImageSmall: {
+    position: 'absolute',
+    width: '72%',
+    height: '72%',
+    top: '14%',
+    left: '14%',
+    opacity: 0.8,
+    zIndex: 1,
+  },
+  // Background image styles - Tiny Device
+  backgroundImageTiny: {
+    position: 'absolute',
+    width: '70%',
+    height: '70%',
+    top: '15%',
+    left: '15%',
+    opacity: 0.8,
+    zIndex: 1,
+  },
+  
+  // Menu container styles - Large Device
+  menuContainerLarge: {
+    position: 'absolute',
+    top: 80,
+    left: 12,
+    width: 660,
+    backgroundColor: 'rgba(245, 245, 245, 0.95)',
+    borderRadius: 12,
+    zIndex: 10,
+    overflow: 'hidden',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Menu container styles - Medium Large Device
+  menuContainerMediumLarge: {
     position: 'absolute',
     top: 70,
     left: 10,
-    width: 600, // wider to fit all sections
+    width: 600,
     backgroundColor: 'rgba(245, 245, 245, 0.95)',
     borderRadius: 10,
     zIndex: 10,
@@ -1010,13 +1199,87 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     elevation: 5,
   },
-  menuButtonContainer: {
+  // Menu container styles - Small Device
+  menuContainerSmall: {
+    position: 'absolute',
+    top: 60,
+    left: 8,
+    width: 540,
+    backgroundColor: 'rgba(245, 245, 245, 0.95)',
+    borderRadius: 8,
+    zIndex: 10,
+    overflow: 'hidden',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Menu container styles - Tiny Device
+  menuContainerTiny: {
+    position: 'absolute',
+    top: 50,
+    left: 6,
+    width: 480,
+    backgroundColor: 'rgba(245, 245, 245, 0.95)',
+    borderRadius: 6,
+    zIndex: 10,
+    overflow: 'hidden',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  
+  // Menu button container styles - Large Device
+  menuButtonContainerLarge: {
+    position: 'absolute',
+    top: 12,
+    left: 0,
+    zIndex: 10,
+  },
+  // Menu button container styles - Medium Large Device
+  menuButtonContainerMediumLarge: {
     position: 'absolute',
     top: 10,
     left: 0,
     zIndex: 10,
   },
-  menuButton: {
+  // Menu button container styles - Small Device
+  menuButtonContainerSmall: {
+    position: 'absolute',
+    top: 8,
+    left: 0,
+    zIndex: 10,
+  },
+  // Menu button container styles - Tiny Device
+  menuButtonContainerTiny: {
+    position: 'absolute',
+    top: 6,
+    left: 0,
+    zIndex: 10,
+  },
+  
+  // Menu button styles - Large Device
+  menuButtonLarge: {
+    width: 55,
+    height: 55,
+    borderRadius: 27.5,
+    backgroundColor: '#ddd',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Menu button styles - Medium Large Device
+  menuButtonMediumLarge: {
     width: 50,
     height: 50,
     borderRadius: 25,
@@ -1032,17 +1295,110 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     elevation: 5,
   },
-  menuButtonText: {
+  // Menu button styles - Small Device
+  menuButtonSmall: {
+    width: 45,
+    height: 45,
+    borderRadius: 22.5,
+    backgroundColor: '#ddd',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Menu button styles - Tiny Device
+  menuButtonTiny: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#ddd',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  
+  // Menu button text styles - Large Device
+  menuButtonTextLarge: {
+    fontSize: 28,
+    fontWeight: 'bold',
+  },
+  // Menu button text styles - Medium Large Device
+  menuButtonTextMediumLarge: {
     fontSize: 24,
     fontWeight: 'bold',
   },
-  undoButtonContainer: {
+  // Menu button text styles - Small Device
+  menuButtonTextSmall: {
+    fontSize: 22,
+    fontWeight: 'bold',
+  },
+  // Menu button text styles - Tiny Device
+  menuButtonTextTiny: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  
+  // Undo button container styles - Large Device
+  undoButtonContainerLarge: {
+    position: 'absolute',
+    top: 12,
+    left: 0,
+    zIndex: 10,
+  },
+  // Undo button container styles - Medium Large Device
+  undoButtonContainerMediumLarge: {
     position: 'absolute',
     top: 10,
     left: 0,
     zIndex: 10,
   },
-  undoButton: {
+  // Undo button container styles - Small Device
+  undoButtonContainerSmall: {
+    position: 'absolute',
+    top: 8,
+    left: 0,
+    zIndex: 10,
+  },
+  // Undo button container styles - Tiny Device
+  undoButtonContainerTiny: {
+    position: 'absolute',
+    top: 6,
+    left: 0,
+    zIndex: 10,
+  },
+  
+  // Undo button styles - Large Device
+  undoButtonLarge: {
+    width: 55,
+    height: 55,
+    borderRadius: 27.5,
+    backgroundColor: '#0052b4',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Undo button styles - Medium Large Device
+  undoButtonMediumLarge: {
     width: 50,
     height: 50,
     borderRadius: 25,
@@ -1058,18 +1414,114 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     elevation: 5,
   },
-  undoButtonText: {
+  // Undo button styles - Small Device
+  undoButtonSmall: {
+    width: 45,
+    height: 45,
+    borderRadius: 22.5,
+    backgroundColor: '#0052b4',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Undo button styles - Tiny Device
+  undoButtonTiny: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#0052b4',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  
+  // Undo button text styles - Large Device
+  undoButtonTextLarge: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  // Undo button text styles - Medium Large Device
+  undoButtonTextMediumLarge: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#fff',
   },
-  redoButtonContainer: {
+  // Undo button text styles - Small Device
+  undoButtonTextSmall: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  // Undo button text styles - Tiny Device
+  undoButtonTextTiny: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  
+  // Redo button container styles - Large Device
+  redoButtonContainerLarge: {
+    position: 'absolute',
+    top: 12,
+    left: 0,
+    zIndex: 10,
+  },
+  // Redo button container styles - Medium Large Device
+  redoButtonContainerMediumLarge: {
     position: 'absolute',
     top: 10,
     left: 0,
     zIndex: 10,
   },
-  redoButton: {
+  // Redo button container styles - Small Device
+  redoButtonContainerSmall: {
+    position: 'absolute',
+    top: 8,
+    left: 0,
+    zIndex: 10,
+  },
+  // Redo button container styles - Tiny Device
+  redoButtonContainerTiny: {
+    position: 'absolute',
+    top: 6,
+    left: 0,
+    zIndex: 10,
+  },
+  
+  // Redo button styles - Large Device
+  redoButtonLarge: {
+    width: 55,
+    height: 55,
+    borderRadius: 27.5,
+    backgroundColor: '#28a745',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Redo button styles - Medium Large Device
+  redoButtonMediumLarge: {
     width: 50,
     height: 50,
     borderRadius: 25,
@@ -1085,30 +1537,171 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     elevation: 5,
   },
-  redoButtonText: {
+  // Redo button styles - Small Device
+  redoButtonSmall: {
+    width: 45,
+    height: 45,
+    borderRadius: 22.5,
+    backgroundColor: '#28a745',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Redo button styles - Tiny Device
+  redoButtonTiny: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#28a745',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  
+  // Redo button text styles - Large Device
+  redoButtonTextLarge: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  // Redo button text styles - Medium Large Device
+  redoButtonTextMediumLarge: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#fff',
   },
+  // Redo button text styles - Small Device
+  redoButtonTextSmall: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  // Redo button text styles - Tiny Device
+  redoButtonTextTiny: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  
   disabledButton: {
     backgroundColor: '#999',
     opacity: 0.5,
   },
   
-  menuContent: {
+  // Menu content styles - Large Device
+  menuContentLarge: {
+    padding: 18,
+  },
+  // Menu content styles - Medium Large Device
+  menuContentMediumLarge: {
     padding: 15,
   },
-  menuSection: {
+  // Menu content styles - Small Device
+  menuContentSmall: {
+    padding: 12,
+  },
+  // Menu content styles - Tiny Device
+  menuContentTiny: {
+    padding: 10,
+  },
+  
+  // Menu section styles - Large Device
+  menuSectionLarge: {
+    marginBottom: 18,
+  },
+  // Menu section styles - Medium Large Device
+  menuSectionMediumLarge: {
     marginBottom: 15,
   },
-  menuSectionTitle: {
+  // Menu section styles - Small Device
+  menuSectionSmall: {
+    marginBottom: 12,
+  },
+  // Menu section styles - Tiny Device
+  menuSectionTiny: {
+    marginBottom: 10,
+  },
+  
+  // Menu section title styles - Large Device
+  menuSectionTitleLarge: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#333',
+  },
+  // Menu section title styles - Medium Large Device
+  menuSectionTitleMediumLarge: {
     fontSize: 16,
     fontWeight: 'bold',
     marginBottom: 8,
     color: '#333',
   },
-
-  colorOption: {
+  // Menu section title styles - Small Device
+  menuSectionTitleSmall: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 6,
+    color: '#333',
+  },
+  // Menu section title styles - Tiny Device
+  menuSectionTitleTiny: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginBottom: 5,
+    color: '#333',
+  },
+  
+  // Color row styles - Large Device
+  colorRowLarge: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginRight: 14,
+  },
+  // Color row styles - Medium Large Device
+  colorRowMediumLarge: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginRight: 12,
+  },
+  // Color row styles - Small Device
+  colorRowSmall: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginRight: 10,
+  },
+  // Color row styles - Tiny Device
+  colorRowTiny: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginRight: 8,
+  },
+  
+  // Color option styles - Large Device
+  colorOptionLarge: {
+    width: 35,
+    height: 35,
+    borderRadius: 17.5,
+    marginRight: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  // Color option styles - Medium Large Device
+  colorOptionMediumLarge: {
     width: 30,
     height: 30,
     borderRadius: 15,
@@ -1117,12 +1710,66 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#ddd',
   },
-  widthRow: {
+  // Color option styles - Small Device
+  colorOptionSmall: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    marginRight: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  // Color option styles - Tiny Device
+  colorOptionTiny: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    marginRight: 6,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  
+  // Width row styles - Large Device
+  widthRowLarge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  // Width row styles - Medium Large Device
+  widthRowMediumLarge: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 10,
   },
-  widthOption: {
+  // Width row styles - Small Device
+  widthRowSmall: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  // Width row styles - Tiny Device
+  widthRowTiny: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  
+  // Width option styles - Large Device
+  widthOptionLarge: {
+    width: 45,
+    height: 45,
+    borderRadius: 22.5,
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  // Width option styles - Medium Large Device
+  widthOptionMediumLarge: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -1133,14 +1780,68 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#ddd',
   },
+  // Width option styles - Small Device
+  widthOptionSmall: {
+    width: 35,
+    height: 35,
+    borderRadius: 17.5,
+    marginRight: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  // Width option styles - Tiny Device
+  widthOptionTiny: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    marginRight: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  
   widthCircle: {
     backgroundColor: 'black',
   },
-  toolsRow: {
+  
+  // Tools row styles - Large Device
+  toolsRowLarge: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  // Tools row styles - Medium Large Device
+  toolsRowMediumLarge: {
     flexDirection: 'row',
     marginBottom: 10,
   },
-  toolButton: {
+  // Tools row styles - Small Device
+  toolsRowSmall: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  // Tools row styles - Tiny Device
+  toolsRowTiny: {
+    flexDirection: 'row',
+    marginBottom: 6,
+  },
+  
+  // Tool button styles - Large Device
+  toolButtonLarge: {
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 6,
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  // Tool button styles - Medium Large Device
+  toolButtonMediumLarge: {
     paddingVertical: 8,
     paddingHorizontal: 12,
     backgroundColor: '#f0f0f0',
@@ -1149,16 +1850,169 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#ddd',
   },
-  toolButtonText: {
+  // Tool button styles - Small Device
+  toolButtonSmall: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 4,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  // Tool button styles - Tiny Device
+  toolButtonTiny: {
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 3,
+    marginRight: 6,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  
+  // Tool button text styles - Large Device
+  toolButtonTextLarge: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  // Tool button text styles - Medium Large Device
+  toolButtonTextMediumLarge: {
     fontSize: 14,
     fontWeight: 'bold',
     color: '#333',
   },
+  // Tool button text styles - Small Device
+  toolButtonTextSmall: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  // Tool button text styles - Tiny Device
+  toolButtonTextTiny: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  
   selectedOption: {
     borderColor: '#007AFF',
     borderWidth: 2,
   },
-  bottomButtonsContainer: {
+  
+  // Pen row styles - Large Device
+  penRowLarge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    marginTop: 3,
+  },
+  // Pen row styles - Medium Large Device
+  penRowMediumLarge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    marginTop: 2,
+  },
+  // Pen row styles - Small Device
+  penRowSmall: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    marginTop: 2,
+  },
+  // Pen row styles - Tiny Device
+  penRowTiny: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+    marginTop: 1,
+  },
+  
+  // Pen option styles - Large Device
+  penOptionLarge: {
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 6,
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    minWidth: 38,
+    alignItems: 'center',
+  },
+  // Pen option styles - Medium Large Device
+  penOptionMediumLarge: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 5,
+    marginRight: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    minWidth: 32,
+    alignItems: 'center',
+  },
+  // Pen option styles - Small Device
+  penOptionSmall: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 4,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    minWidth: 28,
+    alignItems: 'center',
+  },
+  // Pen option styles - Tiny Device
+  penOptionTiny: {
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 3,
+    marginRight: 6,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    minWidth: 24,
+    alignItems: 'center',
+  },
+  
+  // Pen label styles - Large Device
+  penLabelLarge: {
+    fontSize: 12,
+    marginTop: 3,
+  },
+  // Pen label styles - Medium Large Device
+  penLabelMediumLarge: {
+    fontSize: 10,
+    marginTop: 2,
+  },
+  // Pen label styles - Small Device
+  penLabelSmall: {
+    fontSize: 9,
+    marginTop: 2,
+  },
+  // Pen label styles - Tiny Device
+  penLabelTiny: {
+    fontSize: 8,
+    marginTop: 1,
+  },
+  
+  // Bottom buttons container styles - Large Device
+  bottomButtonsContainerLarge: {
+    position: 'absolute',
+    backgroundColor: 'transparent',
+    bottom: 25,
+    width: 190,
+    right: 18,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    zIndex: 20,
+  },
+  // Bottom buttons container styles - Medium Large Device
+  bottomButtonsContainerMediumLarge: {
     position: 'absolute',
     backgroundColor: 'transparent',
     bottom: 20,
@@ -1168,7 +2022,42 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     zIndex: 20,
   },
-  bottomButtonsContainercodetable: {
+  // Bottom buttons container styles - Small Device
+  bottomButtonsContainerSmall: {
+    position: 'absolute',
+    backgroundColor: 'transparent',
+    bottom: 15,
+    width: 150,
+    right: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    zIndex: 20,
+  },
+  // Bottom buttons container styles - Tiny Device
+  bottomButtonsContainerTiny: {
+    position: 'absolute',
+    backgroundColor: 'transparent',
+    bottom: 10,
+    width: 130,
+    right: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    zIndex: 20,
+  },
+  
+  // Bottom buttons container code table styles - Large Device
+  bottomButtonsContainercodetableLarge: {
+    position: 'absolute',
+    backgroundColor: 'transparent',
+    bottom: 25,
+    width: 190,
+    left: 18,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    zIndex: 20,
+  },
+  // Bottom buttons container code table styles - Medium Large Device
+  bottomButtonsContainercodetableMediumLarge: {
     position: 'absolute',
     backgroundColor: 'transparent',
     bottom: 20,
@@ -1178,18 +2067,92 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     zIndex: 20,
   },
-    finalcalcContainer: {
+  // Bottom buttons container code table styles - Small Device
+  bottomButtonsContainercodetableSmall: {
+    position: 'absolute',
+    backgroundColor: 'transparent',
+    bottom: 15,
+    width: 150,
+    left: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    zIndex: 20,
+  },
+  // Bottom buttons container code table styles - Tiny Device
+  bottomButtonsContainercodetableTiny: {
+    position: 'absolute',
+    backgroundColor: 'transparent',
+    bottom: 10,
+    width: 130,
+    left: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    zIndex: 20,
+  },
+  
+  // Final calc container styles - Large Device
+  finalcalcContainerLarge: {
+    position: 'absolute',
+    backgroundColor: 'transparent',
+    top: 12,
+    fontSize: 24,
+    right: 25,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    zIndex: 20,
+  },
+  // Final calc container styles - Medium Large Device
+  finalcalcContainerMediumLarge: {
     position: 'absolute',
     backgroundColor: 'transparent',
     top: 10,
-    flex: 1,
     fontSize: 20,
     right: 20,
     flexDirection: 'row',
     justifyContent: 'space-between',
     zIndex: 20,
   },
-  stickButton: {
+  // Final calc container styles - Small Device
+  finalcalcContainerSmall: {
+    position: 'absolute',
+    backgroundColor: 'transparent',
+    top: 8,
+    fontSize: 18,
+    right: 15,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    zIndex: 20,
+  },
+  // Final calc container styles - Tiny Device
+  finalcalcContainerTiny: {
+    position: 'absolute',
+    backgroundColor: 'transparent',
+    top: 6,
+    fontSize: 16,
+    right: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    zIndex: 20,
+  },
+  
+  // Stick button styles - Large Device
+  stickButtonLarge: {
+    flex: 1,
+    backgroundColor: "#B4B4B4",
+    padding: 12,
+    borderRadius: 12,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Stick button styles - Medium Large Device
+  stickButtonMediumLarge: {
     flex: 1,
     backgroundColor: "#B4B4B4",
     padding: 10,
@@ -1204,13 +2167,73 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     elevation: 5,
   },
-  stickButtonActive: {
-    backgroundColor: "#3AAA35", // Green when active
+  // Stick button styles - Small Device
+  stickButtonSmall: {
+    flex: 1,
+    backgroundColor: "#B4B4B4",
+    padding: 8,
+    borderRadius: 8,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
-  buttonText: {
+  // Stick button styles - Tiny Device
+  stickButtonTiny: {
+    flex: 1,
+    backgroundColor: "#B4B4B4",
+    padding: 6,
+    borderRadius: 6,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  
+  stickButtonActive: {
+    backgroundColor: "#3AAA35",
+  },
+  
+  // Button text styles - Large Device
+  buttonTextLarge: {
+    fontSize: 14,
+    color: "white",
+    fontWeight: "bold",
+  },
+  // Button text styles - Medium Large Device
+  buttonTextMediumLarge: {
     fontSize: 12,
     color: "white",
     fontWeight: "bold",
+  },
+  // Button text styles - Small Device
+  buttonTextSmall: {
+    fontSize: 11,
+    color: "white",
+    fontWeight: "bold",
+  },
+  // Button text styles - Tiny Device
+  buttonTextTiny: {
+    fontSize: 10,
+    color: "white",
+    fontWeight: "bold",
+  },
+  
+  // Legacy styles (keeping for compatibility)
+  colorPenRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
   },
   debugPanel: {
     padding: 10,
@@ -1238,33 +2261,24 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   centeredImageContainer: {
-  position: 'absolute',
-  top: 0,
-  left: 0,
-  right: 0,
-  bottom: 0,
-  justifyContent: 'center',
-  alignItems: 'center',
-  zIndex: 50, // Make sure it's above the canvas
-},
-centeredImage: {
-  position: 'absolute',
-  alignSelf: 'center',
-  zIndex: 9999,
-  width: 700, // or any size you want
-  height: 700,
-  opacity: 0.8, // optional, for transparency
-  paddingBottom: 100,
-},
-backgroundImage: {
-  position: 'absolute',
-  width: '75%',
-  height: '75%',
-  top: '12.5%',
-  left: '12.5%',
-  opacity: 0.8,
-  zIndex: 0,
-}
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 50,
+  },
+  centeredImage: {
+    position: 'absolute',
+    alignSelf: 'center',
+    zIndex: 9999,
+    width: 700,
+    height: 700,
+    opacity: 0.8,
+    paddingBottom: 100,
+  },
 });
 
 export default OptimizedWhiteboardDebug;

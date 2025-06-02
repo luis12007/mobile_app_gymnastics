@@ -577,7 +577,7 @@ const performDelete = async () => {
   };
 
   const goBack = () => {
-    router.push(`/select-sex?userId=${userIdparams}`);
+    router.push(`/select-sex?userId=${userIdparams}&changeDis=${true}`);
   };
 
   useEffect(() => {

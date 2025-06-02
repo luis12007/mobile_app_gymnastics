@@ -11,7 +11,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { getMainTablesByCompetenceId, getRateGeneralByTableId } from "../Database/database";
+import { getCompetenceById, getMainTablesByCompetenceId, getRateGeneralByTableId } from "../Database/database";
 import { generateComprehensivePDF } from '../components/exportToPDF';
 
 const { width, height } = Dimensions.get("window");
@@ -84,6 +84,19 @@ interface MainRateGeneral {
   paths: string;
 }
 
+interface Competence {
+  id: number;
+  name: string;
+  description: string;
+  date: string; // ISO date string
+  type: string; // "Floor", "Jump", etc.
+  gender: boolean; // mag and wag
+  sessionId: number;
+  folderId: number;
+  userId: number;
+  numberOfParticipants: number;
+}
+
 interface MainTableWithRateGeneral extends MainTable {
   rateGeneral?: MainRateGeneral;
 }
@@ -105,6 +118,7 @@ const GymnasticsScoreTable: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [pdfExporting, setPdfExporting] = useState(false);
+  const [competencecurrent, setcurrentcompetence] = useState<Competence | null>(null);
 
   // Fetch data on component mount
   useEffect(() => {
@@ -112,7 +126,9 @@ const GymnasticsScoreTable: React.FC = () => {
       try {
         setLoading(true);
         const mainTables = await getMainTablesByCompetenceId(competenceId);
-
+        const getcompetence = await getCompetenceById(competenceId);
+        console.log("current competence:", getcompetence);
+        setcurrentcompetence(getcompetence);
         // Sort tables by number
         const sortedTables = [...mainTables].sort((a, b) => a.number - b.number);
         
@@ -211,7 +227,7 @@ const handleDownloadPDF = async () => {
     };
 
     // Generate comprehensive PDF with individual pages + final table
-    await generateComprehensivePDF(tables, finalTableData);
+    await generateComprehensivePDF(tables, finalTableData, competencecurrent);
     
     console.log('Comprehensive PDF generated successfully');
     

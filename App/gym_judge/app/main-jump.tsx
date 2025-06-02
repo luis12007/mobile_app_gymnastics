@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
+  Alert,
   Animated,
   Dimensions,
   Platform,
@@ -29,15 +30,17 @@ import WhiteboardScreen from "../components/WhiteboardScreen_jump";
 const { width, height } = Dimensions.get("window");
 const isLargeScreen = width >= 1000 && height >= 700;
 var isLargeDevice = false;
+var isMediumLargeDevice = false;
 var isSmallDevice = false;
 var isTinyDevice = false;
-if (width >= 14685) {
+
+if (width >= 1368) {
   isLargeDevice = true;
-}
-if (width >= 1200 && width < 1368) {
+} else if (width >= 1200 && width < 1368) {
+  isMediumLargeDevice = true;
+} else if (width >= 945 && width < 1200) {
   isSmallDevice = true;
-}
-if (width < 949) {
+} else if (width < 945) {
   isTinyDevice = true;
 }
 
@@ -186,8 +189,8 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   const router = useRouter();
 
   /* Keyboard usestates */
-const [isCustomKeyboardVisible, setIsCustomKeyboardVisible] = useState(false);
-const [ndInputValue, setNdInputValue] = useState("0.0");
+  const [isCustomKeyboardVisible, setIsCustomKeyboardVisible] = useState(false);
+  const [ndInputValue, setNdInputValue] = useState("0.0");
 
   /* Define usestate */
   const [showNdModal, setShowNdModal] = useState(false);
@@ -220,6 +223,10 @@ const [ndInputValue, setNdInputValue] = useState("0.0");
   const [showNdModalcomp, setShowNdModalcomp] = useState(false);
   const ndInputRefcomp = useRef<any>(null);
   const [ndInputcomp, setNdInputcomp] = useState("");
+
+  const [showSvModal, setShowSvModal] = useState(false);
+const [svInput, setSvInput] = useState("");
+const svInputRef = useRef<any>(null);
 
   // Track the total elements
   const [totalElements, setTotalElements] = useState(0);
@@ -282,7 +289,7 @@ const [ndInputValue, setNdInputValue] = useState("0.0");
           setGymnastNoc(mainRateGeneral.noc);
           setGymnastBib(mainRateGeneral.bib);
           setSv(mainRateGeneral.sv);
-          setStartValue(mainRateGeneral.sv);
+          setStartValue(mainRateGeneral.e2);
           setNd(mainRateGeneral.nd);
 
           if (rateTable) {
@@ -322,20 +329,36 @@ const [ndInputValue, setNdInputValue] = useState("0.0");
     fetchMainRateGeneral();
   }, [gymnastid]); // Re-fetch data when gymnastid changes
 
-// Modificar el useEffect para mostrar el teclado personalizado
-useEffect(() => {
-  if (showNdModal) {
+  // Modificar el useEffect para mostrar el teclado personalizado
+  useEffect(() => {
+    if (showNdModal) {
+      setIsCustomKeyboardVisible(true);
+      // Solo enfoca si es necesario para mostrar el cursor, pero sin activar el teclado
+      if (ndInputRef.current) {
+        setTimeout(() => {
+          if (Platform.OS === "ios") {
+            ndInputRef.current?.focus();
+          }
+        }, 100);
+      }
+    }
+  }, [showNdModal]);
+
+  useEffect(() => {
+  if (showSvModal) {
     setIsCustomKeyboardVisible(true);
-    // Solo enfoca si es necesario para mostrar el cursor, pero sin activar el teclado
-    if (ndInputRef.current) {
+    if (svInputRef.current) {
       setTimeout(() => {
-        if (Platform.OS === 'ios') {
-          ndInputRef.current?.focus();
+        if (Platform.OS === "ios") {
+          svInputRef.current?.blur();
+          svInputRef.current?.focus();
         }
       }, 100);
     }
+  } else {
+    setIsCustomKeyboardVisible(false);
   }
-}, [showNdModal]);
+}, [showSvModal]);
 
   useEffect(() => {
     if (showNdModalcomp && ndInputRefcomp.current) {
@@ -356,52 +379,52 @@ useEffect(() => {
   }, [showNdModalcomp]);
 
   useEffect(() => {
-  if (showDModal) {
-    setIsCustomKeyboardVisible(true);
-    if (dInputRef.current) {
-      setTimeout(() => {
-        if (Platform.OS === 'ios') {
-          dInputRef.current?.blur();
-          dInputRef.current?.focus();
-        }
-      }, 100);
+    if (showDModal) {
+      setIsCustomKeyboardVisible(true);
+      if (dInputRef.current) {
+        setTimeout(() => {
+          if (Platform.OS === "ios") {
+            dInputRef.current?.blur();
+            dInputRef.current?.focus();
+          }
+        }, 100);
+      }
+    } else {
+      setIsCustomKeyboardVisible(false);
     }
-  } else {
-    setIsCustomKeyboardVisible(false);
-  }
-}, [showDModal]);
+  }, [showDModal]);
 
-useEffect(() => {
-  if (showEModal) {
-    setIsCustomKeyboardVisible(true);
-    if (eInputRef.current) {
-      setTimeout(() => {
-        if (Platform.OS === 'ios') {
-          eInputRef.current?.blur();
-          eInputRef.current?.focus();
-        }
-      }, 100);
+  useEffect(() => {
+    if (showEModal) {
+      setIsCustomKeyboardVisible(true);
+      if (eInputRef.current) {
+        setTimeout(() => {
+          if (Platform.OS === "ios") {
+            eInputRef.current?.blur();
+            eInputRef.current?.focus();
+          }
+        }, 100);
+      }
+    } else {
+      setIsCustomKeyboardVisible(false);
     }
-  } else {
-    setIsCustomKeyboardVisible(false);
-  }
-}, [showEModal]);
+  }, [showEModal]);
 
-useEffect(() => {
-  if (showExecutionModal) {
-    setIsCustomKeyboardVisible(true);
-    if (executionInputRef.current) {
-      setTimeout(() => {
-        if (Platform.OS === 'ios') {
-          executionInputRef.current?.blur();
-          executionInputRef.current?.focus();
-        }
-      }, 100);
+  useEffect(() => {
+    if (showExecutionModal) {
+      setIsCustomKeyboardVisible(true);
+      if (executionInputRef.current) {
+        setTimeout(() => {
+          if (Platform.OS === "ios") {
+            executionInputRef.current?.blur();
+            executionInputRef.current?.focus();
+          }
+        }, 100);
+      }
+    } else {
+      setIsCustomKeyboardVisible(false);
     }
-  } else {
-    setIsCustomKeyboardVisible(false);
-  }
-}, [showExecutionModal]);
+  }, [showExecutionModal]);
 
   /* Buttons un the bottom */
 
@@ -550,16 +573,13 @@ useEffect(() => {
     console.log("Selected vault from :", value);
     setVaultNumber(value.number);
     setStartValue(value.value);
-    setSv(value.value);
 
     setVaultDescription(value.description);
 
-    const newmyscore = eScore + value.value + (stickbonus ? 0.1 : 0.0) - nd;
-    setMyScore(newmyscore);
+
     updateRateGeneral(rateid, {
       vaultNumber: value.number,
       vaultDescription: value.description,
-      myScore: newmyscore,
     }).then((success) => {
       if (success) {
         console.log("Vault number and description updated successfully.");
@@ -569,12 +589,12 @@ useEffect(() => {
     });
 
     updateMainTable(gymnastid, {
-      sv: value.value,
+      e2: value.value,
     }).then((success) => {
       if (success) {
-        console.log("Vault SV updated successfully.");
+        console.log("Vault E2 updated successfully.");
       } else {
-        console.error("Failed to update vault SV.");
+        console.error("Failed to update vault E2.");
       }
     });
   };
@@ -631,25 +651,24 @@ useEffect(() => {
   }
 
   useEffect(() => {
-  if (showNdCompModal) {
-    setIsCustomKeyboardVisible(true);
-    if (ndInputRefcomp.current) {
-      setTimeout(() => {
-        if (Platform.OS === 'ios') {
-          ndInputRefcomp.current?.blur();
-          ndInputRefcomp.current?.focus();
-        }
-      }, 100);
+    if (showNdCompModal) {
+      setIsCustomKeyboardVisible(true);
+      if (ndInputRefcomp.current) {
+        setTimeout(() => {
+          if (Platform.OS === "ios") {
+            ndInputRefcomp.current?.blur();
+            ndInputRefcomp.current?.focus();
+          }
+        }, 100);
+      }
+    } else {
+      setIsCustomKeyboardVisible(false);
     }
-  } else {
-    setIsCustomKeyboardVisible(false);
-  }
-}, [showNdCompModal]);
-
+  }, [showNdCompModal]);
 
   return (
     <SafeAreaView style={styles.container}>
-{showNdCompModal && (
+      {showNdCompModal && (
   <View
     style={{
       position: "absolute",
@@ -673,65 +692,72 @@ useEffect(() => {
         marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
       }}
     >
-      
-        <TextInput
-          ref={ndInputRefcomp}
-          style={[
-            styles.infoValueText,
-            { fontSize: 40, marginBottom: 16, textAlign: "center" },
-          ]}
-          value={ndInputcomp}
-          keyboardType="phone-pad"
-          showSoftInputOnFocus={false}
-          caretHidden={Platform.OS === 'ios'}
-          onFocus={() => setIsCustomKeyboardVisible(true)}
-          selectTextOnFocus
-          onChangeText={(text) => {
-            if (/^\d*\.?\d*$/.test(text)) {
-              setNdInputcomp(text);
-            }
-          }}
-          maxLength={5}
-          autoFocus
-          editable={false}
-        />
-        <TouchableOpacity
-          style={{
-            marginTop: 10,
-            padding: 10,
-            backgroundColor: "#0052b4",
-            borderRadius: 8,
-          }}
-          onPress={() => {
-            setShowNdCompModal(false);
-            setIsCustomKeyboardVisible(false);
-            ndInputRefcomp.current?.blur();
-          }}
-        >
-          <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
-        </TouchableOpacity>
+      <TextInput
+        ref={ndInputRefcomp}
+        style={[
+          styles.infoValueText,
+          { fontSize: 40, marginBottom: 16, textAlign: "center" },
+        ]}
+        value={ndInputcomp}
+        keyboardType="phone-pad"
+        showSoftInputOnFocus={false}
+        caretHidden={Platform.OS === "ios"}
+        onFocus={() => setIsCustomKeyboardVisible(true)}
+        selectTextOnFocus
+        onChangeText={(text) => {
+          if (/^\d*\.?\d*$/.test(text)) {
+            setNdInputcomp(text);
+          }
+        }}
+        maxLength={5}
+        autoFocus
+        editable={false}
+      />
+      <TouchableOpacity
+        style={{
+          marginTop: 10,
+          padding: 10,
+          backgroundColor: "#0052b4",
+          borderRadius: 8,
+        }}
+        onPress={() => {
+          setShowNdCompModal(false);
+          setIsCustomKeyboardVisible(false);
+          ndInputRefcomp.current?.blur();
+        }}
+      >
+        <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+      </TouchableOpacity>
     </View>
-    
+
     {isCustomKeyboardVisible && (
       <SimplifiedNumberPad
         visible={isCustomKeyboardVisible}
         onNumberPress={(number) => {
-  // Verifica si todo el texto está seleccionado (primer toque)
-  if (ndInputcomp === ndcomp.toFixed(1)) {
-    setNdInputcomp(number);
-  } else {
-    let newValue = ndInputcomp;
-    if (ndInputcomp === "0" || ndInputcomp === "0.0") {
-      newValue = number;
-    } else {
-      newValue = ndInputcomp + number;
-    }
-    setNdInputcomp(newValue);
-  }
-}}
+          // If ndInputcomp equals the current ndcomp value, replace it entirely
+          if (ndInputcomp === ndcomp.toFixed(1)) {
+            setNdInputcomp(number);
+          } else {
+            let newValue = ndInputcomp;
+            if (ndInputcomp === "0" || ndInputcomp === "0.0") {
+              newValue = number;
+            } else {
+              newValue = ndInputcomp + number;
+            }
+            setNdInputcomp(newValue);
+          }
+        }}
         onDecimalPress={() => {
-          if (!ndInputcomp.includes(".")) {
-            setNdInputcomp(ndInputcomp + ".");
+          // If ndInputcomp equals the current ndcomp value (first interaction), set to "0."
+          if (ndInputcomp === ndcomp.toFixed(1)) {
+            setNdInputcomp("0.");
+          } else if (!ndInputcomp.includes(".")) {
+            // If ndInputcomp is empty, "0", or "0.0", set it to "0."
+            if (!ndInputcomp || ndInputcomp === "0" || ndInputcomp === "0.0") {
+              setNdInputcomp("0.");
+            } else {
+              setNdInputcomp(ndInputcomp + ".");
+            }
           }
         }}
         onDeletePress={() => {
@@ -746,17 +772,62 @@ useEffect(() => {
           setIsCustomKeyboardVisible(false);
         }}
         onSubmitPress={() => {
-          const num = parseFloat(ndInputcomp.replace(",", "."));
+          console.log("ndInputcomp:", ndInputcomp);
+          
+          // First check if ndInputcomp exists and is not empty
+          if (!ndInputcomp || ndInputcomp === "" || ndInputcomp === ".") {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter a ND value.",
+              [{ text: "OK" }]
+            );
+            return;
+          }
+          
+          // Handle case where input ends with "." - add "0"
+          let processedInput = ndInputcomp;
+          if (ndInputcomp.endsWith(".")) {
+            processedInput = ndInputcomp + "0";
+          }
+          
+          // Make sure processedInput is a string before using replace
+          const inputString = processedInput.toString();
+          const num = parseFloat(inputString.replace(",", "."));
+          
           if (!isNaN(num)) {
             const rounded = Math.round(num * 10) / 10;
             setndcomp(rounded);
-            
+
             const compscorecalc = d + e + (sb ? 0.1 : 0.0) - rounded;
             setScore(compscorecalc);
             updateRateGeneral(rateid, {
               compNd: rounded,
               compScore: compscorecalc,
-            });
+            })
+              .then((success) => {
+                if (success) {
+                  console.log(
+                    `Saved ndcomp = ${rounded} in MainRateGeneral.`
+                  );
+                } else {
+                  console.error(
+                    `Failed to save ndcomp in MainRateGeneral.`
+                  );
+                }
+              })
+              .catch((error) => {
+                console.error(
+                  "Error saving ndcomp to MainRateGeneral:",
+                  error
+                );
+              });
+          } else {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter a valid ND value.",
+              [{ text: "OK" }]
+            );
+            return;
           }
           setShowNdCompModal(false);
           setIsCustomKeyboardVisible(false);
@@ -766,7 +837,8 @@ useEffect(() => {
   </View>
 )}
 
-{showEModal && (
+
+{showSvModal && (
   <View
     style={{
       position: "absolute",
@@ -790,65 +862,234 @@ useEffect(() => {
         marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
       }}
     >
-      
-        <TextInput
-          ref={eInputRef}
-          style={[
-            styles.infoValueText,
-            { fontSize: 40, marginBottom: 16, textAlign: "center" },
-          ]}
-          value={eInput}
-          keyboardType="decimal-pad"
-          showSoftInputOnFocus={false}
-          caretHidden={Platform.OS === 'ios'}
-          onFocus={() => setIsCustomKeyboardVisible(true)}
-          selectTextOnFocus
-          onChangeText={(text) => {
-            if (/^\d*\.?\d*$/.test(text)) {
-              setEInput(text);
-            }
-          }}
-          maxLength={5}
-          autoFocus
-          editable={false}
-        />
-        <TouchableOpacity
-          style={{
-            marginTop: 10,
-            padding: 10,
-            backgroundColor: "#0052b4",
-            borderRadius: 8,
-          }}
-          onPress={() => {
-            setShowEModal(false);
-            setIsCustomKeyboardVisible(false);
-            eInputRef.current?.blur();
-          }}
-        >
-          <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
-        </TouchableOpacity>
+      <TextInput
+        ref={svInputRef}
+        style={[
+          styles.infoValueText,
+          { fontSize: 40, marginBottom: 16, textAlign: "center" },
+        ]}
+        value={svInput}
+        keyboardType="decimal-pad"
+        showSoftInputOnFocus={false}
+        caretHidden={Platform.OS === 'ios'}
+        onFocus={() => setIsCustomKeyboardVisible(true)}
+        selectTextOnFocus
+        onChangeText={(text) => {
+          if (/^\d*\.?\d*$/.test(text)) {
+            setSvInput(text);
+          }
+        }}
+        maxLength={5}
+        autoFocus
+        editable={false}
+      />
+      <TouchableOpacity
+        style={{
+          marginTop: 10,
+          padding: 10,
+          backgroundColor: "#0052b4",
+          borderRadius: 8,
+        }}
+        onPress={() => {
+          setShowSvModal(false);
+          setIsCustomKeyboardVisible(false);
+          svInputRef.current?.blur();
+        }}
+      >
+        <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+      </TouchableOpacity>
     </View>
     
     {isCustomKeyboardVisible && (
       <SimplifiedNumberPad
         visible={isCustomKeyboardVisible}
         onNumberPress={(number) => {
-  // Verifica si todo el texto está seleccionado (primer toque)
-  if (eInput === e.toFixed(3)) {
-    setEInput(number);
-  } else {
-    let newValue = eInput;
-    if (eInput === "0" || eInput === "0.0") {
-      newValue = number;
-    } else {
-      newValue = eInput + number;
-    }
-    setEInput(newValue);
-  }
-}}
+          // If svInput equals the current sv value, replace it entirely
+          if (svInput === sv.toFixed(1)) {
+            setSvInput(number);
+          } else {
+            let newValue = svInput;
+            if (svInput === "0" || svInput === "0.0") {
+              newValue = number;
+            } else {
+              newValue = svInput + number;
+            }
+            setSvInput(newValue);
+          }
+        }}
         onDecimalPress={() => {
-          if (!eInput.includes(".")) {
-            setEInput(eInput + ".");
+          // If svInput equals the current sv value (first interaction), set to "0."
+          if (svInput === sv.toFixed(1)) {
+            setSvInput("0.");
+          } else if (!svInput.includes(".")) {
+            // If svInput is empty, "0", or "0.0", set it to "0."
+            if (!svInput || svInput === "0" || svInput === "0.0") {
+              setSvInput("0.");
+            } else {
+              setSvInput(svInput + ".");
+            }
+          }
+        }}
+        onDeletePress={() => {
+          if (svInput.length > 0) {
+            setSvInput(svInput.slice(0, -1));
+            if (svInput.length === 1) {
+              setSvInput("0");
+            }
+          }
+        }}
+        onHidePress={() => {
+          setIsCustomKeyboardVisible(false);
+        }}
+        onSubmitPress={() => {
+          console.log("svInput:", svInput);
+          
+          // First check if svInput exists and is not empty
+          if (!svInput || svInput === "" || svInput === ".") {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter a SV value.",
+              [{ text: "OK" }]
+            );
+            return;
+          }
+          
+          // Handle case where input ends with "." - add "0"
+          let processedInput = svInput;
+          if (svInput.endsWith(".")) {
+            processedInput = svInput + "0";
+          }
+          
+          // Make sure processedInput is a string before using replace
+          const inputString = processedInput.toString();
+          const num = parseFloat(inputString.replace(",", "."));
+          
+          if (!isNaN(num)) {
+            const rounded = Math.round(num * 10) / 10;
+            setSv(rounded);
+            setStartValue(rounded);
+            const newmyscore = eScore + rounded + (stickbonus ? 0.1 : 0.0) - nd;
+            setMyScore(newmyscore);
+            
+            // Update database
+            updateRateGeneral(rateid, { myScore: newmyscore });
+            updateMainTable(gymnastid, { sv: rounded })
+              .then((success) => {
+                if (success) {
+                  console.log(`Saved sv = ${rounded} in MainTable.`);
+                } else {
+                  console.error(`Failed to save sv in MainTable.`);
+                }
+              })
+              .catch((error) => {
+                console.error("Error saving sv to MainTable:", error);
+              });
+          } else {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter a valid SV value.",
+              [{ text: "OK" }]
+            );
+            return;
+          }
+          setShowSvModal(false);
+          setIsCustomKeyboardVisible(false);
+        }}
+      />
+    )}
+  </View>
+)}
+
+      {showEModal && (
+  <View
+    style={{
+      position: "absolute",
+      left: 0,
+      right: 0,
+      zIndex: 10000,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(0,0,0,0.2)",
+      height: "105%",
+    }}
+  >
+    <View
+      style={{
+        backgroundColor: "#fff",
+        borderRadius: 16,
+        padding: 24,
+        minWidth: 250,
+        alignItems: "center",
+        elevation: 10,
+        marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
+      }}
+    >
+      <TextInput
+        ref={eInputRef}
+        style={[
+          styles.infoValueText,
+          { fontSize: 40, marginBottom: 16, textAlign: "center" },
+        ]}
+        value={eInput}
+        keyboardType="decimal-pad"
+        showSoftInputOnFocus={false}
+        caretHidden={Platform.OS === "ios"}
+        onFocus={() => setIsCustomKeyboardVisible(true)}
+        selectTextOnFocus
+        onChangeText={(text) => {
+          if (/^\d*\.?\d*$/.test(text)) {
+            setEInput(text);
+          }
+        }}
+        maxLength={5}
+        autoFocus
+        editable={false}
+      />
+      <TouchableOpacity
+        style={{
+          marginTop: 10,
+          padding: 10,
+          backgroundColor: "#0052b4",
+          borderRadius: 8,
+        }}
+        onPress={() => {
+          setShowEModal(false);
+          setIsCustomKeyboardVisible(false);
+          eInputRef.current?.blur();
+        }}
+      >
+        <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+      </TouchableOpacity>
+    </View>
+
+    {isCustomKeyboardVisible && (
+      <SimplifiedNumberPad
+        visible={isCustomKeyboardVisible}
+        onNumberPress={(number) => {
+          // If eInput equals the current e value, replace it entirely
+          if (eInput === e.toFixed(3)) {
+            setEInput(number);
+          } else {
+            let newValue = eInput;
+            if (eInput === "0" || eInput === "0.0") {
+              newValue = number;
+            } else {
+              newValue = eInput + number;
+            }
+            setEInput(newValue);
+          }
+        }}
+        onDecimalPress={() => {
+          // If eInput equals the current e value (first interaction), set to "0."
+          if (eInput === e.toFixed(3)) {
+            setEInput("0.");
+          } else if (!eInput.includes(".")) {
+            // If eInput is empty, "0", or "0.0", set it to "0."
+            if (!eInput || eInput === "0" || eInput === "0.0") {
+              setEInput("0.");
+            } else {
+              setEInput(eInput + ".");
+            }
           }
         }}
         onDeletePress={() => {
@@ -863,7 +1104,28 @@ useEffect(() => {
           setIsCustomKeyboardVisible(false);
         }}
         onSubmitPress={() => {
-          const num = parseFloat(eInput.replace(",", "."));
+          console.log("eInput:", eInput);
+          
+          // First check if eInput exists and is not empty
+          if (!eInput || eInput === "" || eInput === ".") {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter an E value.",
+              [{ text: "OK" }]
+            );
+            return;
+          }
+          
+          // Handle case where input ends with "." - add "0"
+          let processedInput = eInput;
+          if (eInput.endsWith(".")) {
+            processedInput = eInput + "0";
+          }
+          
+          // Make sure processedInput is a string before using replace
+          const inputString = processedInput.toString();
+          const num = parseFloat(inputString.replace(",", "."));
+          
           if (!isNaN(num)) {
             const rounded = Math.round(num * 1000) / 1000;
             setE(rounded);
@@ -876,12 +1138,12 @@ useEffect(() => {
               Math.round((eScore - rounded) * 10) / 10
             );
             setDelt(newdelt);
-            
+
             const newded = 10 - rounded;
-            setSetded(Number(newded.toFixed(1)));
-            
+            setSetded(Number(newded));
+
             const dedInterval = getDeductionIntervalValue(
-              Number(newded.toFixed(1))
+              Number(newded)
             );
             const percentageValue = getPercentageFromTable(
               dedInterval,
@@ -900,6 +1162,13 @@ useEffect(() => {
               compScore: compscorecalc,
               ded: newded,
             });
+          } else {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter a valid E value.",
+              [{ text: "OK" }]
+            );
+            return;
           }
           setShowEModal(false);
           setIsCustomKeyboardVisible(false);
@@ -909,7 +1178,7 @@ useEffect(() => {
   </View>
 )}
 
-{showDModal && (
+      {showDModal && (
   <View
     style={{
       position: "absolute",
@@ -933,65 +1202,72 @@ useEffect(() => {
         marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
       }}
     >
-      
-        <TextInput
-          ref={dInputRef}
-          style={[
-            styles.infoValueText,
-            { fontSize: 40, marginBottom: 16, textAlign: "center" },
-          ]}
-          value={dInput}
-          keyboardType="decimal-pad"
-          showSoftInputOnFocus={false}
-caretHidden={Platform.OS === 'ios'}
-          onFocus={() => setIsCustomKeyboardVisible(true)}
-          selectTextOnFocus
-          onChangeText={(text) => {
-            if (/^\d*\.?\d*$/.test(text)) {
-              setDInput(text);
-            }
-          }}
-          maxLength={5}
-          autoFocus
-          editable={false}
-        />
-        <TouchableOpacity
-          style={{
-            marginTop: 10,
-            padding: 10,
-            backgroundColor: "#0052b4",
-            borderRadius: 8,
-          }}
-          onPress={() => {
-            setShowDModal(false);
-            setIsCustomKeyboardVisible(false);
-            dInputRef.current?.blur();
-          }}
-        >
-          <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
-        </TouchableOpacity>
+      <TextInput
+        ref={dInputRef}
+        style={[
+          styles.infoValueText,
+          { fontSize: 40, marginBottom: 16, textAlign: "center" },
+        ]}
+        value={dInput}
+        keyboardType="decimal-pad"
+        showSoftInputOnFocus={false}
+        caretHidden={Platform.OS === 'ios'}
+        onFocus={() => setIsCustomKeyboardVisible(true)}
+        selectTextOnFocus
+        onChangeText={(text) => {
+          if (/^\d*\.?\d*$/.test(text)) {
+            setDInput(text);
+          }
+        }}
+        maxLength={5}
+        autoFocus
+        editable={false}
+      />
+      <TouchableOpacity
+        style={{
+          marginTop: 10,
+          padding: 10,
+          backgroundColor: "#0052b4",
+          borderRadius: 8,
+        }}
+        onPress={() => {
+          setShowDModal(false);
+          setIsCustomKeyboardVisible(false);
+          dInputRef.current?.blur();
+        }}
+      >
+        <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+      </TouchableOpacity>
     </View>
-    
+
     {isCustomKeyboardVisible && (
       <SimplifiedNumberPad
         visible={isCustomKeyboardVisible}
         onNumberPress={(number) => {
-  // Verifica si todo el texto está seleccionado (primer toque)
-  if (dInput === d.toFixed(1)) {
-    setDInput(number);
-  } else {
-    let newValue = dInput;
-    if (dInput === "0" || dInput === "0.0") {
-      newValue = number;
-    } else {
-      newValue = dInput + number;
-    }
-    setDInput(newValue);
-  }
-}}
+          // If dInput equals the current d value, replace it entirely
+          if (dInput === d.toFixed(1)) {
+            setDInput(number);
+          } else {
+            let newValue = dInput;
+            if (dInput === "0" || dInput === "0.0") {
+              newValue = number;
+            } else {
+              newValue = dInput + number;
+            }
+            setDInput(newValue);
+          }
+        }}
         onDecimalPress={() => {
-          if (!dInput.includes(".")) {
-            setDInput(dInput + ".");
+          // If dInput equals the current d value (first interaction), set to "0."
+          if (dInput === d.toFixed(1)) {
+            setDInput("0.");
+          } else if (!dInput.includes(".")) {
+            // If dInput is empty, "0", or "0.0", set it to "0."
+            if (!dInput || dInput === "0" || dInput === "0.0") {
+              setDInput("0.");
+            } else {
+              setDInput(dInput + ".");
+            }
           }
         }}
         onDeletePress={() => {
@@ -1006,7 +1282,28 @@ caretHidden={Platform.OS === 'ios'}
           setIsCustomKeyboardVisible(false);
         }}
         onSubmitPress={() => {
-          const num = parseFloat(dInput.replace(",", "."));
+          console.log("dInput:", dInput);
+          
+          // First check if dInput exists and is not empty
+          if (!dInput || dInput === "" || dInput === ".") {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter a D value.",
+              [{ text: "OK" }]
+            );
+            return;
+          }
+          
+          // Handle case where input ends with "." - add "0"
+          let processedInput = dInput;
+          if (dInput.endsWith(".")) {
+            processedInput = dInput + "0";
+          }
+          
+          // Make sure processedInput is a string before using replace
+          const inputString = processedInput.toString();
+          const num = parseFloat(inputString.replace(",", "."));
+          
           if (!isNaN(num)) {
             const rounded = Math.round(num * 10) / 10;
             setD(rounded);
@@ -1017,6 +1314,13 @@ caretHidden={Platform.OS === 'ios'}
               compD: rounded,
               compScore: compscorecalc,
             });
+          } else {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter a valid D value.",
+              [{ text: "OK" }]
+            );
+            return;
           }
           setShowDModal(false);
           setIsCustomKeyboardVisible(false);
@@ -1025,6 +1329,7 @@ caretHidden={Platform.OS === 'ios'}
     )}
   </View>
 )}
+
 
 {showExecutionModal && (
   <View
@@ -1050,66 +1355,73 @@ caretHidden={Platform.OS === 'ios'}
         marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
       }}
     >
-      
-        <TextInput
-          ref={executionInputRef}
-          style={[
-            styles.infoValueText,
-            { fontSize: 40, marginBottom: 16, textAlign: "center" },
-          ]}
-          value={executionInput}
-          keyboardType="number-pad"
-          showSoftInputOnFocus={false}
-caretHidden={Platform.OS === 'ios'}
-          onFocus={() => setIsCustomKeyboardVisible(true)}
-          selectTextOnFocus
-          onChangeText={(text) => {
-            if (/^\d*\.?\d*$/.test(text)) {
-              setExecutionInput(text);
-            }
-          }}
-          maxLength={5}
-          autoFocus
-          editable={false}
-        />
-        <TouchableOpacity
-          style={{
-            marginTop: 10,
-            padding: 10,
-            backgroundColor: "#0052b4",
-            borderRadius: 8,
-          }}
-          onPress={() => {
-            setShowExecutionModal(false);
-            setIsCustomKeyboardVisible(false);
-            executionInputRef.current?.blur();
-          }}
-        >
-          <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
-        </TouchableOpacity>
+      <TextInput
+        ref={executionInputRef}
+        style={[
+          styles.infoValueText,
+          { fontSize: 40, marginBottom: 16, textAlign: "center" },
+        ]}
+        value={executionInput}
+        keyboardType="number-pad"
+        showSoftInputOnFocus={false}
+        caretHidden={Platform.OS === 'ios'}
+        onFocus={() => setIsCustomKeyboardVisible(true)}
+        selectTextOnFocus
+        onChangeText={(text) => {
+          if (/^\d*\.?\d*$/.test(text)) {
+            setExecutionInput(text);
+          }
+        }}
+        maxLength={5}
+        autoFocus
+        editable={false}
+      />
+      <TouchableOpacity
+        style={{
+          marginTop: 10,
+          padding: 10,
+          backgroundColor: "#0052b4",
+          borderRadius: 8,
+        }}
+        onPress={() => {
+          setShowExecutionModal(false);
+          setIsCustomKeyboardVisible(false);
+          executionInputRef.current?.blur();
+        }}
+      >
+        <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+      </TouchableOpacity>
     </View>
-    
+
     {/* Teclado personalizado */}
     {isCustomKeyboardVisible && (
       <SimplifiedNumberPad
         visible={isCustomKeyboardVisible}
         onNumberPress={(number) => {
-  // Verifica si todo el texto está seleccionado (primer toque)
-  if (executionInput === execution.toFixed(1)) {
-    setExecutionInput(number);
-  } else {
-    let newValue = executionInput;
-    if (executionInput === "0" || executionInput === "0.0") {
-      newValue = number;
-    } else {
-      newValue = executionInput + number;
-    }
-    setExecutionInput(newValue);
-  }
-}}
+          // If executionInput equals the current execution value, replace it entirely
+          if (executionInput === execution.toFixed(1)) {
+            setExecutionInput(number);
+          } else {
+            let newValue = executionInput;
+            if (executionInput === "0" || executionInput === "0.0") {
+              newValue = number;
+            } else {
+              newValue = executionInput + number;
+            }
+            setExecutionInput(newValue);
+          }
+        }}
         onDecimalPress={() => {
-          if (!executionInput.includes(".")) {
-            setExecutionInput(executionInput + ".");
+          // If executionInput equals the current execution value (first interaction), set to "0."
+          if (executionInput === execution.toFixed(1)) {
+            setExecutionInput("0.");
+          } else if (!executionInput.includes(".")) {
+            // If executionInput is empty, "0", or "0.0", set it to "0."
+            if (!executionInput || executionInput === "0" || executionInput === "0.0") {
+              setExecutionInput("0.");
+            } else {
+              setExecutionInput(executionInput + ".");
+            }
           }
         }}
         onDeletePress={() => {
@@ -1124,13 +1436,34 @@ caretHidden={Platform.OS === 'ios'}
           setIsCustomKeyboardVisible(false);
         }}
         onSubmitPress={() => {
-          // Parse y actualizar solo al cerrar
-          const num = parseFloat(executionInput.replace(",", "."));
+          console.log("executionInput:", executionInput);
+          
+          // First check if executionInput exists and is not empty
+          if (!executionInput || executionInput === "" || executionInput === ".") {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter an Execution value.",
+              [{ text: "OK" }]
+            );
+            return;
+          }
+          
+          // Handle case where input ends with "." - add "0"
+          let processedInput = executionInput;
+          if (executionInput.endsWith(".")) {
+            processedInput = executionInput + "0";
+          }
+          
+          // Make sure processedInput is a string before using replace
+          const inputString = processedInput.toString();
+          const num = parseFloat(inputString.replace(",", "."));
+          
           if (!isNaN(num)) {
             const rounded = Math.round(num * 10) / 10;
             setExecution(rounded);
             const eScore = Number((10 - rounded).toFixed(3));
-            const newmyscore = eScore + sv + (stickbonus ? 0.1 : 0.0) - nd;
+            const newmyscore =
+              eScore + sv + (stickbonus ? 0.1 : 0.0) - nd;
             setMyScore(newmyscore);
 
             /* Lógica de delt existente */
@@ -1138,10 +1471,15 @@ caretHidden={Platform.OS === 'ios'}
             setDelt(newdelt);
 
             const newded = 10 - e;
-            setSetded(Number(newded.toFixed(1)));
+            setSetded(Number(newded));
 
-            const dedInterval = getDeductionIntervalValue(Number(newded.toFixed(1)));
-            const percentageValue = getPercentageFromTable(dedInterval, newdelt);
+            const dedInterval = getDeductionIntervalValue(
+              Number(newded)
+            );
+            const percentageValue = getPercentageFromTable(
+              dedInterval,
+              newdelt
+            );
             setpercentage(percentageValue);
 
             updateMainTable(gymnastid, {
@@ -1155,6 +1493,13 @@ caretHidden={Platform.OS === 'ios'}
               eScore,
               myScore: newmyscore,
             });
+          } else {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter a valid Execution value.",
+              [{ text: "OK" }]
+            );
+            return;
           }
           setShowExecutionModal(false);
           setIsCustomKeyboardVisible(false);
@@ -1286,7 +1631,6 @@ caretHidden={Platform.OS === 'ios'}
         marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
       }}
     >
-
       <TextInput
         ref={ndInputRef}
         style={[
@@ -1296,7 +1640,7 @@ caretHidden={Platform.OS === 'ios'}
         value={ndInput}
         keyboardType="phone-pad"
         showSoftInputOnFocus={false}
-caretHidden={Platform.OS === 'ios'}
+        caretHidden={Platform.OS === 'ios'}
         onFocus={() => setIsCustomKeyboardVisible(true)}
         selectTextOnFocus
         onChangeText={(text) => {
@@ -1316,40 +1660,43 @@ caretHidden={Platform.OS === 'ios'}
           borderRadius: 8,
         }}
         onPress={() => {
-          // Tu lógica existente de onPress
-  // Tu lógica existente...
-  setShowNdModal(false);
-  setIsCustomKeyboardVisible(false);
-  // Asegúrate de quitar el enfoque
-  ndInputRef.current?.blur();
+          setShowNdModal(false);
+          setIsCustomKeyboardVisible(false);
+          ndInputRef.current?.blur();
         }}
       >
         <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
       </TouchableOpacity>
-
     </View>
     
-    {/* Añadir el teclado personalizado */}
     {isCustomKeyboardVisible && (
       <SimplifiedNumberPad
         visible={isCustomKeyboardVisible}
         onNumberPress={(number) => {
-  // Verifica si todo el texto está seleccionado (primer toque)
-  if (ndInput === nd.toFixed(1)) {
-    setNdInput(number);
-  } else {
-    let newValue = ndInput;
-    if (ndInput === "0" || ndInput === "0.0") {
-      newValue = number;
-    } else {
-      newValue = ndInput + number;
-    }
-    setNdInput(newValue);
-  }
-}}
+          // If ndInput equals the current nd value, replace it entirely
+          if (ndInput === nd.toFixed(1)) {
+            setNdInput(number);
+          } else {
+            let newValue = ndInput;
+            if (ndInput === "0" || ndInput === "0.0") {
+              newValue = number;
+            } else {
+              newValue = ndInput + number;
+            }
+            setNdInput(newValue);
+          }
+        }}
         onDecimalPress={() => {
-          if (!ndInput.includes(".")) {
-            setNdInput(ndInput + ".");
+          // If ndInput equals the current nd value (first interaction), set to "0."
+          if (ndInput === nd.toFixed(1)) {
+            setNdInput("0.");
+          } else if (!ndInput.includes(".")) {
+            // If ndInput is empty, "0", or "0.0", set it to "0."
+            if (!ndInput || ndInput === "0" || ndInput === "0.0") {
+              setNdInput("0.");
+            } else {
+              setNdInput(ndInput + ".");
+            }
           }
         }}
         onDeletePress={() => {
@@ -1364,8 +1711,28 @@ caretHidden={Platform.OS === 'ios'}
           setIsCustomKeyboardVisible(false);
         }}
         onSubmitPress={() => {
-          // Obtener el valor actual y procesarlo
-          const num = parseFloat(ndInput.replace(",", "."));
+          console.log("ndInput:", ndInput);
+          
+          // First check if ndInput exists and is not empty
+          if (!ndInput || ndInput === "" || ndInput === ".") {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter a ND value.",
+              [{ text: "OK" }]
+            );
+            return;
+          }
+          
+          // Handle case where input ends with "." - add "0"
+          let processedInput = ndInput;
+          if (ndInput.endsWith(".")) {
+            processedInput = ndInput + "0";
+          }
+          
+          // Make sure processedInput is a string before using replace
+          const inputString = processedInput.toString();
+          const num = parseFloat(inputString.replace(",", "."));
+          
           if (!isNaN(num)) {
             const rounded = Math.round(num * 10) / 10;
             setNd(rounded);
@@ -1373,7 +1740,7 @@ caretHidden={Platform.OS === 'ios'}
             setMyScore(newmyscore);
             updateRateGeneral(rateid, { myScore: newmyscore });
             
-            // Guardar en la base de datos
+            // Save to database
             updateMainTable(gymnastid, { nd: rounded })
               .then((success) => {
                 if (success) {
@@ -1385,6 +1752,13 @@ caretHidden={Platform.OS === 'ios'}
               .catch((error) => {
                 console.error("Error saving nd to MainTable:", error);
               });
+          } else {
+            Alert.alert(
+              "Invalid Input",
+              "Please enter a valid ND value.",
+              [{ text: "OK" }]
+            );
+            return;
           }
           setShowNdModal(false);
           setIsCustomKeyboardVisible(false);
@@ -1431,7 +1805,8 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.vaultNumbersCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.cellHeaderText : null,
+                  isLargeDevice ? styles.cellHeaderTextLarge : null,
+                  isMediumLargeDevice ? styles.cellHeaderTextMediumLarge : null,
                   isSmallDevice ? styles.cellHeaderTextSmall : null,
                   isTinyDevice ? styles.cellHeaderTextTiny : null,
                 ]}
@@ -1442,7 +1817,8 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.svValueCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.cellHeaderText : null,
+                  isLargeDevice ? styles.cellHeaderTextLarge : null,
+                  isMediumLargeDevice ? styles.cellHeaderTextMediumLarge : null,
                   isSmallDevice ? styles.cellHeaderTextSmall : null,
                   isTinyDevice ? styles.cellHeaderTextTiny : null,
                 ]}
@@ -1453,7 +1829,8 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.ndCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.cellHeaderText : null,
+                  isLargeDevice ? styles.cellHeaderTextLarge : null,
+                  isMediumLargeDevice ? styles.cellHeaderTextMediumLarge : null,
                   isSmallDevice ? styles.cellHeaderTextSmall : null,
                   isTinyDevice ? styles.cellHeaderTextTiny : null,
                 ]}
@@ -1464,7 +1841,8 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.sbCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.cellHeaderText : null,
+                  isLargeDevice ? styles.cellHeaderTextLarge : null,
+                  isMediumLargeDevice ? styles.cellHeaderTextMediumLarge : null,
                   isSmallDevice ? styles.cellHeaderTextSmall : null,
                   isTinyDevice ? styles.cellHeaderTextTiny : null,
                 ]}
@@ -1475,7 +1853,8 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.executionCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.cellHeaderText : null,
+                  isLargeDevice ? styles.cellHeaderTextLarge : null,
+                  isMediumLargeDevice ? styles.cellHeaderTextMediumLarge : null,
                   isSmallDevice ? styles.cellHeaderTextSmall : null,
                   isTinyDevice ? styles.cellHeaderTextTiny : null,
                 ]}
@@ -1486,7 +1865,8 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.myScoreCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.cellHeaderText : null,
+                  isLargeDevice ? styles.cellHeaderTextLarge : null,
+                  isMediumLargeDevice ? styles.cellHeaderTextMediumLarge : null,
                   isSmallDevice ? styles.cellHeaderTextSmall : null,
                   isTinyDevice ? styles.cellHeaderTextTiny : null,
                 ]}
@@ -1501,7 +1881,8 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.vaultValueCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.vaultValueText : null,
+                  isLargeDevice ? styles.vaultValueTextLarge : null,
+                  isMediumLargeDevice ? styles.vaultValueTextMediumLarge : null,
                   isSmallDevice ? styles.vaultValueTextSmall : null,
                   isTinyDevice ? styles.vaultValueTextTiny : null,
                 ]}
@@ -1509,43 +1890,60 @@ caretHidden={Platform.OS === 'ios'}
                 {vaultnumber}
               </Text>
             </View>
-            <View
-              style={[
-                styles.emptyBlueCell,
-                { width: isLargeDevice ? 210 : isSmallDevice ? 160 : 110 },
-              ]}
-            >
-              <Text
-                style={[
-                  isLargeDevice ? styles.svValueText : null,
-                  isSmallDevice ? styles.svValueTextSmall : null,
-                  isTinyDevice ? styles.svValueTextTiny : null,
-                ]}
-              >
-                {sv}
-              </Text>
-            </View>
             <TouchableOpacity
-              style={styles.ndValueCell}
-              onPress={() => {
-                setNdInput(nd.toFixed(1)); // Set value BEFORE opening modal
-                setShowNdModal(true);
-              }}
-            >
-              <Text
-                style={[
-                  isLargeDevice ? styles.valueText : null,
-                  isSmallDevice ? styles.valueTextSmall : null,
-                  isTinyDevice ? styles.valueTextTiny : null,
-                ]}
-              >
-                {nd.toFixed(1)}
-              </Text>
-            </TouchableOpacity>
+  style={[
+    styles.emptyBlueCell,
+    {
+      width: isLargeDevice
+        ? 210
+        : isMediumLargeDevice
+        ? 180
+        : isSmallDevice
+        ? 160
+        : 110,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+  ]}
+  onPress={() => {
+    setSvInput(sv.toFixed(1)); // Set current value before opening modal
+    setShowSvModal(true);
+  }}
+>
+  <Text
+    style={[
+      isLargeDevice ? styles.svValueTextLarge : null,
+      isMediumLargeDevice ? styles.svValueTextMediumLarge : null,
+      isSmallDevice ? styles.svValueTextSmall : null,
+      isTinyDevice ? styles.svValueTextTiny : null,
+    ]}
+  >
+    {sv.toFixed(1)}
+  </Text>
+</TouchableOpacity>
+            <TouchableOpacity
+  style={styles.ndValueCell}
+  onPress={() => {
+    setNdInput(nd.toFixed(1)); // Set current value before opening modal
+    setShowNdModal(true);
+  }}
+>
+  <Text
+    style={[
+      isLargeDevice ? styles.valueTextLarge : null,
+      isMediumLargeDevice ? styles.valueTextMediumLarge : null,
+      isSmallDevice ? styles.valueTextSmall : null,
+      isTinyDevice ? styles.valueTextTiny : null,
+    ]}
+  >
+    {nd.toFixed(1)}
+  </Text>
+</TouchableOpacity>
             <View style={styles.sbValueCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.valueText : null,
+                  isLargeDevice ? styles.valueTextLarge : null,
+                  isMediumLargeDevice ? styles.valueTextMediumLarge : null,
                   isSmallDevice ? styles.valueTextSmall : null,
                   isTinyDevice ? styles.valueTextTiny : null,
                 ]}
@@ -1557,32 +1955,45 @@ caretHidden={Platform.OS === 'ios'}
               <View style={styles.executionValueCell}>
                 <Text
                   style={[
-                    isLargeDevice ? styles.valueText : null,
+                    isLargeDevice ? styles.valueTextLarge : null,
+                    isMediumLargeDevice ? styles.valueTextMediumLarge : null,
                     isSmallDevice ? styles.valueTextSmall : null,
                     isTinyDevice ? styles.valueTextTiny : null,
                   ]}
                 >
                   <TouchableOpacity
-                    onPress={() => {
-                      setExecutionInput(execution.toFixed(1)); // Set value BEFORE opening modal
-                      setShowExecutionModal(true);
-                    }}
-                  >
-                    <Text style={styles.infoValueText}>
-                      {execution.toFixed(1)}
-                    </Text>
-                  </TouchableOpacity>
+  onPress={() => {
+    setExecutionInput(execution.toFixed(1)); // Set current value before opening modal
+    setShowExecutionModal(true);
+  }}
+>
+  <Text style={styles.infoValueText}>
+    {execution.toFixed(1)}
+  </Text>
+</TouchableOpacity>
                 </Text>
               </View>
               <View style={styles.executionValueCell}>
                 <Text
                   style={[
-                    isLargeDevice ? styles.valueText : null,
+                    isLargeDevice ? styles.valueTextLarge : null,
+                    isMediumLargeDevice ? styles.valueTextMediumLarge : null,
                     isSmallDevice ? styles.valueTextSmall : null,
                     isTinyDevice ? styles.valueTextTiny : null,
                   ]}
                 >
-                  <Text style={styles.scoreValueText}>{eScore.toFixed(3)}</Text>
+                  <Text
+                    style={[
+                      isLargeDevice ? styles.scoreValueTextLarge : null,
+                      isMediumLargeDevice
+                        ? styles.scoreValueTextMediumLarge
+                        : null,
+                      isSmallDevice ? styles.scoreValueTextSmall : null,
+                      isTinyDevice ? styles.scoreValueTextTiny : null,
+                    ]}
+                  >
+                    {eScore.toFixed(3)}
+                  </Text>
                 </Text>
               </View>
             </View>
@@ -1590,7 +2001,8 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.myScoreValueCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.scoreValueText : null,
+                  isLargeDevice ? styles.scoreValueTextLarge : null,
+                  isMediumLargeDevice ? styles.scoreValueTextMediumLarge : null,
                   isSmallDevice ? styles.scoreValueTextSmall : null,
                   isTinyDevice ? styles.scoreValueTextTiny : null,
                 ]}
@@ -1605,7 +2017,8 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.startValueCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.cellHeaderText : null,
+                  isLargeDevice ? styles.cellHeaderTextLarge : null,
+                  isMediumLargeDevice ? styles.cellHeaderTextMediumLarge : null,
                   isSmallDevice ? styles.cellHeaderTextSmall : null,
                   isTinyDevice ? styles.cellHeaderTextTiny : null,
                 ]}
@@ -1616,7 +2029,8 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.descriptionCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.cellHeaderText : null,
+                  isLargeDevice ? styles.cellHeaderTextLarge : null,
+                  isMediumLargeDevice ? styles.cellHeaderTextMediumLarge : null,
                   isSmallDevice ? styles.cellHeaderTextSmall : null,
                   isTinyDevice ? styles.cellHeaderTextTiny : null,
                 ]}
@@ -1627,7 +2041,10 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.compDeductionHeaderCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.compDeductionText : null,
+                  isLargeDevice ? styles.compDeductionTextLarge : null,
+                  isMediumLargeDevice
+                    ? styles.compDeductionTextMediumLarge
+                    : null,
                   isSmallDevice ? styles.compDeductionTextSmall : null,
                   isTinyDevice ? styles.compDeductionTextTiny : null,
                 ]}
@@ -1636,7 +2053,10 @@ caretHidden={Platform.OS === 'ios'}
               </Text>
               <Text
                 style={[
-                  isLargeDevice ? styles.compDeductionText : null,
+                  isLargeDevice ? styles.compDeductionTextLarge : null,
+                  isMediumLargeDevice
+                    ? styles.compDeductionTextMediumLarge
+                    : null,
                   isSmallDevice ? styles.compDeductionTextSmall : null,
                   isTinyDevice ? styles.compDeductionTextTiny : null,
                 ]}
@@ -1647,7 +2067,8 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.dCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.smallCellText : null,
+                  isLargeDevice ? styles.smallCellTextLarge : null,
+                  isMediumLargeDevice ? styles.smallCellTextMediumLarge : null,
                   isSmallDevice ? styles.smallCellTextSmall : null,
                   isTinyDevice ? styles.smallCellTextTiny : null,
                 ]}
@@ -1658,33 +2079,36 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.dValueCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.smallValueText : null,
+                  isLargeDevice ? styles.smallValueTextLarge : null,
+                  isMediumLargeDevice ? styles.smallValueTextMediumLarge : null,
                   isSmallDevice ? styles.smallValueTextSmall : null,
                   isTinyDevice ? styles.smallValueTextTiny : null,
                 ]}
               >
                 <TouchableOpacity
-                  onPress={() => {
-                    setDInput(d.toFixed(1)); // Set value BEFORE opening modal
-                    setShowDModal(true);
-                  }}
-                >
-                  <Text
-                    style={[
-                      isLargeDevice ? styles.dValueText : null,
-                      isSmallDevice ? styles.dValueTextSmall : null,
-                      isTinyDevice ? styles.dValueTextTiny : null,
-                    ]}
-                  >
-                    {d.toFixed(1)}
-                  </Text>
-                </TouchableOpacity>
+  onPress={() => {
+    setDInput(d.toFixed(1)); // Set current value before opening modal
+    setShowDModal(true);
+  }}
+>
+  <Text
+    style={[
+      isLargeDevice ? styles.dValueTextLarge : null,
+      isMediumLargeDevice ? styles.dValueTextMediumLarge : null,
+      isSmallDevice ? styles.dValueTextSmall : null,
+      isTinyDevice ? styles.dValueTextTiny : null,
+    ]}
+  >
+    {d.toFixed(1)}
+  </Text>
+</TouchableOpacity>
               </Text>
             </View>
             <View style={styles.eCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.smallCellText : null,
+                  isLargeDevice ? styles.smallCellTextLarge : null,
+                  isMediumLargeDevice ? styles.smallCellTextMediumLarge : null,
                   isSmallDevice ? styles.smallCellTextSmall : null,
                   isTinyDevice ? styles.smallCellTextTiny : null,
                 ]}
@@ -1695,33 +2119,36 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.eValueCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.smallValueText : null,
+                  isLargeDevice ? styles.smallValueTextLarge : null,
+                  isMediumLargeDevice ? styles.smallValueTextMediumLarge : null,
                   isSmallDevice ? styles.smallValueTextSmall : null,
                   isTinyDevice ? styles.smallValueTextTiny : null,
                 ]}
               >
                 <TouchableOpacity
-                  onPress={() => {
-                    setEInput(e.toFixed(3)); // Set value BEFORE opening modal
-                    setShowEModal(true);
-                  }}
-                >
-                  <Text
-                    style={[
-                      isLargeDevice ? styles.eValueText : null,
-                      isSmallDevice ? styles.eValueTextSmall : null,
-                      isTinyDevice ? styles.eValueTextTiny : null,
-                    ]}
-                  >
-                    {e.toFixed(3)}
-                  </Text>
-                </TouchableOpacity>
+  onPress={() => {
+    setEInput(e.toFixed(3)); // Set current value before opening modal
+    setShowEModal(true);
+  }}
+>
+  <Text
+    style={[
+      isLargeDevice ? styles.eValueTextLarge : null,
+      isMediumLargeDevice ? styles.eValueTextMediumLarge : null,
+      isSmallDevice ? styles.eValueTextSmall : null,
+      isTinyDevice ? styles.eValueTextTiny : null,
+    ]}
+  >
+    {e.toFixed(3)}
+  </Text>
+</TouchableOpacity>
               </Text>
             </View>
             <View style={styles.sdCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.smallCellText : null,
+                  isLargeDevice ? styles.smallCellTextLarge : null,
+                  isMediumLargeDevice ? styles.smallCellTextMediumLarge : null,
                   isSmallDevice ? styles.smallCellTextSmall : null,
                   isTinyDevice ? styles.smallCellTextTiny : null,
                 ]}
@@ -1732,7 +2159,8 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.sdValueCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.smallValueText : null,
+                  isLargeDevice ? styles.smallValueTextLarge : null,
+                  isMediumLargeDevice ? styles.smallValueTextMediumLarge : null,
                   isSmallDevice ? styles.smallValueTextSmall : null,
                   isTinyDevice ? styles.smallValueTextTiny : null,
                 ]}
@@ -1741,38 +2169,21 @@ caretHidden={Platform.OS === 'ios'}
                   onPress={() => {
                     const newValue = !sb;
                     setSb(newValue);
-                    // Save to database if needed
                     const compscorecalc =
                       d + e + (newValue ? 0.1 : 0.0) - ndcomp;
                     setScore(compscorecalc);
                     updateRateGeneral(rateid, {
                       compSd: newValue ? 0.1 : 0.0,
                       compScore: compscorecalc,
-                    })
-                      .then((success) => {
-                        if (success) {
-                          console.log(
-                            `Saved SB = ${
-                              newValue ? "0.1" : "0.0"
-                            } in MainRateGeneral.`
-                          );
-                        } else {
-                          console.error(
-                            `Failed to save SB in MainRateGeneral.`
-                          );
-                        }
-                      })
-                      .catch((error) => {
-                        console.error(
-                          "Error saving SB to MainRateGeneral:",
-                          error
-                        );
-                      });
+                    });
                   }}
                 >
                   <Text
                     style={[
-                      isLargeDevice ? styles.sdValueText : null,
+                      isLargeDevice ? styles.sdValueTextLarge : null,
+                      isMediumLargeDevice
+                        ? styles.sdValueTextMediumLarge
+                        : null,
                       isSmallDevice ? styles.sdValueTextSmall : null,
                       isTinyDevice ? styles.sdValueTextTiny : null,
                     ]}
@@ -1785,7 +2196,8 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.ndDeductionCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.smallCellText : null,
+                  isLargeDevice ? styles.smallCellTextLarge : null,
+                  isMediumLargeDevice ? styles.smallCellTextMediumLarge : null,
                   isSmallDevice ? styles.smallCellTextSmall : null,
                   isTinyDevice ? styles.smallCellTextTiny : null,
                 ]}
@@ -1796,33 +2208,40 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.ndDeductionValueCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.smallValueText : null,
+                  isLargeDevice ? styles.smallValueTextLarge : null,
+                  isMediumLargeDevice ? styles.smallValueTextMediumLarge : null,
                   isSmallDevice ? styles.smallValueTextSmall : null,
                   isTinyDevice ? styles.smallValueTextTiny : null,
                 ]}
               >
                 <TouchableOpacity
-                  onPress={() => {
-                    setNdInputcomp(ndcomp.toFixed(1)); // Set value BEFORE opening modal
-                    setShowNdCompModal(true); // Open the ND COMP modal
-                  }}
-                >
-                  <Text
-                    style={[
-                      isLargeDevice ? styles.ndValueText : null,
-                      isSmallDevice ? styles.ndValueTextSmall : null,
-                      isTinyDevice ? styles.ndValueTextTiny : null,
-                    ]}
-                  >
-                    {ndcomp.toFixed(1)}
-                  </Text>
-                </TouchableOpacity>
+  onPress={() => {
+    setNdInputcomp(ndcomp.toFixed(1)); // Set current value before opening modal
+    setShowNdCompModal(true);
+  }}
+>
+  <Text
+    style={[
+      isLargeDevice ? styles.ndValueTextLarge : null,
+      isMediumLargeDevice
+        ? styles.ndValueTextMediumLarge
+        : null,
+      isSmallDevice ? styles.ndValueTextSmall : null,
+      isTinyDevice ? styles.ndValueTextTiny : null,
+    ]}
+  >
+    {ndcomp.toFixed(1)}
+  </Text>
+</TouchableOpacity>
               </Text>
             </View>
             <View style={styles.scoreHeaderCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.ScoresmallCellText : null,
+                  isLargeDevice ? styles.ScoresmallCellTextLarge : null,
+                  isMediumLargeDevice
+                    ? styles.ScoresmallCellTextMediumLarge
+                    : null,
                   isSmallDevice ? styles.ScoresmallCellTextSmall : null,
                   isTinyDevice ? styles.ScoresmallCellTextTiny : null,
                 ]}
@@ -1833,7 +2252,8 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.scoreTotalCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.smallValueText : null,
+                  isLargeDevice ? styles.smallValueTextLarge : null,
+                  isMediumLargeDevice ? styles.smallValueTextMediumLarge : null,
                   isSmallDevice ? styles.smallValueTextSmall : null,
                   isTinyDevice ? styles.smallValueTextTiny : null,
                 ]}
@@ -1848,7 +2268,10 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.startValueValueCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.startValueValueText : null,
+                  isLargeDevice ? styles.startValueValueTextLarge : null,
+                  isMediumLargeDevice
+                    ? styles.startValueValueTextMediumLarge
+                    : null,
                   isSmallDevice ? styles.startValueValueTextSmall : null,
                   isTinyDevice ? styles.startValueValueTextTiny : null,
                 ]}
@@ -1859,7 +2282,10 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.descriptionValueCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.descriptionValueText : null,
+                  isLargeDevice ? styles.descriptionValueTextLarge : null,
+                  isMediumLargeDevice
+                    ? styles.descriptionValueTextMediumLarge
+                    : null,
                   isSmallDevice ? styles.descriptionValueTextSmall : null,
                   isTinyDevice ? styles.descriptionValueTextTiny : null,
                 ]}
@@ -1870,7 +2296,10 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.gymnastInfoCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.gymnastInfoText : null,
+                  isLargeDevice ? styles.gymnastInfoTextLarge : null,
+                  isMediumLargeDevice
+                    ? styles.gymnastInfoTextMediumLarge
+                    : null,
                   isSmallDevice ? styles.gymnastInfoTextSmall : null,
                   isTinyDevice ? styles.gymnastInfoTextTiny : null,
                 ]}
@@ -1879,7 +2308,10 @@ caretHidden={Platform.OS === 'ios'}
               </Text>
               <Text
                 style={[
-                  isLargeDevice ? styles.gymnastInfoText : null,
+                  isLargeDevice ? styles.gymnastInfoTextLarge : null,
+                  isMediumLargeDevice
+                    ? styles.gymnastInfoTextMediumLarge
+                    : null,
                   isSmallDevice ? styles.gymnastInfoTextSmall : null,
                   isTinyDevice ? styles.gymnastInfoTextTiny : null,
                 ]}
@@ -1890,7 +2322,8 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.neutralValueCellname}>
               <Text
                 style={[
-                  isLargeDevice ? styles.neutralText : null,
+                  isLargeDevice ? styles.neutralTextLarge : null,
+                  isMediumLargeDevice ? styles.neutralTextMediumLarge : null,
                   isSmallDevice ? styles.neutralTextSmall : null,
                   isTinyDevice ? styles.neutralTextTiny : null,
                 ]}
@@ -1901,7 +2334,8 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.neutralValueCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.neutralText : null,
+                  isLargeDevice ? styles.neutralTextLarge : null,
+                  isMediumLargeDevice ? styles.neutralTextMediumLarge : null,
                   isSmallDevice ? styles.neutralTextSmall : null,
                   isTinyDevice ? styles.neutralTextTiny : null,
                 ]}
@@ -1912,7 +2346,8 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.neutralValueCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.neutralText : null,
+                  isLargeDevice ? styles.neutralTextLarge : null,
+                  isMediumLargeDevice ? styles.neutralTextMediumLarge : null,
                   isSmallDevice ? styles.neutralTextSmall : null,
                   isTinyDevice ? styles.neutralTextTiny : null,
                 ]}
@@ -1923,7 +2358,10 @@ caretHidden={Platform.OS === 'ios'}
             <View style={styles.neutralTotalCell}>
               <Text
                 style={[
-                  isLargeDevice ? styles.neutralTotalText : null,
+                  isLargeDevice ? styles.neutralTotalTextLarge : null,
+                  isMediumLargeDevice
+                    ? styles.neutralTotalTextMediumLarge
+                    : null,
                   isSmallDevice ? styles.neutralTotalTextSmall : null,
                   isTinyDevice ? styles.neutralTotalTextTiny : null,
                 ]}
@@ -1994,141 +2432,412 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#e0e0e0",
   },
-  ndValueText: {
-    fontSize: 25,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  ndValueTextSmall: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  ndValueTextTiny: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  sdValueText: {
-    fontSize: 25,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  sdValueTextSmall: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  sdValueTextTiny: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  eValueText: {
-    fontSize: 25,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  eValueTextSmall: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  eValueTextTiny: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  dValueText: {
-    fontSize: 25,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  dValueTextSmall: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  dValueTextTiny: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: "#333",
-  },
   scrollContainer: {
     flexGrow: 1,
-  },
-  scoreDisplay: {
-    height: 50,
-    justifyContent: "flex-start",
-    alignItems: "flex-end",
-    padding: 10,
-  },
-  scoreText: {
-    fontSize: 26,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  graphContainer: {
-    height: isLargeDevice ? 450 : isSmallDevice ? 350 : 250,
-    width: "100%",
-    position: "relative",
-  },
-  graphContainerimg: {
-    width: isLargeDevice ? "70%" : isSmallDevice ? "60%" : "50%",
-    height: isLargeDevice ? "70%" : isSmallDevice ? "60%" : "50%",
-    position: "relative",
-    alignSelf: "center",
-    top: isLargeDevice ? 60 : isSmallDevice ? 50 : 40,
-    left: 0,
-  },
-  codetable: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#0052b4",
-    position: "absolute",
-    bottom: 10,
-    backgroundColor: "#B4B4B4",
-    borderRadius: 10,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    padding: 5,
-    left: 10,
-  },
-  codeTableText: {
-    fontSize: 12,
-    color: "white",
-  },
-  codeTableTextSmall: {
-    fontSize: 16,
-    color: "white",
-  },
-  codeTableTextTiny: {
-    fontSize: 12,
-    color: "white",
   },
   tableContainer: {
     width: "100%",
   },
+
+  // Table row styles based on device size
   tableRow: {
     flexDirection: "row",
-    height: isLargeDevice ? 55 : isSmallDevice ? 45 : 35,
+    height: isLargeDevice
+      ? 55
+      : isMediumLargeDevice
+      ? 50
+      : isSmallDevice
+      ? 45
+      : 35,
   },
+
+  // Dynamic cell widths and styles based on device size
   vaultNumbersCell: {
-    width: isLargeDevice ? 700 : isSmallDevice ? 500 : 400,
+    width: isLargeDevice
+      ? 700
+      : isMediumLargeDevice
+      ? 600
+      : isSmallDevice
+      ? 500
+      : 400,
     backgroundColor: "#64b5f6",
     justifyContent: "center",
     paddingLeft: 10,
     borderWidth: 1,
     borderColor: "black",
   },
-  cellHeaderText: {
+
+  svValueCell: {
+    width: isLargeDevice
+      ? 210
+      : isMediumLargeDevice
+      ? 180
+      : isSmallDevice
+      ? 160
+      : 110,
+    backgroundColor: "#ffca28",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  ndCell: {
+    width: isLargeDevice
+      ? 105
+      : isMediumLargeDevice
+      ? 90
+      : isSmallDevice
+      ? 80
+      : 60,
+    backgroundColor: "#64b5f6",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  sbCell: {
+    width: isLargeDevice
+      ? 105
+      : isMediumLargeDevice
+      ? 90
+      : isSmallDevice
+      ? 80
+      : 60,
+    backgroundColor: "#64b5f6",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  executionCell: {
+    width: isLargeDevice
+      ? 210
+      : isMediumLargeDevice
+      ? 180
+      : isSmallDevice
+      ? 160
+      : 120,
+    backgroundColor: "#64b5f6",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  myScoreCell: {
+    flex: 1,
+    backgroundColor: "#64b5f6",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  vaultValueCell: {
+    width: isLargeDevice
+      ? 700
+      : isMediumLargeDevice
+      ? 600
+      : isSmallDevice
+      ? 500
+      : 300,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  emptyBlueCell: {
+    backgroundColor: "#f5f5f5",
+    borderLeftWidth: 0.5,
+    borderRightWidth: 0.5,
+    borderBottomWidth: 0.5,
+    borderColor: "black",
+    zIndex: -1,
+  },
+
+  ndValueCell: {
+    width: isLargeDevice
+      ? 105
+      : isMediumLargeDevice
+      ? 90
+      : isSmallDevice
+      ? 80
+      : 60,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  sbValueCell: {
+    width: isLargeDevice
+      ? 105
+      : isMediumLargeDevice
+      ? 90
+      : isSmallDevice
+      ? 80
+      : 60,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  executionValueCell: {
+    flex: 1,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    height: "100%",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  executionValueCellflex: {
+    width: isLargeDevice
+      ? 210
+      : isMediumLargeDevice
+      ? 180
+      : isSmallDevice
+      ? 160
+      : 120,
+    flexDirection: "row",
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderColor: "black",
+  },
+
+  myScoreValueCell: {
+    flex: 1,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  startValueCell: {
+    width: isLargeDevice
+      ? 250
+      : isMediumLargeDevice
+      ? 220
+      : isSmallDevice
+      ? 180
+      : 120,
+    backgroundColor: "#64b5f6",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  descriptionCell: {
+    width: isLargeDevice
+      ? 450
+      : isMediumLargeDevice
+      ? 380
+      : isSmallDevice
+      ? 320
+      : 180,
+    backgroundColor: "#64b5f6",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  compDeductionHeaderCell: {
+    width: isLargeDevice
+      ? 210
+      : isMediumLargeDevice
+      ? 180
+      : isSmallDevice
+      ? 160
+      : 110,
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  dCell: {
+    flex: 0.5,
+    backgroundColor: "#A3A3A3",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  dValueCell: {
+    flex: 0.5,
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  eCell: {
+    flex: 0.5,
+    backgroundColor: "#A3A3A3",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  eValueCell: {
+    flex: 0.7,
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  sdCell: {
+    flex: 0.5,
+    backgroundColor: "#A3A3A3",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  sdValueCell: {
+    flex: 0.5,
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  ndDeductionCell: {
+    flex: 0.5,
+    backgroundColor: "#A3A3A3",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  ndDeductionValueCell: {
+    flex: 0.5,
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  scoreHeaderCell: {
+    flex: 0.5,
+    backgroundColor: "#A3A3A3",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  scoreTotalCell: {
+    flex: 0.7,
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  startValueValueCell: {
+    width: isLargeDevice
+      ? 250
+      : isMediumLargeDevice
+      ? 220
+      : isSmallDevice
+      ? 180
+      : 120,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  descriptionValueCell: {
+    width: isLargeDevice
+      ? 450
+      : isMediumLargeDevice
+      ? 380
+      : isSmallDevice
+      ? 320
+      : 180,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  gymnastInfoCell: {
+    width: isLargeDevice
+      ? 210
+      : isMediumLargeDevice
+      ? 180
+      : isSmallDevice
+      ? 160
+      : 110,
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  neutralValueCell: {
+    flex: 2,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  neutralValueCellname: {
+    flex: 4,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  neutralTotalCell: {
+    flex: 0.7,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  // Cell header text styles
+  cellHeaderTextLarge: {
     fontSize: 25,
+    fontWeight: "bold",
+    alignSelf: "center",
+    color: "#000",
+  },
+  cellHeaderTextMediumLarge: {
+    fontSize: 20,
     fontWeight: "bold",
     alignSelf: "center",
     color: "#000",
@@ -2145,15 +2854,31 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     color: "#000",
   },
-  svValueCell: {
-    width: isLargeDevice ? 210 : isSmallDevice ? 160 : 110,
-    backgroundColor: "#ffca28",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
+
+  // Vault value text styles
+  vaultValueTextLarge: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#000",
   },
-  svValueText: {
+  vaultValueTextMediumLarge: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  vaultValueTextSmall: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  vaultValueTextTiny: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#000",
+  },
+
+  // SV value text styles
+  svValueTextLarge: {
     fontSize: 26,
     fontWeight: "bold",
     color: "#000",
@@ -2161,6 +2886,15 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     justifyContent: "center",
     paddingTop: 6,
+  },
+  svValueTextMediumLarge: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "center",
+    alignSelf: "center",
+    justifyContent: "center",
+    paddingTop: 5,
   },
   svValueTextSmall: {
     fontSize: 18,
@@ -2180,79 +2914,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingTop: 2,
   },
-  ndCell: {
-    width: isLargeDevice ? 105 : isSmallDevice ? 80 : 60,
-    backgroundColor: "#64b5f6",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
-  },
-  sbCell: {
-    width: isLargeDevice ? 105 : isSmallDevice ? 80 : 60,
-    backgroundColor: "#64b5f6",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
-  },
-  executionCell: {
-    width: isLargeDevice ? 210 : isSmallDevice ? 160 : 120,
-    backgroundColor: "#64b5f6",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
-  },
-  myScoreCell: {
-    flex: 1,
-    backgroundColor: "#64b5f6",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
-  },
-  vaultValueCell: {
-    width: isLargeDevice ? 700 : isSmallDevice ? 500 : 300,
-    backgroundColor: "#f5f5f5",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
-  },
-  vaultValueText: {
-    fontSize: 12,
+
+  // Value text styles
+  valueTextLarge: {
+    fontSize: 22,
     fontWeight: "bold",
     color: "#000",
   },
-  vaultValueTextSmall: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#000",
-  },
-  vaultValueTextTiny: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: "#000",
-  },
-  emptyBlueCell: {
-    backgroundColor: "#f5f5f5",
-    borderLeftWidth: 0.5,
-    borderRightWidth: 0.5,
-    borderBottomWidth: 0.5,
-    borderColor: "black",
-    zIndex: -1,
-  },
-  ndValueCell: {
-    width: isLargeDevice ? 105 : isSmallDevice ? 80 : 60,
-    backgroundColor: "#f5f5f5",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
-  },
-  valueText: {
-    fontSize: 12,
+  valueTextMediumLarge: {
+    fontSize: 20,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2266,41 +2936,15 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#000",
   },
-  sbValueCell: {
-    width: isLargeDevice ? 105 : isSmallDevice ? 80 : 60,
-    backgroundColor: "#f5f5f5",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
+
+  // Score value text styles
+  scoreValueTextLarge: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#000",
   },
-  executionValueCell: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-    justifyContent: "center",
-    height: "100%",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
-  },
-  executionValueCellflex: {
-    width: isLargeDevice ? 210 : isSmallDevice ? 160 : 120,
-    flexDirection: "row",
-    backgroundColor: "#f5f5f5",
-    justifyContent: "center",
-    alignItems: "center",
-    borderColor: "black",
-  },
-  myScoreValueCell: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
-  },
-  scoreValueText: {
-    fontSize: 12,
+  scoreValueTextMediumLarge: {
+    fontSize: 20,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2314,35 +2958,23 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#000",
   },
-  startValueCell: {
-    width: isLargeDevice ? 250 : isSmallDevice ? 180 : 120,
-    backgroundColor: "#64b5f6",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "black",
-  },
-  descriptionCell: {
-    width: isLargeDevice ? 450 : isSmallDevice ? 320 : 180,
-    backgroundColor: "#64b5f6",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "black",
-  },
-  compDeductionHeaderCell: {
-    width: isLargeDevice ? 210 : isSmallDevice ? 160 : 110,
-    backgroundColor: "#4caf50",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
-  },
-  compDeductionText: {
+
+  // Competition deduction text styles
+  compDeductionTextLarge: {
     fontSize: 15,
     fontWeight: "bold",
     color: "#000",
     textAlign: "left",
     alignSelf: "flex-end",
     paddingRight: 10,
+  },
+  compDeductionTextMediumLarge: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "left",
+    alignSelf: "flex-end",
+    paddingRight: 9,
   },
   compDeductionTextSmall: {
     fontSize: 8,
@@ -2360,16 +2992,15 @@ const styles = StyleSheet.create({
     alignSelf: "flex-end",
     paddingRight: 5,
   },
-  dCell: {
-    flex: 0.5,
-    backgroundColor: "#A3A3A3",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
-  },
-  smallCellText: {
+
+  // Small cell text styles
+  smallCellTextLarge: {
     fontSize: 16,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  smallCellTextMediumLarge: {
+    fontSize: 15,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2383,31 +3014,15 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#000",
   },
-  ScoresmallCellText: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#000",
-  },
-  ScoresmallCellTextSmall: {
-    fontSize: 7,
-    fontWeight: "bold",
-    color: "#000",
-  },
-  ScoresmallCellTextTiny: {
-    fontSize: 11,
-    fontWeight: "bold",
-    color: "#000",
-  },
-  dValueCell: {
-    flex: 0.5,
-    backgroundColor: "#4caf50",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
-  },
-  smallValueText: {
+
+  // Small value text styles
+  smallValueTextLarge: {
     fontSize: 17,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  smallValueTextMediumLarge: {
+    fontSize: 15,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2421,80 +3036,125 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#000",
   },
-  eCell: {
-    flex: 0.5,
-    backgroundColor: "#A3A3A3",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
+
+  // Score small cell text styles
+  ScoresmallCellTextLarge: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#000",
   },
-  eValueCell: {
-    flex: 0.7,
-    backgroundColor: "#4caf50",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
+  ScoresmallCellTextMediumLarge: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#000",
   },
-  sdCell: {
-    flex: 0.5,
-    backgroundColor: "#A3A3A3",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
+  ScoresmallCellTextSmall: {
+    fontSize: 7,
+    fontWeight: "bold",
+    color: "#000",
   },
-  sdValueCell: {
-    flex: 0.5,
-    backgroundColor: "#4caf50",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
+  ScoresmallCellTextTiny: {
+    fontSize: 11,
+    fontWeight: "bold",
+    color: "#000",
   },
-  ndDeductionCell: {
-    flex: 0.5,
-    backgroundColor: "#A3A3A3",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
+
+  // ND value text styles
+  ndValueTextLarge: {
+    fontSize: 25,
+    fontWeight: "bold",
+    color: "#333",
   },
-  ndDeductionValueCell: {
-    flex: 0.5,
-    backgroundColor: "#4caf50",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
+  ndValueTextMediumLarge: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#333",
   },
-  scoreHeaderCell: {
-    flex: 0.5,
-    backgroundColor: "#A3A3A3",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
+  ndValueTextSmall: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#333",
   },
-  scoreTotalCell: {
-    flex: 0.7,
-    backgroundColor: "#4caf50",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
+  ndValueTextTiny: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#333",
   },
-  startValueValueCell: {
-    width: isLargeDevice ? 250 : isSmallDevice ? 180 : 120,
-    backgroundColor: "#f5f5f5",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
+
+  // SD value text styles
+  sdValueTextLarge: {
+    fontSize: 25,
+    fontWeight: "bold",
+    color: "#333",
   },
-  startValueValueText: {
+  sdValueTextMediumLarge: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  sdValueTextSmall: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  sdValueTextTiny: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#333",
+  },
+
+  // E value text styles
+  eValueTextLarge: {
+    fontSize: 25,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  eValueTextMediumLarge: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  eValueTextSmall: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  eValueTextTiny: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#333",
+  },
+
+  // D value text styles
+  dValueTextLarge: {
+    fontSize: 25,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  dValueTextMediumLarge: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  dValueTextSmall: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  dValueTextTiny: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#333",
+  },
+
+  // Start value text styles
+  startValueValueTextLarge: {
     fontSize: 30,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  startValueValueTextMediumLarge: {
+    fontSize: 25,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2508,15 +3168,13 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#000",
   },
-  descriptionValueCell: {
-    width: isLargeDevice ? 450 : isSmallDevice ? 320 : 180,
-    backgroundColor: "#f5f5f5",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
+
+  // Description value text styles
+  descriptionValueTextLarge: {
+    fontSize: 14,
+    color: "#000",
   },
-  descriptionValueText: {
+  descriptionValueTextMediumLarge: {
     fontSize: 12,
     color: "#000",
   },
@@ -2528,21 +3186,23 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: "#000",
   },
-  gymnastInfoCell: {
-    width: isLargeDevice ? 210 : isSmallDevice ? 160 : 110,
-    backgroundColor: "#4caf50",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
-  },
-  gymnastInfoText: {
-    fontSize: 9,
+
+  // Gymnast info text styles
+  gymnastInfoTextLarge: {
+    fontSize: 12,
     fontWeight: "bold",
     color: "#000",
     textAlign: "right",
     alignSelf: "flex-end",
     paddingRight: 10,
+  },
+  gymnastInfoTextMediumLarge: {
+    fontSize: 10,
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "right",
+    alignSelf: "flex-end",
+    paddingRight: 9,
   },
   gymnastInfoTextSmall: {
     fontSize: 8,
@@ -2560,24 +3220,15 @@ const styles = StyleSheet.create({
     alignSelf: "flex-end",
     paddingRight: 5,
   },
-  neutralValueCell: {
-    flex: 2,
-    backgroundColor: "#f5f5f5",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
-  },
-  neutralValueCellname: {
-    flex: 4,
-    backgroundColor: "#f5f5f5",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
-  },
-  neutralText: {
+
+  // Neutral text styles
+  neutralTextLarge: {
     fontSize: 30,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  neutralTextMediumLarge: {
+    fontSize: 25,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2591,16 +3242,15 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#000",
   },
-  neutralTotalCell: {
-    flex: 0.7,
-    backgroundColor: "#f5f5f5",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "black",
-  },
-  neutralTotalText: {
+
+  // Neutral total text styles
+  neutralTotalTextLarge: {
     fontSize: 30,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  neutralTotalTextMediumLarge: {
+    fontSize: 25,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2614,87 +3264,10 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#000",
   },
+
+  // Comments section
   commentsSection: {
     padding: 10,
-  },
-  commentsText: {
-    fontSize: 17,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  commentsTextSmall: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  commentsTextTiny: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  commentsBox: {
-    height: isLargeDevice ? 60 : isSmallDevice ? 50 : 40,
-    borderRadius: 15,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#ccc",
-    padding: 10,
-  },
-  buttonContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    padding: 10,
-    marginTop: isLargeDevice ? 30 : isSmallDevice ? 20 : 15,
-  },
-  backButton: {
-    flex: 3,
-    backgroundColor: "#0052b4",
-    padding: isLargeDevice ? 15 : isSmallDevice ? 12 : 10,
-    borderRadius: 5,
-    marginRight: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  filterButton: {
-    flex: 1,
-    backgroundColor: "#0052b4",
-    padding: isLargeDevice ? 15 : isSmallDevice ? 12 : 10,
-    borderRadius: 5,
-    marginRight: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  nextButton: {
-    flex: 3,
-    backgroundColor: "#0052b4",
-    padding: isLargeDevice ? 15 : isSmallDevice ? 12 : 10,
-    borderRadius: 5,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  buttonText: {
-    fontSize: 12,
-    color: "#fff",
-    fontWeight: "bold",
-  },
-  buttonTextSmall: {
-    fontSize: 14,
-    color: "#fff",
-    fontWeight: "bold",
-  },
-  buttonTextTiny: {
-    fontSize: 11,
-    color: "#fff",
-    fontWeight: "bold",
-  },
-  mainTableButton: {
-    flex: 1,
-    backgroundColor: "#0052b4",
-    padding: 12,
-    borderRadius: 5,
-    marginRight: 10,
-    alignItems: "center",
-    justifyContent: "center",
   },
   commentsBoxTouchable: {
     backgroundColor: "#fff",
@@ -2709,11 +3282,70 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#333",
   },
+
+  // Button styles
+  buttonContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    padding: 10,
+    marginTop: isLargeDevice
+      ? 30
+      : isMediumLargeDevice
+      ? 25
+      : isSmallDevice
+      ? 20
+      : 15,
+  },
+  backButton: {
+    flex: 3,
+    backgroundColor: "#0052b4",
+    padding: isLargeDevice
+      ? 15
+      : isMediumLargeDevice
+      ? 13
+      : isSmallDevice
+      ? 12
+      : 10,
+    borderRadius: 5,
+    marginRight: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mainTableButton: {
+    flex: 1,
+    backgroundColor: "#0052b4",
+    padding: 12,
+    borderRadius: 5,
+    marginRight: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  nextButton: {
+    flex: 3,
+    backgroundColor: "#0052b4",
+    padding: isLargeDevice
+      ? 15
+      : isMediumLargeDevice
+      ? 13
+      : isSmallDevice
+      ? 12
+      : 10,
+    borderRadius: 5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  buttonText: {
+    fontSize: 12,
+    color: "#fff",
+    fontWeight: "bold",
+  },
+
+  // Modal and input styles
   infoValueText: {
     fontSize: 16,
     fontWeight: "bold",
     color: "#333",
-  },  
+  },
   modalWithKeyboard: {
     marginBottom: "50%",
   },
