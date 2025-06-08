@@ -1,31 +1,22 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Crypto from 'expo-crypto';
-import * as Device from 'expo-device';
-import * as Linking from 'expo-linking';
-import { useRouter } from "expo-router";
+import { useFonts } from "expo-font";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Animated,
+  Clipboard,
   Dimensions,
   Easing,
   Image,
-  ImageStyle,
-  ScrollView,
+  Modal,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View
 } from "react-native";
-
-const CURRENT_USER_KEY = "currentUser";
-const DEVICE_ID_KEY = "deviceId";
-const APP_ACTIVATED_KEY = "appActivated";
-const FIRST_RUN_KEY = "app_first_run";
-
-import { insertUser, registerActivatedDevice, validateUser } from "../Database/database";
+import { getUserById } from "../Database/database";
 
 const { width, height } = Dimensions.get("window");
 var isLargeDevice = false;
@@ -43,32 +34,85 @@ if (width >= 1368 ) {
   isTinyDevice = true;
 }
 
-export default function LoginScreen() {
-  // Use simpler ternary operators for device size detection
-  const router = useRouter();
+const DEFAULT_DISCIPLINE_KEY = "defaultDiscipline";
 
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [showContent, setShowContent] = useState(false);
+export default function SelectSex() {
+  const router = useRouter();
+  const params = useLocalSearchParams();
+  const userId = typeof params.userId === 'string' ? parseInt(params.userId, 10) : 0;
+  const changeDis = params.changeDis === 'true';
+
+  // Estados para el modal de generación de claves
+  const [modalVisible, setModalVisible] = useState(false);
+  const [deviceInfo, setDeviceInfo] = useState('');
+  const [deviceId, setDeviceId] = useState('');
+  const [generatedKey, setGeneratedKey] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
   
-  // New states for device registration
-  const [showRegistration, setShowRegistration] = useState(false);
-  const [activationKey, setActivationKey] = useState("");
-  const [registerUsername, setRegisterUsername] = useState("");
-  const [registerPassword, setRegisterPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [deviceInfo, setDeviceInfo] = useState(null);
+  // Estados para validación de usuario
+  const [currentUser, setCurrentUser] = useState(null);
+  const [showKeysButton, setShowKeysButton] = useState(false);
+
+  // Estados para disciplina por defecto
+  const [defaultDiscipline, setDefaultDiscipline] = useState<boolean | null>(null); // true = MAG, false = WAG, null = no default
+  const [isLoadingDefault, setIsLoadingDefault] = useState(true);
+
+  // Load the custom font
+  const [fontsLoaded] = useFonts({
+    "Rajdhani-Bold": require("../assets/fonts/Rajdhani/Rajdhani-Bold.ttf"),
+  });
 
   // Animation values
-  const logoScale = useRef(new Animated.Value(2)).current;
-  const logoPosition = useRef(new Animated.Value(0)).current;
-  const contentOpacity = useRef(new Animated.Value(0)).current;
-  const inputsTranslateY = useRef(new Animated.Value(50)).current;
-  const buttonTranslateY = useRef(new Animated.Value(50)).current;
+  const titleOpacity = useRef(new Animated.Value(0)).current;
+  const titleTranslateY = useRef(new Animated.Value(-50)).current;
+  const backgroundOpacity = useRef(new Animated.Value(0)).current;
+  const leftButtonTranslateX = useRef(new Animated.Value(-100)).current;
+  const rightButtonTranslateX = useRef(new Animated.Value(100)).current;
+  const buttonsOpacity = useRef(new Animated.Value(0)).current;
+  const adminButtonOpacity = useRef(new Animated.Value(0)).current;
+  const toggleButtonOpacity = useRef(new Animated.Value(0)).current;
 
-// Función para crear usuarios por defecto solo si no existen
-const createDefaultUsers = async () => {
+  // Cargar disciplina por defecto
+  const loadDefaultDiscipline = async () => {
+    try {
+      const storedDefault = await AsyncStorage.getItem(DEFAULT_DISCIPLINE_KEY);
+      if (storedDefault !== null) {
+        setDefaultDiscipline(storedDefault === 'true');
+      }
+    } catch (error) {
+      console.error("Error loading default discipline:", error);
+    } finally {
+      setIsLoadingDefault(false);
+    }
+  };
+
+  // Guardar disciplina por defecto
+  const saveDefaultDiscipline = async (discipline: boolean | null) => {
+    try {
+      if (discipline === null) {
+        await AsyncStorage.removeItem(DEFAULT_DISCIPLINE_KEY);
+      } else {
+        await AsyncStorage.setItem(DEFAULT_DISCIPLINE_KEY, discipline.toString());
+      }
+      setDefaultDiscipline(discipline);
+    } catch (error) {
+      console.error("Error saving default discipline:", error);
+    }
+  };
+
+  // Auto-route si no hay changeDis y hay disciplina por defecto
+  const checkAutoRoute = async () => {
+    if (!changeDis && !isLoadingDefault && defaultDiscipline !== null) {
+      // Auto-route con la disciplina por defecto
+      router.replace(`/main-menu?discipline=${defaultDiscipline}&userId=${0}`);
+    }
+  };
+
+  useEffect(() => {
+    loadDefaultDiscipline();
+  }, []);
+
+    const createDefaultUsers = async () => {
   try {
     // Lista de usuarios predeterminados
     const defaultUsers = [
@@ -108,290 +152,198 @@ const createDefaultUsers = async () => {
 };
 
   useEffect(() => {
-  // Start the animation sequence after a short delay
-  setTimeout(() => {
-    Animated.sequence([
-      // First animate the logo (scaling down and moving up)
-      Animated.parallel([
-        Animated.timing(logoScale, {
-          toValue: 1,
-          duration: 1000,
-          useNativeDriver: false, // Changed to false since we're animating position
-          easing: Easing.out(Easing.back(1.5)),
-        }),
-        Animated.timing(logoPosition, {
-          toValue: 1,
-          duration: 1000,
-          useNativeDriver: false, // Changed to false since we're animating position
-          easing: Easing.out(Easing.back(1.2)),
-        }),
-      ]),
-      // Then fade in the content
-      Animated.stagger(200, [
-        Animated.timing(contentOpacity, {
-          toValue: 1,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-        Animated.timing(inputsTranslateY, {
-          toValue: 0,
-          duration: 500,
-          useNativeDriver: true,
-          easing: Easing.out(Easing.back(1.5)),
-        }),
-        Animated.timing(buttonTranslateY, {
-          toValue: 0,
-          duration: 500,
-          useNativeDriver: true,
-          easing: Easing.out(Easing.back(1.5)),
-        }),
-      ]),
-    ]).start(() => {
-      setShowContent(true);
-    });
-  }, 300);
-
-  // Always create default users if they don't exist
-  createDefaultUsers();
-
-    // Check if device is already registered
-    checkDeviceRegistration();
+    createDefaultUsers();
+    checkAutoRoute();
+  }, [changeDis, isLoadingDefault, defaultDiscipline]);
 
 
-    /* const addTestUser = async () => {
+
+  useEffect(() => {
+    // Verificar información del usuario actual
+    const checkUserPermissions = async () => {
       try {
-        await insertUser("Luis", "123");
-        console.log("Test user added (or already exists)");
+        if (userId) {
+          const user = await getUserById(userId);
+          if (user) {
+            setCurrentUser(user);
+            console.log("Usuario actual:", user);
+            // Verificar si es Bernabe con rol admin
+            if (user.username === "Bernabe") {
+              setShowKeysButton(true);
+            }
+          }
+        }
       } catch (error) {
-        console.error("Error adding test user:", error);
+        console.error("Error checking user permissions:", error);
       }
     };
-    
-    addTestUser(); */
 
+    checkUserPermissions();
 
-  }, []);
+    // Solo mostrar animaciones si changeDis es true o no hay disciplina por defecto
+    if (changeDis || defaultDiscipline === null) {
+      // Start animation sequence after component mounts
+      Animated.sequence([
+        // First fade in the background
+        Animated.timing(backgroundOpacity, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.ease),
+        }),
+        // Then animate the title
+        Animated.timing(titleOpacity, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.ease),
+        }),
+        // Followed by buttons animation
+        Animated.parallel([
+          Animated.timing(buttonsOpacity, {
+            toValue: 1,
+            duration: 600,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.ease),
+          }),
+          Animated.timing(leftButtonTranslateX, {
+            toValue: 0,
+            duration: 600,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.back(1.5)),
+          }),
+          Animated.timing(rightButtonTranslateX, {
+            toValue: 0,
+            duration: 600,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.back(1.5)),
+          }),
+          // Admin button animation
+          Animated.timing(adminButtonOpacity, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.ease),
+          }),
+          // Toggle button animation
+          Animated.timing(toggleButtonOpacity, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.ease),
+          }),
+        ]),
+      ]).start();
 
+      // Animate title from top to position
+      Animated.timing(titleTranslateY, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.back(1.2)),
+      }).start();
+    }
+  }, [userId, changeDis, defaultDiscipline]);
 
-  
-  // Function to check if the device is already registered
-  const checkDeviceRegistration = async () => {
-    try {
-      const isActivated = await AsyncStorage.getItem(APP_ACTIVATED_KEY);
-      if (isActivated === 'true') {
-        // Device is already activated
-        console.log("Device is already activated");
-      }
-    } catch (error) {
-      console.error("Error checking device registration:", error);
+  const handleSelect = (discipline: boolean) => {
+    router.push(`/main-menu?discipline=${discipline}&userId=${userId}`);
+  };
+
+  // Toggle disciplina por defecto
+  const toggleDefaultDiscipline = () => {
+    if (defaultDiscipline === null) {
+      // Si no hay default, establecer MAG como default
+      saveDefaultDiscipline(true);
+    } else if (defaultDiscipline === true) {
+      // Si es MAG, cambiar a WAG
+      saveDefaultDiscipline(false);
+    } else {
+      // Si es WAG, quitar default
+      saveDefaultDiscipline(null);
     }
   };
 
-  const handleLogin = async () => {
-    try {
-      // Validate input
-      if (!username.trim() || !password.trim()) {
-        Alert.alert("Error", "Username and password cannot be empty");
-        return;
-      }
-      
-      setIsLoading(true);
-      
-      // Try to validate the user
-      const userId = await validateUser(username.trim(), password.trim());
-      console.log("User ID:", userId);
-      if (userId) {
-        // Store the current user ID
-        await AsyncStorage.setItem(CURRENT_USER_KEY, userId.toString());
-        console.log("User logged in successfully. User ID:", userId);
-        
-        // Navigate to the main menu after successful login
-        router.push(`/select-sex?userId=${userId}`);
-      } else {
-        Alert.alert("Error", "Invalid username or password");
-      }
-    } catch (error) {
-      console.error("Error logging in:", error);
-      Alert.alert("Error", "Failed to log in");
-    } finally {
-      setIsLoading(false);
+  // Función para generar clave de activación
+  const generateActivationKey = async () => {
+    if (!deviceId.trim()) {
+      Alert.alert("Error", "Por favor ingrese el ID del dispositivo");
+      return;
     }
-  };
-  
-  // Function to initiate the device registration process
-  const initiateRegistration = async () => {
-    setIsLoading(true);
+
+    setIsGenerating(true);
+
     try {
-      // Gather device information
-      const deviceData = await getDeviceInfo();
-      setDeviceInfo(deviceData);
+      // Secreto compartido (debe ser el mismo en el método de validación)
+      const APP_SECRET = 'GymJudge2023SecretKey';
+      const timestamp = Date.now().toString(36);
       
-      // Generate a unique device ID
-      const deviceId = await generateDeviceId(deviceData);
-      await AsyncStorage.setItem(DEVICE_ID_KEY, deviceId);
+      // Crear string para hashear
+      const stringToHash = deviceId + APP_SECRET;
       
-      // Create email with device information
-      const emailSubject = encodeURIComponent("GymJudge Device Registration Request");
-      const emailBody = encodeURIComponent(
-        `Hello,\n\nI would like to register my device for the GymJudge application.\n\n` +
-        `Device Information:\n${JSON.stringify(deviceData, null, 2)}\n\n` +
-        `Device ID: ${deviceId}\n\n` +
-        `Please send me an activation key for this device.\n\nThank you.`
+      // Generar hash
+      const hash = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        stringToHash
       );
       
-      const mailtoLink = `mailto:luishdezmtz12@gmail.com?subject=${emailSubject}&body=${emailBody}`;
+      // Usar sólo los primeros 8 caracteres del hash
+      const shortHash = hash.substring(0, 8);
       
-      // Open the user's mail client
-      const canOpen = await Linking.canOpenURL(mailtoLink);
+      // Formato: GYM-[hash]-[timestamp]
+      const activationKey = `GYM-${shortHash}-${timestamp}`;
       
-      if (canOpen) {
-        await Linking.openURL(mailtoLink);
-        setShowRegistration(true);
-        Alert.alert(
-          "Registration Started",
-          "An email has been prepared with your device information. Send it to receive your activation key."
-        );
-      } else {
-        Alert.alert(
-          "Error",
-          "Could not open email client. Please contact support manually."
-        );
-      }
+      setGeneratedKey(activationKey);
+      
+      // Log para debugging
+      console.log(`Clave generada para dispositivo ${deviceId}: ${activationKey}`);
     } catch (error) {
-      console.error("Error initiating registration:", error);
-      Alert.alert("Error", "Failed to start registration process");
+      console.error("Error generando clave:", error);
+      Alert.alert("Error", "No se pudo generar la clave de activación");
     } finally {
-      setIsLoading(false);
+      setIsGenerating(false);
     }
   };
-  
-  // Function to complete the registration process
-  const completeRegistration = async () => {
-    if (!activationKey.trim() || !registerUsername.trim() || !registerPassword.trim() || !confirmPassword.trim()) {
-      Alert.alert("Error", "All fields are required");
-      return;
+
+  // Función para copiar la clave al portapapeles
+  const copyToClipboard = () => {
+    if (generatedKey) {
+      Clipboard.setString(generatedKey);
+      Alert.alert("Éxito", "Clave copiada al portapapeles");
     }
-    
-    if (registerPassword !== confirmPassword) {
-      Alert.alert("Error", "Passwords do not match");
-      return;
-    }
-    
-    setIsLoading(true);
-    
+  };
+
+  // Función para extraer el deviceId del texto pegado
+  const parseDeviceInfo = (text) => {
     try {
-      // Get the stored device ID
-      const deviceId = await AsyncStorage.getItem(DEVICE_ID_KEY);
-      
-      if (!deviceId) {
-        Alert.alert("Error", "Device information not found. Please restart the registration process.");
-        return;
+      // Buscar el patrón "Device ID: XXX" en el texto
+      const match = text.match(/Device ID:\s*([a-zA-Z0-9]+)/);
+      if (match && match[1]) {
+        setDeviceId(match[1]);
+        return true;
       }
-      
-      // Validate the activation key
-      const isValid = await validateActivationKey(activationKey, deviceId);
-      
-      if (isValid) {
-        // Register the new user
-        const userId = await insertUser(registerUsername, registerPassword);
-        
-        if (userId) {
-          // Mark the device as activated
-          await AsyncStorage.setItem(APP_ACTIVATED_KEY, 'true');
-          
-          // Register the activated device
-          await registerActivatedDevice(deviceId, activationKey, userId);
-          
-          Alert.alert(
-            "Registration Complete",
-            "Your account has been created successfully. You can now log in.",
-            [{ text: "OK", onPress: () => setShowRegistration(false) }]
-          );
-        } else {
-          Alert.alert("Registration Failed", "Username may already exist or registration failed.");
-        }
-      } else {
-        Alert.alert("Invalid Key", "The activation key is not valid for this device.");
-      }
+      return false;
     } catch (error) {
-      console.error("Error completing registration:", error);
-      Alert.alert("Error", "Failed to complete registration");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
-  // Function to collect device information
-  const getDeviceInfo = async () => {
-    return {
-      deviceName: Device.deviceName || 'Unknown',
-      brand: Device.brand || 'Unknown',
-      modelName: Device.modelName || 'Unknown',
-      osName: Device.osName || 'Unknown',
-      osVersion: Device.osVersion || 'Unknown',
-      timestamp: new Date().toISOString()
-    };
-  };
-  
-  // Function to generate a unique device ID
-  const generateDeviceId = async (deviceInfo) => {
-    const deviceString = JSON.stringify(deviceInfo);
-    const hash = await Crypto.digestStringAsync(
-      Crypto.CryptoDigestAlgorithm.SHA256,
-      deviceString
-    );
-    return hash.substring(0, 16); // Use only first 16 characters for readability
-  };
-  
-  // Function to validate the activation key
-  const validateActivationKey = async (key, deviceId) => {
-    // Key format: GYM-[hash]-[timestamp]
-    const parts = key.split('-');
-    
-    if (parts.length !== 3 || parts[0] !== 'GYM') {
+      console.error("Error al analizar información del dispositivo:", error);
       return false;
     }
-    
-    // Extract the hash from the key
-    const keyHash = parts[1];
-    
-    // Recreate the hash using the device ID and app secret
-    const APP_SECRET = 'GymJudge2023SecretKey'; // Should be stored more securely
-    const validationString = deviceId + APP_SECRET;
-    
-    const expectedHash = await Crypto.digestStringAsync(
-      Crypto.CryptoDigestAlgorithm.SHA256,
-      validationString
+  };
+
+  // Manejar el cambio en el texto del dispositivo
+  const handleDeviceInfoChange = (text) => {
+    setDeviceInfo(text);
+    parseDeviceInfo(text);
+  };
+
+  // Si está cargando o debe auto-route, mostrar loading o nada
+  if (isLoadingDefault || (!changeDis && defaultDiscipline !== null)) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={{ fontSize: 18, color: '#004aad' }}>Loading...</Text>
+      </View>
     );
-    
-    // Compare first 8 characters for simplicity
-    const expectedShortHash = expectedHash.substring(0, 8);
-    
-    return keyHash === expectedShortHash;
-  };
+  }
 
-  // Calculate logo transform based on animation values
-  const logoTransform = [
-    { scale: logoScale },
-    { 
-      translateY: logoPosition.interpolate({
-        inputRange: [0, 1],
-        outputRange: [height * 0.1, 0] // Move from center to final position
-      }) 
-    }
-  ];
-  
-  // Initial position styles that will be applied conditionally
-  const initialLogoStyles = {
-    position: 'absolute',
-    top: height / 2 - 100,
-    left: 0,
-    right: 0,
-    alignSelf: 'center',
-    zIndex: 10
-  };
-
-  return (
+return (
     <View style={styles.container}>
       {/* Background Images with fade-in animation */}
       <Animated.Image
@@ -401,7 +353,7 @@ const createDefaultUsers = async () => {
           isMediumLargeDevice ? styles.backgroundImageMediumLarge : null,
           isSmallDevice ? styles.backgroundImageSmall : null,
           isTinyDevice ? styles.backgroundImageTiny : null,
-          { opacity: contentOpacity },
+          { opacity: backgroundOpacity }
         ]}
         resizeMode="cover"
       />
@@ -413,406 +365,364 @@ const createDefaultUsers = async () => {
           isMediumLargeDevice ? styles.backgroundImageRightMediumLarge : null,
           isSmallDevice ? styles.backgroundImageRightSmall : null,
           isTinyDevice ? styles.backgroundImageRightTiny : null,
-          { opacity: contentOpacity },
+          { opacity: backgroundOpacity }
         ]}
         resizeMode="cover"
       />
 
-      {/* Content */}
-      <View style={styles.contentContainer}>
-        {/* Logo Section */}
-        <Animated.Image
-          source={require("../assets/images/Logo_Background.png")}
+      {/* Admin Key Button - solo visible para usuario Bernabe con rol admin */}
+      {showKeysButton && (
+        <Animated.View 
           style={[
-            isLargeDevice ? styles.logoLarge : null,
-            isMediumLargeDevice ? styles.logoMediumLarge : null,
-            isSmallDevice ? styles.logoSmall : null,
-            isTinyDevice ? styles.logoTiny : null,
-            ...(logoPosition.interpolate({
-              inputRange: [0, 0.5],
-              outputRange: [1, 0],
-              extrapolate: 'clamp',
-            }) as any) > 0.5 ? [initialLogoStyles as Animated.WithAnimatedObject<ImageStyle>] : [],
-            { transform: logoTransform },
+            isLargeDevice ? styles.adminKeyButtonLarge : null,
+            isMediumLargeDevice ? styles.adminKeyButtonMediumLarge : null,
+            isSmallDevice ? styles.adminKeyButtonSmall : null,
+            isTinyDevice ? styles.adminKeyButtonTiny : null,
+            { opacity: adminButtonOpacity }
           ]}
-          resizeMode="contain"
-        />
-
-        {/* Show Registration Form or Login Form based on state */}
-        {showRegistration ? (
-          // Registration Form
-          <ScrollView 
-            contentContainerStyle={{ alignItems: 'center' }}
-            style={{ width: '100%' }}
+        >
+          <TouchableOpacity 
+            onPress={() => setModalVisible(true)}
+            style={[
+              isLargeDevice ? styles.keyButtonContainerLarge : null,
+              isMediumLargeDevice ? styles.keyButtonContainerMediumLarge : null,
+              isSmallDevice ? styles.keyButtonContainerSmall : null,
+              isTinyDevice ? styles.keyButtonContainerTiny : null,
+            ]}
           >
-            <Animated.View 
-              style={{ 
-                opacity: contentOpacity, 
-                transform: [{ translateY: inputsTranslateY }],
-                width: "100%",
-                alignItems: "center",
-                paddingHorizontal: 20
-              }}
-            >
-              <Text style={[
-                isLargeDevice ? styles.registrationTitleLarge : null,
-                isMediumLargeDevice ? styles.registrationTitleMediumLarge : null,
-                isSmallDevice ? styles.registrationTitleSmall : null,
-                isTinyDevice ? styles.registrationTitleTiny : null,
-              ]}>Complete Registration</Text>
-              <Text style={[
-                isLargeDevice ? styles.registrationSubtitleLarge : null,
-                isMediumLargeDevice ? styles.registrationSubtitleMediumLarge : null,
-                isSmallDevice ? styles.registrationSubtitleSmall : null,
-                isTinyDevice ? styles.registrationSubtitleTiny : null,
-              ]}>
-                Enter the activation key you received by email and create your account
-              </Text>
+            <Image
+              source={require("../assets/images/key.png")}
+              style={[
+                isLargeDevice ? styles.keyIconLarge : null,
+                isMediumLargeDevice ? styles.keyIconMediumLarge : null,
+                isSmallDevice ? styles.keyIconSmall : null,
+                isTinyDevice ? styles.keyIconTiny : null,
+              ]}
+              resizeMode="contain"
+            />
+            <Text style={[
+              isLargeDevice ? styles.keyButtonTextLarge : null,
+              isMediumLargeDevice ? styles.keyButtonTextMediumLarge : null,
+              isSmallDevice ? styles.keyButtonTextSmall : null,
+              isTinyDevice ? styles.keyButtonTextTiny : null,
+            ]}>Keys</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      )}
 
-              {/* Activation Key Input */}
+      {/* Animated Title */}
+      <Animated.Text
+        style={[
+          isLargeDevice ? styles.titleTextLarge : null,
+          isMediumLargeDevice ? styles.titleTextMediumLarge : null,
+          isSmallDevice ? styles.titleTextSmall : null,
+          isTinyDevice ? styles.titleTextTiny : null,
+          { 
+            opacity: titleOpacity,
+            transform: [{ translateY: titleTranslateY }]
+          }
+        ]}
+      >
+        CHOOSE YOUR DISCIPLINE
+      </Animated.Text>
+
+      {/* Two Buttons */}
+      <View style={[
+        isLargeDevice ? styles.rowContainerLarge : null,
+        isMediumLargeDevice ? styles.rowContainerMediumLarge : null,
+        isSmallDevice ? styles.rowContainerSmall : null,
+        isTinyDevice ? styles.rowContainerTiny : null,
+      ]}>
+        {/* MAG Button with animation */}
+        <Animated.View
+          style={{
+            opacity: buttonsOpacity,
+            transform: [{ translateX: leftButtonTranslateX }],
+            width: "47%"
+          }}
+        >
+          <TouchableOpacity
+            style={[
+              isLargeDevice ? styles.grayRectangleLarge : null,
+              isMediumLargeDevice ? styles.grayRectangleMediumLarge : null,
+              isSmallDevice ? styles.grayRectangleSmall : null,
+              isTinyDevice ? styles.grayRectangleTiny : null,
+              defaultDiscipline === true && styles.defaultSelectedButton
+            ]}
+            onPress={() => handleSelect(true)}
+          >
+            <Image
+              source={require("../assets/images/MAG.webp")}
+              style={[
+                isLargeDevice ? styles.disciplineImageLarge : null,
+                isMediumLargeDevice ? styles.disciplineImageMediumLarge : null,
+                isSmallDevice ? styles.disciplineImageSmall : null,
+                isTinyDevice ? styles.disciplineImageTiny : null,
+              ]}
+              resizeMode="contain"
+            />
+            <Text style={[
+              isLargeDevice ? styles.rectangleTextLarge : null,
+              isMediumLargeDevice ? styles.rectangleTextMediumLarge : null,
+              isSmallDevice ? styles.rectangleTextSmall : null,
+              isTinyDevice ? styles.rectangleTextTiny : null,
+            ]}>MAG</Text>
+            {defaultDiscipline === true && (
               <View style={[
-                isLargeDevice ? styles.inputContainerLarge : null,
-                isMediumLargeDevice ? styles.inputContainerMediumLarge : null,
-                isSmallDevice ? styles.inputContainerSmall : null,
-                isTinyDevice ? styles.inputContainerTiny : null,
+                isLargeDevice ? styles.defaultBadgeLarge : null,
+                isMediumLargeDevice ? styles.defaultBadgeMediumLarge : null,
+                isSmallDevice ? styles.defaultBadgeSmall : null,
+                isTinyDevice ? styles.defaultBadgeTiny : null,
               ]}>
-                <Image
-                  source={require("../assets/images/locked-computer.png")}
-                  style={[
-                    isLargeDevice ? styles.image_inputLarge : null,
-                    isMediumLargeDevice ? styles.image_inputMediumLarge : null,
-                    isSmallDevice ? styles.image_inputSmall : null,
-                    isTinyDevice ? styles.image_inputTiny : null,
-                  ]}
-                  resizeMode="contain"
-                />
-                <TextInput
-                  placeholder="Activation Key"
-                  style={[
-                    isLargeDevice ? styles.inputTextLarge : null,
-                    isMediumLargeDevice ? styles.inputTextMediumLarge : null,
-                    isSmallDevice ? styles.inputTextSmall : null,
-                    isTinyDevice ? styles.inputTextTiny : null,
-                  ]}
-                  placeholderTextColor="#555"
-                  value={activationKey}
-                  onChangeText={setActivationKey}
-                  autoCapitalize="none"
-                />
+                <Text style={[
+                  isLargeDevice ? styles.defaultBadgeTextLarge : null,
+                  isMediumLargeDevice ? styles.defaultBadgeTextMediumLarge : null,
+                  isSmallDevice ? styles.defaultBadgeTextSmall : null,
+                  isTinyDevice ? styles.defaultBadgeTextTiny : null,
+                ]}>DEFAULT</Text>
               </View>
+            )}
+          </TouchableOpacity>
+        </Animated.View>
 
-              {/* Username Input */}
+        {/* WAG Button with animation */}
+        <Animated.View
+          style={{
+            opacity: buttonsOpacity,
+            transform: [{ translateX: rightButtonTranslateX }],
+            width: "47%"
+          }}
+        >
+          <TouchableOpacity
+            style={[
+              isLargeDevice ? styles.grayRectangleLarge : null,
+              isMediumLargeDevice ? styles.grayRectangleMediumLarge : null,
+              isSmallDevice ? styles.grayRectangleSmall : null,
+              isTinyDevice ? styles.grayRectangleTiny : null,
+              defaultDiscipline === false && styles.defaultSelectedButton
+            ]}
+            onPress={() => handleSelect(false)}
+          >
+            <Image
+              source={require("../assets/images/WAG.webp")}
+              style={[
+                isLargeDevice ? styles.disciplineImageLarge : null,
+                isMediumLargeDevice ? styles.disciplineImageMediumLarge : null,
+                isSmallDevice ? styles.disciplineImageSmall : null,
+                isTinyDevice ? styles.disciplineImageTiny : null,
+              ]}
+              resizeMode="contain"
+            />
+            <Text style={[
+              isLargeDevice ? styles.rectangleTextLarge : null,
+              isMediumLargeDevice ? styles.rectangleTextMediumLarge : null,
+              isSmallDevice ? styles.rectangleTextSmall : null,
+              isTinyDevice ? styles.rectangleTextTiny : null,
+            ]}>WAG</Text>
+            {defaultDiscipline === false && (
               <View style={[
-                isLargeDevice ? styles.inputContainerLarge : null,
-                isMediumLargeDevice ? styles.inputContainerMediumLarge : null,
-                isSmallDevice ? styles.inputContainerSmall : null,
-                isTinyDevice ? styles.inputContainerTiny : null,
+                isLargeDevice ? styles.defaultBadgeLarge : null,
+                isMediumLargeDevice ? styles.defaultBadgeMediumLarge : null,
+                isSmallDevice ? styles.defaultBadgeSmall : null,
+                isTinyDevice ? styles.defaultBadgeTiny : null,
               ]}>
-                <Image
-                  source={require("../assets/images/user.png")}
-                  style={[
-                    isLargeDevice ? styles.image_inputLarge : null,
-                    isMediumLargeDevice ? styles.image_inputMediumLarge : null,
-                    isSmallDevice ? styles.image_inputSmall : null,
-                    isTinyDevice ? styles.image_inputTiny : null,
-                  ]}
-                  resizeMode="contain"
-                />
-                <TextInput
-                  placeholder="Username"
-                  style={[
-                    isLargeDevice ? styles.inputTextLarge : null,
-                    isMediumLargeDevice ? styles.inputTextMediumLarge : null,
-                    isSmallDevice ? styles.inputTextSmall : null,
-                    isTinyDevice ? styles.inputTextTiny : null,
-                  ]}
-                  placeholderTextColor="#555"
-                  value={registerUsername}
-                  onChangeText={setRegisterUsername}
-                  autoCapitalize="none"
-                />
+                <Text style={[
+                  isLargeDevice ? styles.defaultBadgeTextLarge : null,
+                  isMediumLargeDevice ? styles.defaultBadgeTextMediumLarge : null,
+                  isSmallDevice ? styles.defaultBadgeTextSmall : null,
+                  isTinyDevice ? styles.defaultBadgeTextTiny : null,
+                ]}>DEFAULT</Text>
               </View>
-
-              {/* Password Input */}
-              <View style={[
-                isLargeDevice ? styles.inputContainerLarge : null,
-                isMediumLargeDevice ? styles.inputContainerMediumLarge : null,
-                isSmallDevice ? styles.inputContainerSmall : null,
-                isTinyDevice ? styles.inputContainerTiny : null,
-              ]}>
-                <Image
-                  source={require("../assets/images/locked-computer.png")}
-                  style={[
-                    isLargeDevice ? styles.image_inputLarge : null,
-                    isMediumLargeDevice ? styles.image_inputMediumLarge : null,
-                    isSmallDevice ? styles.image_inputSmall : null,
-                    isTinyDevice ? styles.image_inputTiny : null,
-                  ]}
-                  resizeMode="contain"
-                />
-                <TextInput
-                  placeholder="Password"
-                  secureTextEntry
-                  style={[
-                    isLargeDevice ? styles.inputTextLarge : null,
-                    isMediumLargeDevice ? styles.inputTextMediumLarge : null,
-                    isSmallDevice ? styles.inputTextSmall : null,
-                    isTinyDevice ? styles.inputTextTiny : null,
-                  ]}
-                  placeholderTextColor="#555"
-                  value={registerPassword}
-                  onChangeText={setRegisterPassword}
-                  autoCapitalize="none"
-                />
-              </View>
-
-              {/* Confirm Password Input */}
-              <View style={[
-                isLargeDevice ? styles.inputContainerLarge : null,
-                isMediumLargeDevice ? styles.inputContainerMediumLarge : null,
-                isSmallDevice ? styles.inputContainerSmall : null,
-                isTinyDevice ? styles.inputContainerTiny : null,
-              ]}>
-                <Image
-                  source={require("../assets/images/locked-computer.png")}
-                  style={[
-                    isLargeDevice ? styles.image_inputLarge : null,
-                    isMediumLargeDevice ? styles.image_inputMediumLarge : null,
-                    isSmallDevice ? styles.image_inputSmall : null,
-                    isTinyDevice ? styles.image_inputTiny : null,
-                  ]}
-                  resizeMode="contain"
-                />
-                <TextInput
-                  placeholder="Confirm Password"
-                  secureTextEntry
-                  style={[
-                    isLargeDevice ? styles.inputTextLarge : null,
-                    isMediumLargeDevice ? styles.inputTextMediumLarge : null,
-                    isSmallDevice ? styles.inputTextSmall : null,
-                    isTinyDevice ? styles.inputTextTiny : null,
-                  ]}
-                  placeholderTextColor="#555"
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  autoCapitalize="none"
-                />
-              </View>
-
-              {/* Action Buttons */}
-              <View style={styles.buttonRow}>
-                <TouchableOpacity
-                  onPress={() => setShowRegistration(false)}
-                  style={[
-                    isLargeDevice ? styles.secondaryButtonLarge : null,
-                    isMediumLargeDevice ? styles.secondaryButtonMediumLarge : null,
-                    isSmallDevice ? styles.secondaryButtonSmall : null,
-                    isTinyDevice ? styles.secondaryButtonTiny : null,
-                  ]}
-                >
-                  <Text style={[
-                    isLargeDevice ? styles.secondaryButtonTextLarge : null,
-                    isMediumLargeDevice ? styles.secondaryButtonTextMediumLarge : null,
-                    isSmallDevice ? styles.secondaryButtonTextSmall : null,
-                    isTinyDevice ? styles.secondaryButtonTextTiny : null,
-                  ]}>Cancel</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  onPress={completeRegistration}
-                  style={[
-                    isLargeDevice ? styles.loginButtonLargeRegister : null,
-                    isMediumLargeDevice ? styles.loginButtonMediumLargeRegister : null,
-                    isSmallDevice ? styles.loginButtonSmallRegister : null,
-                    isTinyDevice ? styles.loginButtonTinyRegister : null,
-                    { marginLeft: 10 }
-                  ]}
-                  disabled={isLoading}
-                >
-                  {isLoading ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Text style={[
-                      isLargeDevice ? styles.loginTextLargeRegister : null,
-                      isMediumLargeDevice ? styles.loginTextMediumLargeRegister : null,
-                      isSmallDevice ? styles.loginTextSmallRegister : null,
-                      isTinyDevice ? styles.loginTextTinyRegister : null,
-                    ]}>
-                      Register
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-              
-              <Text style={[
-                isLargeDevice ? styles.helpTextLarge : null,
-                isMediumLargeDevice ? styles.helpTextMediumLarge : null,
-                isSmallDevice ? styles.helpTextSmall : null,
-                isTinyDevice ? styles.helpTextTiny : null,
-              ]}>
-                If you don't have an activation key, use the "Register New Device" button
-                on the login screen to request one.
-              </Text>
-            </Animated.View>
-          </ScrollView>
-        ) : (
-          // Login Form
-          <>
-            <Animated.View 
-              style={{ 
-                opacity: contentOpacity, 
-                transform: [{ translateY: inputsTranslateY }],
-                width: "100%",
-                alignItems: "center"
-              }}
-            >
-              {/* Username Input */}
-              <View style={[
-                isLargeDevice ? styles.inputContainerLarge : null,
-                isMediumLargeDevice ? styles.inputContainerMediumLarge : null,
-                isSmallDevice ? styles.inputContainerSmall : null,
-                isTinyDevice ? styles.inputContainerTiny : null,
-              ]}>
-                <Image
-                  source={require("../assets/images/user.png")}
-                  style={[
-                    isLargeDevice ? styles.image_inputLarge : null,
-                    isMediumLargeDevice ? styles.image_inputMediumLarge : null,
-                    isSmallDevice ? styles.image_inputSmall : null,
-                    isTinyDevice ? styles.image_inputTiny : null,
-                  ]}
-                  resizeMode="contain"
-                />
-                <TextInput
-                  placeholder="Username"
-                  style={[
-                    isLargeDevice ? styles.inputTextLarge : null,
-                    isMediumLargeDevice ? styles.inputTextMediumLarge : null,
-                    isSmallDevice ? styles.inputTextSmall : null,
-                    isTinyDevice ? styles.inputTextTiny : null,
-                  ]}
-                  placeholderTextColor="#555"
-                  value={username}
-                  onChangeText={setUsername}
-                  autoCapitalize="none"
-                />
-              </View>
-
-              {/* Password Input */}
-              <View style={[
-                isLargeDevice ? styles.inputContainerLarge : null,
-                isMediumLargeDevice ? styles.inputContainerMediumLarge : null,
-                isSmallDevice ? styles.inputContainerSmall : null,
-                isTinyDevice ? styles.inputContainerTiny : null,
-              ]}>
-                <Image
-                  source={require("../assets/images/locked-computer.png")}
-                  style={[
-                    isLargeDevice ? styles.image_inputLarge : null,
-                    isMediumLargeDevice ? styles.image_inputMediumLarge : null,
-                    isSmallDevice ? styles.image_inputSmall : null,
-                    isTinyDevice ? styles.image_inputTiny : null,
-                  ]}
-                  resizeMode="contain"
-                />
-                <TextInput
-                  placeholder="Password"
-                  secureTextEntry
-                  style={[
-                    isLargeDevice ? styles.inputTextLarge : null,
-                    isMediumLargeDevice ? styles.inputTextMediumLarge : null,
-                    isSmallDevice ? styles.inputTextSmall : null,
-                    isTinyDevice ? styles.inputTextTiny : null,
-                  ]}
-                  placeholderTextColor="#555"
-                  value={password}
-                  onChangeText={setPassword}
-                  autoCapitalize="none"
-                />
-              </View>
-            </Animated.View>
-
-            {/* Login and Register Buttons */}
-            <Animated.View 
-              style={{ 
-                opacity: contentOpacity, 
-                transform: [{ translateY: buttonTranslateY }],
-                width: "100%",
-                alignItems: "center"
-              }}
-            >
-              {/* Login Button */}
-              <TouchableOpacity
-                onPress={handleLogin}
-                style={[
-                  isLargeDevice ? styles.loginButtonLarge : null,
-                  isMediumLargeDevice ? styles.loginButtonMediumLarge : null,
-                  isSmallDevice ? styles.loginButtonSmall : null,
-                  isTinyDevice ? styles.loginButtonTiny : null,
-                ]}
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={[
-                    isLargeDevice ? styles.loginTextLarge : null,
-                    isMediumLargeDevice ? styles.loginTextMediumLarge : null,
-                    isSmallDevice ? styles.loginTextSmall : null,
-                    isTinyDevice ? styles.loginTextTiny : null,
-                  ]}>
-                    Log In
-                  </Text>
-                )}
-              </TouchableOpacity>
-              
-              {/* Register Device Button */}
-              <TouchableOpacity
-                onPress={initiateRegistration}
-                style={[
-                  isLargeDevice ? styles.registerButtonLarge : null,
-                  isMediumLargeDevice ? styles.registerButtonMediumLarge : null,
-                  isSmallDevice ? styles.registerButtonSmall : null,
-                  isTinyDevice ? styles.registerButtonTiny : null,
-                ]}
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text
-                    style={[
-                      isLargeDevice ? styles.registerTextLarge : null,
-                      isMediumLargeDevice ? styles.registerTextMediumLarge : null,
-                      isSmallDevice ? styles.registerTextSmall : null,
-                      isTinyDevice ? styles.registerTextTiny : null,
-                    ]}
-                  >
-                    Register New Device
-                  </Text>
-                )}
-              </TouchableOpacity>
-            </Animated.View>
-            
-            {/* Default user credentials */}
-            <Animated.View style={[
-              isLargeDevice ? styles.defaultUserContainerLarge : null,
-              isMediumLargeDevice ? styles.defaultUserContainerMediumLarge : null,
-              isSmallDevice ? styles.defaultUserContainerSmall : null,
-              isTinyDevice ? styles.defaultUserContainerTiny : null,
-              { opacity: contentOpacity }
-            ]}>
-              
-              <Text style={[
-                isLargeDevice ? styles.defaultUserTextLarge : null,
-                isMediumLargeDevice ? styles.defaultUserTextMediumLarge : null,
-                isSmallDevice ? styles.defaultUserTextSmall : null,
-                isTinyDevice ? styles.defaultUserTextTiny : null,
-              ]}>Width: {width} ~ Height: {height}</Text> 
-            </Animated.View> 
-          </>
-        )}
+            )}
+          </TouchableOpacity>
+        </Animated.View>
       </View>
+
+      {/* Toggle Default Discipline Button */}
+      <Animated.View style={{ opacity: toggleButtonOpacity }}>
+        <TouchableOpacity
+          style={[
+            isLargeDevice ? styles.toggleButtonLarge : null,
+            isMediumLargeDevice ? styles.toggleButtonMediumLarge : null,
+            isSmallDevice ? styles.toggleButtonSmall : null,
+            isTinyDevice ? styles.toggleButtonTiny : null,
+          ]}
+          onPress={toggleDefaultDiscipline}
+        >
+          <Text style={[
+            isLargeDevice ? styles.toggleButtonTextLarge : null,
+            isMediumLargeDevice ? styles.toggleButtonTextMediumLarge : null,
+            isSmallDevice ? styles.toggleButtonTextSmall : null,
+            isTinyDevice ? styles.toggleButtonTextTiny : null,
+          ]}>
+            {defaultDiscipline === null 
+              ? "SET AS DEFAULT" 
+              : defaultDiscipline === true 
+                ? "MAG DEFAULT → WAG DEFAULT" 
+                : "WAG DEFAULT → REMOVE DEFAULT"
+            }
+          </Text>
+          <Text style={[
+            isLargeDevice ? styles.toggleSubtextLarge : null,
+            isMediumLargeDevice ? styles.toggleSubtextMediumLarge : null,
+            isSmallDevice ? styles.toggleSubtextSmall : null,
+            isTinyDevice ? styles.toggleSubtextTiny : null,
+          ]}>
+            {defaultDiscipline === null 
+              ? "Tap to set MAG as default" 
+              : "Tap to change default discipline"
+            }
+          </Text>
+        </TouchableOpacity>
+      </Animated.View>
+
+      {/* Modal para generar claves */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[
+            isLargeDevice ? styles.modalContainerLarge : null,
+            isMediumLargeDevice ? styles.modalContainerMediumLarge : null,
+            isSmallDevice ? styles.modalContainerSmall : null,
+            isTinyDevice ? styles.modalContainerTiny : null,
+          ]}>
+            <Text style={[
+              isLargeDevice ? styles.modalTitleLarge : null,
+              isMediumLargeDevice ? styles.modalTitleMediumLarge : null,
+              isSmallDevice ? styles.modalTitleSmall : null,
+              isTinyDevice ? styles.modalTitleTiny : null,
+            ]}>Generador de Claves de Activación</Text>
+            
+
+            
+            <Text style={[
+              isLargeDevice ? styles.modalLabelLarge : null,
+              isMediumLargeDevice ? styles.modalLabelMediumLarge : null,
+              isSmallDevice ? styles.modalLabelSmall : null,
+              isTinyDevice ? styles.modalLabelTiny : null,
+            ]}>Pegue la información del dispositivo:</Text>
+            <TextInput
+              style={[
+                isLargeDevice ? styles.modalTextInputLarge : null,
+                isMediumLargeDevice ? styles.modalTextInputMediumLarge : null,
+                isSmallDevice ? styles.modalTextInputSmall : null,
+                isTinyDevice ? styles.modalTextInputTiny : null,
+              ]}
+              multiline
+              numberOfLines={8}
+              value={deviceInfo}
+              onChangeText={handleDeviceInfoChange}
+              placeholder="Pegue aquí el correo con la información del dispositivo..."
+            />
+            
+            <View style={[
+              isLargeDevice ? styles.deviceIdContainerLarge : null,
+              isMediumLargeDevice ? styles.deviceIdContainerMediumLarge : null,
+              isSmallDevice ? styles.deviceIdContainerSmall : null,
+              isTinyDevice ? styles.deviceIdContainerTiny : null,
+            ]}>
+              <Text style={[
+                isLargeDevice ? styles.modalLabelLarge : null,
+                isMediumLargeDevice ? styles.modalLabelMediumLarge : null,
+                isSmallDevice ? styles.modalLabelSmall : null,
+                isTinyDevice ? styles.modalLabelTiny : null,
+              ]}>ID del Dispositivo:</Text>
+              <Text style={[
+                isLargeDevice ? styles.deviceIdTextLarge : null,
+                isMediumLargeDevice ? styles.deviceIdTextMediumLarge : null,
+                isSmallDevice ? styles.deviceIdTextSmall : null,
+                isTinyDevice ? styles.deviceIdTextTiny : null,
+              ]}>{deviceId || "No detectado"}</Text>
+            </View>
+            
+            <TouchableOpacity 
+              style={[
+                isLargeDevice ? styles.generateButtonLarge : null,
+                isMediumLargeDevice ? styles.generateButtonMediumLarge : null,
+                isSmallDevice ? styles.generateButtonSmall : null,
+                isTinyDevice ? styles.generateButtonTiny : null,
+                !deviceId.trim() && styles.disabledButton,
+                isGenerating && styles.loadingButton
+              ]}
+              onPress={generateActivationKey}
+              disabled={!deviceId.trim() || isGenerating}
+            >
+              <Text style={[
+                isLargeDevice ? styles.buttonTextLarge : null,
+                isMediumLargeDevice ? styles.buttonTextMediumLarge : null,
+                isSmallDevice ? styles.buttonTextSmall : null,
+                isTinyDevice ? styles.buttonTextTiny : null,
+              ]}>
+                {isGenerating ? 'Generando...' : 'Generar Clave'}
+              </Text>
+            </TouchableOpacity>
+            
+            {/* {generatedKey ? (
+              <View style={[
+                isLargeDevice ? styles.keyResultContainerLarge : null,
+                isMediumLargeDevice ? styles.keyResultContainerMediumLarge : null,
+                isSmallDevice ? styles.keyResultContainerSmall : null,
+                isTinyDevice ? styles.keyResultContainerTiny : null,
+              ]}>
+                <Text style={[
+                  isLargeDevice ? styles.resultLabelLarge : null,
+                  isMediumLargeDevice ? styles.resultLabelMediumLarge : null,
+                  isSmallDevice ? styles.resultLabelSmall : null,
+                  isTinyDevice ? styles.resultLabelTiny : null,
+                ]}>Clave de Activación:</Text>
+                <TouchableOpacity 
+                  style={[
+                    isLargeDevice ? styles.copyContainerLarge : null,
+                    isMediumLargeDevice ? styles.copyContainerMediumLarge : null,
+                    isSmallDevice ? styles.copyContainerSmall : null,
+                    isTinyDevice ? styles.copyContainerTiny : null,
+                  ]}
+                  onPress={copyToClipboard}
+                >
+                  <Text style={[
+                    isLargeDevice ? styles.generatedKeyTextLarge : null,
+                    isMediumLargeDevice ? styles.generatedKeyTextMediumLarge : null,
+                    isSmallDevice ? styles.generatedKeyTextSmall : null,
+                    isTinyDevice ? styles.generatedKeyTextTiny : null,
+                  ]}>{generatedKey}</Text>
+                  <Text style={[
+                    isLargeDevice ? styles.copyTextLarge : null,
+                    isMediumLargeDevice ? styles.copyTextMediumLarge : null,
+                    isSmallDevice ? styles.copyTextSmall : null,
+                    isTinyDevice ? styles.copyTextTiny : null,
+                  ]}>Tocar para copiar</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null} */}
+            
+            <TouchableOpacity 
+              style={[
+                isLargeDevice ? styles.closeButtonLarge : null,
+                isMediumLargeDevice ? styles.closeButtonMediumLarge : null,
+                isSmallDevice ? styles.closeButtonSmall : null,
+                isTinyDevice ? styles.closeButtonTiny : null,
+              ]}
+              onPress={() => {
+                setModalVisible(false);
+                setDeviceInfo('');
+                setDeviceId('');
+                setGeneratedKey('');
+              }}
+            >
+              <Text style={[
+                isLargeDevice ? styles.closeButtonTextLarge : null,
+                isMediumLargeDevice ? styles.closeButtonTextMediumLarge : null,
+                isSmallDevice ? styles.closeButtonTextSmall : null,
+                isTinyDevice ? styles.closeButtonTextTiny : null,
+              ]}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -823,7 +733,8 @@ const styles = StyleSheet.create({
     position: "relative",
     backgroundColor: "#F1F3F5",
   },
-  // Background images - Large Device
+  
+  // Background images - Large Device (width >= 1368)
   backgroundImageLarge: {
     position: "absolute",
     top: 0,
@@ -837,9 +748,9 @@ const styles = StyleSheet.create({
     right: 0,
     width: 300,
     height: 570,
-    
   },
-  // Background images - Medium Large Device
+  
+  // Background images - Medium Large Device (width >= 1200 && width < 1368)
   backgroundImageMediumLarge: {
     position: "absolute",
     top: 0,
@@ -854,7 +765,8 @@ const styles = StyleSheet.create({
     width: 250,
     height: 470,
   },
-  // Background images - Small Device
+  
+  // Background images - Small Device (width >= 945 && width < 1200)
   backgroundImageSmall: {
     position: "absolute",
     top: 0,
@@ -869,7 +781,8 @@ const styles = StyleSheet.create({
     width: 180,
     height: 360,
   },
-  // Background images - Tiny Device
+  
+  // Background images - Tiny Device (width < 945)
   backgroundImageTiny: {
     position: "absolute",
     top: 0,
@@ -884,530 +797,1045 @@ const styles = StyleSheet.create({
     width: 140,
     height: 280,
   },
-  contentContainer: {
-    flex: 1,
+  
+  // Title text styles - Large Device
+  titleTextLarge: {
+    color: "#000000",
+    fontWeight: "bold",
+    fontSize: 80,
+    textAlign: "center",
+    marginTop: "10%",
+    fontFamily: "Rajdhani-Bold",
+  },
+  // Title text styles - Medium Large Device
+  titleTextMediumLarge: {
+    color: "#000000",
+    fontWeight: "bold",
+    fontSize: 70,
+    textAlign: "center",
+    marginTop: "10%",
+    fontFamily: "Rajdhani-Bold",
+  },
+  // Title text styles - Small Device
+  titleTextSmall: {
+    color: "#000000",
+    fontWeight: "bold",
+    fontSize: 55,
+    textAlign: "center",
+    marginTop: "10%",
+    fontFamily: "Rajdhani-Bold",
+  },
+  // Title text styles - Tiny Device
+  titleTextTiny: {
+    color: "#000000",
+    fontWeight: "bold",
+    fontSize: 40,
+    textAlign: "center",
+    marginTop: "8%",
+    fontFamily: "Rajdhani-Bold",
+  },
+  
+  // Row container styles - Large Device
+  rowContainerLarge: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    width: "75%",
+    alignSelf: "center",
+    marginTop: 40,
+  },
+  // Row container styles - Medium Large Device
+  rowContainerMediumLarge: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    width: "72%",
+    alignSelf: "center",
+    marginTop: 35,
+  },
+  // Row container styles - Small Device
+  rowContainerSmall: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    width: "70%",
+    alignSelf: "center",
+    marginTop: 25,
+  },
+  // Row container styles - Tiny Device
+  rowContainerTiny: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    width: "70%",
+    alignSelf: "center",
+    marginTop: 10,
+  },
+  
+  // Rectangle button styles - Large Device
+  grayRectangleLarge: {
+    backgroundColor: "#6E6E6E",
+    width: "100%",
+    height: 350,
     justifyContent: "center",
-    zIndex: 1,
-  },
-  // Logo styles - Large Device
-  logoLarge: {
-    alignSelf: "center",
-    width: "30%",
-    height: "40%",
+    alignItems: "center",
+    borderRadius: 30,
     position: "relative",
-    bottom: -40,
   },
-  // Logo styles - Medium Large Device
-  logoMediumLarge: {
-    alignSelf: "center",
-    width: "38%",
-    height: "38%",
+  // Rectangle button styles - Medium Large Device
+  grayRectangleMediumLarge: {
+    backgroundColor: "#6E6E6E",
+    width: "100%",
+    height: 300,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 28,
     position: "relative",
-    bottom: -35,
+  },
+  // Rectangle button styles - Small Device
+  grayRectangleSmall: {
+    backgroundColor: "#6E6E6E",
+    width: "100%",
+    height: 250,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 25,
+    position: "relative",
+  },
+  // Rectangle button styles - Tiny Device
+  grayRectangleTiny: {
+    backgroundColor: "#6E6E6E",
+    width: "100%",
+    height: 190,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 30,
+    position: "relative",
+  },
 
-    
+  // Default selected button style
+  defaultSelectedButton: {
+    borderWidth: 4,
+    borderColor: "#004aad",
+    shadowColor: "#004aad",
+    shadowOffset: {
+      width: 0,
+      height: 0,
+    },
+    shadowOpacity: 0.8,
+    shadowRadius: 8,
+    elevation: 10,
   },
-  // Logo styles - Small Device
-  logoSmall: {
-    alignSelf: "center",
-    width: "26%",
-    height: "36%",
-    position: "relative",
-    bottom: -25,
-    
+  
+  // Text styles for buttons - Large Device
+  rectangleTextLarge: {
+    color: "#F1F3F5",
+    fontSize: 60,
+    fontFamily: "Rajdhani-Bold",
+    bottom: 20,
+    position: "absolute",
   },
-  // Logo styles - Tiny Device
-  logoTiny: {
-    alignSelf: "center",
-    width: "25%",
-    height: "40%",
-    position: "relative",
-    bottom: -20,
-    
+  // Text styles for buttons - Medium Large Device
+  rectangleTextMediumLarge: {
+    color: "#F1F3F5",
+    fontSize: 35,
+    fontFamily: "Rajdhani-Bold",
+    bottom: 5,
+    position: "absolute",
   },
-  // Input container styles - Large Device
-  inputContainerLarge: {
-    backgroundColor: "#D9D9D9",
-    borderRadius: 8,
+  // Text styles for buttons - Small Device
+  rectangleTextSmall: {
+    color: "#F1F3F5",
+    fontSize: 44,
+    fontFamily: "Rajdhani-Bold",
+    bottom: 15,
+    position: "absolute",
+  },
+  // Text styles for buttons - Tiny Device
+  rectangleTextTiny: {
+    color: "#F1F3F5",
+    fontSize: 36,
+    fontFamily: "Rajdhani-Bold",
+    bottom: 10,
+    position: "absolute",
+  },
+  
+  // Image styles - Large Device
+  disciplineImageLarge: {
+    width: "55%",
+    height: "70%",
+    top: -35,
+  },
+  // Image styles - Medium Large Device
+  disciplineImageMediumLarge: {
+    width: "53%",
+    height: "68%",
+    top: -30,
+  },
+  // Image styles - Small Device
+  disciplineImageSmall: {
+    width: "52%",
+    height: "65%",
+    top: -25,
+  },
+  // Image styles - Tiny Device
+  disciplineImageTiny: {
+    width: "50%",
+    height: "60%",
+    top: -15,
+  },
+
+  // Default badge styles - Large Device
+  defaultBadgeLarge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: '#004aad',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 15,
+  },
+  // Default badge styles - Medium Large Device
+  defaultBadgeMediumLarge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#004aad',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  // Default badge styles - Small Device
+  defaultBadgeSmall: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: '#004aad',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  // Default badge styles - Tiny Device
+  defaultBadgeTiny: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#004aad',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+
+  // Default badge text styles - Large Device
+  defaultBadgeTextLarge: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  // Default badge text styles - Medium Large Device
+  defaultBadgeTextMediumLarge: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  // Default badge text styles - Small Device
+  defaultBadgeTextSmall: {
+    color: 'white',
+    fontSize: 8,
+    fontWeight: 'bold',
+  },
+  // Default badge text styles - Tiny Device
+  defaultBadgeTextTiny: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+
+  // Toggle button styles - Large Device
+  toggleButtonLarge: {
+    backgroundColor: "#4A5568",
+    marginTop: 40,
+    marginHorizontal: 60,
+    paddingVertical: 20,
     paddingHorizontal: 30,
-    paddingVertical: 10,
-    marginBottom: 20,
-    width: "30%",
-    position: "relative",
-    alignSelf: "center",
+    borderRadius: 25,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
   },
-  // Input container styles - Medium Large Device
-  inputContainerMediumLarge: {
-    backgroundColor: "#D9D9D9",
-    borderRadius: 8,
+  // Toggle button styles - Medium Large Device
+  toggleButtonMediumLarge: {
+    backgroundColor: "#4A5568",
+    marginTop: 35,
+    marginHorizontal: 50,
+    paddingVertical: 18,
     paddingHorizontal: 25,
-    paddingVertical: 9,
-    marginBottom: 18,
-    width: "32%",
-    position: "relative",
-    alignSelf: "center",
+    borderRadius: 22,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
   },
-  // Input container styles - Small Device
-  inputContainerSmall: {
-    backgroundColor: "#D9D9D9",
-    borderRadius: 7,
+  // Toggle button styles - Small Device
+  toggleButtonSmall: {
+    backgroundColor: "#4A5568",
+    marginTop: 30,
+    marginHorizontal: 40,
+    paddingVertical: 15,
     paddingHorizontal: 20,
-    paddingVertical: 8,
-    marginBottom: 15,
-    width: "38%",
-    position: "relative",
-    alignSelf: "center",
+    borderRadius: 20,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
   },
-  // Input container styles - Tiny Device
-  inputContainerTiny: {
-    backgroundColor: "#D9D9D9",
-    borderRadius: 6,
+  // Toggle button styles - Tiny Device
+  toggleButtonTiny: {
+    backgroundColor: "#4A5568",
+    marginTop: 25,
+    marginHorizontal: 30,
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderRadius: 18,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+
+  // Toggle button text styles - Large Device
+  toggleButtonTextLarge: {
+    color: "#F1F3F5",
+    fontSize: 18,
+    fontWeight: "bold",
+    fontFamily: "Rajdhani-Bold",
+    textAlign: "center",
+  },
+  // Toggle button text styles - Medium Large Device
+  toggleButtonTextMediumLarge: {
+    color: "#F1F3F5",
+    fontSize: 16,
+    fontWeight: "bold",
+    fontFamily: "Rajdhani-Bold",
+    textAlign: "center",
+  },
+  // Toggle button text styles - Small Device
+  toggleButtonTextSmall: {
+    color: "#F1F3F5",
+    fontSize: 14,
+    fontWeight: "bold",
+    fontFamily: "Rajdhani-Bold",
+    textAlign: "center",
+  },
+  // Toggle button text styles - Tiny Device
+  toggleButtonTextTiny: {
+    color: "#F1F3F5",
+    fontSize: 12,
+    fontWeight: "bold",
+    fontFamily: "Rajdhani-Bold",
+    textAlign: "center",
+  },
+
+  // Toggle subtext styles - Large Device
+  toggleSubtextLarge: {
+    color: "#CBD5E0",
+    fontSize: 14,
+    marginTop: 5,
+    textAlign: "center",
+    fontStyle: "italic",
+  },
+  // Toggle subtext styles - Medium Large Device
+  toggleSubtextMediumLarge: {
+    color: "#CBD5E0",
+    fontSize: 12,
+    marginTop: 4,
+    textAlign: "center",
+    fontStyle: "italic",
+  },
+  // Toggle subtext styles - Small Device
+  toggleSubtextSmall: {
+    color: "#CBD5E0",
+    fontSize: 10,
+    marginTop: 3,
+    textAlign: "center",
+    fontStyle: "italic",
+  },
+  // Toggle subtext styles - Tiny Device
+  toggleSubtextTiny: {
+    color: "#CBD5E0",
+    fontSize: 9,
+    marginTop: 3,
+    textAlign: "center",
+    fontStyle: "italic",
+  },
+  
+  // Admin key button styles - Large Device
+  adminKeyButtonLarge: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    zIndex: 10,
+  },
+  // Admin key button styles - Medium Large Device
+  adminKeyButtonMediumLarge: {
+    position: 'absolute',
+    top: 18,
+    right: 18,
+    zIndex: 10,
+  },
+  // Admin key button styles - Small Device
+  adminKeyButtonSmall: {
+    position: 'absolute',
+    top: 15,
+    right: 15,
+    zIndex: 10,
+  },
+  // Admin key button styles - Tiny Device
+  adminKeyButtonTiny: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    zIndex: 10,
+  },
+  
+  // Key button container styles - Large Device
+  keyButtonContainerLarge: {
+    flexDirection: 'row',
+    backgroundColor: '#004aad',
     paddingHorizontal: 15,
     paddingVertical: 8,
-    marginBottom: 10,
-    width: "40%",
-    position: "relative",
-    alignSelf: "center",
+    borderRadius: 20,
+    alignItems: 'center',
   },
-  // Input icon styles - Large Device
-  image_inputLarge: {
-    position: "absolute",
-    top: 5,
-    left: 10,
-    width: 30,
-    height: 30,
+  // Key button container styles - Medium Large Device
+  keyButtonContainerMediumLarge: {
+    flexDirection: 'row',
+    backgroundColor: '#004aad',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 18,
+    alignItems: 'center',
   },
-  // Input icon styles - Medium Large Device
-  image_inputMediumLarge: {
-    position: "absolute",
-    top: 10,
-    left: 9,
-    width: 28,
-    height: 28,
+  // Key button container styles - Small Device
+  keyButtonContainerSmall: {
+    flexDirection: 'row',
+    backgroundColor: '#004aad',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    alignItems: 'center',
   },
-  // Input icon styles - Small Device
-  image_inputSmall: {
-    position: "absolute",
-    top: 4,
-    left: 8,
-    width: 24,
-    height: 24,
+  // Key button container styles - Tiny Device
+  keyButtonContainerTiny: {
+    flexDirection: 'row',
+    backgroundColor: '#004aad',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+    alignItems: 'center',
   },
-  // Input icon styles - Tiny Device
-  image_inputTiny: {
-    position: "absolute",
-    top: 15,
-    left: 7,
+  
+  // Key icon styles - Large Device
+  keyIconLarge: {
     width: 20,
     height: 20,
+    marginRight: 5,
+    tintColor: 'white',
   },
-  // Input text styles - Large Device
-  inputTextLarge: {
-    paddingLeft: 25,
+  // Key icon styles - Medium Large Device
+  keyIconMediumLarge: {
+    width: 18,
+    height: 18,
+    marginRight: 4,
+    tintColor: 'white',
+  },
+  // Key icon styles - Small Device
+  keyIconSmall: {
+    width: 16,
+    height: 16,
+    marginRight: 4,
+    tintColor: 'white',
+  },
+  // Key icon styles - Tiny Device
+  keyIconTiny: {
+    width: 20,
+    height: 20,
+    marginRight: 5,
+    tintColor: 'white',
+  },
+  
+  // Key button text styles - Large Device
+  keyButtonTextLarge: {
+    color: 'white',
+    fontWeight: 'bold',
     fontSize: 16,
   },
-  // Input text styles - Medium Large Device
-  inputTextMediumLarge: {
-    paddingLeft: 24,
+  // Key button text styles - Medium Large Device
+  keyButtonTextMediumLarge: {
+    color: 'white',
+    fontWeight: 'bold',
     fontSize: 15,
   },
-  // Input text styles - Small Device
-  inputTextSmall: {
-    paddingLeft: 22,
+  // Key button text styles - Small Device
+  keyButtonTextSmall: {
+    color: 'white',
+    fontWeight: 'bold',
     fontSize: 14,
   },
-  // Input text styles - Tiny Device
-  inputTextTiny: {
-    paddingLeft: 20,
-    fontSize: 14,
-  },
-  // Login button styles - Large Device
-  loginButtonLarge: {
-    backgroundColor: "#004aad",
-    borderRadius: 8,
-    paddingVertical: 7,
-    alignItems: "center",
-    width: "30%",
-    alignSelf: "center",
-    marginTop: 10,
-  },
-  loginButtonLargeRegister: {
-    backgroundColor: "#004aad",
-    borderRadius: 8,
-    paddingVertical: 7,
-    alignItems: "center",
-    width: "30%",
-    alignSelf: "center",
-  },
-  // Login button styles - Medium Large Device
-  loginButtonMediumLarge: {
-    backgroundColor: "#004aad",
-    borderRadius: 8,
-    paddingVertical: 8,
-    alignItems: "center",
-    width: "32%",
-    alignSelf: "center",
-    marginTop: 9,
-  },
-  loginButtonMediumLargeRegister: {
-    backgroundColor: "#004aad",
-    borderRadius: 8,
-    paddingVertical: 8,
-    alignItems: "center",
-    width: "32%",
-    alignSelf: "center",
-  },
-  // Login button styles - Small Device
-  loginButtonSmall: {
-    backgroundColor: "#004aad",
-    borderRadius: 7,
-    paddingVertical: 9,
-    alignItems: "center",
-    width: "36%",
-    alignSelf: "center",
-    marginTop: 8,
-  },
-  loginButtonSmallRegister: {
-    backgroundColor: "#004aad",
-    borderRadius: 7,
-    paddingVertical: 9,
-    alignItems: "center",
-    width: "36%",
-    alignSelf: "center",
-  },
-  // Login button styles - Tiny Device
-  loginButtonTiny: {
-    backgroundColor: "#004aad",
-    borderRadius: 6,
-    paddingVertical: 10,
-    alignItems: "center",
-    width: "34%",
-    alignSelf: "center",
-    marginTop: 8,
-  },
-  loginButtonTinyRegister: {
-    backgroundColor: "#004aad",
-    borderRadius: 6,
-    paddingVertical: 10,
-    alignItems: "center",
-    width: "34%",
-    alignSelf: "center",
-  },
-  // Login text styles - Large Device
-  loginTextLarge: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 30,
-  },
-  loginTextLargeRegister: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 28,
-  },
-  // Login text styles - Medium Large Device
-  loginTextMediumLarge: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 27,
-  },
-  loginTextMediumLargeRegister: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 25,
-  },
-  // Login text styles - Small Device
-  loginTextSmall: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 24,
-  },
-  loginTextSmallRegister: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 22,
-  },
-  // Login text styles - Tiny Device
-  loginTextTiny: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 23,
-  },
-  loginTextTinyRegister: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 20,
-  },
-  
-  // Register Device Button styles - Large Device
-  registerButtonLarge: {
-    backgroundColor: "#2E8B57", // Dark Green
-    borderRadius: 8,
-    paddingVertical: 7,
-    alignItems: "center",
-    width: "30%",
-    alignSelf: "center",
-    marginTop: 10,
-  },
-  // Register Device Button styles - Medium Large Device
-  registerButtonMediumLarge: {
-    backgroundColor: "#2E8B57", // Dark Green
-    borderRadius: 8,
-    paddingVertical: 8,
-    alignItems: "center",
-    width: "32%",
-    alignSelf: "center",
-    marginTop: 9,
-  },
-  // Register Device Button styles - Small Device
-  registerButtonSmall: {
-    backgroundColor: "#2E8B57", // Dark Green
-    borderRadius: 7,
-    paddingVertical: 9,
-    alignItems: "center",
-    width: "36%",
-    alignSelf: "center",
-    marginTop: 8,
-  },
-  // Register Device Button styles - Tiny Device
-  registerButtonTiny: {
-    backgroundColor: "#2E8B57", // Dark Green
-    borderRadius: 6,
-    paddingVertical: 10,
-    alignItems: "center",
-    width: "34%",
-    alignSelf: "center",
-    marginTop: 8,
-  },
-  // Register text styles - Large Device
-  registerTextLarge: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 24,
-  },
-  // Register text styles - Medium Large Device
-  registerTextMediumLarge: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 15,
-  },
-  // Register text styles - Small Device
-  registerTextSmall: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 20,
-  },
-  // Register text styles - Tiny Device
-  registerTextTiny: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 18,
-  },
-  
-  // Default user container styles - Large Device
-  defaultUserContainerLarge: {
-    marginTop: 20,
-    alignItems: "center",
-  },
-  // Default user container styles - Medium Large Device
-  defaultUserContainerMediumLarge: {
-    marginTop: 18,
-    alignItems: "center",
-  },
-  // Default user container styles - Small Device
-  defaultUserContainerSmall: {
-    marginTop: 15,
-    alignItems: "center",
-  },
-  // Default user container styles - Tiny Device
-  defaultUserContainerTiny: {
-    marginTop: 10,
-    alignItems: "center",
-  },
-  // Default user text styles - Large Device
-  defaultUserTextLarge: {
-    fontSize: 14,
-    color: "#555",
-  },
-  // Default user text styles - Medium Large Device
-  defaultUserTextMediumLarge: {
-    fontSize: 13,
-    color: "#555",
-  },
-  // Default user text styles - Small Device
-  defaultUserTextSmall: {
-    fontSize: 12,
-    color: "#555",
-  },
-  // Default user text styles - Tiny Device
-  defaultUserTextTiny: {
-    fontSize: 12,
-    color: "#555",
-  },
-  
-  // Registration title styles - Large Device
-  registrationTitleLarge: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#004aad",
-    marginBottom: 10,
-    textAlign: "center"
-  },
-  // Registration title styles - Medium Large Device
-  registrationTitleMediumLarge: {
-    fontSize: 26,
-    fontWeight: "bold",
-    color: "#004aad",
-    marginBottom: 9,
-    textAlign: "center"
-  },
-  // Registration title styles - Small Device
-  registrationTitleSmall: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#004aad",
-    marginBottom: 8,
-    textAlign: "center"
-  },
-  // Registration title styles - Tiny Device
-  registrationTitleTiny: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#004aad",
-    marginBottom: 10,
-    textAlign: "center"
-  },
-  
-  // Registration subtitle styles - Large Device
-  registrationSubtitleLarge: {
+  // Key button text styles - Tiny Device
+  keyButtonTextTiny: {
+    color: 'white',
+    fontWeight: 'bold',
     fontSize: 16,
-    color: "#666",
+  },
+  
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  
+  // Modal container styles - Large Device
+  modalContainerLarge: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 20,
+    width: '50%',
+    maxHeight: '80%',
+  },
+  // Modal container styles - Medium Large Device
+  modalContainerMediumLarge: {
+    backgroundColor: 'white',
+    borderRadius: 14,
+    padding: 18,
+    width: '60%',
+    maxHeight: '80%',
+  },
+  // Modal container styles - Small Device
+  modalContainerSmall: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    width: '75%',
+    maxHeight: '80%',
+  },
+  // Modal container styles - Tiny Device
+  modalContainerTiny: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 20,
+    width: '85%',
+    maxHeight: '80%',
+  },
+  
+  // Modal title styles - Large Device
+  modalTitleLarge: {
+    fontSize: 22,
+    fontWeight: 'bold',
     marginBottom: 20,
-    textAlign: "center",
-    maxWidth: "80%"
+    color: '#004aad',
+    textAlign: 'center',
   },
-  // Registration subtitle styles - Medium Large Device
-  registrationSubtitleMediumLarge: {
-    fontSize: 15,
-    color: "#666",
+  // Modal title styles - Medium Large Device
+  modalTitleMediumLarge: {
+    fontSize: 20,
+    fontWeight: 'bold',
     marginBottom: 18,
-    textAlign: "center",
-    maxWidth: "80%"
+    color: '#004aad',
+    textAlign: 'center',
   },
-  // Registration subtitle styles - Small Device
-  registrationSubtitleSmall: {
-    fontSize: 14,
-    color: "#666",
+  // Modal title styles - Small Device
+  modalTitleSmall: {
+    fontSize: 18,
+    fontWeight: 'bold',
     marginBottom: 15,
-    textAlign: "center",
-    maxWidth: "80%"
+    color: '#004aad',
+    textAlign: 'center',
   },
-  // Registration subtitle styles - Tiny Device
-  registrationSubtitleTiny: {
-    fontSize: 14,
-    color: "#666",
+  // Modal title styles - Tiny Device
+  modalTitleTiny: {
+    fontSize: 22,
+    fontWeight: 'bold',
     marginBottom: 20,
-    textAlign: "center",
-    maxWidth: "80%"
+    color: '#004aad',
+    textAlign: 'center',
   },
   
-  buttonRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    marginTop: 10
-  },
-  
-  // Secondary button styles - Large Device
-  secondaryButtonLarge: {
-    backgroundColor: "#888",
+  // User info container styles - Large Device
+  userInfoContainerLarge: {
+    backgroundColor: '#e8f4ff',
+    padding: 10,
     borderRadius: 8,
-    paddingVertical: 7,
-    alignItems: "center",
-    width: "15%",
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#bbd8f9',
   },
-  // Secondary button styles - Medium Large Device
-  secondaryButtonMediumLarge: {
-    backgroundColor: "#888",
-    borderRadius: 8,
-    paddingVertical: 8,
-    alignItems: "center",
-    width: "16%",
-  },
-  // Secondary button styles - Small Device
-  secondaryButtonSmall: {
-    backgroundColor: "#888",
+  // User info container styles - Medium Large Device
+  userInfoContainerMediumLarge: {
+    backgroundColor: '#e8f4ff',
+    padding: 9,
     borderRadius: 7,
-    paddingVertical: 9,
-    alignItems: "center",
-    width: "18%",
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#bbd8f9',
   },
-  // Secondary button styles - Tiny Device
-  secondaryButtonTiny: {
-    backgroundColor: "#888",
+  // User info container styles - Small Device
+  userInfoContainerSmall: {
+    backgroundColor: '#e8f4ff',
+    padding: 8,
     borderRadius: 6,
-    paddingVertical: 10,
-    alignItems: "center",
-    width: "17%",
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#bbd8f9',
+  },
+  // User info container styles - Tiny Device
+  userInfoContainerTiny: {
+    backgroundColor: '#e8f4ff',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#bbd8f9',
   },
   
-  // Secondary button text styles - Large Device
-  secondaryButtonTextLarge: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 30,
-  },
-  // Secondary button text styles - Medium Large Device
-  secondaryButtonTextMediumLarge: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 27,
-  },
-  // Secondary button text styles - Small Device
-  secondaryButtonTextSmall: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 25,
-  },
-  // Secondary button text styles - Tiny Device
-  secondaryButtonTextTiny: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 23,
-  },
-  
-  // Help text styles - Large Device
-  helpTextLarge: {
-    marginTop: 20,
+  // User info text styles - Large Device
+  userInfoTextLarge: {
     fontSize: 14,
-    color: "#666",
-    textAlign: "center",
-    paddingHorizontal: 20,
-    marginBottom: 20
+    color: '#004aad',
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
-  // Help text styles - Medium Large Device
-  helpTextMediumLarge: {
-    marginTop: 18,
+  // User info text styles - Medium Large Device
+  userInfoTextMediumLarge: {
     fontSize: 13,
-    color: "#666",
-    textAlign: "center",
-    paddingHorizontal: 20,
-    marginBottom: 18
+    color: '#004aad',
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
-  // Help text styles - Small Device
-  helpTextSmall: {
+  // User info text styles - Small Device
+  userInfoTextSmall: {
+    fontSize: 12,
+    color: '#004aad',
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  // User info text styles - Tiny Device
+  userInfoTextTiny: {
+    fontSize: 14,
+    color: '#004aad',
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  
+  // Modal label styles - Large Device
+  modalLabelLarge: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 5,
+    color: '#333',
+  },
+  // Modal label styles - Medium Large Device
+  modalLabelMediumLarge: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 4,
+    color: '#333',
+  },
+  // Modal label styles - Small Device
+  modalLabelSmall: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 4,
+    color: '#333',
+  },
+  // Modal label styles - Tiny Device
+  modalLabelTiny: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 5,
+    color: '#333',
+  },
+  
+  // Modal text input styles - Large Device
+  modalTextInputLarge: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 10,
+    minHeight: 120,
+    marginBottom: 15,
+    textAlignVertical: 'top',
+  },
+  // Modal text input styles - Medium Large Device
+  modalTextInputMediumLarge: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 7,
+    padding: 9,
+    minHeight: 110,
+    marginBottom: 14,
+    textAlignVertical: 'top',
+  },
+  // Modal text input styles - Small Device
+  modalTextInputSmall: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 6,
+    padding: 8,
+    minHeight: 100,
+    marginBottom: 12,
+    textAlignVertical: 'top',
+  },
+  // Modal text input styles - Tiny Device
+  modalTextInputTiny: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 10,
+    minHeight: 120,
+    marginBottom: 15,
+    textAlignVertical: 'top',
+  },
+  
+  // Device ID container styles - Large Device
+  deviceIdContainerLarge: {
+    backgroundColor: '#f5f5f5',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 15,
+  },
+  // Device ID container styles - Medium Large Device
+  deviceIdContainerMediumLarge: {
+    backgroundColor: '#f5f5f5',
+    padding: 9,
+    borderRadius: 7,
+    marginBottom: 14,
+  },
+  // Device ID container styles - Small Device
+  deviceIdContainerSmall: {
+    backgroundColor: '#f5f5f5',
+    padding: 8,
+    borderRadius: 6,
+    marginBottom: 12,
+  },
+  // Device ID container styles - Tiny Device
+  deviceIdContainerTiny: {
+    backgroundColor: '#f5f5f5',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 15,
+  },
+  
+  // Device ID text styles - Large Device
+  deviceIdTextLarge: {
+    fontSize: 16,
+    color: '#004aad',
+    fontWeight: 'bold',
+  },
+  // Device ID text styles - Medium Large Device
+  deviceIdTextMediumLarge: {
+    fontSize: 15,
+    color: '#004aad',
+    fontWeight: 'bold',
+  },
+  // Device ID text styles - Small Device
+  deviceIdTextSmall: {
+    fontSize: 14,
+    color: '#004aad',
+    fontWeight: 'bold',
+  },
+  // Device ID text styles - Tiny Device
+  deviceIdTextTiny: {
+    fontSize: 16,
+    color: '#004aad',
+    fontWeight: 'bold',
+  },
+  
+  // Generate button styles - Large Device
+  generateButtonLarge: {
+    backgroundColor: '#004aad',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  // Generate button styles - Medium Large Device
+  generateButtonMediumLarge: {
+    backgroundColor: '#004aad',
+    paddingVertical: 11,
+    borderRadius: 7,
+    alignItems: 'center',
+    marginVertical: 9,
+  },
+  // Generate button styles - Small Device
+  generateButtonSmall: {
+    backgroundColor: '#004aad',
+    paddingVertical: 10,
+    borderRadius: 6,
+    alignItems: 'center',
+    marginVertical: 8,
+  },
+  // Generate button styles - Tiny Device
+  generateButtonTiny: {
+    backgroundColor: '#004aad',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  
+  // Disabled and loading button states
+  disabledButton: {
+    backgroundColor: '#cccccc',
+  },
+  loadingButton: {
+    backgroundColor: '#6c8eb4',
+  },
+  
+  // Button text styles - Large Device
+  buttonTextLarge: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  // Button text styles - Medium Large Device
+  buttonTextMediumLarge: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 15,
+  },
+  // Button text styles - Small Device
+  buttonTextSmall: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  // Button text styles - Tiny Device
+  buttonTextTiny: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  
+  // Key result container styles - Large Device
+  keyResultContainerLarge: {
     marginTop: 15,
-    fontSize: 12,
-    color: "#666",
-    textAlign: "center",
-    paddingHorizontal: 20,
-    marginBottom: 15
+    backgroundColor: '#e8f4ff',
+    padding: 15,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#bbd8f9',
   },
-  // Help text styles - Tiny Device
-  helpTextTiny: {
-    marginTop: 20,
+  // Key result container styles - Medium Large Device
+  keyResultContainerMediumLarge: {
+    marginTop: 14,
+    backgroundColor: '#e8f4ff',
+    padding: 14,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: '#bbd8f9',
+  },
+  // Key result container styles - Small Device
+  keyResultContainerSmall: {
+    marginTop: 12,
+    backgroundColor: '#e8f4ff',
+    padding: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#bbd8f9',
+  },
+  // Key result container styles - Tiny Device
+  keyResultContainerTiny: {
+    marginTop: 15,
+    backgroundColor: '#e8f4ff',
+    padding: 15,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#bbd8f9',
+  },
+  
+  // Result label styles - Large Device
+  resultLabelLarge: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 5,
+    color: '#333',
+  },
+  // Result label styles - Medium Large Device
+  resultLabelMediumLarge: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    marginBottom: 4,
+    color: '#333',
+  },
+  // Result label styles - Small Device
+  resultLabelSmall: {
     fontSize: 12,
-    color: "#666",
-    textAlign: "center",
-    paddingHorizontal: 20,
-    marginBottom: 20
-  }
+    fontWeight: 'bold',
+    marginBottom: 4,
+    color: '#333',
+  },
+  // Result label styles - Tiny Device
+  resultLabelTiny: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 5,
+    color: '#333',
+  },
+  
+  // Copy container styles - Large Device
+  copyContainerLarge: {
+    alignItems: 'center',
+  },
+  // Copy container styles - Medium Large Device
+  copyContainerMediumLarge: {
+    alignItems: 'center',
+  },
+  // Copy container styles - Small Device
+  copyContainerSmall: {
+    alignItems: 'center',
+  },
+  // Copy container styles - Tiny Device
+  copyContainerTiny: {
+    alignItems: 'center',
+  },
+  
+  // Generated key text styles - Large Device
+  generatedKeyTextLarge: {
+    fontSize: 18,
+    color: '#004aad',
+    fontWeight: 'bold',
+    marginBottom: 5,
+    textAlign: 'center',
+  },
+  // Generated key text styles - Medium Large Device
+  generatedKeyTextMediumLarge: {
+    fontSize: 17,
+    color: '#004aad',
+    fontWeight: 'bold',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  // Generated key text styles - Small Device
+  generatedKeyTextSmall: {
+    fontSize: 16,
+    color: '#004aad',
+    fontWeight: 'bold',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  // Generated key text styles - Tiny Device
+  generatedKeyTextTiny: {
+    fontSize: 18,
+    color: '#004aad',
+    fontWeight: 'bold',
+    marginBottom: 5,
+    textAlign: 'center',
+  },
+  
+  // Copy text styles - Large Device
+  copyTextLarge: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  // Copy text styles - Medium Large Device
+  copyTextMediumLarge: {
+    fontSize: 11,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  // Copy text styles - Small Device
+  copyTextSmall: {
+    fontSize: 10,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  // Copy text styles - Tiny Device
+  copyTextTiny: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  
+  // Close button styles - Large Device
+  closeButtonLarge: {
+    backgroundColor: '#666',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  // Close button styles - Medium Large Device
+  closeButtonMediumLarge: {
+    backgroundColor: '#666',
+    paddingVertical: 9,
+    borderRadius: 7,
+    alignItems: 'center',
+    marginTop: 18,
+  },
+  // Close button styles - Small Device
+  closeButtonSmall: {
+    backgroundColor: '#666',
+    paddingVertical: 8,
+    borderRadius: 6,
+    alignItems: 'center',
+    marginTop: 15,
+  },
+  // Close button styles - Tiny Device
+  closeButtonTiny: {
+    backgroundColor: '#666',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  
+  // Close button text styles - Large Device
+  closeButtonTextLarge: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  // Close button text styles - Medium Large Device
+  closeButtonTextMediumLarge: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 15,
+  },
+  // Close button text styles - Small Device
+  closeButtonTextSmall: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  // Close button text styles - Tiny Device
+  closeButtonTextTiny: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
 });

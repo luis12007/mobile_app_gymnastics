@@ -12,6 +12,23 @@ import {
 
 const { width, height } = Dimensions.get('window');
 
+const getResponsiveDimensions = () => {
+  const isSmallScreen = width < 375;
+  const isTablet = width > 768;
+  
+  const buttonWidth = isTablet 
+    ? (width - 120) / 4 
+    : (width - (isSmallScreen ? 60 : 80)) / 4;
+  
+  const buttonHeight = isTablet ? 70 : isSmallScreen ? 55 : 60;
+  const fontSize = isTablet ? 28 : isSmallScreen ? 20 : 22;
+  const padding = isTablet ? 20 : isSmallScreen ? 12 : 16;
+  
+  return { buttonWidth, buttonHeight, fontSize, padding };
+};
+
+const { buttonWidth, buttonHeight, fontSize, padding } = getResponsiveDimensions();
+
 const SimplifiedNumberPad = ({ 
   onNumberPress, 
   onDecimalPress, 
@@ -63,6 +80,9 @@ const SimplifiedNumberPad = ({
       style={[styles.button, style]}
       onPress={onPress}
       activeOpacity={0.6}
+      delayPressIn={0}
+      delayPressOut={0}
+      hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
     >
       <Text style={[styles.buttonText, textStyle]}>{title}</Text>
     </TouchableOpacity>
@@ -97,12 +117,19 @@ const SimplifiedNumberPad = ({
         <View style={styles.spacer} />
           
         <View style={styles.tallButtonContainer}>
-          <Button 
-            title="✓" 
-            onPress={onSubmitPress}
-            style={styles.tallPrimaryButton}
-            textStyle={styles.primaryText}
-          />
+          <TouchableOpacity 
+            style={[styles.button, styles.tallPrimaryButton]}
+            onPress={() => {
+              console.log('Submit button pressed!');
+              onSubmitPress();
+            }}
+            activeOpacity={0.7}
+            delayPressIn={0}
+            delayPressOut={0}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Text style={[styles.buttonText, styles.primaryText]}>✓</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -136,37 +163,20 @@ const SimplifiedNumberPad = ({
   );
 };
 
-const getResponsiveDimensions = () => {
-  const isSmallScreen = width < 375;
-  const isTablet = width > 768;
-  
-  const buttonWidth = isTablet 
-    ? (width - 120) / 4 
-    : (width - (isSmallScreen ? 60 : 80)) / 4;
-  
-  const buttonHeight = isTablet ? 70 : isSmallScreen ? 55 : 60;
-  const fontSize = isTablet ? 28 : isSmallScreen ? 20 : 22;
-  const padding = isTablet ? 20 : isSmallScreen ? 12 : 16;
-  
-  return { buttonWidth, buttonHeight, fontSize, padding };
-};
-
-const { buttonWidth, buttonHeight, fontSize, padding } = getResponsiveDimensions();
-
 const styles = StyleSheet.create({
   container: {
-  position: 'absolute',
-  bottom: 0, // Asegúrate que esté en 0
-  left: 0,
-  right: 0,
-  backgroundColor: '#D1D1D6',
-  paddingHorizontal: padding,
-  paddingTop: padding,
-  paddingBottom: Platform.OS === 'ios' ? 34 : padding + 10, // Ajusta para el indicador de inicio en iOS
-  borderTopWidth: 0.5,
-  borderTopColor: '#C6C6C8',
-  zIndex: 9999,
-},
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#D1D1D6',
+    paddingHorizontal: padding,
+    paddingTop: padding,
+    paddingBottom: Platform.OS === 'ios' ? 34 : padding + 10,
+    borderTopWidth: 0.5,
+    borderTopColor: '#C6C6C8',
+    zIndex: 9999,
+  },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -190,11 +200,13 @@ const styles = StyleSheet.create({
     elevation: 1,
     borderWidth: 0.5,
     borderColor: '#C6C6C8',
+    overflow: 'visible',
   },
   buttonText: {
     color: '#000000',
     fontSize: fontSize,
     fontWeight: '400',
+    textAlign: 'center',
   },
   zeroButton: {
     backgroundColor: '#FFFFFF',
@@ -210,6 +222,7 @@ const styles = StyleSheet.create({
   actionText: {
     color: '#000000',
     fontSize: fontSize - 2,
+    textAlign: 'center',
   },
   tallButtonContainer: {
     position: 'absolute',
@@ -218,6 +231,7 @@ const styles = StyleSheet.create({
     height: (buttonHeight * 2) + 10,
     width: buttonWidth,
     zIndex: 1,
+    pointerEvents: 'box-none',
   },
   tallPrimaryButton: {
     backgroundColor: '#007AFF',
@@ -225,16 +239,18 @@ const styles = StyleSheet.create({
     borderColor: '#007AFF',
     height: (buttonHeight * 2) + 10,
     width: buttonWidth,
+    overflow: 'visible',
+    pointerEvents: 'auto',
   },
   primaryText: {
     color: '#FFFFFF',
     fontWeight: '500',
+    textAlign: 'center',
   },
   spacer: {
     width: buttonWidth,
+    pointerEvents: 'none',
   },
 });
-
-
 
 export default SimplifiedNumberPad;

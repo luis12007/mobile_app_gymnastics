@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Dimensions, Easing, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Animated, Dimensions, Easing, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import {
   Gesture,
   GestureDetector,
@@ -127,6 +127,12 @@ const OptimizedWhiteboardDebug = ({
   // Save timeout ref to handle debouncing
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
+  // Save status animation state
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const saveStatusAnim = useRef(new Animated.Value(0)).current;
+  const loadingRotateAnim = useRef(new Animated.Value(0)).current;
+  const saveStatusTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
   // Load existing drawing data on component mount and setup animations
   useEffect(() => {
     loadDrawingData();
@@ -203,10 +209,87 @@ const OptimizedWhiteboardDebug = ({
     }
   };
   
+  // Start loading animation
+  const startLoadingAnimation = () => {
+    setSaveStatus('loading');
+    
+    // Fade in the indicator
+    Animated.timing(saveStatusAnim, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+    
+    // Start rotating animation for loading spinner
+    const rotateAnimation = () => {
+      loadingRotateAnim.setValue(0);
+      Animated.timing(loadingRotateAnim, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true,
+        easing: Easing.linear,
+      }).start(() => {
+        if (saveStatus === 'loading') {
+          rotateAnimation();
+        }
+      });
+    };
+    rotateAnimation();
+  };
+  
+  // Show success animation
+  const showSuccessAnimation = () => {
+    setSaveStatus('success');
+    
+    // Clear any existing timeout
+    if (saveStatusTimeoutRef.current) {
+      clearTimeout(saveStatusTimeoutRef.current);
+    }
+    
+    // Hide after 1 second
+    saveStatusTimeoutRef.current = setTimeout(() => {
+      Animated.timing(saveStatusAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start(() => {
+        setSaveStatus('idle');
+      });
+    }, 1000);
+  };
+  
+  // Show error animation
+  const showErrorAnimation = (errorMessage: string) => {
+    setSaveStatus('error');
+    
+    // Show error alert
+    Alert.alert(
+      'Save Error',
+      `Failed to save drawing: ${errorMessage}`,
+      [{ text: 'OK' }]
+    );
+    
+    // Clear any existing timeout
+    if (saveStatusTimeoutRef.current) {
+      clearTimeout(saveStatusTimeoutRef.current);
+    }
+    
+    // Hide after 1 second
+    saveStatusTimeoutRef.current = setTimeout(() => {
+      Animated.timing(saveStatusAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start(() => {
+        setSaveStatus('idle');
+      });
+    }, 1000);
+  };
+  
   // Save drawing data to the database
   const saveDrawingData = async () => {
     try {
-      setSaving(true);
+      startLoadingAnimation();
       
       if (tableId) {
         // Get current rate general data
@@ -231,6 +314,9 @@ const OptimizedWhiteboardDebug = ({
           // Save to database
           await updateRateGeneral(rateGeneral.id, updatedRateGeneral);
           
+          // Show success animation
+          showSuccessAnimation();
+          
           // Call the onSaveComplete callback if provided
           if (onSaveComplete) {
             onSaveComplete();
@@ -239,10 +325,15 @@ const OptimizedWhiteboardDebug = ({
       }
     } catch (error) {
       console.error("Error saving drawing data:", error);
-    } finally {
-      setSaving(false);
+      showErrorAnimation(error instanceof Error ? error.message : 'Unknown error occurred');
     }
   };
+    // Rotation interpolation for loading spinner
+  const loadingRotation = loadingRotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+  
   
   // Debounced save function to avoid too many database writes
   const debouncedSave = () => {
@@ -1082,6 +1173,70 @@ return (
         isSmallDevice ? styles.finalcalcContainerSmall : null,
         isTinyDevice ? styles.finalcalcContainerTiny : null,
       ]}>{percentage}</Text>
+
+      {/* Save Status Indicator */}
+      <Animated.View style={[
+        isLargeDevice ? styles.saveStatusContainerLarge : null,
+        isMediumLargeDevice ? styles.saveStatusContainerMediumLarge : null,
+        isSmallDevice ? styles.saveStatusContainerSmall : null,
+        isTinyDevice ? styles.saveStatusContainerTiny : null,
+        {
+          opacity: saveStatusAnim,
+          transform: [{ scale: saveStatusAnim }]
+        }
+      ]}>
+        {saveStatus === 'loading' && (
+          <Animated.View style={[
+            isLargeDevice ? styles.saveIndicatorLarge : null,
+            isMediumLargeDevice ? styles.saveIndicatorMediumLarge : null,
+            isSmallDevice ? styles.saveIndicatorSmall : null,
+            isTinyDevice ? styles.saveIndicatorTiny : null,
+            styles.loadingIndicator,
+            { transform: [{ rotate: loadingRotation }] }
+          ]}>
+            <View style={[
+              isLargeDevice ? styles.loadingSpinnerLarge : null,
+              isMediumLargeDevice ? styles.loadingSpinnerMediumLarge : null,
+              isSmallDevice ? styles.loadingSpinnerSmall : null,
+              isTinyDevice ? styles.loadingSpinnerTiny : null,
+            ]} />
+          </Animated.View>
+        )}
+        
+        {saveStatus === 'success' && (
+          <View style={[
+            isLargeDevice ? styles.saveIndicatorLarge : null,
+            isMediumLargeDevice ? styles.saveIndicatorMediumLarge : null,
+            isSmallDevice ? styles.saveIndicatorSmall : null,
+            isTinyDevice ? styles.saveIndicatorTiny : null,
+            styles.successIndicator
+          ]}>
+            <Text style={[
+              isLargeDevice ? styles.statusIconLarge : null,
+              isMediumLargeDevice ? styles.statusIconMediumLarge : null,
+              isSmallDevice ? styles.statusIconSmall : null,
+              isTinyDevice ? styles.statusIconTiny : null,
+            ]}>✓</Text>
+          </View>
+        )}
+        
+        {saveStatus === 'error' && (
+          <View style={[
+            isLargeDevice ? styles.saveIndicatorLarge : null,
+            isMediumLargeDevice ? styles.saveIndicatorMediumLarge : null,
+            isSmallDevice ? styles.saveIndicatorSmall : null,
+            isTinyDevice ? styles.saveIndicatorTiny : null,
+            styles.errorIndicator
+          ]}>
+            <Text style={[
+              isLargeDevice ? styles.statusIconLarge : null,
+              isMediumLargeDevice ? styles.statusIconMediumLarge : null,
+              isSmallDevice ? styles.statusIconSmall : null,
+              isTinyDevice ? styles.statusIconTiny : null,
+            ]}>✗</Text>
+          </View>
+        )}
+      </Animated.View>
     </GestureHandlerRootView>
   );
 };
@@ -2042,7 +2197,7 @@ const styles = StyleSheet.create({
   },
   // Menu button text styles - Tiny Device
   menuButtonTextTiny: {
-    fontSize: 20,
+       fontSize: 20,
     fontWeight: 'bold',
   },
   
@@ -2142,6 +2297,669 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
+  },
+  
+  // Redo button container styles - Large Device
+  redoButtonContainerLarge: {
+    position: 'absolute',
+    top: 12,
+    left: 0,
+    zIndex: 10,
+  },
+  // Redo button container styles - Medium Large Device
+  redoButtonContainerMediumLarge: {
+    position: 'absolute',
+    top: 10,
+    left: 0,
+    zIndex: 10,
+  },
+  // Redo button container styles - Small Device
+  redoButtonContainerSmall: {
+    position: 'absolute',
+    top: 8,
+    left: 0,
+    zIndex: 10,
+  },
+  // Redo button container styles - Tiny Device
+  redoButtonContainerTiny: {
+    position: 'absolute',
+    top: 6,
+    left: 0,
+    zIndex: 10,
+  },
+  
+  // Redo button styles - Large Device
+  redoButtonLarge: {
+    width: 55,
+    height: 55,
+    borderRadius: 27.5,
+    backgroundColor: '#28a745',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Redo button styles - Medium Large Device
+  redoButtonMediumLarge: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#28a745',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Redo button styles - Small Device
+  redoButtonSmall: {
+    width: 45,
+    height: 45,
+    borderRadius: 22.5,
+    backgroundColor: '#28a745',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Redo button styles - Tiny Device
+  redoButtonTiny: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#28a745',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  
+  // Redo button text styles - Large Device
+  redoButtonTextLarge: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  // Redo button text styles - Medium Large Device
+  redoButtonTextMediumLarge: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  // Redo button text styles - Small Device
+  redoButtonTextSmall: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  // Redo button text styles - Tiny Device
+  redoButtonTextTiny: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  
+  disabledButton: {
+    backgroundColor: '#999',
+    opacity: 0.5,
+  },
+  
+  // Menu container styles - Large Device
+  menuContainerLarge: {
+    position: 'absolute',
+    top: 80,
+    left: 12,
+    width: 650,
+    backgroundColor: 'rgba(245, 245, 245, 0.95)',
+    borderRadius: 12,
+    zIndex: 10,
+    overflow: 'hidden',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Menu container styles - Medium Large Device
+  menuContainerMediumLarge: {
+    position: 'absolute',
+    top: 70,
+    left: 10,
+    width: 590,
+    backgroundColor: 'rgba(245, 245, 245, 0.95)',
+    borderRadius: 10,
+    zIndex: 10,
+    overflow: 'hidden',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Menu container styles - Small Device
+  menuContainerSmall: {
+    position: 'absolute',
+    top: 60,
+    left: 8,
+    width: 520,
+    backgroundColor: 'rgba(245, 245, 245, 0.95)',
+    borderRadius: 8,
+    zIndex: 10,
+    overflow: 'hidden',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Menu container styles - Tiny Device
+  menuContainerTiny: {
+    position: 'absolute',
+    top: 50,
+    left: 6,
+    width: 450,
+    backgroundColor: 'rgba(245, 245, 245, 0.95)',
+    borderRadius: 6,
+    zIndex: 10,
+    overflow: 'hidden',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  
+  // Menu content styles - Large Device
+  menuContentLarge: {
+    padding: 18,
+  },
+  // Menu content styles - Medium Large Device
+  menuContentMediumLarge: {
+    padding: 15,
+  },
+  // Menu content styles - Small Device
+  menuContentSmall: {
+    padding: 12,
+  },
+  // Menu content styles - Tiny Device
+  menuContentTiny: {
+    padding: 10,
+  },
+  
+  // Menu section styles - Large Device
+  menuSectionLarge: {
+    marginBottom: 18,
+  },
+  // Menu section styles - Medium Large Device
+  menuSectionMediumLarge: {
+    marginBottom: 15,
+  },
+  // Menu section styles - Small Device
+  menuSectionSmall: {
+    marginBottom: 12,
+  },
+  // Menu section styles - Tiny Device
+  menuSectionTiny: {
+    marginBottom: 10,
+  },
+  
+  // Menu section title styles - Large Device
+  menuSectionTitleLarge: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#333',
+  },
+  // Menu section title styles - Medium Large Device
+  menuSectionTitleMediumLarge: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    color: '#333',
+  },
+  // Menu section title styles - Small Device
+  menuSectionTitleSmall: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 6,
+    color: '#333',
+  },
+  // Menu section title styles - Tiny Device
+  menuSectionTitleTiny: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginBottom: 5,
+    color: '#333',
+  },
+  
+  // Color row styles - Large Device
+  colorRowLarge: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  // Color row styles - Medium Large Device
+  colorRowMediumLarge: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  // Color row styles - Small Device
+  colorRowSmall: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  // Color row styles - Tiny Device
+  colorRowTiny: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  
+  // Color option styles - Large Device
+  colorOptionLarge: {
+    width: 35,
+    height: 35,
+    borderRadius: 17.5,
+    marginRight: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  // Color option styles - Medium Large Device
+  colorOptionMediumLarge: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    marginRight: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  // Color option styles - Small Device
+  colorOptionSmall: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    marginRight: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  // Color option styles - Tiny Device
+  colorOptionTiny: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    marginRight: 6,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  
+  // Width row styles - Large Device
+  widthRowLarge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  // Width row styles - Medium Large Device
+  widthRowMediumLarge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  // Width row styles - Small Device
+  widthRowSmall: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  // Width row styles - Tiny Device
+  widthRowTiny: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  
+  // Width option styles - Large Device
+  widthOptionLarge: {
+    width: 45,
+    height: 45,
+    borderRadius: 22.5,
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  // Width option styles - Medium Large Device
+  widthOptionMediumLarge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  // Width option styles - Small Device
+  widthOptionSmall: {
+    width: 35,
+    height: 35,
+    borderRadius: 17.5,
+    marginRight: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  // Width option styles - Tiny Device
+  widthOptionTiny: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    marginRight: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  
+  widthCircle: {
+    backgroundColor: 'black',
+  },
+  
+  // Tools row styles - Large Device
+  toolsRowLarge: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  // Tools row styles - Medium Large Device
+  toolsRowMediumLarge: {
+    flexDirection: 'row',
+    marginBottom: 10,
+  },
+  // Tools row styles - Small Device
+  toolsRowSmall: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  // Tools row styles - Tiny Device
+  toolsRowTiny: {
+    flexDirection: 'row',
+    marginBottom: 6,
+  },
+  
+  // Tool button styles - Large Device
+  toolButtonLarge: {
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 6,
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  // Tool button styles - Medium Large Device
+  toolButtonMediumLarge: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 5,
+    marginRight: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  // Tool button styles - Small Device
+  toolButtonSmall: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 4,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  // Tool button styles - Tiny Device
+  toolButtonTiny: {
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 3,
+    marginRight: 6,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  
+  // Tool button text styles - Large Device
+  toolButtonTextLarge: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  // Tool button text styles - Medium Large Device
+  toolButtonTextMediumLarge: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  // Tool button text styles - Small Device
+  toolButtonTextSmall: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  // Tool button text styles - Tiny Device
+  toolButtonTextTiny: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  
+  // Save status container styles - Large Device
+  saveStatusContainerLarge: {
+    position: 'absolute',
+    top: 12,
+    right: 80,
+    zIndex: 100,
+  },
+  // Save status container styles - Medium Large Device
+  saveStatusContainerMediumLarge: {
+    position: 'absolute',
+    top: 10,
+    right: 70,
+    zIndex: 100,
+  },
+  // Save status container styles - Small Device
+  saveStatusContainerSmall: {
+    position: 'absolute',
+    top: 8,
+    right: 60,
+    zIndex: 100,
+  },
+  // Save status container styles - Tiny Device
+  saveStatusContainerTiny: {
+    position: 'absolute',
+    top: 6,
+    right: 50,
+    zIndex: 100,
+  },
+  
+  // Save indicator styles - Large Device
+  saveIndicatorLarge: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Save indicator styles - Medium Large Device
+  saveIndicatorMediumLarge: {
+    width: 45,
+    height: 45,
+    borderRadius: 22.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Save indicator styles - Small Device
+  saveIndicatorSmall: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Save indicator styles - Tiny Device
+  saveIndicatorTiny: {
+    width: 35,
+    height: 35,
+    borderRadius: 17.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  
+  loadingIndicator: {
+    backgroundColor: '#007AFF',
+  },
+  
+  successIndicator: {
+    backgroundColor: '#28a745',
+  },
+  
+  errorIndicator: {
+    backgroundColor: '#dc3545',
+  },
+  
+  // Loading spinner styles - Large Device
+  loadingSpinnerLarge: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 3,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderTopColor: 'white',
+  },
+  // Loading spinner styles - Medium Large Device
+  loadingSpinnerMediumLarge: {
+    width: 27,
+    height: 27,
+    borderRadius: 13.5,
+    borderWidth: 3,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderTopColor: 'white',
+  },
+  // Loading spinner styles - Small Device
+  loadingSpinnerSmall: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderTopColor: 'white',
+  },
+  // Loading spinner styles - Tiny Device
+  loadingSpinnerTiny: {
+    width: 21,
+    height: 21,
+    borderRadius: 10.5,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderTopColor: 'white',
+  },
+  
+  // Status icon styles - Large Device
+  statusIconLarge: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  // Status icon styles - Medium Large Device
+  statusIconMediumLarge: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  // Status icon styles - Small Device
+  statusIconSmall: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  // Status icon styles - Tiny Device
+  statusIconTiny: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: 'white',
   },
 });
 

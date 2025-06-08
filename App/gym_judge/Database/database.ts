@@ -53,7 +53,7 @@ interface MainTable {
   name: string;
   event: string;
   noc: string;
-  bib: number;
+  bib: string;
   j: number;
   i: number;
   h: number;
@@ -1347,7 +1347,7 @@ export const addTestData = async () => {
         name: "Test Participant",
         event: "Test Event",
         noc: "123",
-        bib: 456,
+        bib: "456",
         j: 1,
         i: 2,
         h: 3,

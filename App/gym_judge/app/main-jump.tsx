@@ -534,13 +534,17 @@ const svInputRef = useRef<any>(null);
     setStickBonus(value);
     const newmyscore = eScore + sv + (value ? 0.1 : 0.0) - nd;
 
-    setMyScore(newmyscore);
+    const truncated = Math.floor(newmyscore * 100) / 100;
+const truncatedStr = truncated.toFixed(2);
+const finalScore = parseFloat(truncatedStr + truncatedStr.charAt(truncatedStr.length - 1));
+
+setMyScore(finalScore);
 
     try {
       // Save the stickBonus value in MainRateGeneral
       const updateData: Partial<MainRateGeneral> = {
         stickBonus: value,
-        myScore: newmyscore,
+        myScore: finalScore,
       };
       console.log("Update Data:", updateData); // Debugging line
       console.log("Rate ID:", rateid); // Debugging line
@@ -799,10 +803,14 @@ const svInputRef = useRef<any>(null);
             setndcomp(rounded);
 
             const compscorecalc = d + e + (sb ? 0.1 : 0.0) - rounded;
-            setScore(compscorecalc);
+            const truncated = Math.floor(compscorecalc * 100) / 100;
+const truncatedStr = truncated.toFixed(2);
+const finalScore = parseFloat(truncatedStr + truncatedStr.charAt(truncatedStr.length - 1));
+
+setScore(finalScore);
             updateRateGeneral(rateid, {
               compNd: rounded,
-              compScore: compscorecalc,
+              compScore: finalScore,
             })
               .then((success) => {
                 if (success) {
@@ -969,10 +977,14 @@ const svInputRef = useRef<any>(null);
             setSv(rounded);
             setStartValue(rounded);
             const newmyscore = eScore + rounded + (stickbonus ? 0.1 : 0.0) - nd;
-            setMyScore(newmyscore);
+            const truncated = Math.floor(newmyscore * 100) / 100;
+const truncatedStr = truncated.toFixed(2);
+const finalScore = parseFloat(truncatedStr + truncatedStr.charAt(truncatedStr.length - 1));
+
+setMyScore(finalScore);
             
             // Update database
-            updateRateGeneral(rateid, { myScore: newmyscore });
+            updateRateGeneral(rateid, { myScore: finalScore });
             updateMainTable(gymnastid, { sv: rounded })
               .then((success) => {
                 if (success) {
@@ -1131,7 +1143,11 @@ const svInputRef = useRef<any>(null);
             setE(rounded);
             // Save to database
             const compscorecalc = d + rounded + (sb ? 0.1 : 0.0) - ndcomp;
-            setScore(compscorecalc);
+            const truncated = Math.floor(compscorecalc * 100) / 100;
+const truncatedStr = truncated.toFixed(2);
+const finalScore = parseFloat(truncatedStr + truncatedStr.charAt(truncatedStr.length - 1));
+
+setScore(finalScore);
 
             /* ============================================================== */
             const newdelt = Math.abs(
@@ -1159,7 +1175,7 @@ const svInputRef = useRef<any>(null);
             /* ============================================================== */
             updateRateGeneral(rateid, {
               compE: rounded,
-              compScore: compscorecalc,
+              compScore: finalScore,
               ded: newded,
             });
           } else {
@@ -1309,10 +1325,14 @@ const svInputRef = useRef<any>(null);
             setD(rounded);
 
             const compscorecalc = rounded + e + (sb ? 0.1 : 0.0) - ndcomp;
-            setScore(compscorecalc);
+            const truncated = Math.floor(compscorecalc * 100) / 100;
+const truncatedStr = truncated.toFixed(2);
+const finalScore = parseFloat(truncatedStr + truncatedStr.charAt(truncatedStr.length - 1));
+
+setScore(finalScore);
             updateRateGeneral(rateid, {
               compD: rounded,
-              compScore: compscorecalc,
+              compScore: finalScore,
             });
           } else {
             Alert.alert(
@@ -1464,7 +1484,11 @@ const svInputRef = useRef<any>(null);
             const eScore = Number((10 - rounded).toFixed(3));
             const newmyscore =
               eScore + sv + (stickbonus ? 0.1 : 0.0) - nd;
-            setMyScore(newmyscore);
+            const truncated = Math.floor(newmyscore * 100) / 100;
+const truncatedStr = truncated.toFixed(2);
+const finalScore = parseFloat(truncatedStr + truncatedStr.charAt(truncatedStr.length - 1));
+
+setMyScore(finalScore);
 
             /* Lógica de delt existente */
             const newdelt = Math.abs(Math.round((eScore - e) * 10) / 10);
@@ -1491,7 +1515,7 @@ const svInputRef = useRef<any>(null);
             updateRateGeneral(rateid, {
               execution: rounded,
               eScore,
-              myScore: newmyscore,
+              myScore: finalScore,
             });
           } else {
             Alert.alert(
@@ -1737,8 +1761,12 @@ const svInputRef = useRef<any>(null);
             const rounded = Math.round(num * 10) / 10;
             setNd(rounded);
             const newmyscore = eScore + sv + (stickbonus ? 0.1 : 0.0) - rounded;
-            setMyScore(newmyscore);
-            updateRateGeneral(rateid, { myScore: newmyscore });
+            const truncated = Math.floor(newmyscore * 100) / 100;
+const truncatedStr = truncated.toFixed(2);
+const finalScore = parseFloat(truncatedStr + truncatedStr.charAt(truncatedStr.length - 1));
+
+setMyScore(finalScore);
+            updateRateGeneral(rateid, { myScore: finalScore });
             
             // Save to database
             updateMainTable(gymnastid, { nd: rounded })
@@ -1897,7 +1925,7 @@ const svInputRef = useRef<any>(null);
       width: isLargeDevice
         ? 210
         : isMediumLargeDevice
-        ? 180
+        ? 160
         : isSmallDevice
         ? 160
         : 110,
@@ -2171,10 +2199,14 @@ const svInputRef = useRef<any>(null);
                     setSb(newValue);
                     const compscorecalc =
                       d + e + (newValue ? 0.1 : 0.0) - ndcomp;
-                    setScore(compscorecalc);
+                    const truncated = Math.floor(compscorecalc * 100) / 100;
+const truncatedStr = truncated.toFixed(2);
+const finalScore = parseFloat(truncatedStr + truncatedStr.charAt(truncatedStr.length - 1));
+
+setScore(finalScore);
                     updateRateGeneral(rateid, {
                       compSd: newValue ? 0.1 : 0.0,
-                      compScore: compscorecalc,
+                      compScore: finalScore,
                     });
                   }}
                 >
@@ -2837,7 +2869,7 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   cellHeaderTextMediumLarge: {
-    fontSize: 20,
+    fontSize: 12,
     fontWeight: "bold",
     alignSelf: "center",
     color: "#000",
@@ -2862,7 +2894,7 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   vaultValueTextMediumLarge: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2888,7 +2920,7 @@ const styles = StyleSheet.create({
     paddingTop: 6,
   },
   svValueTextMediumLarge: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: "bold",
     color: "#000",
     textAlign: "center",
@@ -2922,7 +2954,7 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   valueTextMediumLarge: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2944,7 +2976,7 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   scoreValueTextMediumLarge: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2969,7 +3001,7 @@ const styles = StyleSheet.create({
     paddingRight: 10,
   },
   compDeductionTextMediumLarge: {
-    fontSize: 12,
+    fontSize: 8,
     fontWeight: "bold",
     color: "#000",
     textAlign: "left",
@@ -3005,7 +3037,7 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   smallCellTextSmall: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#000",
   },
@@ -3022,7 +3054,7 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   smallValueTextMediumLarge: {
-    fontSize: 15,
+    fontSize: 11,
     fontWeight: "bold",
     color: "#000",
   },
@@ -3044,7 +3076,7 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   ScoresmallCellTextMediumLarge: {
-    fontSize: 14,
+    fontSize: 7,
     fontWeight: "bold",
     color: "#000",
   },
@@ -3066,7 +3098,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   ndValueTextMediumLarge: {
-    fontSize: 20,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3088,7 +3120,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   sdValueTextMediumLarge: {
-    fontSize: 20,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3110,7 +3142,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   eValueTextMediumLarge: {
-    fontSize: 20,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3132,7 +3164,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   dValueTextMediumLarge: {
-    fontSize: 20,
+    fontSize: 12,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3154,7 +3186,7 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   startValueValueTextMediumLarge: {
-    fontSize: 25,
+    fontSize: 17,
     fontWeight: "bold",
     color: "#000",
   },
@@ -3175,7 +3207,7 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   descriptionValueTextMediumLarge: {
-    fontSize: 12,
+    fontSize: 10,
     color: "#000",
   },
   descriptionValueTextSmall: {
@@ -3197,7 +3229,7 @@ const styles = StyleSheet.create({
     paddingRight: 10,
   },
   gymnastInfoTextMediumLarge: {
-    fontSize: 10,
+    fontSize: 8,
     fontWeight: "bold",
     color: "#000",
     textAlign: "right",
@@ -3228,7 +3260,7 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   neutralTextMediumLarge: {
-    fontSize: 25,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#000",
   },
@@ -3250,7 +3282,7 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   neutralTotalTextMediumLarge: {
-    fontSize: 25,
+    fontSize: 15,
     fontWeight: "bold",
     color: "#000",
   },

@@ -762,7 +762,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 80,
     textAlign: "center",
-    marginTop: 180,
+    marginTop: "10%",
     fontFamily: "Rajdhani-Bold",
   },
   // Title text styles - Medium Large Device
@@ -771,7 +771,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 70,
     textAlign: "center",
-    marginTop: "20%",
+    marginTop: "10%",
     fontFamily: "Rajdhani-Bold",
   },
   // Title text styles - Small Device
@@ -780,7 +780,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 55,
     textAlign: "center",
-    marginTop: "25%",
+    marginTop: "10%",
     fontFamily: "Rajdhani-Bold",
   },
   // Title text styles - Tiny Device

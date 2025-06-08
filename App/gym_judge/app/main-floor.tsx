@@ -5,6 +5,7 @@ import {
   Animated,
   Dimensions,
   Easing,
+  Modal,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -17,7 +18,6 @@ import {
 import WhiteboardScreen from "../components/WhiteboardScreen";
 
 import SimplifiedNumberPad from "@/components/CustomNumberPad";
-import { ModalDropdown } from "@/components/ModalDropdown";
 import {
   getMainTableById,
   getMainTablesByCompetenceId,
@@ -64,7 +64,7 @@ interface MainRateGeneral {
   paths: string;
   ded: number;
   dedexecution: number;
-    vaultNumber: string;
+  vaultNumber: string;
   vaultDescription: string;
 }
 
@@ -194,8 +194,6 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
   const [cvInput, setCvInput] = useState("");
   const cvInputRef = useRef<any>(null);
 
-
-
   const ndInputRef = useRef<any>(null);
   const [nd, setNd] = useState(0.0);
 
@@ -209,7 +207,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
   const eInputRef = useRef<any>(null);
   const [e, setE] = useState(0);
 
-    const [showNdModal, setShowNdModal] = useState(false);
+  const [showNdModal, setShowNdModal] = useState(false);
   const [ndInput, setNdInput] = useState("");
   const [ndInputcomp, setNdInputcomp] = useState("");
 
@@ -281,9 +279,18 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
   const [ded, setSetded] = useState(0);
   const [percentage, setpercentage] = useState(0);
 
-const [isCustomKeyboardVisible, setIsCustomKeyboardVisible] = useState(false);
+  const [isCustomKeyboardVisible, setIsCustomKeyboardVisible] = useState(false);
 
   const [showDropdown, setShowDropdown] = useState<{ [key: string]: boolean }>({
+    I: false,
+    II: false,
+    III: false,
+    IV: false,
+  });
+
+  const [showElementGroupModal, setShowElementGroupModal] = useState<{
+    [key: string]: boolean;
+  }>({
     I: false,
     II: false,
     III: false,
@@ -301,64 +308,69 @@ const [isCustomKeyboardVisible, setIsCustomKeyboardVisible] = useState(false);
     setStickBonus(value);
     const newmyscore = eScore + sv + (value ? 0.1 : 0.0) - nd;
 
-    setMyScore(newmyscore);
+    // Truncate to 2 decimals and duplicate the last decimal
+    const truncated = Math.floor(newmyscore * 100) / 100;
+    const truncatedStr = truncated.toFixed(2);
+    const finalScore = parseFloat(
+      truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
+    );
+
+    setMyScore(finalScore);
     console.log("stickBonus value:", value);
-    
+
     try {
       // Save the stickBonus value in MainRateGeneral
       const updateData: Partial<MainRateGeneral> = {
         stickBonus: value,
-        myScore: newmyscore,
+        myScore: finalScore,
       };
       console.log("updateData:", updateData);
       console.log("rateid:", rateid);
       if (rateid) {
-      updateRateGeneral(rateid, updateData).then((success) => {
-        if (success) {
-          console.log(`Saved stickBonus in MainRateGeneral.`);
-        } else {
-          console.error(`Failed to save stickBonus in MainRateGeneral.`);
-        }
-      });
+        updateRateGeneral(rateid, updateData).then((success) => {
+          if (success) {
+            console.log(`Saved stickBonus in MainRateGeneral.`);
+          } else {
+            console.error(`Failed to save stickBonus in MainRateGeneral.`);
+          }
+        });
       }
-
-      
     } catch (error) {
       console.error("Error saving stickBonus to MainRateGeneral:", error);
     }
   };
 
-useEffect(() => {
-  if (showCvModal) {
-    setIsCustomKeyboardVisible(true);
-    if (cvInputRef.current) {
-      setTimeout(() => {
-        if (Platform.OS === 'ios') {
-          cvInputRef.current?.blur();
-          cvInputRef.current?.focus();
-        }
-      }, 100);
+  useEffect(() => {
+    if (showCvModal) {
+      setIsCustomKeyboardVisible(true);
+      if (cvInputRef.current) {
+        setTimeout(() => {
+          if (Platform.OS === "ios") {
+            cvInputRef.current?.blur();
+            cvInputRef.current?.focus();
+          }
+        }, 100);
+      }
+    } else {
+      setIsCustomKeyboardVisible(false);
     }
-  } else {
-    setIsCustomKeyboardVisible(false);
-  }
-}, [showCvModal]);
+  }, [showCvModal]);
 
-useEffect(() => {
-  if (showNdCompModal) {
-    setIsCustomKeyboardVisible(true);
-    if (ndInputRef.current) {
-      setTimeout(() => {
-        if (Platform.OS === 'ios') {
-          ndInputRef.current?.blur();
-          ndInputRef.current?.focus();
-        }
-      }, 100);
+  useEffect(() => {
+    if (showNdCompModal) {
+      setIsCustomKeyboardVisible(true);
+      if (ndInputRef.current) {
+        setTimeout(() => {
+          if (Platform.OS === "ios") {
+            ndInputRef.current?.blur();
+            ndInputRef.current?.focus();
+          }
+        }, 100);
+      }
+    } else {
+      setIsCustomKeyboardVisible(false);
     }
-  } else {
-    setIsCustomKeyboardVisible(false);
-  }
-}, [showNdCompModal]);
+  }, [showNdCompModal]);
 
   // Fetch MainRateGeneral data and populate elementCounts
   useEffect(() => {
@@ -454,71 +466,69 @@ useEffect(() => {
     fetchMainRateGeneral();
   }, [gymnastid]); // Re-fetch data when gymnastid changes
 
-useEffect(() => {
-  if (showExecutionModal) {
-    setIsCustomKeyboardVisible(true);
-    if (executionInputRef.current) {
-      setTimeout(() => {
-        if (Platform.OS === 'ios') {
-          executionInputRef.current?.blur();
-          executionInputRef.current?.focus();
-        }
-      }, 100);
+  useEffect(() => {
+    if (showExecutionModal) {
+      setIsCustomKeyboardVisible(true);
+      if (executionInputRef.current) {
+        setTimeout(() => {
+          if (Platform.OS === "ios") {
+            executionInputRef.current?.blur();
+            executionInputRef.current?.focus();
+          }
+        }, 100);
+      }
+    } else {
+      setIsCustomKeyboardVisible(false);
     }
-  } else {
-    setIsCustomKeyboardVisible(false);
-  }
-}, [showExecutionModal]);
+  }, [showExecutionModal]);
 
-useEffect(() => {
-  if (showNdModal) {
-    setIsCustomKeyboardVisible(true);
-    if (ndInputRef.current) {
-      setTimeout(() => {
-        if (Platform.OS === 'ios') {
-          ndInputRef.current?.blur();
-          ndInputRef.current?.focus();
-        }
-      }, 100);
+  useEffect(() => {
+    if (showNdModal) {
+      setIsCustomKeyboardVisible(true);
+      if (ndInputRef.current) {
+        setTimeout(() => {
+          if (Platform.OS === "ios") {
+            ndInputRef.current?.blur();
+            ndInputRef.current?.focus();
+          }
+        }, 100);
+      }
+    } else {
+      setIsCustomKeyboardVisible(false);
     }
-  } else {
-    setIsCustomKeyboardVisible(false);
-  }
-}, [showNdModal]);
+  }, [showNdModal]);
 
-useEffect(() => {
-  if (showDModal) {
-    setIsCustomKeyboardVisible(true);
-    if (dInputRef.current) {
-      setTimeout(() => {
-        if (Platform.OS === 'ios') {
-          dInputRef.current?.blur();
-          dInputRef.current?.focus();
-        }
-      }, 100);
+  useEffect(() => {
+    if (showDModal) {
+      setIsCustomKeyboardVisible(true);
+      if (dInputRef.current) {
+        setTimeout(() => {
+          if (Platform.OS === "ios") {
+            dInputRef.current?.blur();
+            dInputRef.current?.focus();
+          }
+        }, 100);
+      }
+    } else {
+      setIsCustomKeyboardVisible(false);
     }
-  } else {
-    setIsCustomKeyboardVisible(false);
-  }
-}, [showDModal]);
+  }, [showDModal]);
 
-useEffect(() => {
-  if (showEModal) {
-    setIsCustomKeyboardVisible(true);
-    if (eInputRef.current) {
-      setTimeout(() => {
-        if (Platform.OS === 'ios') {
-          eInputRef.current?.blur();
-          eInputRef.current?.focus();
-        }
-      }, 100);
+  useEffect(() => {
+    if (showEModal) {
+      setIsCustomKeyboardVisible(true);
+      if (eInputRef.current) {
+        setTimeout(() => {
+          if (Platform.OS === "ios") {
+            eInputRef.current?.blur();
+            eInputRef.current?.focus();
+          }
+        }, 100);
+      }
+    } else {
+      setIsCustomKeyboardVisible(false);
     }
-  } else {
-    setIsCustomKeyboardVisible(false);
-  }
-}, [showEModal]);
-
-
+  }, [showEModal]);
 
   // Add this callback to calculate the element groups total whenever the values change
   useEffect(() => {
@@ -563,13 +573,12 @@ useEffect(() => {
   }, [elementGroupValues, rateid]);
 
   // Function to toggle dropdown visibility
-  const toggleDropdown = (group: string) => {
-    // Close all other dropdowns and toggle the selected one
-    setShowDropdown({
-      I: group === "I" ? !showDropdown.I : false,
-      II: group === "II" ? !showDropdown.II : false,
-      III: group === "III" ? !showDropdown.III : false,
-      IV: group === "IV" ? !showDropdown.IV : false,
+  const toggleModal = (group: string) => {
+    setShowElementGroupModal({
+      I: group === "I" ? !showElementGroupModal.I : false,
+      II: group === "II" ? !showElementGroupModal.II : false,
+      III: group === "III" ? !showElementGroupModal.III : false,
+      IV: group === "IV" ? !showElementGroupModal.IV : false,
     });
   };
   // Function to select a value from dropdown
@@ -579,19 +588,17 @@ useEffect(() => {
 
     setElementGroupValues((prev) => {
       const updated = { ...prev, [group]: value };
-      // Calculate the sum for elementGroups5
-
       return updated;
     });
-    // Close the dropdown after selection
-    setShowDropdown((prev) => ({
+
+    // Close the modal after selection
+    setShowElementGroupModal((prev) => ({
       ...prev,
       [group]: false,
     }));
 
-    // Here you would add your save to database logic
+    // ...existing database save logic...
     try {
-      // Example: Update the element group value in your database
       console.log(`total:`, total);
 
       const updateData: Partial<MainRateGeneral> = {
@@ -616,11 +623,17 @@ useEffect(() => {
         (total + difficultyValues + cv) +
         (stickbonus ? 0.1 : 0.0) -
         nd;
-      setMyScore(newmyscore);
+      const truncated = Math.floor(newmyscore * 100) / 100;
+      const truncatedStr = truncated.toFixed(2);
+      const finalScore = parseFloat(
+        truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
+      );
+
+      setMyScore(finalScore);
 
       const updateData2: Partial<MainRateGeneral> = {
         elementGroups5: total,
-        myScore: newmyscore,
+        myScore: finalScore,
       };
 
       const successmaintable = await updateMainTable(gymnastid, { sv: newsv });
@@ -706,7 +719,13 @@ useEffect(() => {
           (difficulty + elementGroupsTotal + cv) +
           (stickbonus ? 0.1 : 0.0) -
           nd;
-        setMyScore(newmyscore);
+        const truncated = Math.floor(newmyscore * 100) / 100;
+        const truncatedStr = truncated.toFixed(2);
+        const finalScore = parseFloat(
+          truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
+        );
+
+        setMyScore(finalScore);
         const updateData: Partial<MainTable> = {
           [row.toLowerCase()]: valueToSave,
           sv: difficulty + elementGroupsTotal + cv,
@@ -715,7 +734,7 @@ useEffect(() => {
         const updateratetable: Partial<MainRateGeneral> = {
           numberOfElements: sum,
           difficultyValues: difficulty,
-          myScore: newmyscore,
+          myScore: finalScore,
         };
 
         const success = await updateMainTable(gymnastid, updateData);
@@ -983,369 +1002,447 @@ useEffect(() => {
 
   return (
     <SafeAreaView style={styles.container}>
-{showNdCompModal && (
-  <View
-    style={{
-      position: "absolute",
-      left: 0,
-      right: 0,
-      zIndex: 10000,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: "rgba(0,0,0,0.2)",
-      height: "105%",
-    }}
-  >
-    <View
-      style={{
-        backgroundColor: "#fff",
-        borderRadius: 16,
-        padding: 24,
-        minWidth: 250,
-        alignItems: "center",
-        elevation: 10,
-        marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
-      }}
-    >
-      <TextInput
-        ref={ndInputRef}
-        style={[
-          styles.infoValueText,
-          { fontSize: 40, marginBottom: 16, textAlign: "center" },
-        ]}
-        value={ndInputcomp}
-        keyboardType="decimal-pad"
-        showSoftInputOnFocus={false}
-        caretHidden={Platform.OS === 'ios'}
-        onFocus={() => setIsCustomKeyboardVisible(true)}
-        selectTextOnFocus
-        onChangeText={(text) => {
-          if (/^\d*\.?\d*$/.test(text)) {
-            setNdInputcomp(text);
+      {/* Element Group Modals */}
+      {Object.keys(showElementGroupModal).map((group) => (
+        <Modal
+          key={group}
+          transparent
+          visible={showElementGroupModal[group]}
+          animationType="fade"
+          onRequestClose={() =>
+            setShowElementGroupModal((prev) => ({ ...prev, [group]: false }))
           }
-        }}
-        maxLength={5}
-        autoFocus
-        editable={false}
-      />
-      <TouchableOpacity
-        style={{
-          marginTop: 10,
-          padding: 10,
-          backgroundColor: "#0052b4",
-          borderRadius: 8,
-        }}
-        onPress={() => {
-          setShowNdCompModal(false);
-          setIsCustomKeyboardVisible(false);
-          ndInputRef.current?.blur();
-        }}
-      >
-        <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
-      </TouchableOpacity>
-    </View>
-    
-    {isCustomKeyboardVisible && (
-      <SimplifiedNumberPad
-        visible={isCustomKeyboardVisible}
-        onNumberPress={(number) => {
-          // If ndInputcomp equals the current ndcomp value, replace it entirely
-          if (ndInputcomp === ndcomp.toFixed(1)) {
-            setNdInputcomp(number);
-          } else {
-            let newValue = ndInputcomp;
-            if (ndInputcomp === "0" || ndInputcomp === "0.0") {
-              newValue = number;
-            } else {
-              newValue = ndInputcomp + number;
-            }
-            setNdInputcomp(newValue);
-          }
-        }}
-        onDecimalPress={() => {
-          // If ndInputcomp equals the current ndcomp value (first interaction), set to "0."
-          if (ndInputcomp === ndcomp.toFixed(1)) {
-            setNdInputcomp("0.");
-          } else if (!ndInputcomp.includes(".")) {
-            // If ndInputcomp is empty, "0", or "0.0", set it to "0."
-            if (!ndInputcomp || ndInputcomp === "0" || ndInputcomp === "0.0") {
-              setNdInputcomp("0.");
-            } else {
-              setNdInputcomp(ndInputcomp + ".");
-            }
-          }
-        }}
-        onDeletePress={() => {
-          if (ndInputcomp.length > 0) {
-            setNdInputcomp(ndInputcomp.slice(0, -1));
-            if (ndInputcomp.length === 1) {
-              setNdInputcomp("0");
-            }
-          }
-        }}
-        onHidePress={() => {
-          setIsCustomKeyboardVisible(false);
-        }}
-        onSubmitPress={() => {
-          console.log("ndInputcomp:", ndInputcomp);
-          
-          // First check if ndInputcomp exists and is not empty
-          if (!ndInputcomp || ndInputcomp === "" || ndInputcomp === ".") {
-            Alert.alert(
-              "Invalid Input",
-              "Please enter a ND value.",
-              [{ text: "OK" }]
-            );
-            return;
-          }
-          
-          // Handle case where input ends with "." - add "0"
-          let processedInput = ndInputcomp;
-          if (ndInputcomp.endsWith(".")) {
-            processedInput = ndInputcomp + "0";
-          }
-          
-          // Make sure processedInput is a string before using replace
-          const inputString = processedInput.toString();
-          const num = parseFloat(inputString.replace(",", "."));
-          
-          if (!isNaN(num)) {
-            const rounded = Math.round(num * 10) / 10;
-            setndcomp(rounded);
-            
-            const compscorecalc = d + e + (sb ? 0.1 : 0.0) - rounded;
-            setScore(compscorecalc);
-            updateRateGeneral(rateid, {
-              compNd: rounded,
-              compScore: compscorecalc,
-            })
-              .then((success) => {
-                if (success) {
-                  console.log(
-                    `Saved ndcomp = ${rounded} in MainRateGeneral.`
-                  );
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContainer}>
+              <Text style={styles.modalTitle}>
+                Select Element Group {group}
+              </Text>
+              <ScrollView style={styles.modalScrollView}>
+                {(group === "IV" 
+            ? (() => {
+                if (discipline && gymnastEvent === "FX") {
+                  return [0.0, 0.3, 0.5];
+                } else if (!discipline && (gymnastEvent === "FX" || gymnastEvent === "UB" || gymnastEvent === "BB")) {
+                  return [0.0, 0.5];
+                } else if (discipline && (gymnastEvent === "PH" || gymnastEvent === "SR" || gymnastEvent === "PB" || gymnastEvent === "HB")) {
+                  return [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1];
                 } else {
-                  console.error(
-                    `Failed to save ndcomp in MainRateGeneral.`
-                  );
+                  return [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1];
                 }
-              })
-              .catch((error) => {
-                console.error(
-                  "Error saving ndcomp to MainRateGeneral:",
-                  error
-                );
-              });
-          } else {
-            Alert.alert(
-              "Invalid Input",
-              "Please enter a valid ND value.",
-              [{ text: "OK" }]
-            );
-            return;
-          }
-          setShowNdCompModal(false);
-          setIsCustomKeyboardVisible(false);
-        }}
-      />
-    )}
-  </View>
-)}
+              })()
+            : discipline ? [0.0, 0.3, 0.5] : [0.0, 0.5]
+          ).map((value) => (
+                  <TouchableOpacity
+                    key={`${group}-${value}`}
+                    style={[
+                      styles.modalItem,
+                      elementGroupValues[group] === value &&
+                        styles.modalItemSelected,
+                    ]}
+                    onPress={() => selectValue(group, value)}
+                  >
+                    <Text
+                      style={[
+                        styles.modalItemText,
+                        elementGroupValues[group] === value &&
+                          styles.modalItemTextSelected,
+                      ]}
+                    >
+                      {value.toFixed(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <TouchableOpacity
+                style={styles.modalCloseButton}
+                onPress={() =>
+                  setShowElementGroupModal((prev) => ({
+                    ...prev,
+                    [group]: false,
+                  }))
+                }
+              >
+                <Text style={styles.modalCloseButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      ))}
 
-{showEModal && (
-  <View
-    style={{
-      position: "absolute",
-      left: 0,
-      right: 0,
-      zIndex: 10000,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: "rgba(0,0,0,0.2)",
-      height: "105%",
-    }}
-  >
-    <View
-      style={{
-        backgroundColor: "#fff",
-        borderRadius: 16,
-        padding: 24,
-        minWidth: 250,
-        alignItems: "center",
-        elevation: 10,
-        marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
-      }}
-    >
-      <TextInput
-        ref={eInputRef}
-        style={[
-          styles.infoValueText,
-          { fontSize: 40, marginBottom: 16, textAlign: "center" },
-        ]}
-        value={eInput}
-        keyboardType="decimal-pad"
-        showSoftInputOnFocus={false}
-        caretHidden={Platform.OS === 'ios'}
-        onFocus={() => setIsCustomKeyboardVisible(true)}
-        selectTextOnFocus
-        onChangeText={(text) => {
-          if (/^\d*\.?\d*$/.test(text)) {
-            setEInput(text);
-          }
-        }}
-        maxLength={5}
-        autoFocus
-        editable={false}
-      />
-      <TouchableOpacity
-        style={{
-          marginTop: 10,
-          padding: 10,
-          backgroundColor: "#0052b4",
-          borderRadius: 8,
-        }}
-        onPress={() => {
-          setShowEModal(false);
-          setIsCustomKeyboardVisible(false);
-          eInputRef.current?.blur();
-        }}
-      >
-        <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
-      </TouchableOpacity>
-    </View>
-    
-    {isCustomKeyboardVisible && (
-      <SimplifiedNumberPad
-        visible={isCustomKeyboardVisible}
-        onNumberPress={(number) => {
-          // If eInput equals the current e value, replace it entirely
-          if (eInput === e.toFixed(3)) {
-            setEInput(number);
-          } else {
-            let newValue = eInput;
-            if (eInput === "0" || eInput === "0.0") {
-              newValue = number;
-            } else {
-              newValue = eInput + number;
-            }
-            setEInput(newValue);
-          }
-        }}
-        onDecimalPress={() => {
-          // If eInput equals the current e value (first interaction), set to "0."
-          if (eInput === e.toFixed(3)) {
-            setEInput("0.");
-          } else if (!eInput.includes(".")) {
-            // If eInput is empty, "0", or "0.0", set it to "0."
-            if (!eInput || eInput === "0" || eInput === "0.0") {
-              setEInput("0.");
-            } else {
-              setEInput(eInput + ".");
-            }
-          }
-        }}
-        onDeletePress={() => {
-          if (eInput.length > 0) {
-            setEInput(eInput.slice(0, -1));
-            if (eInput.length === 1) {
-              setEInput("0");
-            }
-          }
-        }}
-        onHidePress={() => {
-          setIsCustomKeyboardVisible(false);
-        }}
-        onSubmitPress={() => {
-          console.log("eInput:", eInput);
-          
-          // First check if eInput exists and is not empty
-          if (!eInput || eInput === "" || eInput === ".") {
-            Alert.alert(
-              "Invalid Input",
-              "Please enter an E value.",
-              [{ text: "OK" }]
-            );
-            return;
-          }
-          
-          // Handle case where input ends with "." - add "0"
-          let processedInput = eInput;
-          if (eInput.endsWith(".")) {
-            processedInput = eInput + "0";
-          }
-          
-          // Make sure processedInput is a string before using replace
-          const inputString = processedInput.toString();
-          const num = parseFloat(inputString.replace(",", "."));
-          
-          if (!isNaN(num)) {
-            const rounded = Math.round(num * 1000) / 1000;
-            setE(rounded);
-            // Save to database
-            const compscorecalc = d + rounded + (sb ? 0.1 : 0.0) - ndcomp;
-            setScore(compscorecalc);
+      {showNdCompModal && (
+        <View
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            zIndex: 10000,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0,0,0,0.2)",
+            height: "105%",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#fff",
+              borderRadius: 16,
+              padding: 24,
+              minWidth: 250,
+              alignItems: "center",
+              elevation: 10,
+              marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
+            }}
+          >
+            <TextInput
+              ref={ndInputRef}
+              style={[
+                styles.infoValueText,
+                { fontSize: 40, marginBottom: 16, textAlign: "center" },
+              ]}
+              value={ndInputcomp}
+              keyboardType="decimal-pad"
+              showSoftInputOnFocus={false}
+              caretHidden={Platform.OS === "ios"}
+              onFocus={() => setIsCustomKeyboardVisible(true)}
+              selectTextOnFocus
+              onChangeText={(text) => {
+                if (/^\d*\.?\d*$/.test(text)) {
+                  setNdInputcomp(text);
+                }
+              }}
+              maxLength={5}
+              autoFocus
+              editable={false}
+            />
+            <TouchableOpacity
+              style={{
+                marginTop: 10,
+                padding: 10,
+                backgroundColor: "#0052b4",
+                borderRadius: 8,
+              }}
+              onPress={() => {
+                setShowNdCompModal(false);
+                setIsCustomKeyboardVisible(false);
+                ndInputRef.current?.blur();
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+            </TouchableOpacity>
+          </View>
 
-            /* ============================================================== */
-            const newdelt = Math.abs(
-              Math.round((eScore - rounded) * 10) / 10
-            );
-            setDelt(newdelt);
-            console.log("delt:", newdelt);
-
-            const newded = 10 - rounded;
-            setSetded(Number(newded));
-            console.log("ded:", Number(newded));
-
-            /* logic of the table */
-            const dedInterval = getDeductionIntervalValue(
-              Number(newded)
-            );
-            console.log("dedInterval:", dedInterval);
-            const percentageValue = getPercentageFromTable(
-              dedInterval,
-              newdelt
-            );
-            console.log("percentageValue:", percentageValue);
-            setpercentage(percentageValue);
-
-            updateMainTable(gymnastid, {
-              delt: newdelt,
-              percentage: percentageValue,
-            });
-            console.log("percentage:", percentageValue);
-
-            /* ============================================================== */
-
-            updateRateGeneral(rateid, {
-              compE: rounded,
-              compScore: compscorecalc,
-              ded: newded,
-            })
-              .then((success) => {
-                if (success) {
-                  console.log(`Saved e = ${rounded} in MainTable.`);
+          {isCustomKeyboardVisible && (
+            <SimplifiedNumberPad
+              visible={isCustomKeyboardVisible}
+              onNumberPress={(number) => {
+                // If ndInputcomp equals the current ndcomp value, replace it entirely
+                if (ndInputcomp === ndcomp.toFixed(1)) {
+                  setNdInputcomp(number);
                 } else {
-                  console.error(`Failed to save e in MainTable.`);
+                  let newValue = ndInputcomp;
+                  if (ndInputcomp === "0" || ndInputcomp === "0.0") {
+                    newValue = number;
+                  } else {
+                    newValue = ndInputcomp + number;
+                  }
+                  setNdInputcomp(newValue);
                 }
-              })
-              .catch((error) => {
-                console.error("Error saving e to MainTable:", error);
-              });
-          } else {
-            Alert.alert(
-              "Invalid Input",
-              "Please enter a valid E value.",
-              [{ text: "OK" }]
-            );
-            return;
-          }
-          setShowEModal(false);
-          setIsCustomKeyboardVisible(false);
-        }}
-      />
-    )}
-  </View>
-)}
+              }}
+              onDecimalPress={() => {
+                // If ndInputcomp equals the current ndcomp value (first interaction), set to "0."
+                if (ndInputcomp === ndcomp.toFixed(1)) {
+                  setNdInputcomp("0.");
+                } else if (!ndInputcomp.includes(".")) {
+                  // If ndInputcomp is empty, "0", or "0.0", set it to "0."
+                  if (
+                    !ndInputcomp ||
+                    ndInputcomp === "0" ||
+                    ndInputcomp === "0.0"
+                  ) {
+                    setNdInputcomp("0.");
+                  } else {
+                    setNdInputcomp(ndInputcomp + ".");
+                  }
+                }
+              }}
+              onDeletePress={() => {
+                if (ndInputcomp.length > 0) {
+                  setNdInputcomp(ndInputcomp.slice(0, -1));
+                  if (ndInputcomp.length === 1) {
+                    setNdInputcomp("0");
+                  }
+                }
+              }}
+              onHidePress={() => {
+                setIsCustomKeyboardVisible(false);
+              }}
+              onSubmitPress={() => {
+                console.log("ndInputcomp:", ndInputcomp);
+
+                // First check if ndInputcomp exists and is not empty
+                if (!ndInputcomp || ndInputcomp === "" || ndInputcomp === ".") {
+                  Alert.alert("Invalid Input", "Please enter a ND value.", [
+                    { text: "OK" },
+                  ]);
+                  return;
+                }
+
+                // Handle case where input ends with "." - add "0"
+                let processedInput = ndInputcomp;
+                if (ndInputcomp.endsWith(".")) {
+                  processedInput = ndInputcomp + "0";
+                }
+
+                // Make sure processedInput is a string before using replace
+                const inputString = processedInput.toString();
+                const num = parseFloat(inputString.replace(",", "."));
+
+                if (!isNaN(num)) {
+                  const rounded = Math.round(num * 10) / 10;
+                  setndcomp(rounded);
+
+                  const compscorecalc = d + e + (sb ? 0.1 : 0.0) - rounded;
+                  const truncated = Math.floor(compscorecalc * 100) / 100;
+                  const truncatedStr = truncated.toFixed(2);
+                  const finalScore = parseFloat(
+                    truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
+                  );
+
+                  setScore(finalScore);
+                  updateRateGeneral(rateid, {
+                    compNd: rounded,
+                    compScore: finalScore,
+                  })
+                    .then((success) => {
+                      if (success) {
+                        console.log(
+                          `Saved ndcomp = ${rounded} in MainRateGeneral.`
+                        );
+                      } else {
+                        console.error(
+                          `Failed to save ndcomp in MainRateGeneral.`
+                        );
+                      }
+                    })
+                    .catch((error) => {
+                      console.error(
+                        "Error saving ndcomp to MainRateGeneral:",
+                        error
+                      );
+                    });
+                } else {
+                  Alert.alert(
+                    "Invalid Input",
+                    "Please enter a valid ND value.",
+                    [{ text: "OK" }]
+                  );
+                  return;
+                }
+                setShowNdCompModal(false);
+                setIsCustomKeyboardVisible(false);
+              }}
+            />
+          )}
+        </View>
+      )}
+
+      {showEModal && (
+        <View
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            zIndex: 10000,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0,0,0,0.2)",
+            height: "105%",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#fff",
+              borderRadius: 16,
+              padding: 24,
+              minWidth: 250,
+              alignItems: "center",
+              elevation: 10,
+              marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
+            }}
+          >
+            <TextInput
+              ref={eInputRef}
+              style={[
+                styles.infoValueText,
+                { fontSize: 40, marginBottom: 16, textAlign: "center" },
+              ]}
+              value={eInput}
+              keyboardType="decimal-pad"
+              showSoftInputOnFocus={false}
+              caretHidden={Platform.OS === "ios"}
+              onFocus={() => setIsCustomKeyboardVisible(true)}
+              selectTextOnFocus
+              onChangeText={(text) => {
+                if (/^\d*\.?\d*$/.test(text)) {
+                  setEInput(text);
+                }
+              }}
+              maxLength={5}
+              autoFocus
+              editable={false}
+            />
+            <TouchableOpacity
+              style={{
+                marginTop: 10,
+                padding: 10,
+                backgroundColor: "#0052b4",
+                borderRadius: 8,
+              }}
+              onPress={() => {
+                setShowEModal(false);
+                setIsCustomKeyboardVisible(false);
+                eInputRef.current?.blur();
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+            </TouchableOpacity>
+          </View>
+
+          {isCustomKeyboardVisible && (
+            <SimplifiedNumberPad
+              visible={isCustomKeyboardVisible}
+              onNumberPress={(number) => {
+                // If eInput equals the current e value, replace it entirely
+                if (eInput === e.toFixed(3)) {
+                  setEInput(number);
+                } else {
+                  let newValue = eInput;
+                  if (eInput === "0" || eInput === "0.0") {
+                    newValue = number;
+                  } else {
+                    newValue = eInput + number;
+                  }
+                  setEInput(newValue);
+                }
+              }}
+              onDecimalPress={() => {
+                // If eInput equals the current e value (first interaction), set to "0."
+                if (eInput === e.toFixed(3)) {
+                  setEInput("0.");
+                } else if (!eInput.includes(".")) {
+                  // If eInput is empty, "0", or "0.0", set it to "0."
+                  if (!eInput || eInput === "0" || eInput === "0.0") {
+                    setEInput("0.");
+                  } else {
+                    setEInput(eInput + ".");
+                  }
+                }
+              }}
+              onDeletePress={() => {
+                if (eInput.length > 0) {
+                  setEInput(eInput.slice(0, -1));
+                  if (eInput.length === 1) {
+                    setEInput("0");
+                  }
+                }
+              }}
+              onHidePress={() => {
+                setIsCustomKeyboardVisible(false);
+              }}
+              onSubmitPress={() => {
+                console.log("eInput:", eInput);
+
+                // First check if eInput exists and is not empty
+                if (!eInput || eInput === "" || eInput === ".") {
+                  Alert.alert("Invalid Input", "Please enter an E value.", [
+                    { text: "OK" },
+                  ]);
+                  return;
+                }
+
+                // Handle case where input ends with "." - add "0"
+                let processedInput = eInput;
+                if (eInput.endsWith(".")) {
+                  processedInput = eInput + "0";
+                }
+
+                // Make sure processedInput is a string before using replace
+                const inputString = processedInput.toString();
+                const num = parseFloat(inputString.replace(",", "."));
+
+                if (!isNaN(num)) {
+                  const rounded = Math.round(num * 1000) / 1000;
+                  setE(rounded);
+                  // Save to database
+                  const compscorecalc = d + rounded + (sb ? 0.1 : 0.0) - ndcomp;
+                  const truncated = Math.floor(compscorecalc * 100) / 100;
+                  const truncatedStr = truncated.toFixed(2);
+                  const finalScore = parseFloat(
+                    truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
+                  );
+
+                  setScore(finalScore);
+
+                  /* ============================================================== */
+                  const newdelt = Math.abs(
+                    Math.round((eScore - rounded) * 10) / 10
+                  );
+                  setDelt(newdelt);
+                  console.log("delt:", newdelt);
+
+                  const newded = 10 - rounded;
+                  setSetded(Number(newded));
+                  console.log("ded:", Number(newded));
+
+                  /* logic of the table */
+                  const dedInterval = getDeductionIntervalValue(Number(newded));
+                  console.log("dedInterval:", dedInterval);
+                  const percentageValue = getPercentageFromTable(
+                    dedInterval,
+                    newdelt
+                  );
+                  console.log("percentageValue:", percentageValue);
+                  setpercentage(percentageValue);
+
+                  updateMainTable(gymnastid, {
+                    delt: newdelt,
+                    percentage: percentageValue,
+                  });
+                  console.log("percentage:", percentageValue);
+
+                  /* ============================================================== */
+
+                  updateRateGeneral(rateid, {
+                    compE: rounded,
+                    compScore: finalScore,
+                    ded: newded,
+                  })
+                    .then((success) => {
+                      if (success) {
+                        console.log(`Saved e = ${rounded} in MainTable.`);
+                      } else {
+                        console.error(`Failed to save e in MainTable.`);
+                      }
+                    })
+                    .catch((error) => {
+                      console.error("Error saving e to MainTable:", error);
+                    });
+                } else {
+                  Alert.alert(
+                    "Invalid Input",
+                    "Please enter a valid E value.",
+                    [{ text: "OK" }]
+                  );
+                  return;
+                }
+                setShowEModal(false);
+                setIsCustomKeyboardVisible(false);
+              }}
+            />
+          )}
+        </View>
+      )}
 
       {showCommentsModal && (
         <View
@@ -1445,702 +1542,730 @@ useEffect(() => {
         </View>
       )}
 
-{showDModal && (
-  <View
-    style={{
-      position: "absolute",
-      left: 0,
-      right: 0,
-      zIndex: 10000,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: "rgba(0,0,0,0.2)",
-      height: "105%",
-    }}
-  >
-    <View
-      style={{
-        backgroundColor: "#fff",
-        borderRadius: 16,
-        padding: 24,
-        minWidth: 250,
-        alignItems: "center",
-        elevation: 10,
-        marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
-      }}
-    >
-      <TextInput
-        ref={dInputRef}
-        style={[
-          styles.infoValueText,
-          { fontSize: 40, marginBottom: 16, textAlign: "center" },
-        ]}
-        value={dInput}
-        keyboardType="decimal-pad"
-        showSoftInputOnFocus={false}
-        caretHidden={Platform.OS === 'ios'}
-        onFocus={() => setIsCustomKeyboardVisible(true)}
-        selectTextOnFocus
-        onChangeText={(text) => {
-          if (/^\d*\.?\d*$/.test(text)) {
-            setDInput(text);
-          }
-        }}
-        maxLength={5}
-        autoFocus
-        editable={false}
-      />
-      <TouchableOpacity
-        style={{
-          marginTop: 10,
-          padding: 10,
-          backgroundColor: "#0052b4",
-          borderRadius: 8,
-        }}
-        onPress={() => {
-          setShowDModal(false);
-          setIsCustomKeyboardVisible(false);
-          dInputRef.current?.blur();
-        }}
-      >
-        <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
-      </TouchableOpacity>
-    </View>
-    
-    {isCustomKeyboardVisible && (
-      <SimplifiedNumberPad
-        visible={isCustomKeyboardVisible}
-        onNumberPress={(number) => {
-          // If dInput equals the current d value, replace it entirely
-          if (dInput === d.toFixed(1)) {
-            setDInput(number);
-          } else {
-            let newValue = dInput;
-            if (dInput === "0" || dInput === "0.0") {
-              newValue = number;
-            } else {
-              newValue = dInput + number;
-            }
-            setDInput(newValue);
-          }
-        }}
-        onDecimalPress={() => {
-          // If dInput equals the current d value (first interaction), set to "0."
-          if (dInput === d.toFixed(1)) {
-            setDInput("0.");
-          } else if (!dInput.includes(".")) {
-            // If dInput is empty, "0", or "0.0", set it to "0."
-            if (!dInput || dInput === "0" || dInput === "0.0") {
-              setDInput("0.");
-            } else {
-              setDInput(dInput + ".");
-            }
-          }
-        }}
-        onDeletePress={() => {
-          if (dInput.length > 0) {
-            setDInput(dInput.slice(0, -1));
-            if (dInput.length === 1) {
-              setDInput("0");
-            }
-          }
-        }}
-        onHidePress={() => {
-          setIsCustomKeyboardVisible(false);
-        }}
-        onSubmitPress={() => {
-          console.log("dInput:", dInput);
-          
-          // First check if dInput exists and is not empty
-          if (!dInput || dInput === "" || dInput === ".") {
-            Alert.alert(
-              "Invalid Input",
-              "Please enter a D value.",
-              [{ text: "OK" }]
-            );
-            return;
-          }
-          
-          // Handle case where input ends with "." - add "0"
-          let processedInput = dInput;
-          if (dInput.endsWith(".")) {
-            processedInput = dInput + "0";
-          }
-          
-          // Make sure processedInput is a string before using replace
-          const inputString = processedInput.toString();
-          const num = parseFloat(inputString.replace(",", "."));
-          
-          if (!isNaN(num)) {
-            const rounded = Math.round(num * 10) / 10;
-            setD(rounded);
-
-            const compscorecalc = rounded + e + (sb ? 0.1 : 0.0) - ndcomp;
-            setScore(compscorecalc);
-            // Save to database
-            updateRateGeneral(rateid, {
-              compD: rounded,
-              compScore: compscorecalc,
-            })
-              .then((success) => {
-                if (success) {
-                  console.log(`Saved d = ${rounded} in MainTable.`);
-                } else {
-                  console.error(`Failed to save d in MainTable.`);
+      {showDModal && (
+        <View
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            zIndex: 10000,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0,0,0,0.2)",
+            height: "105%",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#fff",
+              borderRadius: 16,
+              padding: 24,
+              minWidth: 250,
+              alignItems: "center",
+              elevation: 10,
+              marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
+            }}
+          >
+            <TextInput
+              ref={dInputRef}
+              style={[
+                styles.infoValueText,
+                { fontSize: 40, marginBottom: 16, textAlign: "center" },
+              ]}
+              value={dInput}
+              keyboardType="decimal-pad"
+              showSoftInputOnFocus={false}
+              caretHidden={Platform.OS === "ios"}
+              onFocus={() => setIsCustomKeyboardVisible(true)}
+              selectTextOnFocus
+              onChangeText={(text) => {
+                if (/^\d*\.?\d*$/.test(text)) {
+                  setDInput(text);
                 }
-              })
-              .catch((error) => {
-                console.error("Error saving d to MainTable:", error);
-              });
-          } else {
-            Alert.alert(
-              "Invalid Input",
-              "Please enter a valid D value.",
-              [{ text: "OK" }]
-            );
-            return;
-          }
-          setShowDModal(false);
-          setIsCustomKeyboardVisible(false);
-        }}
-      />
-    )}
-  </View>
-)}
+              }}
+              maxLength={5}
+              autoFocus
+              editable={false}
+            />
+            <TouchableOpacity
+              style={{
+                marginTop: 10,
+                padding: 10,
+                backgroundColor: "#0052b4",
+                borderRadius: 8,
+              }}
+              onPress={() => {
+                setShowDModal(false);
+                setIsCustomKeyboardVisible(false);
+                dInputRef.current?.blur();
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+            </TouchableOpacity>
+          </View>
 
-{showNdModal && (
-  <View
-    style={{
-      position: "absolute",
-      left: 0,
-      right: 0,
-      zIndex: 10000,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: "rgba(0,0,0,0.2)",
-      height: "105%",
-    }}
-  >
-    <View
-      style={{
-        backgroundColor: "#fff",
-        borderRadius: 16,
-        padding: 24,
-        minWidth: 250,
-        alignItems: "center",
-        elevation: 10,
-        marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
-      }}
-    >
-      <TextInput
-        ref={ndInputRef}
-        style={[
-          styles.infoValueText,
-          { fontSize: 40, marginBottom: 16, textAlign: "center" },
-        ]}
-        value={ndInput}
-        keyboardType="numeric"
-        showSoftInputOnFocus={false}
-        caretHidden={Platform.OS === 'ios'}
-        onFocus={() => setIsCustomKeyboardVisible(true)}
-        selectTextOnFocus
-        onChangeText={(text) => {
-          if (/^\d*\.?\d*$/.test(text)) {
-            setNdInput(text);
-          }
-        }}
-        maxLength={5}
-        autoFocus
-        editable={false}
-      />
-      <TouchableOpacity
-        style={{
-          marginTop: 10,
-          padding: 10,
-          backgroundColor: "#0052b4",
-          borderRadius: 8,
-        }}
-        onPress={() => {
-          setShowNdModal(false);
-          setIsCustomKeyboardVisible(false);
-          ndInputRef.current?.blur();
-        }}
-      >
-        <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
-      </TouchableOpacity>
-    </View>
-    
-    {isCustomKeyboardVisible && (
-      <SimplifiedNumberPad
-        visible={isCustomKeyboardVisible}
-        onNumberPress={(number) => {
-          // If ndInput equals the current nd value, replace it entirely
-          if (ndInput === nd.toFixed(1)) {
-            setNdInput(number);
-          } else {
-            let newValue = ndInput;
-            if (ndInput === "0" || ndInput === "0.0") {
-              newValue = number;
-            } else {
-              newValue = ndInput + number;
-            }
-            setNdInput(newValue);
-          }
-        }}
-        onDecimalPress={() => {
-          // If ndInput equals the current nd value (first interaction), set to "0."
-          if (ndInput === nd.toFixed(1)) {
-            setNdInput("0.");
-          } else if (!ndInput.includes(".")) {
-            // If ndInput is empty, "0", or "0.0", set it to "0."
-            if (!ndInput || ndInput === "0" || ndInput === "0.0") {
-              setNdInput("0.");
-            } else {
-              setNdInput(ndInput + ".");
-            }
-          }
-        }}
-        onDeletePress={() => {
-          if (ndInput.length > 0) {
-            setNdInput(ndInput.slice(0, -1));
-            if (ndInput.length === 1) {
-              setNdInput("0");
-            }
-          }
-        }}
-        onHidePress={() => {
-          setIsCustomKeyboardVisible(false);
-        }}
-        onSubmitPress={() => {
-          console.log("ndInput:", ndInput);
-          
-          // First check if ndInput exists and is not empty
-          if (!ndInput || ndInput === "" || ndInput === ".") {
-            Alert.alert(
-              "Invalid Input",
-              "Please enter a ND value.",
-              [{ text: "OK" }]
-            );
-            return;
-          }
-          
-          // Handle case where input ends with "." - add "0"
-          let processedInput = ndInput;
-          if (ndInput.endsWith(".")) {
-            processedInput = ndInput + "0";
-          }
-          
-          // Make sure processedInput is a string before using replace
-          const inputString = processedInput.toString();
-          const num = parseFloat(inputString.replace(",", "."));
-          
-          if (!isNaN(num)) {
-            const rounded = Math.round(num * 10) / 10;
-            setNd(rounded);
-            const newmyscore =
-              eScore + sv + (stickbonus ? 0.1 : 0.0) - rounded;
-            setMyScore(newmyscore);
-            updateRateGeneral(rateid, { myScore: newmyscore });
-            // Save to database
-            updateMainTable(gymnastid, { nd: rounded })
-              .then((success) => {
-                if (success) {
-                  console.log(`Saved nd = ${rounded} in MainTable.`);
+          {isCustomKeyboardVisible && (
+            <SimplifiedNumberPad
+              visible={isCustomKeyboardVisible}
+              onNumberPress={(number) => {
+                // If dInput equals the current d value, replace it entirely
+                if (dInput === d.toFixed(1)) {
+                  setDInput(number);
                 } else {
-                  console.error(`Failed to save nd in MainTable.`);
+                  let newValue = dInput;
+                  if (dInput === "0" || dInput === "0.0") {
+                    newValue = number;
+                  } else {
+                    newValue = dInput + number;
+                  }
+                  setDInput(newValue);
                 }
-              })
-              .catch((error) => {
-                console.error("Error saving nd to MainTable:", error);
-              });
-          } else {
-            Alert.alert(
-              "Invalid Input",
-              "Please enter a valid ND value.",
-              [{ text: "OK" }]
-            );
-            return;
-          }
-          setShowNdModal(false);
-          setIsCustomKeyboardVisible(false);
-        }}
-      />
-    )}
-  </View>
-)}
+              }}
+              onDecimalPress={() => {
+                // If dInput equals the current d value (first interaction), set to "0."
+                if (dInput === d.toFixed(1)) {
+                  setDInput("0.");
+                } else if (!dInput.includes(".")) {
+                  // If dInput is empty, "0", or "0.0", set it to "0."
+                  if (!dInput || dInput === "0" || dInput === "0.0") {
+                    setDInput("0.");
+                  } else {
+                    setDInput(dInput + ".");
+                  }
+                }
+              }}
+              onDeletePress={() => {
+                if (dInput.length > 0) {
+                  setDInput(dInput.slice(0, -1));
+                  if (dInput.length === 1) {
+                    setDInput("0");
+                  }
+                }
+              }}
+              onHidePress={() => {
+                setIsCustomKeyboardVisible(false);
+              }}
+              onSubmitPress={() => {
+                console.log("dInput:", dInput);
 
-{showCvModal && (
-  <View
-    style={{
-      position: "absolute",
-      left: 0,
-      right: 0,
-      zIndex: 10000,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: "rgba(0,0,0,0.2)",
-      height: "105%",
-    }}
-  >
-    <View
-      style={{
-        backgroundColor: "#fff",
-        borderRadius: 16,
-        padding: 24,
-        minWidth: 250,
-        alignItems: "center",
-        elevation: 10,
-        marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
-      }}
-    >
-      <TextInput
-        ref={cvInputRef}
-        style={[
-          styles.infoValueText,
-          { fontSize: 40, marginBottom: 16, textAlign: "center" },
-        ]}
-        value={cvInput}
-        keyboardType="phone-pad"
-        showSoftInputOnFocus={false}
-        caretHidden={Platform.OS === 'ios'}
-        onFocus={() => setIsCustomKeyboardVisible(true)}
-        selectTextOnFocus
-        onChangeText={(text) => {
-          if (/^\d*\.?\d*$/.test(text)) {
-            setCvInput(text);
-          }
-        }}
-        maxLength={5}
-        autoFocus
-        editable={false}
-      />
-      <TouchableOpacity
-        style={{
-          marginTop: 10,
-          padding: 10,
-          backgroundColor: "#0052b4",
-          borderRadius: 8,
-        }}
-        onPress={() => {
-          setShowCvModal(false);
-          setIsCustomKeyboardVisible(false);
-          cvInputRef.current?.blur();
-        }}
-      >
-        <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
-      </TouchableOpacity>
-    </View>
-    
-    {isCustomKeyboardVisible && (
-      <SimplifiedNumberPad
-        visible={isCustomKeyboardVisible}
-        onNumberPress={(number) => {
-  // If cvInput equals the current cv value, replace it entirely
-  if (cvInput === cv.toFixed(1)) {
-    setCvInput(number);
-  } else {
-    let newValue = cvInput;
-    if (cvInput === "0" || cvInput === "0.0") {
-      newValue = number;
-    } else {
-      newValue = cvInput + number;
-    }
-    setCvInput(newValue);
-  }
-}}
-        onDecimalPress={() => {
-  // If cvInput equals the current cv value (first interaction), set to "0."
-  if (cvInput === cv.toFixed(1)) {
-    setCvInput("0.");
-  } else if (!cvInput.includes(".")) {
-    // If cvInput is empty, "0", or "0.0", set it to "0."
-    if (!cvInput || cvInput === "0" || cvInput === "0.0") {
-      setCvInput("0.");
-    } else {
-      setCvInput(cvInput + ".");
-    }
-  }
-}}
-        onDeletePress={() => {
-          if (cvInput.length > 0) {
-            setCvInput(cvInput.slice(0, -1));
-            if (cvInput.length === 1) {
-              setCvInput("0");
-            }
-          }
-        }}
-        onHidePress={() => {
-          setIsCustomKeyboardVisible(false);
-        }}
-        onSubmitPress={() => {
-          console.log("cvInput:", cvInput);
-          
-          // First check if cvInput exists and is not empty
-          if (!cvInput || cvInput === "" || cvInput === ".") {
-            Alert.alert(
-              "Invalid Input",
-              "Please enter a CV value.",
-              [{ text: "OK" }]
-            );
-            return;
-          }
-          
-          // Handle case where input ends with "." - add "0"
-          let processedInput = cvInput;
-          if (cvInput.endsWith(".")) {
-            processedInput = cvInput + "0";
-          }
-          
-          // Make sure processedInput is a string before using replace
-          const inputString = processedInput.toString();
-          const num = parseFloat(inputString.replace(",", "."));
-          
-          if (!isNaN(num)) {
-            const rounded = Math.round(num * 10) / 10;
-            setCv(rounded);
-            setSv(rounded + difficultyValues + elementGroupsTotal);
-            const newmyscore =
-              eScore +
-              (rounded + difficultyValues + elementGroupsTotal) +
-              (stickbonus ? 0.1 : 0.0) -
-              nd;
-            setMyScore(newmyscore);
-            updateRateGeneral(rateid, { myScore: newmyscore });
-            console.log("cv:", rounded);
-            
-            // Save to database
-            updateMainTable(gymnastid, {
-              cv: rounded,
-              sv: rounded + difficultyValues + elementGroupsTotal,
-            })
-              .then((success) => {
-                if (success) {
-                  console.log(
-                    `Saved cv = ${rounded} and sv = ${
-                      rounded + difficultyValues + elementGroupsTotal
-                    } in MainTable.`
+                // First check if dInput exists and is not empty
+                if (!dInput || dInput === "" || dInput === ".") {
+                  Alert.alert("Invalid Input", "Please enter a D value.", [
+                    { text: "OK" },
+                  ]);
+                  return;
+                }
+
+                // Handle case where input ends with "." - add "0"
+                let processedInput = dInput;
+                if (dInput.endsWith(".")) {
+                  processedInput = dInput + "0";
+                }
+
+                // Make sure processedInput is a string before using replace
+                const inputString = processedInput.toString();
+                const num = parseFloat(inputString.replace(",", "."));
+
+                if (!isNaN(num)) {
+                  const rounded = Math.round(num * 10) / 10;
+                  setD(rounded);
+
+                  const compscorecalc = rounded + e + (sb ? 0.1 : 0.0) - ndcomp;
+                  const truncated = Math.floor(compscorecalc * 100) / 100;
+                  const truncatedStr = truncated.toFixed(2);
+                  const finalScore = parseFloat(
+                    truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
                   );
+
+                  setScore(finalScore);
+                  // Save to database
+                  updateRateGeneral(rateid, {
+                    compD: rounded,
+                    compScore: finalScore,
+                  })
+                    .then((success) => {
+                      if (success) {
+                        console.log(`Saved d = ${rounded} in MainTable.`);
+                      } else {
+                        console.error(`Failed to save d in MainTable.`);
+                      }
+                    })
+                    .catch((error) => {
+                      console.error("Error saving d to MainTable:", error);
+                    });
                 } else {
-                  console.error(`Failed to save cv and sv in MainTable.`);
-                }
-              })
-              .catch((error) => {
-                console.error("Error saving cv and sv to MainTable:", error);
-              });
-          } else {
-            Alert.alert(
-              "Invalid Input",
-              "Please enter a valid CV value.",
-              [{ text: "OK" }]
-            );
-            return;
-          }
-          setShowCvModal(false);
-          setIsCustomKeyboardVisible(false);
-        }}
-      />
-    )}
-  </View>
-)}
-
-{showExecutionModal && (
-  <View
-    style={{
-      position: "absolute",
-      left: 0,
-      right: 0,
-      zIndex: 10000,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: "rgba(0,0,0,0.2)",
-      height: "105%",
-    }}
-  >
-    <View
-      style={{
-        backgroundColor: "#fff",
-        borderRadius: 16,
-        padding: 24,
-        minWidth: 250,
-        alignItems: "center",
-        elevation: 10,
-        marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
-      }}
-    >
-      <TextInput
-        ref={executionInputRef}
-        style={[
-          styles.infoValueText,
-          { fontSize: 40, marginBottom: 16, textAlign: "center" },
-        ]}
-        value={executionInput}
-        keyboardType="numeric"
-        showSoftInputOnFocus={false}
-        caretHidden={Platform.OS === 'ios'}
-        onFocus={() => setIsCustomKeyboardVisible(true)}
-        selectTextOnFocus
-        onChangeText={(text) => {
-          if (/^\d*\.?\d*$/.test(text)) {
-            setExecutionInput(text);
-          }
-        }}
-        maxLength={5}
-        autoFocus
-        editable={false}
-      />
-      <TouchableOpacity
-        style={{
-          marginTop: 10,
-          padding: 10,
-          backgroundColor: "#0052b4",
-          borderRadius: 8,
-        }}
-        onPress={() => {
-          setShowExecutionModal(false);
-          setIsCustomKeyboardVisible(false);
-          executionInputRef.current?.blur();
-        }}
-      >
-        <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
-      </TouchableOpacity>
-    </View>
-    
-    {isCustomKeyboardVisible && (
-      <SimplifiedNumberPad
-        visible={isCustomKeyboardVisible}
-        onNumberPress={(number) => {
-          // If executionInput equals the current execution value, replace it entirely
-          if (executionInput === execution.toFixed(1)) {
-            setExecutionInput(number);
-          } else {
-            let newValue = executionInput;
-            if (executionInput === "0" || executionInput === "0.0") {
-              newValue = number;
-            } else {
-              newValue = executionInput + number;
-            }
-            setExecutionInput(newValue);
-          }
-        }}
-        onDecimalPress={() => {
-          // If executionInput equals the current execution value (first interaction), set to "0."
-          if (executionInput === execution.toFixed(1)) {
-            setExecutionInput("0.");
-          } else if (!executionInput.includes(".")) {
-            // If executionInput is empty, "0", or "0.0", set it to "0."
-            if (!executionInput || executionInput === "0" || executionInput === "0.0") {
-              setExecutionInput("0.");
-            } else {
-              setExecutionInput(executionInput + ".");
-            }
-          }
-        }}
-        onDeletePress={() => {
-          if (executionInput.length > 0) {
-            setExecutionInput(executionInput.slice(0, -1));
-            if (executionInput.length === 1) {
-              setExecutionInput("0");
-            }
-          }
-        }}
-        onHidePress={() => {
-          setIsCustomKeyboardVisible(false);
-        }}
-        onSubmitPress={() => {
-          console.log("executionInput:", executionInput);
-          
-          // First check if executionInput exists and is not empty
-          if (!executionInput || executionInput === "" || executionInput === ".") {
-            Alert.alert(
-              "Invalid Input",
-              "Please enter an Execution value.",
-              [{ text: "OK" }]
-            );
-            return;
-          }
-          
-          // Handle case where input ends with "." - add "0"
-          let processedInput = executionInput;
-          if (executionInput.endsWith(".")) {
-            processedInput = executionInput + "0";
-          }
-          
-          // Make sure processedInput is a string before using replace
-          const inputString = processedInput.toString();
-          const num = parseFloat(inputString.replace(",", "."));
-          
-          if (!isNaN(num)) {
-            const rounded = Math.round(num * 10) / 10;
-            setExecution(rounded);
-            const eScore = Number((10 - rounded).toFixed(3));
-            const newmyscore = eScore + sv + (stickbonus ? 0.1 : 0.0) - nd;
-            setMyScore(newmyscore);
-
-            /* Lógica de delt existente */
-            const newdelt = Math.abs(Math.round((eScore - e) * 10) / 10);
-            setDelt(newdelt);
-            console.log("delt:", newdelt);
-
-            const newded = 10 - e;
-            setSetded(Number(newded));
-            console.log("ded:", Number(newded));
-
-            /* logic of the table */
-            const dedInterval = getDeductionIntervalValue(
-              Number(newded)
-            );
-            console.log("dedInterval:", dedInterval);
-            const percentageValue = getPercentageFromTable(
-              dedInterval,
-              newdelt
-            );
-            console.log("percentageValue:", percentageValue);
-            setpercentage(percentageValue);
-
-            updateMainTable(gymnastid, {
-              delt: newdelt,
-              percentage: percentageValue,
-            });
-            console.log("percentage:", percentageValue);
-
-            setEScore(eScore);
-            updateRateGeneral(rateid, {
-              execution: rounded,
-              eScore,
-              myScore: newmyscore,
-            })
-              .then((success) => {
-                if (success) {
-                  console.log(
-                    `Saved execution = ${rounded}, eScore = ${eScore} in MainRateGeneral.`
+                  Alert.alert(
+                    "Invalid Input",
+                    "Please enter a valid D value.",
+                    [{ text: "OK" }]
                   );
+                  return;
+                }
+                setShowDModal(false);
+                setIsCustomKeyboardVisible(false);
+              }}
+            />
+          )}
+        </View>
+      )}
+
+      {showNdModal && (
+        <View
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            zIndex: 10000,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0,0,0,0.2)",
+            height: "105%",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#fff",
+              borderRadius: 16,
+              padding: 24,
+              minWidth: 250,
+              alignItems: "center",
+              elevation: 10,
+              marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
+            }}
+          >
+            <TextInput
+              ref={ndInputRef}
+              style={[
+                styles.infoValueText,
+                { fontSize: 40, marginBottom: 16, textAlign: "center" },
+              ]}
+              value={ndInput}
+              keyboardType="numeric"
+              showSoftInputOnFocus={false}
+              caretHidden={Platform.OS === "ios"}
+              onFocus={() => setIsCustomKeyboardVisible(true)}
+              selectTextOnFocus
+              onChangeText={(text) => {
+                if (/^\d*\.?\d*$/.test(text)) {
+                  setNdInput(text);
+                }
+              }}
+              maxLength={5}
+              autoFocus
+              editable={false}
+            />
+            <TouchableOpacity
+              style={{
+                marginTop: 10,
+                padding: 10,
+                backgroundColor: "#0052b4",
+                borderRadius: 8,
+              }}
+              onPress={() => {
+                setShowNdModal(false);
+                setIsCustomKeyboardVisible(false);
+                ndInputRef.current?.blur();
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+            </TouchableOpacity>
+          </View>
+
+          {isCustomKeyboardVisible && (
+            <SimplifiedNumberPad
+              visible={isCustomKeyboardVisible}
+              onNumberPress={(number) => {
+                // If ndInput equals the current nd value, replace it entirely
+                if (ndInput === nd.toFixed(1)) {
+                  setNdInput(number);
                 } else {
-                  console.error(
-                    `Failed to save execution/eScore in MainRateGeneral.`
-                  );
+                  let newValue = ndInput;
+                  if (ndInput === "0" || ndInput === "0.0") {
+                    newValue = number;
+                  } else {
+                    newValue = ndInput + number;
+                  }
+                  setNdInput(newValue);
                 }
-              })
-              .catch((error) => {
-                console.error(
-                  "Error saving execution/eScore to MainRateGeneral:",
-                  error
-                );
-              });
-          } else {
-            Alert.alert(
-              "Invalid Input",
-              "Please enter a valid Execution value.",
-              [{ text: "OK" }]
-            );
-            return;
-          }
-          setShowExecutionModal(false);
-          setIsCustomKeyboardVisible(false);
-        }}
-      />
-    )}
-  </View>
-)}
+              }}
+              onDecimalPress={() => {
+                // If ndInput equals the current nd value (first interaction), set to "0."
+                if (ndInput === nd.toFixed(1)) {
+                  setNdInput("0.");
+                } else if (!ndInput.includes(".")) {
+                  // If ndInput is empty, "0", or "0.0", set it to "0."
+                  if (!ndInput || ndInput === "0" || ndInput === "0.0") {
+                    setNdInput("0.");
+                  } else {
+                    setNdInput(ndInput + ".");
+                  }
+                }
+              }}
+              onDeletePress={() => {
+                if (ndInput.length > 0) {
+                  setNdInput(ndInput.slice(0, -1));
+                  if (ndInput.length === 1) {
+                    setNdInput("0");
+                  }
+                }
+              }}
+              onHidePress={() => {
+                setIsCustomKeyboardVisible(false);
+              }}
+              onSubmitPress={() => {
+                console.log("ndInput:", ndInput);
+
+                // First check if ndInput exists and is not empty
+                if (!ndInput || ndInput === "" || ndInput === ".") {
+                  Alert.alert("Invalid Input", "Please enter a ND value.", [
+                    { text: "OK" },
+                  ]);
+                  return;
+                }
+
+                // Handle case where input ends with "." - add "0"
+                let processedInput = ndInput;
+                if (ndInput.endsWith(".")) {
+                  processedInput = ndInput + "0";
+                }
+
+                // Make sure processedInput is a string before using replace
+                const inputString = processedInput.toString();
+                const num = parseFloat(inputString.replace(",", "."));
+
+                if (!isNaN(num)) {
+                  const rounded = Math.round(num * 10) / 10;
+                  setNd(rounded);
+                  const newmyscore =
+                    eScore + sv + (stickbonus ? 0.1 : 0.0) - rounded;
+                  const truncated = Math.floor(newmyscore * 100) / 100;
+                  const truncatedStr = truncated.toFixed(2);
+                  const finalScore = parseFloat(
+                    truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
+                  );
+
+                  setMyScore(finalScore);
+                  updateRateGeneral(rateid, { myScore: finalScore });
+                  // Save to database
+                  updateMainTable(gymnastid, { nd: rounded })
+                    .then((success) => {
+                      if (success) {
+                        console.log(`Saved nd = ${rounded} in MainTable.`);
+                      } else {
+                        console.error(`Failed to save nd in MainTable.`);
+                      }
+                    })
+                    .catch((error) => {
+                      console.error("Error saving nd to MainTable:", error);
+                    });
+                } else {
+                  Alert.alert(
+                    "Invalid Input",
+                    "Please enter a valid ND value.",
+                    [{ text: "OK" }]
+                  );
+                  return;
+                }
+                setShowNdModal(false);
+                setIsCustomKeyboardVisible(false);
+              }}
+            />
+          )}
+        </View>
+      )}
+
+      {showCvModal && (
+        <View
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            zIndex: 10000,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0,0,0,0.2)",
+            height: "105%",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#fff",
+              borderRadius: 16,
+              padding: 24,
+              minWidth: 250,
+              alignItems: "center",
+              elevation: 10,
+              marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
+            }}
+          >
+            <TextInput
+              ref={cvInputRef}
+              style={[
+                styles.infoValueText,
+                { fontSize: 40, marginBottom: 16, textAlign: "center" },
+              ]}
+              value={cvInput}
+              keyboardType="phone-pad"
+              showSoftInputOnFocus={false}
+              caretHidden={Platform.OS === "ios"}
+              onFocus={() => setIsCustomKeyboardVisible(true)}
+              selectTextOnFocus
+              onChangeText={(text) => {
+                if (/^\d*\.?\d*$/.test(text)) {
+                  setCvInput(text);
+                }
+              }}
+              maxLength={5}
+              autoFocus
+              editable={false}
+            />
+            <TouchableOpacity
+              style={{
+                marginTop: 10,
+                padding: 10,
+                backgroundColor: "#0052b4",
+                borderRadius: 8,
+              }}
+              onPress={() => {
+                setShowCvModal(false);
+                setIsCustomKeyboardVisible(false);
+                cvInputRef.current?.blur();
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+            </TouchableOpacity>
+          </View>
+
+          {isCustomKeyboardVisible && (
+            <SimplifiedNumberPad
+              visible={isCustomKeyboardVisible}
+              onNumberPress={(number) => {
+                // If cvInput equals the current cv value, replace it entirely
+                if (cvInput === cv.toFixed(1)) {
+                  setCvInput(number);
+                } else {
+                  let newValue = cvInput;
+                  if (cvInput === "0" || cvInput === "0.0") {
+                    newValue = number;
+                  } else {
+                    newValue = cvInput + number;
+                  }
+                  setCvInput(newValue);
+                }
+              }}
+              onDecimalPress={() => {
+                // If cvInput equals the current cv value (first interaction), set to "0."
+                if (cvInput === cv.toFixed(1)) {
+                  setCvInput("0.");
+                } else if (!cvInput.includes(".")) {
+                  // If cvInput is empty, "0", or "0.0", set it to "0."
+                  if (!cvInput || cvInput === "0" || cvInput === "0.0") {
+                    setCvInput("0.");
+                  } else {
+                    setCvInput(cvInput + ".");
+                  }
+                }
+              }}
+              onDeletePress={() => {
+                if (cvInput.length > 0) {
+                  setCvInput(cvInput.slice(0, -1));
+                  if (cvInput.length === 1) {
+                    setCvInput("0");
+                  }
+                }
+              }}
+              onHidePress={() => {
+                setIsCustomKeyboardVisible(false);
+              }}
+              onSubmitPress={() => {
+                console.log("cvInput:", cvInput);
+
+                // First check if cvInput exists and is not empty
+                if (!cvInput || cvInput === "" || cvInput === ".") {
+                  Alert.alert("Invalid Input", "Please enter a CV value.", [
+                    { text: "OK" },
+                  ]);
+                  return;
+                }
+
+                // Handle case where input ends with "." - add "0"
+                let processedInput = cvInput;
+                if (cvInput.endsWith(".")) {
+                  processedInput = cvInput + "0";
+                }
+
+                // Make sure processedInput is a string before using replace
+                const inputString = processedInput.toString();
+                const num = parseFloat(inputString.replace(",", "."));
+
+                if (!isNaN(num)) {
+                  const rounded = Math.round(num * 10) / 10;
+                  setCv(rounded);
+                  setSv(rounded + difficultyValues + elementGroupsTotal);
+                  const newmyscore =
+                    eScore +
+                    (rounded + difficultyValues + elementGroupsTotal) +
+                    (stickbonus ? 0.1 : 0.0) -
+                    nd;
+                  const truncated = Math.floor(newmyscore * 100) / 100;
+                  const truncatedStr = truncated.toFixed(2);
+                  const finalScore = parseFloat(
+                    truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
+                  );
+
+                  setMyScore(finalScore);
+                  updateRateGeneral(rateid, { myScore: finalScore });
+                  console.log("cv:", rounded);
+
+                  // Save to database
+                  updateMainTable(gymnastid, {
+                    cv: rounded,
+                    sv: rounded + difficultyValues + elementGroupsTotal,
+                  })
+                    .then((success) => {
+                      if (success) {
+                        console.log(
+                          `Saved cv = ${rounded} and sv = ${
+                            rounded + difficultyValues + elementGroupsTotal
+                          } in MainTable.`
+                        );
+                      } else {
+                        console.error(`Failed to save cv and sv in MainTable.`);
+                      }
+                    })
+                    .catch((error) => {
+                      console.error(
+                        "Error saving cv and sv to MainTable:",
+                        error
+                      );
+                    });
+                } else {
+                  Alert.alert(
+                    "Invalid Input",
+                    "Please enter a valid CV value.",
+                    [{ text: "OK" }]
+                  );
+                  return;
+                }
+                setShowCvModal(false);
+                setIsCustomKeyboardVisible(false);
+              }}
+            />
+          )}
+        </View>
+      )}
+
+      {showExecutionModal && (
+        <View
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            zIndex: 10000,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0,0,0,0.2)",
+            height: "105%",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#fff",
+              borderRadius: 16,
+              padding: 24,
+              minWidth: 250,
+              alignItems: "center",
+              elevation: 10,
+              marginBottom: isCustomKeyboardVisible ? "50%" : "30%",
+            }}
+          >
+            <TextInput
+              ref={executionInputRef}
+              style={[
+                styles.infoValueText,
+                { fontSize: 40, marginBottom: 16, textAlign: "center" },
+              ]}
+              value={executionInput}
+              keyboardType="numeric"
+              showSoftInputOnFocus={false}
+              caretHidden={Platform.OS === "ios"}
+              onFocus={() => setIsCustomKeyboardVisible(true)}
+              selectTextOnFocus
+              onChangeText={(text) => {
+                if (/^\d*\.?\d*$/.test(text)) {
+                  setExecutionInput(text);
+                }
+              }}
+              maxLength={5}
+              autoFocus
+              editable={false}
+            />
+            <TouchableOpacity
+              style={{
+                marginTop: 10,
+                padding: 10,
+                backgroundColor: "#0052b4",
+                borderRadius: 8,
+              }}
+              onPress={() => {
+                setShowExecutionModal(false);
+                setIsCustomKeyboardVisible(false);
+                executionInputRef.current?.blur();
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "bold" }}>Close</Text>
+            </TouchableOpacity>
+          </View>
+
+          {isCustomKeyboardVisible && (
+            <SimplifiedNumberPad
+              visible={isCustomKeyboardVisible}
+              onNumberPress={(number) => {
+                // If executionInput equals the current execution value, replace it entirely
+                if (executionInput === execution.toFixed(1)) {
+                  setExecutionInput(number);
+                } else {
+                  let newValue = executionInput;
+                  if (executionInput === "0" || executionInput === "0.0") {
+                    newValue = number;
+                  } else {
+                    newValue = executionInput + number;
+                  }
+                  setExecutionInput(newValue);
+                }
+              }}
+              onDecimalPress={() => {
+                // If executionInput equals the current execution value (first interaction), set to "0."
+                if (executionInput === execution.toFixed(1)) {
+                  setExecutionInput("0.");
+                } else if (!executionInput.includes(".")) {
+                  // If executionInput is empty, "0", or "0.0", set it to "0."
+                  if (
+                    !executionInput ||
+                    executionInput === "0" ||
+                    executionInput === "0.0"
+                  ) {
+                    setExecutionInput("0.");
+                  } else {
+                    setExecutionInput(executionInput + ".");
+                  }
+                }
+              }}
+              onDeletePress={() => {
+                if (executionInput.length > 0) {
+                  setExecutionInput(executionInput.slice(0, -1));
+                  if (executionInput.length === 1) {
+                    setExecutionInput("0");
+                  }
+                }
+              }}
+              onHidePress={() => {
+                setIsCustomKeyboardVisible(false);
+              }}
+              onSubmitPress={() => {
+                console.log("executionInput:", executionInput);
+
+                // First check if executionInput exists and is not empty
+                if (
+                  !executionInput ||
+                  executionInput === "" ||
+                  executionInput === "."
+                ) {
+                  Alert.alert(
+                    "Invalid Input",
+                    "Please enter an Execution value.",
+                    [{ text: "OK" }]
+                  );
+                  return;
+                }
+
+                // Handle case where input ends with "." - add "0"
+                let processedInput = executionInput;
+                if (executionInput.endsWith(".")) {
+                  processedInput = executionInput + "0";
+                }
+
+                // Make sure processedInput is a string before using replace
+                const inputString = processedInput.toString();
+                const num = parseFloat(inputString.replace(",", "."));
+
+                if (!isNaN(num)) {
+                  const rounded = Math.round(num * 10) / 10;
+                  setExecution(rounded);
+                  const eScore = Number((10 - rounded).toFixed(3));
+                  const newmyscore =
+                    eScore + sv + (stickbonus ? 0.1 : 0.0) - nd;
+                  const truncated = Math.floor(newmyscore * 100) / 100;
+                  const truncatedStr = truncated.toFixed(2);
+                  const finalScore = parseFloat(
+                    truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
+                  );
+
+                  setMyScore(finalScore);
+
+                  /* Lógica de delt existente */
+                  const newdelt = Math.abs(Math.round((eScore - e) * 10) / 10);
+                  setDelt(newdelt);
+                  console.log("delt:", newdelt);
+
+                  const newded = 10 - e;
+                  setSetded(Number(newded));
+                  console.log("ded:", Number(newded));
+
+                  /* logic of the table */
+                  const dedInterval = getDeductionIntervalValue(Number(newded));
+                  console.log("dedInterval:", dedInterval);
+                  const percentageValue = getPercentageFromTable(
+                    dedInterval,
+                    newdelt
+                  );
+                  console.log("percentageValue:", percentageValue);
+                  setpercentage(percentageValue);
+
+                  updateMainTable(gymnastid, {
+                    delt: newdelt,
+                    percentage: percentageValue,
+                  });
+                  console.log("percentage:", percentageValue);
+
+                  setEScore(eScore);
+                  updateRateGeneral(rateid, {
+                    execution: rounded,
+                    eScore,
+                    myScore: finalScore,
+                  })
+                    .then((success) => {
+                      if (success) {
+                        console.log(
+                          `Saved execution = ${rounded}, eScore = ${eScore} in MainRateGeneral.`
+                        );
+                      } else {
+                        console.error(
+                          `Failed to save execution/eScore in MainRateGeneral.`
+                        );
+                      }
+                    })
+                    .catch((error) => {
+                      console.error(
+                        "Error saving execution/eScore to MainRateGeneral:",
+                        error
+                      );
+                    });
+                } else {
+                  Alert.alert(
+                    "Invalid Input",
+                    "Please enter a valid Execution value.",
+                    [{ text: "OK" }]
+                  );
+                  return;
+                }
+                setShowExecutionModal(false);
+                setIsCustomKeyboardVisible(false);
+              }}
+            />
+          )}
+        </View>
+      )}
       {/* <ModalVaultMag
           rateGeneralId={0}
           tableId={gymnastid}
@@ -2211,17 +2336,15 @@ useEffect(() => {
                   {/* Group I */}
                   <View style={styles.elementGroupCellTitle}>
                     <TouchableOpacity
-                      onPress={() => toggleDropdown("I")}
+                      onPress={() => toggleModal("I")}
                       style={styles.dropdownButton}
                     >
                       <Text style={styles.elementGroupText}>I</Text>
                     </TouchableOpacity>
                   </View>
-                  <View
-                    style={[styles.elementGroupCell, { position: "relative" }]}
-                  >
+                  <View style={styles.elementGroupCell}>
                     <TouchableOpacity
-                      onPress={() => toggleDropdown("I")}
+                      onPress={() => toggleModal("I")}
                       style={{
                         flex: 1,
                         alignItems: "center",
@@ -2232,53 +2355,20 @@ useEffect(() => {
                         {elementGroupValues.I.toFixed(1)}
                       </Text>
                     </TouchableOpacity>
-
-                    {/* Dropdown for Group I */}
-                    {Platform.OS === "web" ? (
-                      <ModalDropdown
-                        visible={showDropdown.I}
-                        onClose={() =>
-                          setShowDropdown((prev) => ({ ...prev, I: false }))
-                        }
-                        items={[0.5, 0.3, 0.0]}
-                        onSelect={(value) => selectValue("I", value)}
-                        group="I"
-                      />
-                    ) : (
-                      showDropdown.I && (
-                        <View style={styles.dropdownContainer}>
-                          <ScrollView style={{ maxHeight: 300 }}>
-                            {[0.5, 0.3, 0.0].map((value) => (
-                              <TouchableOpacity
-                                key={`I-${value}`}
-                                style={styles.dropdownItem}
-                                onPress={() => selectValue("I", value)}
-                              >
-                                <Text style={styles.dropdownItemText}>
-                                  {value.toFixed(1)}
-                                </Text>
-                              </TouchableOpacity>
-                            ))}
-                          </ScrollView>
-                        </View>
-                      )
-                    )}
                   </View>
 
                   {/* Group II */}
                   <View style={styles.elementGroupCellTitle}>
                     <TouchableOpacity
-                      onPress={() => toggleDropdown("II")}
+                      onPress={() => toggleModal("II")}
                       style={styles.dropdownButton}
                     >
                       <Text style={styles.elementGroupText}>II</Text>
                     </TouchableOpacity>
                   </View>
-                  <View
-                    style={[styles.elementGroupCell, { position: "relative" }]}
-                  >
+                  <View style={styles.elementGroupCell}>
                     <TouchableOpacity
-                      onPress={() => toggleDropdown("II")}
+                      onPress={() => toggleModal("II")}
                       style={{
                         flex: 1,
                         alignItems: "center",
@@ -2289,53 +2379,20 @@ useEffect(() => {
                         {elementGroupValues.II.toFixed(1)}
                       </Text>
                     </TouchableOpacity>
-
-                    {/* Dropdown for Group II */}
-                    {Platform.OS === "web" ? (
-                      <ModalDropdown
-                        visible={showDropdown.II}
-                        onClose={() =>
-                          setShowDropdown((prev) => ({ ...prev, II: false }))
-                        }
-                        items={[0.5, 0.3, 0.0]}
-                        onSelect={(value) => selectValue("II", value)}
-                        group="II"
-                      />
-                    ) : (
-                      showDropdown.II && (
-                        <View style={styles.dropdownContainer}>
-                          <ScrollView style={{ maxHeight: 300 }}>
-                            {[0.5, 0.3, 0.0].map((value) => (
-                              <TouchableOpacity
-                                key={`II-${value}`}
-                                style={styles.dropdownItem}
-                                onPress={() => selectValue("II", value)}
-                              >
-                                <Text style={styles.dropdownItemText}>
-                                  {value.toFixed(1)}
-                                </Text>
-                              </TouchableOpacity>
-                            ))}
-                          </ScrollView>
-                        </View>
-                      )
-                    )}
                   </View>
 
                   {/* Group III */}
                   <View style={styles.elementGroupCellTitle}>
                     <TouchableOpacity
-                      onPress={() => toggleDropdown("III")}
+                      onPress={() => toggleModal("III")}
                       style={styles.dropdownButton}
                     >
                       <Text style={styles.elementGroupText}>III</Text>
                     </TouchableOpacity>
                   </View>
-                  <View
-                    style={[styles.elementGroupCell, { position: "relative" }]}
-                  >
+                  <View style={styles.elementGroupCell}>
                     <TouchableOpacity
-                      onPress={() => toggleDropdown("III")}
+                      onPress={() => toggleModal("III")}
                       style={{
                         flex: 1,
                         alignItems: "center",
@@ -2346,53 +2403,20 @@ useEffect(() => {
                         {elementGroupValues.III.toFixed(1)}
                       </Text>
                     </TouchableOpacity>
-
-                    {/* Dropdown for Group III */}
-                    {Platform.OS === "web" ? (
-                      <ModalDropdown
-                        visible={showDropdown.III}
-                        onClose={() =>
-                          setShowDropdown((prev) => ({ ...prev, III: false }))
-                        }
-                        items={[0.5, 0.3, 0.0]}
-                        onSelect={(value) => selectValue("III", value)}
-                        group="III"
-                      />
-                    ) : (
-                      showDropdown.III && (
-                        <View style={styles.dropdownContainer}>
-                          <ScrollView style={{ maxHeight: 300 }}>
-                            {[0.5, 0.3, 0.0].map((value) => (
-                              <TouchableOpacity
-                                key={`III-${value}`}
-                                style={styles.dropdownItem}
-                                onPress={() => selectValue("III", value)}
-                              >
-                                <Text style={styles.dropdownItemText}>
-                                  {value.toFixed(1)}
-                                </Text>
-                              </TouchableOpacity>
-                            ))}
-                          </ScrollView>
-                        </View>
-                      )
-                    )}
                   </View>
 
                   {/* Group IV */}
                   <View style={styles.elementGroupCellTitle}>
                     <TouchableOpacity
-                      onPress={() => toggleDropdown("IV")}
+                      onPress={() => toggleModal("IV")}
                       style={styles.dropdownButton}
                     >
                       <Text style={styles.elementGroupText}>IV</Text>
                     </TouchableOpacity>
                   </View>
-                  <View
-                    style={[styles.elementGroupCell, { position: "relative" }]}
-                  >
+                  <View style={styles.elementGroupCell}>
                     <TouchableOpacity
-                      onPress={() => toggleDropdown("IV")}
+                      onPress={() => toggleModal("IV")}
                       style={{
                         flex: 1,
                         alignItems: "center",
@@ -2403,49 +2427,6 @@ useEffect(() => {
                         {elementGroupValues.IV.toFixed(1)}
                       </Text>
                     </TouchableOpacity>
-
-                    {Platform.OS === "web" ? (
-                      <ModalDropdown
-                        visible={showDropdown.IV}
-                        onClose={() =>
-                          setShowDropdown((prev) => ({ ...prev, IV: false }))
-                        }
-                        items={
-                          gymnastEvent === "PH"
-                            ? [
-                                0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8,
-                                0.9, 1.0, 1.1,
-                              ]
-                            : [0.5, 0.3, 0.0]
-                        }
-                        onSelect={(value) => selectValue("IV", value)}
-                        group="IV"
-                      />
-                    ) : (
-                      showDropdown.IV && (
-                        <View style={styles.dropdownContainer}>
-                          <ScrollView style={{ maxHeight: 300 }}>
-                            {(gymnastEvent === "PH"
-                              ? [
-                                  0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8,
-                                  0.9, 1.0, 1.1,
-                                ]
-                              : [0.5, 0.3, 0.0]
-                            ).map((value) => (
-                              <TouchableOpacity
-                                key={`IV-${value}`}
-                                style={styles.dropdownItem}
-                                onPress={() => selectValue("IV", value)}
-                              >
-                                <Text style={styles.dropdownItemText}>
-                                  {value.toFixed(1)}
-                                </Text>
-                              </TouchableOpacity>
-                            ))}
-                          </ScrollView>
-                        </View>
-                      )
-                    )}
                   </View>
                 </View>
               </View>
@@ -2467,13 +2448,13 @@ useEffect(() => {
                 </View>
                 <View style={styles.infovalueCellText}>
                   <TouchableOpacity
-  onPress={() => {
-    setCvInput(cv.toFixed(1)); // Set current value before opening modal
-    setShowCvModal(true);
-  }}
->
-  <Text style={styles.infoValueText}>{cv.toFixed(1)}</Text>
-</TouchableOpacity>
+                    onPress={() => {
+                      setCvInput(cv.toFixed(1)); // Set current value before opening modal
+                      setShowCvModal(true);
+                    }}
+                  >
+                    <Text style={styles.infoValueText}>{cv.toFixed(1)}</Text>
+                  </TouchableOpacity>
                 </View>
                 <View style={styles.stickBonusCell}>
                   <Text
@@ -2497,14 +2478,14 @@ useEffect(() => {
                   <Text style={styles.bonusLabelText}>ND</Text>
                 </View>
                 <View style={styles.ndCellText}>
-  <TouchableOpacity
-  onPress={() => {
-    setNdInput(nd.toFixed(1)); // Set current value before opening modal
-    setShowNdModal(true);
-  }}
->
-  <Text style={styles.bonusValueText}>{nd.toFixed(1)}</Text>
-</TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setNdInput(nd.toFixed(1)); // Set current value before opening modal
+                      setShowNdModal(true);
+                    }}
+                  >
+                    <Text style={styles.bonusValueText}>{nd.toFixed(1)}</Text>
+                  </TouchableOpacity>
                 </View>
                 <View style={styles.svCell}>
                   <Text style={styles.svLabelText}>SV</Text>
@@ -2518,14 +2499,17 @@ useEffect(() => {
                 <View style={styles.infoLabelCell}>
                   <Text style={styles.infoLabelText}>EXECUTION</Text>
                 </View>
-                <TouchableOpacity style={styles.infoValueCellBlue2} onPress={() => {
-  setExecutionInput(execution.toFixed(1)); // Set current value before opening modal
-  setShowExecutionModal(true);
-}}>
-  <Text style={styles.infoValueText}>
-    {execution.toFixed(1)}
-  </Text>  
-</TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.infoValueCellBlue2}
+                  onPress={() => {
+                    setExecutionInput(execution.toFixed(1)); // Set current value before opening modal
+                    setShowExecutionModal(true);
+                  }}
+                >
+                  <Text style={styles.infoValueText}>
+                    {execution.toFixed(1)}
+                  </Text>
+                </TouchableOpacity>
               </View>
 
               <View style={styles.infoRow}>
@@ -2572,21 +2556,21 @@ useEffect(() => {
                 </View>
                 <View style={styles.dCellText}>
                   <TouchableOpacity
-  onPress={() => {
-    setDInput(d.toFixed(1)); // Set current value before opening modal
-    setShowDModal(true);
-  }}
->
-  <Text
-    style={[
-      isLargeDevice ? styles.dValueText : null,
-      isSmallDevice ? styles.dValueTextSmall : null,
-      isTinyDevice ? styles.dValueTextTiny : null,
-    ]}
-  >
-    {d.toFixed(1)}
-  </Text>
-</TouchableOpacity>
+                    onPress={() => {
+                      setDInput(d.toFixed(1)); // Set current value before opening modal
+                      setShowDModal(true);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        isLargeDevice ? styles.dValueText : null,
+                        isSmallDevice ? styles.dValueTextSmall : null,
+                        isTinyDevice ? styles.dValueTextTiny : null,
+                      ]}
+                    >
+                      {d.toFixed(1)}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
 
                 <View style={styles.eCell}>
@@ -2603,21 +2587,21 @@ useEffect(() => {
 
                 <View style={styles.eCellText}>
                   <TouchableOpacity
-  onPress={() => {
-    setEInput(e.toFixed(3)); // Set current value before opening modal
-    setShowEModal(true);
-  }}
->
-  <Text
-    style={[
-      isLargeDevice ? styles.eValueText : null,
-      isSmallDevice ? styles.eValueTextSmall : null,
-      isTinyDevice ? styles.eValueTextTiny : null,
-    ]}
-  >
-    {e.toFixed(3)}
-  </Text>
-</TouchableOpacity>
+                    onPress={() => {
+                      setEInput(e.toFixed(3)); // Set current value before opening modal
+                      setShowEModal(true);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        isLargeDevice ? styles.eValueText : null,
+                        isSmallDevice ? styles.eValueTextSmall : null,
+                        isTinyDevice ? styles.eValueTextTiny : null,
+                      ]}
+                    >
+                      {e.toFixed(3)}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
 
                 <View style={styles.sdCell}>
@@ -2639,10 +2623,17 @@ useEffect(() => {
                       // Save to database if needed
                       const compscorecalc =
                         d + e + (newValue ? 0.1 : 0.0) - ndcomp;
-                      setScore(compscorecalc);
+                      const truncated = Math.floor(compscorecalc * 100) / 100;
+                      const truncatedStr = truncated.toFixed(2);
+                      const finalScore = parseFloat(
+                        truncatedStr +
+                          truncatedStr.charAt(truncatedStr.length - 1)
+                      );
+
+                      setScore(finalScore);
                       updateRateGeneral(rateid, {
                         compSd: newValue ? 0.1 : 0.0,
-                        compScore: compscorecalc,
+                        compScore: finalScore,
                       })
                         .then((success) => {
                           if (success) {
@@ -2690,21 +2681,21 @@ useEffect(() => {
 
                 <View style={styles.ndDeductionCellText}>
                   <TouchableOpacity
-  onPress={() => {
-    setNdInputcomp(ndcomp.toFixed(1)); // Set value BEFORE opening modal
-    setShowNdCompModal(true); // Open the ND COMP modal
-  }}
->
-  <Text
-    style={[
-      isLargeDevice ? styles.ndValueText : null,
-      isSmallDevice ? styles.ndValueTextSmall : null,
-      isTinyDevice ? styles.ndValueTextTiny : null,
-    ]}
-  >
-    {ndcomp.toFixed(1)}
-  </Text>
-</TouchableOpacity>
+                    onPress={() => {
+                      setNdInputcomp(ndcomp.toFixed(1)); // Set value BEFORE opening modal
+                      setShowNdCompModal(true); // Open the ND COMP modal
+                    }}
+                  >
+                    <Text
+                      style={[
+                        isLargeDevice ? styles.ndValueText : null,
+                        isSmallDevice ? styles.ndValueTextSmall : null,
+                        isTinyDevice ? styles.ndValueTextTiny : null,
+                      ]}
+                    >
+                      {ndcomp.toFixed(1)}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
 
                 <View style={styles.scoreCell}>
@@ -3043,9 +3034,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderBottomWidth: 0.5,
     borderColor: "white",
-
   },
-    infoValueCellBlue1: {
+  infoValueCellBlue1: {
     flex: 1,
     backgroundColor: "#6B9BDF",
     justifyContent: "center",
@@ -3054,9 +3044,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0.5,
     borderColor: "white",
     borderBottomColor: "black",
-
   },
-    infoValueCellBlue2: {
+  infoValueCellBlue2: {
     flex: 1,
     backgroundColor: "#6B9BDF",
     justifyContent: "center",
@@ -3065,7 +3054,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0.5,
     borderColor: "white",
     borderTopColor: "black",
-
   },
   infoValueCellGreen: {
     flex: 1,
@@ -3253,7 +3241,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "white",
     borderBottomColor: "black",
-
   },
   myScoreCellScore: {
     flex: 1,
@@ -3264,7 +3251,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "white",
     borderBottomColor: "black",
-
   },
   myScoreLabelText: {
     fontSize: 25,
@@ -3674,14 +3660,13 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 12,
-    elevation: 8,
-    zIndex: 9999, // Increased zIndex
+    elevation: 25,
+    zIndex: 99999999, // Increased zIndex
     maxHeight: 200,
     height: 200,
     overflow: "visible",
     borderWidth: 1,
     borderColor: "rgba(0, 0, 0, 0.1)",
-    margin: 4,
   },
   dropdownItem: {
     padding: 14,
@@ -3722,6 +3707,67 @@ const styles = StyleSheet.create({
     marginLeft: 5,
     opacity: 0.7,
   },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContainer: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    minWidth: 300,
+    maxWidth: 400,
+    maxHeight: "80%",
+    elevation: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#333",
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  modalScrollView: {
+    maxHeight: 300,
+  },
+  modalItem: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalItemSelected: {
+    backgroundColor: "#e3f2fd",
+  },
+  modalItemText: {
+    fontSize: 18,
+    color: "#333",
+    fontWeight: "500",
+  },
+  modalItemTextSelected: {
+    color: "#0066CC",
+    fontWeight: "bold",
+  },
+  modalCloseButton: {
+    marginTop: 20,
+    padding: 12,
+    backgroundColor: "#0052b4",
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  modalCloseButtonText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
+  
 });
 
 export default GymnasticsJudgingTable;

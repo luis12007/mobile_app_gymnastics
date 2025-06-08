@@ -56,7 +56,7 @@ interface GymnastEntry {
   name: string;
   event: string;
   noc: string;
-  bib: number;
+  bib: string;
   // Include other fields from MainTable if needed
 }
 
@@ -317,7 +317,7 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
             name: table.name || "",
             event: table.event || "",
             noc: table.noc?.toString() || "", // Convert to string
-            bib: table.bib || 0,
+            bib: table.bib?.toString() || "",
             // Add other fields as needed
           }));
 
@@ -398,8 +398,8 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
             number: table.number,
             name: table.name || "",
             event: table.event || "",
-            noc: table.noc || 0,
-            bib: table.bib || 0,
+            noc: table.noc?.toString() || "",
+            bib: table.bib?.toString() || "",
             // Add other fields as needed
           }));
 
@@ -624,7 +624,7 @@ const handleOpenEventDropdown = (gymnastId: number) => {
         name: "",
         event: "", // Set the first event as default
         noc: "",
-        bib: 0,
+        bib: "",
         // Add default values for other fields as needed
         j: 0,
         i: 0,
@@ -735,11 +735,11 @@ const handleOpenEventDropdown = (gymnastId: number) => {
         const event = firstGymnast.event;
         if (event === "VT") {
           router.push(
-            `/main-jump?competenceId=${firstGymnast.competenceId}&gymnastId=${firstGymnast.id}&event=${event}&discipline=${discipline}&gymnast=${firstGymnast.id}&number=${number}&participants=${participants}&folderId=${folderId}`
+            `/main-jump?competenceId=${firstGymnast.competenceId}&gymnastId=${firstGymnast.id}&event=${event}&discipline=${discipline}&gymnast=${firstGymnast.id}&number=${number+1}&participants=${participants}&folderId=${folderId}`
           );
         } else {
           router.push(
-            `/main-floor?competenceId=${firstGymnast.competenceId}&gymnastId=${firstGymnast.id}&event=${event}&discipline=${discipline}&gymnast=${firstGymnast.id}&number=${number}&participants=${participants}&folderId=${folderId}`
+            `/main-floor?competenceId=${firstGymnast.competenceId}&gymnastId=${firstGymnast.id}&event=${event}&discipline=${discipline}&gymnast=${firstGymnast.id}&number=${number+1}&participants=${participants}&folderId=${folderId}`
           );
         }
       } else {
@@ -747,11 +747,11 @@ const handleOpenEventDropdown = (gymnastId: number) => {
         const event = firstGymnast.event;
         if (event === "VT") {
           router.push(
-            `/main-jump?competenceId=${firstGymnast.competenceId}&gymnastId=${firstGymnast.id}&event=${event}&discipline=${discipline}&gymnast=${firstGymnast.id}&number=${number}&participants=${participants}&folderId=${folderId}`
+            `/main-jump?competenceId=${firstGymnast.competenceId}&gymnastId=${firstGymnast.id}&event=${event}&discipline=${discipline}&gymnast=${firstGymnast.id}&number=${number+1}&participants=${participants}&folderId=${folderId}`
           );
         } else {
           router.push(
-            `/main-floor?competenceId=${firstGymnast.competenceId}&gymnastId=${firstGymnast.id}&event=${event}&discipline=${discipline}&gymnast=${firstGymnast.id}&number=${number}&participants=${participants}&folderId=${folderId}`
+            `/main-floor?competenceId=${firstGymnast.competenceId}&gymnastId=${firstGymnast.id}&event=${event}&discipline=${discipline}&gymnast=${firstGymnast.id}&number=${number+1}&participants=${participants}&folderId=${folderId}`
           );
         }
       }
@@ -1079,7 +1079,7 @@ const handleImportPress = async () => {
       for (let i = 0; i < rowsToImport; i++) {
         try {
           const row = data[i];
-          const bibNumber = parseInt(row.bib) || 0;
+          const bibNumber = row.bib?.toString() || "";
           
           // Validar el evento
           const validEvent = validateEvent(row.event);
@@ -1544,14 +1544,10 @@ const handleImportPress = async () => {
                       placeholder="Enter BIB"
                       value={gymnast.bib ? gymnast.bib.toString() : ""}
                       onChangeText={(text) =>
-                        handleGymnastChange(
-                          gymnast.id,
-                          "bib",
-                          parseInt(text) || 0
-                        )
+                        handleGymnastChange(gymnast.id, "bib", text)
                       }
                       onBlur={() => saveField(gymnast.id)}
-                      keyboardType="number-pad"
+                      keyboardType="default"
                       autoFocus
                     />
                   ) : (
@@ -1559,7 +1555,7 @@ const handleImportPress = async () => {
                       onPress={() => startEditing(gymnast.id, "bib")}
                     >
                       <Text style={styles.cellText}>
-                        {gymnast.bib !== 0 ? gymnast.bib : "Click to edit"}
+                        {gymnast.bib || "Click to edit"}
                       </Text>
                     </TouchableOpacity>
                   )}

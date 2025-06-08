@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Dimensions, Easing, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Animated, Dimensions, Easing, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import {
   Gesture,
   GestureDetector,
@@ -123,6 +123,12 @@ const OptimizedWhiteboardDebug = ({
   // Save timeout ref to handle debouncing
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
+  // Save status animation state
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const saveStatusAnim = useRef(new Animated.Value(0)).current;
+  const loadingRotateAnim = useRef(new Animated.Value(0)).current;
+  const saveStatusTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
   // Load existing drawing data on component mount
   useEffect(() => {
     loadDrawingData();
@@ -198,10 +204,87 @@ const OptimizedWhiteboardDebug = ({
     }
   };
   
+  // Start loading animation
+  const startLoadingAnimation = () => {
+    setSaveStatus('loading');
+    
+    // Fade in the indicator
+    Animated.timing(saveStatusAnim, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+    
+    // Start rotating animation for loading spinner
+    const rotateAnimation = () => {
+      loadingRotateAnim.setValue(0);
+      Animated.timing(loadingRotateAnim, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true,
+        easing: Easing.linear,
+      }).start(() => {
+        if (saveStatus === 'loading') {
+          rotateAnimation();
+        }
+      });
+    };
+    rotateAnimation();
+  };
+  
+  // Show success animation
+  const showSuccessAnimation = () => {
+    setSaveStatus('success');
+    
+    // Clear any existing timeout
+    if (saveStatusTimeoutRef.current) {
+      clearTimeout(saveStatusTimeoutRef.current);
+    }
+    
+    // Hide after 1 second
+    saveStatusTimeoutRef.current = setTimeout(() => {
+      Animated.timing(saveStatusAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start(() => {
+        setSaveStatus('idle');
+      });
+    }, 1000);
+  };
+  
+  // Show error animation
+  const showErrorAnimation = (errorMessage: string) => {
+    setSaveStatus('error');
+    
+    // Show error alert
+    Alert.alert(
+      'Save Error',
+      `Failed to save drawing: ${errorMessage}`,
+      [{ text: 'OK' }]
+    );
+    
+    // Clear any existing timeout
+    if (saveStatusTimeoutRef.current) {
+      clearTimeout(saveStatusTimeoutRef.current);
+    }
+    
+    // Hide after 1 second
+    saveStatusTimeoutRef.current = setTimeout(() => {
+      Animated.timing(saveStatusAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start(() => {
+        setSaveStatus('idle');
+      });
+    }, 1000);
+  };
+  
   // Save drawing data to the database
   const saveDrawingData = async () => {
     try {
-      setSaving(true);
+      startLoadingAnimation();
       
       if (tableId) {
         // Get current rate general data
@@ -225,6 +308,9 @@ const OptimizedWhiteboardDebug = ({
           // Save to database
           await updateRateGeneral(rateGeneral.id, updatedRateGeneral);
           
+          // Show success animation
+          showSuccessAnimation();
+          
           // Call the onSaveComplete callback if provided
           if (onSaveComplete) {
             onSaveComplete();
@@ -233,8 +319,7 @@ const OptimizedWhiteboardDebug = ({
       }
     } catch (error) {
       console.error("Error saving drawing data:", error);
-    } finally {
-      setSaving(false);
+      showErrorAnimation(error instanceof Error ? error.message : 'Unknown error occurred');
     }
   };
   
@@ -353,6 +438,12 @@ const OptimizedWhiteboardDebug = ({
   const menuHeight = menuAnimation.interpolate({
     inputRange: [0, 1],
     outputRange: [0, 270],
+  });
+  
+  // Rotation interpolation for loading spinner
+  const loadingRotation = loadingRotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
   });
   
   // Optimization: Pre-save all points immediately to avoid missing any
@@ -1088,6 +1179,70 @@ const handleWebTouchEnd = () => {
         isSmallDevice ? styles.finalcalcContainerSmall : null,
         isTinyDevice ? styles.finalcalcContainerTiny : null,
       ]}>{percentage}</Text>
+
+      {/* Save Status Indicator */}
+      <Animated.View style={[
+        isLargeDevice ? styles.saveStatusContainerLarge : null,
+        isMediumLargeDevice ? styles.saveStatusContainerMediumLarge : null,
+        isSmallDevice ? styles.saveStatusContainerSmall : null,
+        isTinyDevice ? styles.saveStatusContainerTiny : null,
+        {
+          opacity: saveStatusAnim,
+          transform: [{ scale: saveStatusAnim }]
+        }
+      ]}>
+        {saveStatus === 'loading' && (
+          <Animated.View style={[
+            isLargeDevice ? styles.saveIndicatorLarge : null,
+            isMediumLargeDevice ? styles.saveIndicatorMediumLarge : null,
+            isSmallDevice ? styles.saveIndicatorSmall : null,
+            isTinyDevice ? styles.saveIndicatorTiny : null,
+            styles.loadingIndicator,
+            { transform: [{ rotate: loadingRotation }] }
+          ]}>
+            <View style={[
+              isLargeDevice ? styles.loadingSpinnerLarge : null,
+              isMediumLargeDevice ? styles.loadingSpinnerMediumLarge : null,
+              isSmallDevice ? styles.loadingSpinnerSmall : null,
+              isTinyDevice ? styles.loadingSpinnerTiny : null,
+            ]} />
+          </Animated.View>
+        )}
+        
+        {saveStatus === 'success' && (
+          <View style={[
+            isLargeDevice ? styles.saveIndicatorLarge : null,
+            isMediumLargeDevice ? styles.saveIndicatorMediumLarge : null,
+            isSmallDevice ? styles.saveIndicatorSmall : null,
+            isTinyDevice ? styles.saveIndicatorTiny : null,
+            styles.successIndicator
+          ]}>
+            <Text style={[
+              isLargeDevice ? styles.statusIconLarge : null,
+              isMediumLargeDevice ? styles.statusIconMediumLarge : null,
+              isSmallDevice ? styles.statusIconSmall : null,
+              isTinyDevice ? styles.statusIconTiny : null,
+            ]}>✓</Text>
+          </View>
+        )}
+        
+        {saveStatus === 'error' && (
+          <View style={[
+            isLargeDevice ? styles.saveIndicatorLarge : null,
+            isMediumLargeDevice ? styles.saveIndicatorMediumLarge : null,
+            isSmallDevice ? styles.saveIndicatorSmall : null,
+            isTinyDevice ? styles.saveIndicatorTiny : null,
+            styles.errorIndicator
+          ]}>
+            <Text style={[
+              isLargeDevice ? styles.statusIconLarge : null,
+              isMediumLargeDevice ? styles.statusIconMediumLarge : null,
+              isSmallDevice ? styles.statusIconSmall : null,
+              isTinyDevice ? styles.statusIconTiny : null,
+            ]}>✗</Text>
+          </View>
+        )}
+      </Animated.View>
     </GestureHandlerRootView>
   );
 };
@@ -1106,14 +1261,14 @@ const styles = StyleSheet.create({
   },
   // Canvas styles - Medium Large Device
   canvasMediumLarge: {
-    height: 460,
+    height: 620,
     backgroundColor: CANVAS_BACKGROUND,
     borderWidth: 1,
     borderColor: '#ddd',
   },
   // Canvas styles - Small Device
   canvasSmall: {
-    height: 380,
+    height: 620,
     backgroundColor: CANVAS_BACKGROUND,
     borderWidth: 1,
     borderColor: '#ddd',
@@ -2279,6 +2434,176 @@ const styles = StyleSheet.create({
     opacity: 0.8,
     paddingBottom: 100,
   },
+  
+  // Save status container styles - Large Device
+  saveStatusContainerLarge: {
+    position: 'absolute',
+    top: 12,
+    right: 80,
+    zIndex: 100,
+  },
+  // Save status container styles - Medium Large Device
+  saveStatusContainerMediumLarge: {
+    position: 'absolute',
+    top: 10,
+    right: 70,
+    zIndex: 100,
+  },
+  // Save status container styles - Small Device
+  saveStatusContainerSmall: {
+    position: 'absolute',
+    top: 8,
+    right: 60,
+    zIndex: 100,
+  },
+  // Save status container styles - Tiny Device
+  saveStatusContainerTiny: {
+    position: 'absolute',
+    top: 6,
+    right: 50,
+    zIndex: 100,
+  },
+  
+  // Save indicator styles - Large Device
+  saveIndicatorLarge: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Save indicator styles - Medium Large Device
+  saveIndicatorMediumLarge: {
+    width: 45,
+    height: 45,
+    borderRadius: 22.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Save indicator styles - Small Device
+  saveIndicatorSmall: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  // Save indicator styles - Tiny Device
+  saveIndicatorTiny: {
+    width: 35,
+    height: 35,
+    borderRadius: 17.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  
+  loadingIndicator: {
+    backgroundColor: '#007AFF',
+  },
+  
+  successIndicator: {
+    backgroundColor: '#28a745',
+  },
+  
+  errorIndicator: {
+    backgroundColor: '#dc3545',
+  },
+  
+  // Loading spinner styles - Large Device
+  loadingSpinnerLarge: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 3,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderTopColor: 'white',
+  },
+  // Loading spinner styles - Medium Large Device
+  loadingSpinnerMediumLarge: {
+    width: 27,
+    height: 27,
+    borderRadius: 13.5,
+    borderWidth: 3,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderTopColor: 'white',
+  },
+  // Loading spinner styles - Small Device
+  loadingSpinnerSmall: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderTopColor: 'white',
+  },
+  // Loading spinner styles - Tiny Device
+  loadingSpinnerTiny: {
+    width: 21,
+    height: 21,
+    borderRadius: 10.5,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderTopColor: 'white',
+  },
+  
+  // Status icon styles - Large Device
+  statusIconLarge: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  // Status icon styles - Medium Large Device
+  statusIconMediumLarge: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  // Status icon styles - Small Device
+  statusIconSmall: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  // Status icon styles - Tiny Device
+  statusIconTiny: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  
+  // ...existing styles...
 });
 
 export default OptimizedWhiteboardDebug;
