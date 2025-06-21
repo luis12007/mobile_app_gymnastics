@@ -1,18 +1,34 @@
 {
   "cli": {
-    "version": ">= 16.12.0",
+    "version": ">= 16.11.0",
     "appVersionSource": "remote"
   },
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "ios": {
+        "resourceClass": "m1-medium"
+      }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "ios": {
+        "resourceClass": "m1-medium"
+      }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "ios": {
+        "resourceClass": "m1-medium",
+        "cache": {
+          "disabled": true
+        },
+        "env": {
+          "NODE_OPTIONS": "--max-old-space-size=4096",
+          "NPM_CONFIG_UPDATE_NOTIFIER": "false"
+        }
+      }
     }
   },
   "submit": {

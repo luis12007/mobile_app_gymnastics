@@ -1,50 +1,101 @@
-# Welcome to your Expo app 👋
+# 🤸‍♀️ Gymnastics Standards Mobile App (2025-2028)
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A comprehensive mobile application for gymnastics competition management following the official 2025-2028 standards and regulations.
 
-## Get started
+## 🚀 Features
 
-1. Install dependencies
+### 📱 Cross-Platform Compatibility
+- **Android**: Native performance and UI
+- **iOS**: Seamless iOS integration
+- **Web**: Browser-based access for coaches and officials
 
-   ```bash
-   npm install
-   ```
+### 🔐 Authentication & User Management
+- **Offline Registration/Login**: Secure user authentication without internet dependency
+- **Local Database**: Complete offline functionality with local data storage
+- **User Profiles**: Comprehensive athlete and coach profile management
 
-2. Start the app
+### 🏆 Competition Management
+- **Directory Management**: Organize athletes, coaches, and competition data
+- **Competition Setup**: Create and manage gymnastics competitions
+- **Standards Calculator**: Official scoring calculator following 2025-2028 regulations
+- **Real-time Scoring**: Live score tracking and updates
 
-   ```bash
-   npx expo start
-   ```
+### 🎯 Specialized Tools
+- **Whiteboard Interface**: Digital scoring boards for floor and jump competitions
+- **Visual Scoring**: Interactive tools for judges and coaches
+- **Multi-event Support**: Comprehensive coverage of gymnastics disciplines
 
-In the output, you'll find options to open the app in a
+### 📊 Data Export & Reporting
+- **Table Exports**: Structured data export in multiple formats
+- **PDF Generation**: Professional competition reports and scorecards
+- **Results Management**: Complete competition results tracking
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+## 🛠️ Technology Stack
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+- **Framework**: React Native with Expo
+- **Database**: Local SQLite database for offline functionality
+- **UI/UX**: Native mobile components with responsive design
+- **Export**: Custom PDF generation and table formatting
 
-## Get a fresh project
+## 🎯 Target Users
 
-When you're ready, run:
+- **Gymnastics Judges**: Official scoring and competition management
+- **Coaches**: Athlete tracking and performance analysis
+- **Competition Organizers**: Event management and results processing
+- **Athletes**: Personal progress tracking and competition history
+
+## 📋 Requirements
+
+- **Android**: API level 21+ (Android 5.0+)
+- **iOS**: iOS 11.0+
+- **Web**: Modern browser with JavaScript enabled
+- **Storage**: Minimum 100MB for app and local database
+
+## 🚦 Installation
 
 ```bash
-npm run reset-project
+# Clone the repository
+git clone https://github.com/luis12007/mobile_app_gymnastics.git
+
+# Navigate to project directory
+cd mobile_app_gymnastics
+
+# Install dependencies
+npm install
+
+# Start the development server
+npx expo start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## 📱 Platform-Specific Builds
 
-## Learn more
+```bash
+# Build for Android
+npx expo build:android
 
-To learn more about developing your project with Expo, look at the following resources:
+# Build for iOS
+npx expo build:ios
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+# Build for Web
+npx expo build:web
+```
 
-## Join the community
+## 🏅 Compliance
 
-Join our community of developers creating universal apps.
+This application adheres to the official gymnastics standards and regulations for the 2025-2028 period, ensuring accurate scoring and competition management according to international gymnastics federation guidelines.
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## 🤝 Contributing
+
+We welcome contributions to improve the gymnastics community experience. Please feel free to submit issues, feature requests, or pull requests.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 📞 Support
+
+For technical support or questions about gymnastics regulations implementation, please open an issue in this repository.
+
+---
+
+**Built with ❤️ for the gymnastics community**
