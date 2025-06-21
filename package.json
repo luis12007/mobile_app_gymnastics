@@ -1,0 +1,22 @@
+{
+  "name": "gym_judge",
+  "version": "1.0.0",
+  "description": "This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).",
+  "main": "eslint.config.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "expo": "^53.0.12",
+    "expo-router": "^5.1.0",
+    "expo-splash-screen": "^0.30.9",
+    "expo-web-browser": "^14.2.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.3"
+  }
+}

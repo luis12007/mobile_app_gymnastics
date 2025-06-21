@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "gym judge",
+    "slug": "gym_judge",
+    "version": "1.0.7",
+    "orientation": "landscape",
+    "icon": "./assets/images/iconapp.png",
+    "scheme": "gymjudge",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": false,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.gym.judge",
+      "buildNumber": "9",
+      "icon": "./assets/images/iconapp.png",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/iconapp.png",
+        "backgroundColor": "#ffffff"
+      },
+      "icon": "./assets/images/iconapp.png",
+      "package": "com.gym.judge",
+      "versionCode": 2
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ],
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "8079b036-f87f-412b-8514-b41d1eece105"
+      }
+    },
+    "owner": "luis120072"
+  }
+}
