@@ -1,7 +1,7 @@
 {
   "name": "gym_judge",
   "main": "expo-router/entry",
-  "version": "1.0.0",
+  "version": "1.0.8",
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
@@ -17,6 +17,7 @@
     "@react-navigation/bottom-tabs": "^7.3.10",
     "@react-navigation/elements": "^2.3.8",
     "@react-navigation/native": "^7.1.6",
+    "@shopify/react-native-skia": "^2.0.5",
     "expo": "^53.0.9",
     "expo-asset": "^11.1.5",
     "expo-blur": "~14.1.4",
