@@ -1,5 +1,5 @@
 export const unstable_settings = {
-  unmountOnBlur: true,
+  unmountOnBlur: false,
 };
 
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -196,6 +196,28 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   const [isCustomKeyboardVisible, setIsCustomKeyboardVisible] = useState(false);
   const [ndInputValue, setNdInputValue] = useState("0.0");
 
+  // Debug and warning states
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [saveWarning, setSaveWarning] = useState("");
+  const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
+  const [saveAttempts, setSaveAttempts] = useState(0);
+
+  // Save warning and debugging functions
+  const showSaveWarning = (message: string) => {
+    setSaveWarning(message);
+    setTimeout(() => setSaveWarning(""), 5000); // Clear warning after 5 seconds
+  };
+
+  const trackSaveAttempt = (success: boolean, operation: string) => {
+    setSaveAttempts((prev) => prev + 1);
+    if (success) {
+      setLastSaveTime(new Date());
+      setSaveWarning("");
+    } else {
+      showSaveWarning(`Failed to save ${operation}. Please check your connection.`);
+    }
+  };
+
   /* Define usestate */
   const [showNdModal, setShowNdModal] = useState(false);
   const [ndInput, setNdInput] = useState("");
@@ -229,8 +251,8 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   const [ndInputcomp, setNdInputcomp] = useState("");
 
   const [showSvModal, setShowSvModal] = useState(false);
-const [svInput, setSvInput] = useState("");
-const svInputRef = useRef<any>(null);
+  const [svInput, setSvInput] = useState("");
+  const svInputRef = useRef<any>(null);
 
   // Track the total elements
   const [totalElements, setTotalElements] = useState(0);
@@ -349,20 +371,20 @@ const svInputRef = useRef<any>(null);
   }, [showNdModal]);
 
   useEffect(() => {
-  if (showSvModal) {
-    setIsCustomKeyboardVisible(true);
-    if (svInputRef.current) {
-      setTimeout(() => {
-        if (Platform.OS === "ios") {
-          svInputRef.current?.blur();
-          svInputRef.current?.focus();
-        }
-      }, 100);
+    if (showSvModal) {
+      setIsCustomKeyboardVisible(true);
+      if (svInputRef.current) {
+        setTimeout(() => {
+          if (Platform.OS === "ios") {
+            svInputRef.current?.blur();
+            svInputRef.current?.focus();
+          }
+        }, 100);
+      }
+    } else {
+      setIsCustomKeyboardVisible(false);
     }
-  } else {
-    setIsCustomKeyboardVisible(false);
-  }
-}, [showSvModal]);
+  }, [showSvModal]);
 
   useEffect(() => {
     if (showNdModalcomp && ndInputRefcomp.current) {
@@ -539,10 +561,10 @@ const svInputRef = useRef<any>(null);
     const newmyscore = eScore + sv + (value ? 0.1 : 0.0) - nd;
 
     const truncated = Math.floor(newmyscore * 100) / 100;
-const truncatedStr = truncated.toFixed(2);
-const finalScore = parseFloat(truncatedStr + truncatedStr.charAt(truncatedStr.length - 1));
+    const truncatedStr = truncated.toFixed(2);
+    const finalScore = parseFloat(truncatedStr + truncatedStr.charAt(truncatedStr.length - 1));
 
-setMyScore(finalScore);
+    setMyScore(finalScore);
 
     try {
       // Save the stickBonus value in MainRateGeneral
@@ -556,11 +578,14 @@ setMyScore(finalScore);
 
       if (success) {
         console.log(`Saved stickBonus = ${value} in MainRateGeneral.`);
+        trackSaveAttempt(true, "stick bonus");
       } else {
         console.error(`Failed to save stickBonus in MainRateGeneral.`);
+        trackSaveAttempt(false, "stick bonus");
       }
     } catch (error) {
       console.error("Error saving stickBonus to MainRateGeneral:", error);
+      trackSaveAttempt(false, "stick bonus");
     }
   };
   /* Logic ======================================================== */
@@ -591,9 +616,14 @@ setMyScore(finalScore);
     }).then((success) => {
       if (success) {
         console.log("Vault number and description updated successfully.");
+        trackSaveAttempt(true, "vault info");
       } else {
         console.error("Failed to update vault number and description.");
+        trackSaveAttempt(false, "vault info");
       }
+    }).catch((error) => {
+      console.error("Error updating vault info:", error);
+      trackSaveAttempt(false, "vault info");
     });
 
     updateMainTable(gymnastid, {
@@ -601,9 +631,14 @@ setMyScore(finalScore);
     }).then((success) => {
       if (success) {
         console.log("Vault E2 updated successfully.");
+        trackSaveAttempt(true, "vault E2");
       } else {
         console.error("Failed to update vault E2.");
+        trackSaveAttempt(false, "vault E2");
       }
+    }).catch((error) => {
+      console.error("Error updating vault E2:", error);
+      trackSaveAttempt(false, "vault E2");
     });
   };
 
@@ -676,6 +711,13 @@ setMyScore(finalScore);
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Save Warning Banner */}
+      {saveWarning ? (
+        <View style={styles.warningBanner}>
+          <Text style={styles.warningText}>⚠️ {saveWarning}</Text>
+        </View>
+      ) : null}
+      
       {showNdCompModal && (
   <View
     style={{
@@ -804,7 +846,7 @@ setMyScore(finalScore);
           
           if (!isNaN(num)) {
             const rounded = Math.round(num * 10) / 10;
-            setndcomp(rounded);
+            setNdInputcomp(rounded);
 
             const compscorecalc = d + e + (sb ? 0.1 : 0.0) - rounded;
             const truncated = Math.floor(compscorecalc * 100) / 100;
@@ -821,10 +863,12 @@ setScore(finalScore);
                   console.log(
                     `Saved ndcomp = ${rounded} in MainRateGeneral.`
                   );
+                  trackSaveAttempt(true, "comp ND score");
                 } else {
                   console.error(
                     `Failed to save ndcomp in MainRateGeneral.`
                   );
+                  trackSaveAttempt(false, "comp ND score");
                 }
               })
               .catch((error) => {
@@ -832,6 +876,7 @@ setScore(finalScore);
                   "Error saving ndcomp to MainRateGeneral:",
                   error
                 );
+                trackSaveAttempt(false, "comp ND score");
               });
           } else {
             Alert.alert(
@@ -988,17 +1033,27 @@ const finalScore = parseFloat(truncatedStr + truncatedStr.charAt(truncatedStr.le
 setMyScore(finalScore);
             
             // Update database
-            updateRateGeneral(rateid, { myScore: finalScore });
+            updateRateGeneral(rateid, { myScore: finalScore })
+              .then((success) => {
+                trackSaveAttempt(success, "my score (SV)");
+              })
+              .catch((error) => {
+                console.error("Error saving my score:", error);
+                trackSaveAttempt(false, "my score (SV)");
+              });
             updateMainTable(gymnastid, { sv: rounded })
               .then((success) => {
                 if (success) {
                   console.log(`Saved sv = ${rounded} in MainTable.`);
+                  trackSaveAttempt(true, "SV value");
                 } else {
                   console.error(`Failed to save sv in MainTable.`);
+                  trackSaveAttempt(false, "SV value");
                 }
               })
               .catch((error) => {
                 console.error("Error saving sv to MainTable:", error);
+                trackSaveAttempt(false, "SV value");
               });
           } else {
             Alert.alert(
@@ -1174,14 +1229,28 @@ setScore(finalScore);
             updateMainTable(gymnastid, {
               delt: newdelt,
               percentage: percentageValue,
-            });
+            })
+              .then((success) => {
+                trackSaveAttempt(success, "E score calculations");
+              })
+              .catch((error) => {
+                console.error("Error saving E score calculations:", error);
+                trackSaveAttempt(false, "E score calculations");
+              });
 
             /* ============================================================== */
             updateRateGeneral(rateid, {
               compE: rounded,
               compScore: finalScore,
               ded: newded,
-            });
+            })
+              .then((success) => {
+                trackSaveAttempt(success, "comp E score");
+              })
+              .catch((error) => {
+                console.error("Error saving comp E score:", error);
+                trackSaveAttempt(false, "comp E score");
+              });
           } else {
             Alert.alert(
               "Invalid Input",
@@ -1337,7 +1406,14 @@ setScore(finalScore);
             updateRateGeneral(rateid, {
               compD: rounded,
               compScore: finalScore,
-            });
+            })
+              .then((success) => {
+                trackSaveAttempt(success, "comp D score");
+              })
+              .catch((error) => {
+                console.error("Error saving comp D score:", error);
+                trackSaveAttempt(false, "comp D score");
+              });
           } else {
             Alert.alert(
               "Invalid Input",
@@ -1513,14 +1589,28 @@ setMyScore(finalScore);
             updateMainTable(gymnastid, {
               delt: newdelt,
               percentage: percentageValue,
-            });
+            })
+              .then((success) => {
+                trackSaveAttempt(success, "execution calculations");
+              })
+              .catch((error) => {
+                console.error("Error saving execution calculations:", error);
+                trackSaveAttempt(false, "execution calculations");
+              });
 
             setEScore(eScore);
             updateRateGeneral(rateid, {
               execution: rounded,
               eScore,
               myScore: finalScore,
-            });
+            })
+              .then((success) => {
+                trackSaveAttempt(success, "execution score");
+              })
+              .catch((error) => {
+                console.error("Error saving execution score:", error);
+                trackSaveAttempt(false, "execution score");
+              });
           } else {
             Alert.alert(
               "Invalid Input",
@@ -1603,14 +1693,16 @@ setMyScore(finalScore);
                   setComments(commentsInput);
                   setShowCommentsModal(false);
                   try {
-                    await updateRateGeneral(rateid, {
+                    const success = await updateRateGeneral(rateid, {
                       comments: commentsInput,
                     });
+                    trackSaveAttempt(success, "comments");
                   } catch (error) {
                     console.error(
                       "Error saving comments to MainRateGeneral:",
                       error
                     );
+                    trackSaveAttempt(false, "comments");
                   }
                 }}
               >
@@ -1770,19 +1862,29 @@ const truncatedStr = truncated.toFixed(2);
 const finalScore = parseFloat(truncatedStr + truncatedStr.charAt(truncatedStr.length - 1));
 
 setMyScore(finalScore);
-            updateRateGeneral(rateid, { myScore: finalScore });
+            updateRateGeneral(rateid, { myScore: finalScore })
+              .then((success) => {
+                trackSaveAttempt(success, "my score (ND)");
+              })
+              .catch((error) => {
+                console.error("Error saving my score:", error);
+                trackSaveAttempt(false, "my score (ND)");
+              });
             
             // Save to database
             updateMainTable(gymnastid, { nd: rounded })
               .then((success) => {
                 if (success) {
                   console.log(`Saved nd = ${rounded} in MainTable.`);
+                  trackSaveAttempt(true, "ND value");
                 } else {
                   console.error(`Failed to save nd in MainTable.`);
+                  trackSaveAttempt(false, "ND value");
                 }
               })
               .catch((error) => {
                 console.error("Error saving nd to MainTable:", error);
+                trackSaveAttempt(false, "ND value");
               });
           } else {
             Alert.alert(
@@ -2211,7 +2313,14 @@ setScore(finalScore);
                     updateRateGeneral(rateid, {
                       compSd: newValue ? 0.1 : 0.0,
                       compScore: finalScore,
-                    });
+                    })
+                      .then((success) => {
+                        trackSaveAttempt(success, "stick bonus");
+                      })
+                      .catch((error) => {
+                        console.error("Error saving stick bonus:", error);
+                        trackSaveAttempt(false, "stick bonus");
+                      });
                   }}
                 >
                   <Text
@@ -2458,6 +2567,110 @@ setScore(finalScore);
             </Text>
           </TouchableOpacity>
         </View>
+
+        {/* Debug Toggle Button */}
+        <View style={styles.debugToggleContainer}>
+          <TouchableOpacity
+            style={styles.debugToggleButton}
+            onPress={() => setShowDebugPanel(!showDebugPanel)}
+          >
+            <Text style={styles.debugToggleText}>
+              {showDebugPanel ? "Hide Debug" : "Show Debug"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Debug Panel */}
+        {showDebugPanel && (
+          <View style={styles.debugPanel}>
+            <ScrollView style={styles.debugScrollView}>
+              <Text style={styles.debugTitle}>🐛 Debug Information</Text>
+              
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Competition Info:</Text>
+                <Text style={styles.debugText}>Competition ID: {competenceId}</Text>
+                <Text style={styles.debugText}>Folder ID: {folderId}</Text>
+                <Text style={styles.debugText}>Event: {event}</Text>
+                <Text style={styles.debugText}>Discipline: {discipline ? "MAG" : "WAG"}</Text>
+                <Text style={styles.debugText}>Participants: {participants}</Text>
+                <Text style={styles.debugText}>Current Number: {number}</Text>
+              </View>
+
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Gymnast Info:</Text>
+                <Text style={styles.debugText}>Gymnast ID: {gymnastid}</Text>
+                <Text style={styles.debugText}>Name: {gymnastName}</Text>
+                <Text style={styles.debugText}>NOC: {gymnastNoc}</Text>
+                <Text style={styles.debugText}>Bib: {gymnastBib}</Text>
+                <Text style={styles.debugText}>Event: {gymnastEvent}</Text>
+              </View>
+
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Vault Info:</Text>
+                <Text style={styles.debugText}>Vault Number: {vaultnumber}</Text>
+                <Text style={styles.debugText}>Description: {vaultDescription}</Text>
+                <Text style={styles.debugText}>Start Value: {startValue}</Text>
+                <Text style={styles.debugText}>Gender: {gender ? "MAG" : "WAG"}</Text>
+              </View>
+
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Scores:</Text>
+                <Text style={styles.debugText}>My Score: {myScore}</Text>
+                <Text style={styles.debugText}>E Score: {eScore}</Text>
+                <Text style={styles.debugText}>Final Score: {score}</Text>
+                <Text style={styles.debugText}>SV: {sv}</Text>
+                <Text style={styles.debugText}>Execution: {execution}</Text>
+                <Text style={styles.debugText}>D: {d}</Text>
+                <Text style={styles.debugText}>E: {e}</Text>
+                <Text style={styles.debugText}>ND: {nd}</Text>
+                <Text style={styles.debugText}>ND Comp: {ndcomp}</Text>
+              </View>
+
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>System Info:</Text>
+                <Text style={styles.debugText}>Rate ID: {rateid}</Text>
+                <Text style={styles.debugText}>Stick Bonus: {stickbonus ? "Yes" : "No"}</Text>
+                <Text style={styles.debugText}>Difficulty Values: {difficultyValues}</Text>
+                <Text style={styles.debugText}>Element Groups Total: {elementGroupsTotal}</Text>
+                <Text style={styles.debugText}>CV: {cv}</Text>
+                <Text style={styles.debugText}>Comments: {comments || "None"}</Text>
+              </View>
+
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Save Status:</Text>
+                <Text style={styles.debugText}>Save Attempts: {saveAttempts}</Text>
+                <Text style={styles.debugText}>
+                  Last Save: {lastSaveTime ? lastSaveTime.toLocaleTimeString() : "None"}
+                </Text>
+                <Text style={styles.debugText}>Current Warning: {saveWarning || "None"}</Text>
+              </View>
+
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Device Info:</Text>
+                <Text style={styles.debugText}>Screen Width: {width}</Text>
+                <Text style={styles.debugText}>Screen Height: {height}</Text>
+                <Text style={styles.debugText}>Large Screen: {isLargeScreen ? "Yes" : "No"}</Text>
+                <Text style={styles.debugText}>Large Device: {isLargeDevice ? "Yes" : "No"}</Text>
+                <Text style={styles.debugText}>Medium Large: {isMediumLargeDevice ? "Yes" : "No"}</Text>
+                <Text style={styles.debugText}>Small Device: {isSmallDevice ? "Yes" : "No"}</Text>
+                <Text style={styles.debugText}>Tiny Device: {isTinyDevice ? "Yes" : "No"}</Text>
+              </View>
+
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Modal States:</Text>
+                <Text style={styles.debugText}>ND Modal: {showNdModal ? "Open" : "Closed"}</Text>
+                <Text style={styles.debugText}>Comments Modal: {showCommentsModal ? "Open" : "Closed"}</Text>
+                <Text style={styles.debugText}>Execution Modal: {showExecutionModal ? "Open" : "Closed"}</Text>
+                <Text style={styles.debugText}>D Modal: {showDModal ? "Open" : "Closed"}</Text>
+                <Text style={styles.debugText}>E Modal: {showEModal ? "Open" : "Closed"}</Text>
+                <Text style={styles.debugText}>SV Modal: {showSvModal ? "Open" : "Closed"}</Text>
+                <Text style={styles.debugText}>MAG Vault Modal: {showmodalmag ? "Open" : "Closed"}</Text>
+                <Text style={styles.debugText}>WAG Vault Modal: {showmodalwag ? "Open" : "Closed"}</Text>
+                <Text style={styles.debugText}>Custom Keyboard: {isCustomKeyboardVisible ? "Visible" : "Hidden"}</Text>
+              </View>
+            </ScrollView>
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -3387,6 +3600,74 @@ const styles = StyleSheet.create({
   },
   modalWithoutKeyboard: {
     marginBottom: "30%",
+  },
+
+  // Warning banner styles
+  warningBanner: {
+    backgroundColor: "#ffecb3",
+    borderBottomColor: "#ffc107",
+    borderBottomWidth: 2,
+    padding: 12,
+    alignItems: "center",
+  },
+  warningText: {
+    color: "#e65100",
+    fontSize: 14,
+    fontWeight: "bold",
+    textAlign: "center",
+  },
+
+  // Debug panel styles
+  debugToggleContainer: {
+    padding: 10,
+    alignItems: "center",
+  },
+  debugToggleButton: {
+    backgroundColor: "#6c757d",
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  debugToggleText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  debugPanel: {
+    backgroundColor: "#f8f9fa",
+    margin: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#dee2e6",
+    maxHeight: 400,
+  },
+  debugScrollView: {
+    padding: 15,
+  },
+  debugTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#495057",
+    marginBottom: 15,
+    textAlign: "center",
+  },
+  debugSection: {
+    marginBottom: 15,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e9ecef",
+  },
+  debugSectionTitle: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#6c757d",
+    marginBottom: 5,
+  },
+  debugText: {
+    fontSize: 12,
+    color: "#495057",
+    marginLeft: 10,
+    marginBottom: 2,
   },
 });
 

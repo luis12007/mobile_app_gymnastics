@@ -1,7 +1,7 @@
 {
   "name": "gym_judge",
   "main": "expo-router/entry",
-  "version": "1.0.8",
+  "version": "1.1.2",
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
@@ -18,6 +18,7 @@
     "@react-navigation/elements": "^2.3.8",
     "@react-navigation/native": "^7.1.6",
     "@shopify/react-native-skia": "^2.0.5",
+    "buffer": "^6.0.3",
     "expo": "^53.0.9",
     "expo-asset": "^11.1.5",
     "expo-blur": "~14.1.4",
@@ -41,9 +42,13 @@
     "expo-web-browser": "~14.1.6",
     "jspdf": "^3.0.1",
     "lucide-react": "^0.511.0",
+    "luckyexcel": "^1.0.1",
+    "papaparse": "^5.5.3",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-native": "0.79.2",
+    "react-native-csv": "^0.2.0",
+    "react-native-fs": "^2.20.0",
     "react-native-gesture-handler": "~2.24.0",
     "react-native-html-to-pdf": "^0.12.0",
     "react-native-pdf-lib": "^1.0.0",
@@ -53,6 +58,7 @@
     "react-native-svg": "15.11.2",
     "react-native-web": "~0.20.0",
     "react-native-webview": "13.13.5",
+    "read-excel-file": "^5.8.8",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

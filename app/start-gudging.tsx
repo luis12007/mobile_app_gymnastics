@@ -4,6 +4,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
+
 import {
   ActivityIndicator,
   Alert,
@@ -745,7 +746,7 @@ const performDelete = async () => {
 
       // Crear la entrada correspondiente en MainRateGeneral
       const mainRateGeneralData = {
-        tableId: id,
+        tableId: id as number,
         stickBonus: false,
         numberOfElements: 0,
         difficultyValues: 0,
@@ -764,6 +765,10 @@ const performDelete = async () => {
         compScore: 0,
         comments: "",
         paths: "",
+        ded: 0,
+        dedexecution: 0,
+        vaultNumber: "0",
+        vaultDescription: "",
       };
 
       await insertRateGeneral(mainRateGeneralData);
@@ -787,7 +792,7 @@ const performDelete = async () => {
         sortedGymnasts.forEach(() => {
           rowAnimations.push({
             opacity: new Animated.Value(0),
-            translateY: new Animated.Value(20),
+            translateX: new Animated.Value(-20),
           });
         });
 
@@ -803,7 +808,7 @@ const performDelete = async () => {
                 duration: 500,
                 useNativeDriver: true,
               }),
-              Animated.timing(anim.translateY, {
+              Animated.timing(anim.translateX, {
                 toValue: 0,
                 duration: 500,
                 useNativeDriver: true,
@@ -848,7 +853,7 @@ const performDelete = async () => {
       sortedGymnasts.forEach(() => {
         rowAnimations.push({
           opacity: new Animated.Value(0),
-          translateY: new Animated.Value(20),
+          translateX: new Animated.Value(-20),
         });
       });
 
@@ -864,7 +869,7 @@ const performDelete = async () => {
               duration: 500,
               useNativeDriver: true,
             }),
-            Animated.timing(anim.translateY, {
+            Animated.timing(anim.translateX, {
               toValue: 0,
               duration: 500,
               useNativeDriver: true,
@@ -1039,18 +1044,18 @@ const performDelete = async () => {
   };
 
   // Add this function to handle type selection
-  const handleTypeSelect = (option) => {
+  const handleTypeSelect = (option: string) => {
     setTypeSearch(option);
     setIsTypeSearchExpanded(false);
   };
 
   const gotogymnastcalculator = (
-    competenceId,
-    gymnastId,
-    event,
-    discipline,
-    gymnast,
-    number
+    competenceId: number,
+    gymnastId: number,
+    event: string,
+    discipline: boolean,
+    gymnast: number,
+    number: number
   ) => {
     if (event === "VT") {
       router.replace(
@@ -1150,6 +1155,10 @@ const handleUndo = async () => {
             compScore: 0,
             comments: "",
             paths: "",
+            ded: 0,
+            dedexecution: 0,
+            vaultNumber: "0",
+            vaultDescription: "",
           };
           await insertRateGeneral(basicRateGeneralData);
         }
@@ -1250,580 +1259,749 @@ const handleUndo = async () => {
 };
 
 
+const handleImportPress = async () => {
+  try {
+    console.log("🚀 Iniciando proceso de importación...");
+    setIsSaving(true);
 
-  const handleImportPress = async () => {
+    // Paso 1: Selección de archivo
+    const result = await DocumentPicker.getDocumentAsync({
+      type: [
+        "*/*",
+        "application/vnd.ms-excel", // .xls
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
+        "application/vnd.apple.numbers", // .numbers
+        "text/csv", // .csv
+        "text/comma-separated-values", // .csv alternative
+      ],
+      copyToCacheDirectory: true,
+      multiple: false,
+    });
+
+    if (result.canceled || !result.assets || result.assets.length === 0) {
+      console.log("❌ Selección de archivo cancelada");
+      setIsSaving(false);
+      return;
+    }
+
+    const selectedFile = result.assets[0];
+    const fileExtension = selectedFile.name.split('.').pop()?.toLowerCase() || '';
+    
+    console.log("📄 Archivo seleccionado:", {
+      name: selectedFile.name,
+      size: selectedFile.size,
+      type: selectedFile.mimeType,
+      extension: fileExtension
+    });
+
+    // Paso 2: Validaciones iniciales
+    const allowedExtensions = ['xlsx', 'xls', 'csv', 'numbers'];
+    if (!allowedExtensions.includes(fileExtension)) {
+      Alert.alert(
+        "Tipo de Archivo No Soportado",
+        `El archivo .${fileExtension} no es compatible. Tipos permitidos: ${allowedExtensions.join(', ')}`
+      );
+      setIsSaving(false);
+      return;
+    }
+
+    // Validar tamaño del archivo (max 25MB)
+    if (selectedFile.size && selectedFile.size > 25 * 1024 * 1024) {
+      Alert.alert(
+        "Archivo Muy Grande",
+        "El archivo supera los 25MB. Por favor usa un archivo más pequeño."
+      );
+      setIsSaving(false);
+      return;
+    }
+
+    // Paso 3: Procesar archivo usando XLSX
+    const processedData = await processFileWithXLSX(selectedFile, fileExtension);
+    
+    if (!processedData || processedData.length === 0) {
+      Alert.alert("Sin Datos", "No se encontraron datos válidos en el archivo");
+      setIsSaving(false);
+      return;
+    }
+
+    console.log(`✅ Datos procesados exitosamente: ${processedData.length} filas`);
+
+    // Paso 4: Procesar e insertar datos
+    await processAndInsertData(processedData);
+
+  } catch (error: any) {
+    console.error("❌ Error en importación:", error);
+    
+    let errorMessage = "Ocurrió un error inesperado durante la importación.";
+    
+    if (error.message?.includes("Unsupported file")) {
+      errorMessage = "El formato del archivo no es compatible.";
+    } else if (error.message?.includes("corrupted")) {
+      errorMessage = "El archivo parece estar corrupto.";
+    } else if (error.message?.includes("Empty")) {
+      errorMessage = "El archivo está vacío o no contiene datos válidos.";
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+    
+    Alert.alert("Error de Importación", errorMessage);
+  } finally {
+    setIsSaving(false);
+  }
+};
+
+// Función principal para procesar archivos usando XLSX
+const processFileWithXLSX = async (selectedFile: any, fileExtension: string): Promise<any[]> => {
+  console.log(`📊 Procesando archivo ${fileExtension.toUpperCase()}...`);
+  
+  try {
+    let workbook: any;
+    
+    // Estrategia de lectura dependiendo del tipo de archivo
+    if (fileExtension === 'csv') {
+      workbook = await processCSVWithXLSX(selectedFile);
+    } else {
+      workbook = await processExcelWithXLSX(selectedFile, fileExtension);
+    }
+
+    // Verificar que tenemos un workbook válido
+    if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) {
+      throw new Error("No se encontraron hojas en el archivo");
+    }
+
+    console.log(`📋 Hojas encontradas: ${workbook.SheetNames.join(', ')}`);
+
+    // Tomar la primera hoja
+    const firstSheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[firstSheetName];
+    
+    if (!worksheet) {
+      throw new Error("La primera hoja está vacía o corrupta");
+    }
+
+    // Convertir hoja a JSON con opciones específicas
+    const rawData = utils.sheet_to_json(worksheet, {
+      header: 1, // Usar índices de columna en lugar de nombres
+      defval: "", // Valor por defecto para celdas vacías
+      raw: false, // Convertir todo a string
+      dateNF: 'YYYY-MM-DD' // Formato de fecha estándar
+    });
+
+    console.log(`📏 Filas brutas extraídas: ${rawData.length}`);
+
+    if (!rawData || rawData.length < 2) {
+      throw new Error("El archivo debe contener al menos una fila de encabezado y una fila de datos");
+    }
+
+    // Procesar y limpiar datos
+    const processedData = cleanAndValidateData(rawData);
+    
+    console.log(`🧹 Datos limpiados: ${processedData.length} filas válidas`);
+    
+    return processedData;
+
+  } catch (error: any) {
+    console.error(`❌ Error procesando ${fileExtension}:`, error);
+    throw new Error(`No se pudo procesar el archivo ${fileExtension.toUpperCase()}: ${error.message}`);
+  }
+};
+
+// Función para procesar archivos CSV con XLSX
+const processCSVWithXLSX = async (selectedFile: any): Promise<any> => {
+  console.log("📄 Procesando CSV...");
+  
+  try {
+    // Leer como texto UTF-8
+    const csvContent = await FileSystem.readAsStringAsync(selectedFile.uri, {
+      encoding: FileSystem.EncodingType.UTF8,
+    });
+
+    if (!csvContent || csvContent.trim().length === 0) {
+      throw new Error("El archivo CSV está vacío");
+    }
+
+    console.log(`📝 Contenido CSV leído: ${csvContent.length} caracteres`);
+
+    // Usar XLSX para parsear CSV
+    const workbook = read(csvContent, {
+      type: 'string',
+      raw: false,
+      codepage: 65001 // UTF-8
+    });
+
+    return workbook;
+
+  } catch (error: any) {
+    console.error("❌ Error procesando CSV:", error);
+    
+    // Fallback: parsing manual del CSV
     try {
-      let data = [];
-      let rowsToImport = 0;
-
-      // Verificar si estamos en entorno web o móvil
-      if (Platform.OS === "web") {
-        // Implementación específica para web
-        try {
-          // Crear un input de tipo file oculto
-          const fileInput = document.createElement("input");
-          fileInput.type = "file";
-          fileInput.accept = ".xlsx,.xls,.csv,.numbers";
-          fileInput.style.display = "none";
-          document.body.appendChild(fileInput);
-
-          // Esperar a que el usuario seleccione un archivo
-          const filePromise = new Promise((resolve) => {
-            fileInput.onchange = (event) => {
-              const files = event.target.files;
-              if (files && files.length > 0) {
-                resolve(files[0]);
-              }
-            };
-            fileInput.click();
-          });
-
-          // Mostrar indicador de carga
-          setIsSaving(true);
-
-          // Procesar el archivo seleccionado
-          const file = await filePromise;
-          if (!file) {
-            setIsSaving(false);
-            document.body.removeChild(fileInput);
-            return;
+      console.log("🔄 Intentando parsing manual del CSV...");
+      
+      const csvContent = await FileSystem.readAsStringAsync(selectedFile.uri, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+      
+      const lines = csvContent.split('\n').filter(line => line.trim() !== '');
+      
+      if (lines.length < 2) {
+        throw new Error("CSV debe tener al menos 2 líneas");
+      }
+      
+      const data = lines.map(line => {
+        // Parseo simple de CSV (maneja comillas básicas)
+        const result: string[] = [];
+        let current = '';
+        let inQuotes = false;
+        
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+          } else {
+            current += char;
           }
-
-          // Leer el archivo con FileReader
-          const reader = new FileReader();
-          const dataPromise = new Promise((resolve, reject) => {
-            reader.onload = (e) => {
-              try {
-                const arrayBuffer = e.target.result;
-                const workbook = read(arrayBuffer, { type: "array" });
-                const firstSheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[firstSheetName];
-
-                // Obtener datos como matriz (incluye encabezados)
-                const rawData = utils.sheet_to_json(worksheet, { header: 1 });
-                resolve(rawData);
-              } catch (error) {
-                reject(error);
-              }
-            };
-            reader.onerror = () => reject(new Error("Error reading file"));
-            reader.readAsArrayBuffer(file);
-          });
-
-          const rawData = await dataPromise;
-          document.body.removeChild(fileInput);
-
-          // Validar que tenemos suficientes filas
-          if (rawData.length < 2) {
-            Alert.alert(
-              "Error",
-              "The file must contain at least two rows (header row + data)"
-            );
-            setIsSaving(false);
-            return;
-          }
-
-          // Mapear las columnas correctamente: name, event, noc, bib
-          data = rawData.slice(1).map((row) => {
-            const formattedRow = Array.isArray(row) ? row : [row];
-            while (formattedRow.length < 4) formattedRow.push("");
-
-            return {
-              name: formattedRow[0]?.toString() || "", // Columna 1: gymnastname
-              event: formattedRow[1]?.toString() || "", // Columna 2: EVENT
-              noc: formattedRow[2]?.toString() || "", // Columna 3: NOC
-              bib: formattedRow[3]?.toString() || "", // Columna 4: BIB
-            };
-          });
-
-          // Validar que hay datos para importar
-          if (data.length === 0) {
-            Alert.alert("Error", "No data found in the spreadsheet");
-            setIsSaving(false);
-            return;
-          }
-
-          // Limitar al número de participantes
-          rowsToImport = Math.min(data.length, participants);
-          if (data.length > participants) {
-            Alert.alert(
-              "Warning",
-              `The file contains ${data.length} rows, but only ${participants} participants are allowed. Only the first ${participants} will be imported.`
-            );
-          }
-        } catch (error) {
-          console.error("Error processing file (web):", error);
-          Alert.alert(
-            "Import Error",
-            "Failed to process the Excel file. Please make sure it's in the correct format."
-          );
-          setIsSaving(false);
-          return;
         }
-      } else {
-        // Implementación específica para móviles (código existente)
-        const result = await DocumentPicker.getDocumentAsync({
-          type: [
-            "*/*",
-            "application/vnd.ms-excel",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "application/vnd.apple-numbers",
-          ],
-          copyToCacheDirectory: true,
-        });
+        result.push(current.trim());
+        
+        return result;
+      });
+      
+      // Crear workbook manual
+      const worksheet = utils.aoa_to_sheet(data);
+      const workbook = utils.book_new();
+      utils.book_append_sheet(workbook, worksheet, 'Sheet1');
+      
+      console.log("✅ CSV parseado manualmente");
+      return workbook;
+      
+    } catch (fallbackError: any) {
+      throw new Error(`Error procesando CSV: ${fallbackError.message}`);
+    }
+  }
+};
 
-        if (result.canceled) {
-          return;
-        }
+// Función para procesar archivos Excel/Numbers con XLSX
+const processExcelWithXLSX = async (selectedFile: any, fileExtension: string): Promise<any> => {
+  console.log(`📊 Procesando archivo ${fileExtension.toUpperCase()}...`);
+  
+  const strategies = [
+    'fetch_arraybuffer',
+    'filesystem_base64',
+    'filesystem_arraybuffer'
+  ];
 
-        // Mostrar indicador de carga
-        setIsSaving(true);
+  let lastError: any = null;
 
-        try {
-          // Leer el archivo
-          const fileUri = result.assets[0].uri;
-          const fileContent = await FileSystem.readAsStringAsync(fileUri, {
+  for (const strategy of strategies) {
+    try {
+      console.log(`🔄 Probando estrategia: ${strategy}`);
+      
+      let arrayBuffer: ArrayBuffer;
+      
+      switch (strategy) {
+        case 'fetch_arraybuffer':
+          const response = await fetch(selectedFile.uri);
+          if (!response.ok) throw new Error(`Fetch falló: ${response.status}`);
+          arrayBuffer = await response.arrayBuffer();
+          break;
+          
+        case 'filesystem_base64':
+          const base64Content = await FileSystem.readAsStringAsync(selectedFile.uri, {
             encoding: FileSystem.EncodingType.Base64,
           });
-
-          // Parsear el archivo Excel
-          const workbook = read(fileContent, { type: "base64" });
-          const firstSheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[firstSheetName];
-
-          // Obtener datos como matriz (incluye encabezados)
-          const rawData = utils.sheet_to_json(worksheet, { header: 1 });
-
-          // Validar que tenemos suficientes filas
-          if (rawData.length < 2) {
-            Alert.alert(
-              "Error",
-              "The file must contain at least two rows (header row + data)"
-            );
-            setIsSaving(false);
-            return;
-          }
-
-          // Mapear las columnas correctamente: name, event, noc, bib
-          data = rawData.slice(1).map((row) => {
-            // Asegurar que tenemos 4 columnas por fila
-            const formattedRow = Array.isArray(row) ? row : [row];
-            while (formattedRow.length < 4) formattedRow.push("");
-
-            return {
-              name: formattedRow[0]?.toString() || "", // Columna 1: gymnastname
-              event: formattedRow[1]?.toString() || "", // Columna 2: EVENT
-              noc: formattedRow[2]?.toString() || "", // Columna 3: NOC
-              bib: formattedRow[3]?.toString() || "", // Columna 4: BIB
-            };
+          if (!base64Content) throw new Error("No se pudo leer como base64");
+          arrayBuffer = base64ToArrayBuffer(base64Content);
+          break;
+          
+        case 'filesystem_arraybuffer':
+          // Intentar leer directamente como binario
+          const binaryContent = await FileSystem.readAsStringAsync(selectedFile.uri, {
+            encoding: 'base64' as any
           });
-
-          // Validar que hay datos para importar
-          if (data.length === 0) {
-            Alert.alert("Error", "No data found in the spreadsheet");
-            setIsSaving(false);
-            return;
-          }
-
-          // Limitar al número de participantes
-          rowsToImport = Math.min(data.length, participants);
-          if (data.length > participants) {
-            Alert.alert(
-              "Warning",
-              `The file contains ${data.length} rows, but only ${participants} participants are allowed. Only the first ${participants} will be imported.`
-            );
-          }
-        } catch (error) {
-          console.error("Error processing file (mobile):", error);
-          Alert.alert(
-            "Import Error",
-            "Failed to process the Excel file. Please make sure it's in the correct format."
-          );
-          setIsSaving(false);
-          return;
-        }
+          if (!binaryContent) throw new Error("No se pudo leer archivo");
+          arrayBuffer = base64ToArrayBuffer(binaryContent);
+          break;
+          
+        default:
+          throw new Error(`Estrategia desconocida: ${strategy}`);
       }
 
-      // A partir de aquí, el código es común para web y móvil
-      // Ya tenemos los datos en la variable 'data' y rowsToImport
-      console.log("Rows to import:", rowsToImport);
-
-      try {
-        // Obtener todos los gimnastas actuales para esta competencia
-        const existingGymnasts = await getMainTablesByCompetenceId(
-          competenceId
-        );
-        console.log("Existing gymnasts:", existingGymnasts);
-
-        // Mapear NÚMERO a gimnasta en lugar de BIB
-        const numberToGymnastMap = new Map();
-        existingGymnasts.forEach((gymnast) => {
-          // Usamos el número del gimnasta como clave en lugar del BIB
-          numberToGymnastMap.set(gymnast.number.toString(), gymnast);
-        });
-        console.log("Number to gymnast map:", numberToGymnastMap);
-
-        // Función para validar si el evento es válido
-        const validateEvent = (eventName) => {
-          if (!eventName) return "";
-
-          // Convertir a mayúsculas para comparación
-          const upperEvent = eventName.toUpperCase().trim();
-
-          // Verificar si coincide con algún evento válido
-          if (eventOptions.includes(upperEvent)) {
-            return upperEvent;
-          }
-
-          // Si no coincide, devolver string vacío
-          return "";
-        };
-
-        // Preparar datos para importar
-        let updatedCount = 0;
-        let createdCount = 0;
-        let errors = 0;
-
-        // Array para registrar los números usados durante esta importación
-        const currentUsedNumbers = gymnasts.map((g) => g.number);
-
-        // Procesar cada fila (gimnasta)
-        for (let i = 0; i < rowsToImport; i++) {
-          try {
-            const row = data[i];
-            const bibNumber = row.bib?.toString() || "";
-
-            // Validar el evento
-            const validEvent = validateEvent(row.event);
-
-            // Usamos i+1 como número de gimnasta para la importación
-            // Esto significa que la primera fila (índice 0) corresponde al gimnasta número 1
-            const gymnastNumber = i + 1;
-
-            // Verificar si el gimnasta ya existe por su NÚMERO
-            const existingGymnast = numberToGymnastMap.get(
-              gymnastNumber.toString()
-            );
-
-            if (existingGymnast) {
-              // Actualizar gimnasta existente con los datos del archivo
-              const updatedGymnast = {
-                ...existingGymnast,
-                name: row.name || existingGymnast.name,
-                noc: row.noc || existingGymnast.noc,
-                bib: bibNumber || existingGymnast.bib,
-                event: validEvent || existingGymnast.event, // Solo actualizar si el evento es válido
-              };
-
-              // Guardar en la base de datos
-              await updateMainTable(existingGymnast.id, updatedGymnast);
-
-              // Actualizar en el estado local
-              setGymnasts((prev) =>
-                prev.map((g) =>
-                  g.id === existingGymnast.id
-                    ? {
-                        ...g,
-                        name: updatedGymnast.name,
-                        noc: updatedGymnast.noc,
-                        bib: updatedGymnast.bib,
-                        event: updatedGymnast.event,
-                      }
-                    : g
-                )
-              );
-
-              updatedCount++;
-            } else {
-              // Verificar si aún hay espacio para nuevos gimnastas
-              if (gymnasts.length + createdCount >= participants) {
-                Alert.alert(
-                  "Import Limit Reached",
-                  `Cannot add more gymnasts. Maximum of ${participants} participants reached.`
-                );
-                break;
-              }
-
-              // Encontrar un número disponible para el nuevo gimnasta
-              let newNumber = gymnastNumber;
-              while (currentUsedNumbers.includes(newNumber)) {
-                newNumber++;
-              }
-
-              // Añadir el nuevo número a nuestro registro local
-              currentUsedNumbers.push(newNumber);
-
-              // Crear nuevo gimnasta
-              const newGymnast = {
-                competenceId: competenceId,
-                number: newNumber,
-                name: row.name || "",
-                event: validEvent, // Solo asignar si el evento es válido, sino queda vacío
-                noc: row.noc || "",
-                bib: bibNumber,
-                // Valores por defecto para otros campos
-                j: 0,
-                i: 0,
-                h: 0,
-                g: 0,
-                f: 0,
-                e: 0,
-                d: 0,
-                c: 0,
-                b: 0,
-                a: 0,
-                dv: 0,
-                eg: 0,
-                sb: 0,
-                nd: 0,
-                cv: 0,
-                sv: 0,
-                e2: 0,
-                d3: 0,
-                e3: 0,
-                delt: 0,
-                percentage: 0,
-              };
-
-              // Insertar en base de datos
-              const id = await insertMainTable(newGymnast);
-
-              // Crear la entrada correspondiente en MainRateGeneral
-              const mainRateGeneralData = {
-                tableId: id,
-                stickBonus: false,
-                numberOfElements: 0,
-                difficultyValues: 0,
-                elementGroups1: 0,
-                elementGroups2: 0,
-                elementGroups3: 0,
-                elementGroups4: 0,
-                elementGroups5: 0,
-                execution: 0,
-                eScore: 0,
-                myScore: 0,
-                compD: 0,
-                compE: 0,
-                compSd: 0,
-                compNd: 0,
-                compScore: 0,
-                comments: "",
-                paths: "",
-              };
-
-              await insertRateGeneral(mainRateGeneralData);
-
-              // Añadir a estado local
-              setGymnasts((prev) => [
-                ...prev,
-                { ...newGymnast, id: id as number },
-              ]);
-              createdCount++;
-            }
-          } catch (error) {
-            console.error(`Error importing row ${i}:`, error);
-            errors++;
-          }
-        }
-
-        // Actualizar el número de participantes en la competencia
-        if (createdCount > 0 && competenceData) {
-          const updatedCompetence = {
-            ...competenceData,
-            numberOfParticipants:
-              (competenceData.numberOfParticipants || 0) + createdCount,
-          };
-
-          await updateCompetence(competenceId, updatedCompetence);
-          setCompetenceData(updatedCompetence);
-        }
-
-        // Mostrar resultado
-        Alert.alert(
-          "Import Complete",
-          `Successfully imported ${
-            createdCount + updatedCount
-          } gymnasts (${createdCount} new, ${updatedCount} updated)${
-            errors > 0 ? ` (${errors} errors)` : ""
-          }.`
-        );
-      } catch (error) {
-        console.error("Error in import process:", error);
-        Alert.alert("Import Error", "Failed to complete the import process.");
+      if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+        throw new Error("ArrayBuffer vacío");
       }
-    } catch (error) {
-      console.error("General error in import:", error);
-      Alert.alert(
-        "Import Error",
-        "An unexpected error occurred during import."
-      );
-    } finally {
-      setIsSaving(false);
+
+      console.log(`📁 Archivo leído: ${arrayBuffer.byteLength} bytes`);
+
+      // Procesar con XLSX
+      const workbook = read(arrayBuffer, {
+        type: 'array',
+        cellDates: true,
+        cellNF: false,
+        cellText: false,
+        raw: false,
+        codepage: 65001,
+        password: undefined
+      });
+
+      if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) {
+        throw new Error("No se encontraron hojas en el archivo");
+      }
+
+      console.log(`✅ Archivo procesado exitosamente con estrategia: ${strategy}`);
+      return workbook;
+
+    } catch (error: any) {
+      console.log(`❌ Estrategia ${strategy} falló:`, error.message);
+      lastError = error;
+      continue;
     }
+  }
+
+  // Si todas las estrategias fallaron
+  const helpMessage = getFileTypeHelp(fileExtension);
+  throw new Error(`No se pudo procesar el archivo ${fileExtension.toUpperCase()}. ${helpMessage}Error: ${lastError?.message || 'Desconocido'}`);
+};
+
+// Función auxiliar para convertir base64 a ArrayBuffer
+const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
+  try {
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+  } catch (error: any) {
+    throw new Error(`Error convirtiendo base64: ${error.message}`);
+  }
+};
+
+// Función para limpiar y validar datos extraídos
+const cleanAndValidateData = (rawData: any[]): any[] => {
+  console.log("🧹 Limpiando y validando datos...");
+  
+  // Filtrar filas completamente vacías y tomar solo datos (sin header)
+  const dataRows = rawData.slice(1).filter((row: any) => {
+    if (!Array.isArray(row)) return false;
+    return row.some((cell: any) => cell !== null && cell !== undefined && cell !== "");
+  });
+
+  console.log(`📊 Filas de datos encontradas: ${dataRows.length}`);
+
+  const processedData = dataRows.map((row: any, index: number) => {
+    // Asegurar que tengamos al menos 4 columnas
+    const paddedRow = Array.isArray(row) ? [...row] : [row];
+    while (paddedRow.length < 4) paddedRow.push("");
+    
+    const cleanString = (value: any): string => {
+      if (value === null || value === undefined) return "";
+      return String(value)
+        .trim()
+        .replace(/[\n\r\t]/g, " ")
+        .replace(/\s+/g, " "); // Reemplazar múltiples espacios con uno solo
+    };
+    
+    const cleaned = {
+      name: cleanString(paddedRow[0]),
+      event: cleanString(paddedRow[1]),
+      noc: cleanString(paddedRow[2]),
+      bib: cleanString(paddedRow[3]),
+      rowIndex: index + 2
+    };
+    
+    // Log de fila procesada para debugging
+    if (index < 3) { // Solo las primeras 3 para no saturar el log
+      console.log(`📝 Fila ${index + 1}:`, cleaned);
+    }
+    
+    return cleaned;
+  }).filter(row => {
+    // Filtrar filas que tengan al menos un campo no vacío
+    return row.name || row.event || row.noc || row.bib;
+  });
+
+  console.log(`✅ Datos procesados: ${processedData.length} filas válidas`);
+  
+  return processedData;
+};
+
+// Función para obtener ayuda específica por tipo de archivo
+const getFileTypeHelp = (fileType: string): string => {
+  switch (fileType) {
+    case 'numbers':
+      return "Los archivos Numbers tienen compatibilidad limitada. Para mejores resultados, exporta desde Numbers como Excel (.xlsx) o CSV. ";
+    case 'xlsx':
+      return "Si el archivo Excel tiene características avanzadas (macros, gráficos, etc.), intenta guardarlo como archivo Excel simple. ";
+    case 'xls':
+      return "Los archivos Excel antiguos (.xls) pueden tener problemas. Intenta convertirlo a .xlsx. ";
+    case 'csv':
+      return "Verifica que el archivo CSV use codificación UTF-8 y comas como separadores. ";
+    default:
+      return "";
+  }
+};
+
+// Función para procesar e insertar los datos validados
+const processAndInsertData = async (data: any[]) => {
+  console.log(`💾 Procesando ${data.length} filas para inserción...`);
+  
+  // Limitar al número de participantes permitido
+  const rowsToImport = Math.min(data.length, participants);
+  
+  if (data.length > participants) {
+    Alert.alert(
+      "Límite de Importación",
+      `El archivo contiene ${data.length} filas válidas, pero solo se permiten ${participants} participantes. Solo se importarán los primeros ${participants}.`
+    );
+  }
+
+  // Obtener gimnastas existentes
+  const existingGymnasts = await getMainTablesByCompetenceId(competenceId);
+  const numberToGymnastMap = new Map();
+  existingGymnasts.forEach((gymnast) => {
+    numberToGymnastMap.set(gymnast.number.toString(), gymnast);
+  });
+
+  // Función para validar eventos
+  const validateEvent = (eventName: any): string => {
+    if (!eventName) return "";
+    const upperEvent = eventName.toString().toUpperCase().trim();
+    return eventOptions.includes(upperEvent) ? upperEvent : "";
   };
 
+  let updatedCount = 0;
+  let createdCount = 0;
+  let errors = 0;
+  const errorDetails: string[] = [];
+
+  console.log("🔄 Iniciando inserción de datos...");
+
+  // Procesar cada fila con numeración correlativa
+  for (let i = 0; i < rowsToImport; i++) {
+    try {
+      const row = data[i];
+      const correlativeNumber = i + 1;
+      const existingGymnast = numberToGymnastMap.get(correlativeNumber.toString());
+      
+      // Limpiar y validar datos de la fila
+      const bibNumber = row.bib?.toString().trim() || "";
+      const validEvent = validateEvent(row.event);
+      const cleanName = row.name?.trim() || "";
+      const cleanNoc = row.noc?.trim() || "";
+
+      if (existingGymnast) {
+        // Actualizar gimnasta existente
+        const updatedGymnast = {
+          ...existingGymnast,
+          name: cleanName || existingGymnast.name,
+          noc: cleanNoc || existingGymnast.noc,
+          bib: bibNumber || existingGymnast.bib,
+          event: validEvent || existingGymnast.event,
+          number: correlativeNumber,
+        };
+        
+        await updateMainTable(existingGymnast.id, updatedGymnast);
+        updatedCount++;
+        
+        console.log(`✏️ Actualizado gimnasta ${correlativeNumber}: ${cleanName}`);
+        
+      } else {
+        // Verificar límite de participantes
+        if (gymnasts.length + createdCount >= participants) {
+          console.log(`⚠️ Límite de participantes alcanzado: ${participants}`);
+          break;
+        }
+        
+        // Crear nuevo gimnasta
+        const newGymnast = {
+          competenceId: competenceId,
+          number: correlativeNumber,
+          name: cleanName,
+          event: validEvent,
+          noc: cleanNoc,
+          bib: bibNumber,
+          // Campos de scoring inicializados
+          j: 0, i: 0, h: 0, g: 0, f: 0, e: 0, d: 0, c: 0, b: 0, a: 0,
+          dv: 0, eg: 0, sb: 0, nd: 0, cv: 0, sv: 0, e2: 0, d3: 0, e3: 0, 
+          delt: 0, percentage: 0,
+        };
+        
+        const id = await insertMainTable(newGymnast);
+        
+        if (id && typeof id === 'number') {
+          // Crear registro RateGeneral correspondiente
+          const mainRateGeneralData = {
+            tableId: id,
+            stickBonus: false,
+            numberOfElements: 0,
+            difficultyValues: 0,
+            elementGroups1: 0, elementGroups2: 0, elementGroups3: 0,
+            elementGroups4: 0, elementGroups5: 0,
+            execution: 0, eScore: 0, myScore: 0,
+            compD: 0, compE: 0, compSd: 0, compNd: 0, compScore: 0,
+            comments: "", paths: "", ded: 0, dedexecution: 0,
+            vaultNumber: "0", vaultDescription: "",
+          };
+          
+          await insertRateGeneral(mainRateGeneralData);
+          createdCount++;
+          
+          console.log(`➕ Creado gimnasta ${correlativeNumber}: ${cleanName}`);
+          
+        } else {
+          errors++;
+          errorDetails.push(`Fila ${correlativeNumber}: Error al insertar en base de datos`);
+        }
+      }
+      
+    } catch (error: any) {
+      errors++;
+      errorDetails.push(`Fila ${i + 1}: ${error.message || 'Error desconocido'}`);
+      console.error(`❌ Error procesando fila ${i + 1}:`, error);
+    }
+  }
+
+  // Recargar y reordenar todos los gimnastas
+  console.log("🔄 Reordenando gimnastas...");
+  
+  const allUpdatedGymnasts = await getMainTablesByCompetenceId(competenceId);
+  const sortedGymnasts = allUpdatedGymnasts.sort((a, b) => a.number - b.number);
+  
+  // Actualizar numeración correlativa en base de datos
+  for (let index = 0; index < sortedGymnasts.length; index++) {
+    const gymnast = sortedGymnasts[index];
+    const newNumber = index + 1;
+    if (gymnast.number !== newNumber) {
+      await updateMainTable(gymnast.id, { number: newNumber });
+      gymnast.number = newNumber;
+    }
+  }
+
+  // Actualizar estado local con todos los campos necesarios
+  const finalGymnasts = sortedGymnasts.map((table) => ({
+    id: table.id,
+    competenceId: table.competenceId,
+    number: table.number,
+    name: table.name || "",
+    event: table.event || "",
+    noc: table.noc?.toString() || "",
+    bib: table.bib?.toString() || "",
+    // Incluir todos los campos de scoring
+    j: table.j || 0, i: table.i || 0, h: table.h || 0, g: table.g || 0,
+    f: table.f || 0, e: table.e || 0, d: table.d || 0, c: table.c || 0,
+    b: table.b || 0, a: table.a || 0, dv: table.dv || 0, eg: table.eg || 0,
+    sb: table.sb || 0, nd: table.nd || 0, cv: table.cv || 0, sv: table.sv || 0,
+    e2: table.e2 || 0, d3: table.d3 || 0, e3: table.e3 || 0, delt: table.delt || 0,
+    percentage: table.percentage || 0,
+  }));
+
+  setGymnasts(finalGymnasts);
+
+  // Actualizar número de participantes en la competencia
+  if (createdCount > 0 && competenceData) {
+    const updatedCompetence = {
+      ...competenceData,
+      numberOfParticipants: (competenceData.numberOfParticipants || 0) + createdCount,
+    };
+    await updateCompetence(competenceId, updatedCompetence);
+    setCompetenceData(updatedCompetence);
+  }
+
+  // Mostrar resultado final
+  let resultMessage = `Importación exitosa:\n• ${createdCount} gimnastas nuevos\n• ${updatedCount} gimnastas actualizados`;
+  
+  if (errors > 0) {
+    resultMessage += `\n• ${errors} errores encontrados`;
+    console.warn("⚠️ Errores durante importación:", errorDetails);
+  }
+
+  console.log("✅ Importación completada:", {
+    created: createdCount,
+    updated: updatedCount,
+    errors: errors,
+    total: finalGymnasts.length
+  });
+
+  Alert.alert("Importación Completa", resultMessage);
+};
+  
   return (
     <View style={styles.container} onTouchStart={handleGlobalClick}>
-      {/* Search Bar with Animation */}
-
+      {/* Top Control Bar - Single Row with All Controls */}
       <Animated.View
         style={[
-          styles.importButtonSecond,
-          {
-            opacity: backButtonOpacity,
-            transform: [{ translateX: backButtonTranslateX }],
-          },
-        ]}
-      >
-        <TouchableOpacity style={styles.importButtonInner} onPress={handleUndo}>
-          <Ionicons name="arrow-undo-outline" size={28} color="#0052b4" />
-          <Text style={styles.importButtonText}>undo</Text>
-        </TouchableOpacity>
-      </Animated.View>
-      <Animated.View
-        style={[
-          styles.importButton,
-          {
-            opacity: backButtonOpacity,
-            transform: [{ translateX: backButtonTranslateX }],
-          },
-        ]}
-      >
-        <TouchableOpacity
-          style={styles.importButtonInner}
-          onPress={handleImportPress}
-        >
-          <Ionicons name="cloud-upload-outline" size={28} color="#0052b4" />
-          <Text style={styles.importButtonText}>Import</Text>
-        </TouchableOpacity>
-      </Animated.View>
-
-      <Animated.View
-        style={[
-          styles.backButton,
-          {
-            opacity: backButtonOpacity,
-            transform: [{ translateX: backButtonTranslateX }],
-          },
-        ]}
-      >
-        <TouchableOpacity
-          style={styles.backButtonInner}
-          onPress={() =>
-            router.replace(`/folder?id=${folderId}&discipline=${discipline}`)
-          }
-        >
-          <Ionicons name="arrow-back" size={28} color="#0052b4" />
-          <Text style={styles.backButtonText}>Go Back</Text>
-        </TouchableOpacity>
-      </Animated.View>
-      <Animated.View
-        style={[
-          styles.searchContainer,
+          styles.topControlsContainer,
           {
             opacity: searchBarOpacity,
             transform: [{ translateY: searchBarTranslateY }],
           },
         ]}
       >
-        <View style={styles.searchInputContainer}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Name"
-            placeholderTextColor="#999"
-            value={nameSearch}
-            onChangeText={setNameSearch}
-          />
-        </View>
+        {/* Left Section - Inputs */}
+        <View style={styles.inputsSection}>
+          <View style={styles.compactInputContainer}>
+            <TextInput
+              style={styles.compactInput}
+              placeholder="Name"
+              placeholderTextColor="#999"
+              value={nameSearch}
+              onChangeText={setNameSearch}
+            />
+          </View>
 
-        {/* Event Dropdown for Search */}
-        <View style={styles.searchInputContainer}>
-          <View
-            style={{
-              position: "relative",
-              zIndex: Platform.OS === "ios" ? 999 : 10,
-            }}
-          >
-            <TouchableOpacity
-              style={styles.dropdownButton}
-              onPress={(e) => {
-                e.stopPropagation();
-                toggleSearchDropdown();
+          {/* Event Dropdown */}
+          <View style={styles.compactInputContainer}>
+            <View
+              style={{
+                position: "relative",
+                zIndex: Platform.OS === "ios" ? 999 : 10,
               }}
             >
-              <Text style={styles.dropdownButtonText}>
-                {typeSearch || "Select Event"}
-              </Text>
-              <Ionicons
-                name={isTypeSearchExpanded ? "chevron-up" : "chevron-down"}
-                size={24}
-                color="#666"
-              />
-            </TouchableOpacity>
-
-            {/* Dropdown options as part of the component, not absolute */}
-            {isTypeSearchExpanded && (
-              <View
-                style={{
-                  backgroundColor: "white",
-                  borderWidth: 1,
-                  borderColor: "#ddd",
-                  borderRadius: 5,
-                  marginTop: 2,
-                  shadowColor: "#000",
-                  shadowOffset: { width: 0, height: 2 },
-                  shadowOpacity: 0.25,
-                  shadowRadius: 3.84,
-                  elevation: 5,
-                  width: "100%",
-                  position: "absolute",
-                  top: "100%",
-                  left: 0,
-                  zIndex: 1000,
+              <TouchableOpacity
+                style={styles.compactDropdownButton}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  toggleSearchDropdown();
                 }}
               >
-                {/* None option */}
-                <TouchableOpacity
-                  style={styles.dropdownItem}
-                  activeOpacity={0.7}
-                  onPress={() => handleTypeSelect("")}
-                >
-                  <Text style={styles.dropdownItemText}>None</Text>
-                </TouchableOpacity>
+                <Text style={styles.compactDropdownText}>
+                  {typeSearch || "Event"}
+                </Text>
+                <Ionicons
+                  name={isTypeSearchExpanded ? "chevron-up" : "chevron-down"}
+                  size={16}
+                  color="#666"
+                />
+              </TouchableOpacity>
 
-                {/* Event options */}
-                {eventOptions.map((option, index) => (
+              {/* Dropdown options */}
+              {isTypeSearchExpanded && (
+                <View
+                  style={{
+                    backgroundColor: "white",
+                    borderWidth: 1,
+                    borderColor: "#ddd",
+                    borderRadius: 5,
+                    marginTop: 2,
+                    shadowColor: "#000",
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.25,
+                    shadowRadius: 3.84,
+                    elevation: 5,
+                    width: "100%",
+                    position: "absolute",
+                    top: "100%",
+                    left: 0,
+                    zIndex: 1000,
+                  }}
+                >
                   <TouchableOpacity
-                    key={index}
-                    style={[
-                      styles.dropdownItem,
-                      index === eventOptions.length - 1
-                        ? { borderBottomWidth: 0 }
-                        : null,
-                    ]}
+                    style={styles.dropdownItem}
                     activeOpacity={0.7}
-                    onPress={() => handleTypeSelect(option)}
+                    onPress={() => handleTypeSelect("")}
                   >
-                    <Text style={styles.dropdownItemText}>{option}</Text>
+                    <Text style={styles.dropdownItemText}>None</Text>
                   </TouchableOpacity>
-                ))}
-              </View>
-            )}
+
+                  {eventOptions.map((option, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      style={[
+                        styles.dropdownItem,
+                        index === eventOptions.length - 1
+                          ? { borderBottomWidth: 0 }
+                          : null,
+                      ]}
+                      activeOpacity={0.7}
+                      onPress={() => handleTypeSelect(option)}
+                    >
+                      <Text style={styles.dropdownItemText}>{option}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+          </View>
+
+          <View style={styles.compactInputContainer}>
+            <TextInput
+              style={styles.compactInput}
+              placeholder="BIB"
+              placeholderTextColor="#999"
+              value={bibSearch}
+              onChangeText={setBibSearch}
+            />
           </View>
         </View>
 
-        <View style={styles.searchInputContainer}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="BIB"
-            placeholderTextColor="#999"
-            value={bibSearch}
-            onChangeText={setBibSearch}
-          />
+        {/* Center Section - Action Buttons */}
+        <View style={styles.actionsSection}>
+          <TouchableOpacity style={styles.compactActionButton} onPress={handleSearch}>
+            <Ionicons name="search" size={isTinyDevice ? 16 : 20} color="#0052b4" />
+            <Text style={styles.compactActionText}>Search</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.compactActionButton} onPress={handleUndo}>
+            <Ionicons 
+              name="arrow-undo-outline" 
+              size={isTinyDevice ? 16 : 20} 
+              color="#0052b4" 
+            />
+            <Text style={styles.compactActionText}>Undo</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.compactActionButton} onPress={handleImportPress}>
+            <Ionicons 
+              name="cloud-upload-outline" 
+              size={isTinyDevice ? 16 : 20} 
+              color="#0052b4" 
+            />
+            <Text style={styles.compactActionText}>Import</Text>
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
-          <Ionicons name="search" size={24} color="black" />
-        </TouchableOpacity>
+
+        {/* Right Section - Navigation Buttons */}
+        <View style={styles.navigationSection}>
+          <TouchableOpacity
+            style={styles.compactNavButton}
+            onPress={() =>
+              router.replace(`/folder?id=${folderId}&discipline=${discipline}`)
+            }
+          >
+            <Ionicons 
+              name="arrow-back" 
+              size={isTinyDevice ? 16 : 20} 
+              color="#fff" 
+            />
+            <Text style={styles.compactNavText}>Back</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.compactStartButton,
+              {
+                backgroundColor: number === 1 ? "#0052b4" : "rgb(28, 82, 147)",
+                opacity: gymnasts.length > 0 ? 1 : 0.5,
+              },
+            ]}
+            onPress={() => handleSelectStart()}
+            disabled={gymnasts.length === 0 || isSaving}
+          >
+            <Ionicons 
+              name="play" 
+              size={isTinyDevice ? 16 : 20} 
+              color="#fff" 
+            />
+            <Text style={styles.compactNavText}>
+              {number === 0 ? "Start" : "Continue"}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </Animated.View>
 
       {/* Table with Animation */}
@@ -1878,7 +2056,7 @@ const handleUndo = async () => {
                   {
                     opacity: rowAnimations[index]?.opacity || 1,
                     transform: [
-                      { translateY: rowAnimations[index]?.translateY || 0 },
+                      { translateX: rowAnimations[index]?.translateX || 0 },
                     ],
                   },
                   invalidGymnastIds.includes(gymnast.id) && {
@@ -1994,7 +2172,11 @@ const handleUndo = async () => {
                     </Picker>
                   ) : (
                     <TouchableOpacity
-                      ref={(el) => (rowRefs.current[gymnast.id] = el)}
+                      ref={(el) => {
+                        if (el) {
+                          rowRefs.current[gymnast.id] = el;
+                        }
+                      }}
                       style={styles.eventDropdownButton}
                       onPress={() => {
                         if (!isDeleteMode) {
@@ -2714,62 +2896,62 @@ const styles = StyleSheet.create({
   },
   backButton: {
     position: "absolute",
-    top: 22,
-    right: 30,
+    top: isLargeDevice ? 35 : isTinyDevice ? 20 : 28, // Más margen superior
+    right: isLargeDevice ? 60 : isTinyDevice ? 30 : 45, // Más margen derecho para alineación
     zIndex: 1000,
   },
   backButtonInner: {
     backgroundColor: "white",
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingVertical: isLargeDevice ? 10 : isTinyDevice ? 8 : 9, // Even less height
+    paddingHorizontal: isLargeDevice ? 20 : isTinyDevice ? 12 : 16, // Más ancho
+    borderRadius: isLargeDevice ? 8 : 6,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 2,
     elevation: 3,
+    minWidth: isLargeDevice ? 120 : isTinyDevice ? 85 : 100, // Más ancho mínimo
   },
   backButtonText: {
     color: "#0052b4",
     fontWeight: "bold",
-    marginLeft: 5,
-    fontSize: 16,
+    marginLeft: isLargeDevice ? 5 : 3,
+    fontSize: isLargeDevice ? 16 : isTinyDevice ? 11 : 13,
   },
   importButton: {
     position: "absolute",
-    top: 22,
-    right: 145, // Posicionado a la izquierda del botón "Go Back"
-    marginRight: 15,
+    top: isLargeDevice ? 35 : isTinyDevice ? 20 : 28, // Más margen superior
+    right: isLargeDevice ? 320 : isTinyDevice ? 230 : 275, // More spacing from back button
     zIndex: 1000,
   },
 
   importButtonSecond: {
     position: "absolute",
-    top: 22,
-    right: 265, // Posicionado a la izquierda del botón "Go Back"
-    marginRight: 15,
+    top: isLargeDevice ? 35 : isTinyDevice ? 20 : 28, // Más margen superior
+    right: isLargeDevice ? 580 : isTinyDevice ? 430 : 505, // More spacing from import button
     zIndex: 1000,
   },
   importButtonInner: {
     backgroundColor: "white",
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingVertical: isLargeDevice ? 10 : isTinyDevice ? 8 : 9, // Even less height
+    paddingHorizontal: isLargeDevice ? 20 : isTinyDevice ? 12 : 16, // Más ancho
+    borderRadius: isLargeDevice ? 8 : 6,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 2,
     elevation: 3,
+    minWidth: isLargeDevice ? 120 : isTinyDevice ? 80 : 95, // Más ancho mínimo
   },
   importButtonText: {
     color: "#0052b4",
     fontWeight: "bold",
-    marginLeft: 5,
-    fontSize: 16,
+    marginLeft: isLargeDevice ? 5 : 3,
+    fontSize: isLargeDevice ? 16 : isTinyDevice ? 11 : 13,
   },
 
   // New styles for checkbox functionality
@@ -2830,6 +3012,120 @@ const styles = StyleSheet.create({
     color: "#666",
     marginBottom: 20,
     paddingHorizontal: 10,
+  },
+
+  // New compact top controls layout
+  topControlsContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    backgroundColor: "white",
+    borderRadius: 15,
+    marginHorizontal: 20,
+    marginBottom: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+    zIndex: 10,
+  },
+
+  inputsSection: {
+    flex: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  actionsSection: {
+    flex: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
+
+  navigationSection: {
+    flex: 1.5,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 8,
+  },
+
+  compactInputContainer: {
+    flex: 1,
+    position: "relative",
+  },
+
+  compactInput: {
+    backgroundColor: "#f5f5f5",
+    borderRadius: 8,
+    padding: isTinyDevice ? 8 : 10,
+    fontSize: isTinyDevice ? 12 : 14,
+    color: "#333",
+  },
+
+  compactDropdownButton: {
+    backgroundColor: "#f5f5f5",
+    borderRadius: 8,
+    padding: isTinyDevice ? 8 : 10,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+
+  compactDropdownText: {
+    fontSize: isTinyDevice ? 12 : 14,
+    color: "#333",
+    flex: 1,
+  },
+
+  compactActionButton: {
+    backgroundColor: "#f8f9fa",
+    borderRadius: 8,
+    paddingHorizontal: isTinyDevice ? 8 : 12,
+    paddingVertical: isTinyDevice ? 6 : 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderWidth: 1,
+    borderColor: "#e9ecef",
+  },
+
+  compactActionText: {
+    fontSize: isTinyDevice ? 10 : 12,
+    color: "#0052b4",
+    fontWeight: "500",
+  },
+
+  compactNavButton: {
+    backgroundColor: "#6c757d",
+    borderRadius: 8,
+    paddingHorizontal: isTinyDevice ? 8 : 12,
+    paddingVertical: isTinyDevice ? 6 : 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+
+  compactStartButton: {
+    backgroundColor: "#0052b4",
+    borderRadius: 8,
+    paddingHorizontal: isTinyDevice ? 8 : 12,
+    paddingVertical: isTinyDevice ? 6 : 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+
+  compactNavText: {
+    fontSize: isTinyDevice ? 10 : 12,
+    color: "#fff",
+    fontWeight: "500",
   },
 });
 

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
-import { Dimensions, Modal, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { Dimensions, Modal, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 // Vault data structure
 interface VaultOption {
@@ -31,6 +31,9 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
   onSelect,
 }) => {
   const [selectedVaults, setSelectedVaults] = useState<{[key: number]: VaultOption | null}>({});
+  const [searchNumber, setSearchNumber] = useState('');
+  const [searchValue, setSearchValue] = useState('');
+  const [searchDescription, setSearchDescription] = useState('');
   const windowWidth = Dimensions.get('window').width;
   const isSmallScreen = windowWidth < 600;
 
@@ -162,6 +165,26 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
     }
   ];
 
+  // Reset search filters when modal opens
+  useEffect(() => {
+    if (visible) {
+      setSearchNumber('');
+      setSearchValue('');
+      setSearchDescription('');
+    }
+  }, [visible]);
+
+  // Filter vaults based on search criteria
+  const filterVaults = (vaults: VaultOption[]) => {
+    return vaults.filter(vault => {
+      const numberMatch = !searchNumber || vault.number.toLowerCase().includes(searchNumber.toLowerCase());
+      const valueMatch = !searchValue || vault.value.toString().includes(searchValue);
+      const descriptionMatch = !searchDescription || vault.description.toLowerCase().includes(searchDescription.toLowerCase());
+      
+      return numberMatch && valueMatch && descriptionMatch;
+    });
+  };
+
   const handleSelect = (vault: VaultOption, groupId: number, value: number, description: string) => {
     setSelectedVaults({...selectedVaults, [groupId]: vault});
     onSelect(vault, groupId, value, description);
@@ -183,17 +206,60 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
             </TouchableOpacity>
           </View>
           
+          {/* Search Bars */}
+          <View style={styles.searchContainer}>
+            <View style={styles.searchInputContainer}>
+              <Ionicons name="search" size={16} color="#666" style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search by number..."
+                value={searchNumber}
+                onChangeText={setSearchNumber}
+                placeholderTextColor="#999"
+              />
+            </View>
+            <View style={styles.searchInputContainer}>
+              <Ionicons name="search" size={16} color="#666" style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search by value..."
+                value={searchValue}
+                onChangeText={setSearchValue}
+                placeholderTextColor="#999"
+                keyboardType="numeric"
+              />
+            </View>
+            <View style={styles.searchInputContainer}>
+              <Ionicons name="search" size={16} color="#666" style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search by description..."
+                value={searchDescription}
+                onChangeText={setSearchDescription}
+                placeholderTextColor="#999"
+              />
+            </View>
+          </View>
+          
           <ScrollView style={styles.scrollView} horizontal={true}>
             <View style={styles.groupsContainer}>
-              {vaultGroups.map((group) => (
-                <View key={group.id} style={styles.groupColumn}>
-                  <View style={[styles.groupHeader, { backgroundColor: group.color }]}>
-                    <Text style={styles.groupTitle}>{group.title}</Text>
-                  </View>
-                  
-                  <ScrollView style={styles.vaultsScrollContainer} nestedScrollEnabled={true}>
-                    <View style={styles.vaultsContainer}>
-                      {group.vaults.map((vault) => (
+              {vaultGroups.map((group) => {
+                const filteredVaults = filterVaults(group.vaults);
+                
+                // Only show group if it has filtered vaults
+                if (filteredVaults.length === 0) {
+                  return null;
+                }
+                
+                return (
+                  <View key={group.id} style={styles.groupColumn}>
+                    <View style={[styles.groupHeader, { backgroundColor: group.color }]}>
+                      <Text style={styles.groupTitle}>{group.title}</Text>
+                    </View>
+                    
+                    <ScrollView style={styles.vaultsScrollContainer} nestedScrollEnabled={true}>
+                      <View style={styles.vaultsContainer}>
+                        {filteredVaults.map((vault) => (
                         <TouchableOpacity
                           key={vault.id}
                           style={[
@@ -211,11 +277,12 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
                             {vault.description}
                           </Text>
                         </TouchableOpacity>
-                      ))}
-                    </View>
-                  </ScrollView>
-                </View>
-              ))}
+                        ))}
+                      </View>
+                    </ScrollView>
+                  </View>
+                );
+              })}
             </View>
           </ScrollView>
           
@@ -375,7 +442,35 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: 'bold',
     fontSize: 16,
-  }
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    padding: 12,
+    backgroundColor: '#f5f5f5',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ddd',
+    gap: 8,
+  },
+  searchInputContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    paddingHorizontal: 10,
+    height: 40,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#333',
+    height: '100%',
+  },
 });
 
 export default VaultSelectorModal;

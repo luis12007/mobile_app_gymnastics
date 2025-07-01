@@ -1,21 +1,19 @@
 import { useRef, useState, Children, useCallback, useEffect } from "react";
-import { View, StyleSheet, Dimensions, TouchableOpacity, Text, Animated, Platform } from "react-native";
+import { View, StyleSheet, Dimensions, TouchableOpacity, Text, Animated } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
 import { Path, SkPath, Skia, Canvas } from "@shopify/react-native-skia";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateRateGeneral, getRateGeneralByTableId } from '../Database/database';
 
-// Detectar si estamos en entorno web
-const isWeb = Platform.OS === 'web';
-
 // Obtener dimensiones de la pantalla para responsividad
 const { width, height: screenHeight } = Dimensions.get("window");
 
 // Configuración de layout para botones más compactos
 const BUTTON_SIZE = 50; // Tamaño reducido de botones
-const BUTTON_GAP = 5; // Separación entre botones
+const BUTTON_GAP = 0; // Separación entre botones (más cercanos)
 const BUTTON_START_X = 0; // Posición inicial X
+const STROKE_BAR_WIDTH = 120; // Ancho de la barra de stroke
 
 // Configuración global del pen (AsyncStorage keys)
 const PEN_CONFIG_KEY = '@whiteboard_pen_config';
@@ -168,37 +166,37 @@ const DrawingCanvas = ({
         useNativeDriver: true,
       }),
       Animated.timing(undoButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 1, // Coincide con el estilo
+        toValue: 65, // Coincide con el estilo
         duration: 300,
         useNativeDriver: true,
       }),
       Animated.timing(redoButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 2, // Coincide con el estilo
+        toValue: 120, // Coincide con el estilo
         duration: 300,
         useNativeDriver: true,
       }),
       Animated.timing(eraserButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 3, // Coincide con el estilo
+        toValue: 175, // Coincide con el estilo
         duration: 300,
         useNativeDriver: true,
       }),
       Animated.timing(penButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 4, // Coincide con el estilo
+        toValue: 230, // Coincide con el estilo, sin solapar porcentaje
         duration: 300,
         useNativeDriver: true,
       }),
       Animated.timing(redPenButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 5, // Botón rojo
+        toValue: 285, // Nuevo botón lápiz rojo
         duration: 300,
         useNativeDriver: true,
       }),
       Animated.timing(bluePenButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 6, // Botón azul
+        toValue: 340, // Nuevo botón lápiz azul
         duration: 300,
         useNativeDriver: true,
       }),
       Animated.timing(strokeBarAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 7, // Barra de stroke
+        toValue: 395, // Barra de stroke
         duration: 300,
         useNativeDriver: true,
       }),
@@ -310,7 +308,7 @@ const DrawingCanvas = ({
     
     if (isEraser) {
       pathColor = '#e0e0e0'; // Eraser usa color de fondo
-      pathStrokeWidth = currentStrokeWidth * 4; // Eraser 4x más grueso
+      pathStrokeWidth = currentStrokeWidth * 3; // Eraser 3x más grueso
     } else {
       // Configuración según el tipo de pen
       switch (selectedPen) {
@@ -449,8 +447,8 @@ const DrawingCanvas = ({
       // Guardar el grosor actual antes de activar eraser
       setPreviousStrokeWidth(currentStrokeWidth);
       
-      // Establecer grosor máximo para eraser (limitado a 10 para que no se salga de la barra)
-      setCurrentStrokeWidth(Math.min(10, 15)); // Máximo 10 para mantener dentro del gráfico
+      // Establecer grosor máximo para eraser (15 es el máximo en nuestro selector)
+      setCurrentStrokeWidth(15);
       
       setIsEraser(true);
     } else {
@@ -494,16 +492,16 @@ const DrawingCanvas = ({
     }
     
     setSelectedPen(0);
-    setCurrentColor('black'); // Siempre usar color negro para el lápiz principal
+    setCurrentColor(normalPenColor); // Restaurar color guardado del pen normal
     setIsEraser(false);
     
     // Guardar configuración global
     await updateGlobalPenConfig({ 
       penType: 0, 
-      color: 'black',
+      color: normalPenColor,
       strokeWidth: isEraser ? previousStrokeWidth : currentStrokeWidth
     });
-  }, [isEraser, previousStrokeWidth, currentStrokeWidth]);
+  }, [normalPenColor, isEraser, previousStrokeWidth, currentStrokeWidth]);
 
   const selectTelestrator = useCallback(async () => {
     // Si estamos en eraser, guardar el grosor actual como previo
@@ -540,15 +538,16 @@ const DrawingCanvas = ({
     setIsEraser(false);
   }, [selectedPen, currentColor, isEraser, currentStrokeWidth]);
 
-  // Función para seleccionar lápiz rojo
+  // Función para lápiz rojo
   const selectRedPen = useCallback(async () => {
     // Si estamos en eraser, restaurar grosor previo
     if (isEraser) {
       setCurrentStrokeWidth(previousStrokeWidth);
     }
     
-    setSelectedPen(0);
+    setSelectedPen(0); // Usar tipo pen normal
     setCurrentColor('red');
+    setNormalPenColor('red');
     setIsEraser(false);
     
     // Guardar configuración global
@@ -559,15 +558,16 @@ const DrawingCanvas = ({
     });
   }, [isEraser, previousStrokeWidth, currentStrokeWidth]);
 
-  // Función para seleccionar lápiz azul
+  // Función para lápiz azul
   const selectBluePen = useCallback(async () => {
     // Si estamos en eraser, restaurar grosor previo
     if (isEraser) {
       setCurrentStrokeWidth(previousStrokeWidth);
     }
     
-    setSelectedPen(0);
+    setSelectedPen(0); // Usar tipo pen normal
     setCurrentColor('blue');
+    setNormalPenColor('blue');
     setIsEraser(false);
     
     // Guardar configuración global
@@ -577,72 +577,6 @@ const DrawingCanvas = ({
       strokeWidth: isEraser ? previousStrokeWidth : currentStrokeWidth
     });
   }, [isEraser, previousStrokeWidth, currentStrokeWidth]);
-
-  // Funciones para controlar el grosor del trazo
-  const increaseStrokeWidth = useCallback(async () => {
-    const newWidth = Math.min(currentStrokeWidth + 1, 10); // Máximo 10
-    setCurrentStrokeWidth(newWidth);
-    
-    // Guardar configuración global
-    await updateGlobalPenConfig({ 
-      penType: selectedPen, 
-      color: currentColor,
-      strokeWidth: newWidth
-    });
-  }, [currentStrokeWidth, selectedPen, currentColor]);
-
-  const decreaseStrokeWidth = useCallback(async () => {
-    const newWidth = Math.max(currentStrokeWidth - 1, 1); // Mínimo 1
-    setCurrentStrokeWidth(newWidth);
-    
-    // Guardar configuración global
-    await updateGlobalPenConfig({ 
-      penType: selectedPen, 
-      color: currentColor,
-      strokeWidth: newWidth
-    });
-  }, [currentStrokeWidth, selectedPen, currentColor]);
-
-  // Función para manejar el cambio en la barra de stroke
-  const handleStrokeBarChange = useCallback(async (event: any) => {
-    const { locationX } = event.nativeEvent;
-    const barWidth = 150; // Ancho efectivo más largo (160 - 10 de padding)
-    const percentage = Math.max(0, Math.min(1, locationX / barWidth));
-    const newWidth = Math.round(1 + (percentage * 9)); // De 1 a 10
-    
-    setCurrentStrokeWidth(newWidth);
-    
-    // Guardar configuración global
-    await updateGlobalPenConfig({ 
-      penType: selectedPen, 
-      color: currentColor,
-      strokeWidth: newWidth
-    });
-  }, [selectedPen, currentColor]);
-
-  // Gesture para la barra de stroke
-  const strokeSliderGesture = Gesture.Pan()
-    .runOnJS(true)
-    .onUpdate((event) => {
-      const { x } = event;
-      const barWidth = 150; // Ancho efectivo más largo (160 - 10 de padding)
-      const percentage = Math.max(0, Math.min(1, x / barWidth));
-      const newWidth = Math.round(1 + (percentage * 9)); // De 1 a 10
-      
-      if (newWidth !== currentStrokeWidth) {
-        runOnJS(setCurrentStrokeWidth)(newWidth);
-      }
-    })
-    .onEnd(async () => {
-      // Guardar configuración al final del gesto
-      runOnJS(async () => {
-        await updateGlobalPenConfig({ 
-          penType: selectedPen, 
-          color: currentColor,
-          strokeWidth: currentStrokeWidth
-        });
-      })();
-    });
 
   // Función para interpolar puntos y hacer líneas más suaves
   const addSmoothPoint = (path: SkPath, x: number, y: number) => {
@@ -717,21 +651,11 @@ const DrawingCanvas = ({
 
   return (
     <View style={styles.container}>
-      {isWeb ? (
-        // Fallback para web - mostrar mensaje informativo
-        <View style={styles.webFallback}>
-          <Text style={styles.webFallbackText}>
-            Whiteboard no disponible en modo web.
-          </Text>
-          <Text style={styles.webFallbackSubtext}>
-            Use la aplicación móvil para acceder a la funcionalidad de dibujo.
-          </Text>
-        </View>
-      ) : (
-        <GestureHandlerRootView style={{ flex: 1 }}>
-          <GestureDetector gesture={drawGesture}>
-            <Canvas style={[styles.canvas, { height: canvasHeight }]}>
-            {/* ...existing code... */}
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <GestureDetector gesture={drawGesture}>
+          <Canvas style={[styles.canvas, { height: canvasHeight }]}>
+            {/* Renderizar todos los paths separados por tipo para manejar opacidades */}
+            
             {/* Normal paths (type 0) */}
             {Children.toArray(pathsData
               .filter(pathData => pathData.penType === 0 || !pathData.penType)
@@ -837,7 +761,7 @@ const DrawingCanvas = ({
                   }
                   style="stroke"
                   strokeWidth={
-                    isEraser ? currentStrokeWidth * 4 : 
+                    isEraser ? currentStrokeWidth * 3 : 
                     selectedPen === 1 ? 2 : 
                     currentStrokeWidth
                   }
@@ -854,51 +778,7 @@ const DrawingCanvas = ({
             )}
           </Canvas>
         </GestureDetector>
-
-        {/* Stroke Width Control Bar con GestureDetector dentro del GestureHandlerRootView */}
-        <Animated.View style={[
-          styles.strokeBarContainer,
-          { transform: [{ translateX: strokeBarAnim }] }
-        ]}>
-          <View style={styles.strokeBar}>
-            {/* Indicador de grosor actual */}
-            <View style={styles.strokeIndicator}>
-              <View style={[
-                styles.strokePreview, 
-                { 
-                  width: currentStrokeWidth * 2, 
-                  height: currentStrokeWidth * 2,
-                  backgroundColor: currentColor 
-                }
-              ]} />
-              <Text style={styles.strokeValue}>{currentStrokeWidth}</Text>
-            </View>
-            
-            {/* Barra interactiva */}
-            <GestureDetector gesture={strokeSliderGesture}>
-              <TouchableOpacity 
-                style={styles.strokeSliderContainer}
-                onPress={handleStrokeBarChange}
-                activeOpacity={1}
-              >
-                <View style={styles.strokeSliderTrack}>
-                  {/* Progreso de la barra */}
-                  <View style={[
-                    styles.strokeSliderProgress,
-                    { width: `${((currentStrokeWidth - 1) / 9) * 100}%` }
-                  ]} />
-                  {/* Indicador circular */}
-                  <View style={[
-                    styles.strokeSliderThumb,
-                    { left: `${((currentStrokeWidth - 1) / 9) * 100}%` }
-                  ]} />
-                </View>
-              </TouchableOpacity>
-            </GestureDetector>
-          </View>
-        </Animated.View>
       </GestureHandlerRootView>
-      )}
 
       {/* Menu button */}
       <Animated.View style={[
@@ -1073,7 +953,7 @@ const DrawingCanvas = ({
         <TouchableOpacity 
           style={[
             styles.actionButton,
-            !isEraser && selectedPen === 0 && currentColor === 'black' && styles.activeButton
+            !isEraser && selectedPen === 0 && styles.activeButton
           ]}
           onPress={selectNormalPen}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -1090,12 +970,13 @@ const DrawingCanvas = ({
         <TouchableOpacity 
           style={[
             styles.actionButton,
-            !isEraser && currentColor === 'red' && styles.activeButton
+            !isEraser && selectedPen === 0 && currentColor === 'red' && styles.activeButton,
+            { backgroundColor: currentColor === 'red' && !isEraser ? 'rgba(244, 67, 54, 0.9)' : 'rgba(255, 255, 255, 0.9)' }
           ]}
           onPress={selectRedPen}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Text style={styles.buttonText}>🔴</Text>
+          <Text style={[styles.buttonText, { color: currentColor === 'red' && !isEraser ? 'white' : 'red' }]}>✏️</Text>
         </TouchableOpacity>
       </Animated.View>
 
@@ -1107,16 +988,51 @@ const DrawingCanvas = ({
         <TouchableOpacity 
           style={[
             styles.actionButton,
-            !isEraser && currentColor === 'blue' && styles.activeButton
+            !isEraser && selectedPen === 0 && currentColor === 'blue' && styles.activeButton,
+            { backgroundColor: currentColor === 'blue' && !isEraser ? 'rgba(33, 150, 243, 0.9)' : 'rgba(255, 255, 255, 0.9)' }
           ]}
           onPress={selectBluePen}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Text style={styles.buttonText}>🔵</Text>
+          <Text style={[styles.buttonText, { color: currentColor === 'blue' && !isEraser ? 'white' : 'blue' }]}>✏️</Text>
         </TouchableOpacity>
       </Animated.View>
 
-
+      {/* Stroke Width Bar */}
+      <Animated.View style={[
+        styles.strokeBarContainer,
+        { transform: [{ translateX: strokeBarAnim }] }
+      ]}>
+        <View style={styles.strokeBar}>
+          <TouchableOpacity 
+            style={styles.strokeControlButton}
+            onPress={() => changeStrokeWidth(Math.max(1, currentStrokeWidth - 1))}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Text style={styles.strokeControlText}>−</Text>
+          </TouchableOpacity>
+          
+          <View style={styles.strokeDisplay}>
+            <Text style={styles.strokeValue}>{currentStrokeWidth}</Text>
+            <View style={[
+              styles.strokePreview,
+              { 
+                width: Math.max(4, currentStrokeWidth * 2),
+                height: Math.max(4, currentStrokeWidth * 2),
+                backgroundColor: isEraser ? '#999' : currentColor
+              }
+            ]} />
+          </View>
+          
+          <TouchableOpacity 
+            style={styles.strokeControlButton}
+            onPress={() => changeStrokeWidth(Math.min(20, currentStrokeWidth + 1))}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Text style={styles.strokeControlText}>+</Text>
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
 
       {/* Stick Bonus button - bottom right */}
       <Animated.View style={[
@@ -1162,61 +1078,54 @@ const styles = StyleSheet.create({
   undoButtonContainer: {
     position: 'absolute',
     top: 10,
-    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 1, // Botón 1
+    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 1.1, // Botón 1: inicio + 1 * (tamaño + gap)
     zIndex: 1000,
   },
   redoButtonContainer: {
     position: 'absolute',
     top: 10,
-    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 2, // Botón 2
+    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 2.2, // Botón 2: inicio + 2 * (tamaño + gap)
     zIndex: 1000,
   },
   eraserButtonContainer: {
     position: 'absolute',
     top: 10,
-    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 3, // Botón 3
+    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 3.3, // Botón 3: inicio + 3 * (tamaño + gap)
     zIndex: 1000,
   },
   penButtonContainer: {
     position: 'absolute',
     top: 10,
-    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 4, // Botón 4
+    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 4.4, // Botón 4: inicio + 4 * (tamaño + gap)
     zIndex: 1000,
   },
-  // Red Pen button
+  // Red pen button container
   redPenButtonContainer: {
     position: 'absolute',
     top: 10,
-    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 5, // Botón 5
+    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 5.5, // Botón 5: después del pen normal
     zIndex: 1000,
   },
-  // Blue Pen button
+  // Blue pen button container
   bluePenButtonContainer: {
     position: 'absolute',
     top: 10,
-    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 6, // Botón 6
+    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 6.6, // Botón 6: después del pen rojo
     zIndex: 1000,
   },
-  // Stroke Width Control Bar
+  // Stroke bar container
   strokeBarContainer: {
     position: 'absolute',
     top: 10,
-    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 7, // A la derecha de los botones de colores
+    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 7.7, // Después de los botones de pen
     zIndex: 1000,
   },
-  strokeBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: 25,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    minWidth: 160, // Ancho mínimo más grande para la barra
+  // Stick bonus button - bottom right
+  stickButtonContainer: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    zIndex: 1000,
   },
   menuButton: {
     width: BUTTON_SIZE,
@@ -1416,14 +1325,28 @@ const styles = StyleSheet.create({
     color: '#333',
     textAlign: 'center',
   },
+  // Estilos para la barra de stroke
+  strokeBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 25,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    minWidth: STROKE_BAR_WIDTH,
+  },
   strokeControlButton: {
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: 'rgba(240, 240, 240, 0.9)',
+    backgroundColor: 'rgba(240, 240, 240, 0.8)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginHorizontal: 2,
   },
   strokeControlText: {
     fontSize: 18,
@@ -1431,66 +1354,19 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   strokeDisplay: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 8,
-    minWidth: 40,
+  },
+  strokeValue: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 2,
   },
   strokePreview: {
     borderRadius: 10,
-    marginBottom: 2,
-  },
-  strokeValue: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  // Estilos para la nueva barra interactiva de stroke
-  strokeIndicator: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-    minWidth: 40,
-  },
-  strokeSliderContainer: {
-    width: 160, // Hacer la barra más larga
-    height: 30,
-    justifyContent: 'center',
-    paddingHorizontal: 5,
-  },
-  strokeSliderTrack: {
-    height: 8,
-    backgroundColor: 'rgba(200, 200, 200, 0.8)',
-    borderRadius: 4,
-    position: 'relative',
-  },
-  strokeSliderProgress: {
-    height: 8,
-    backgroundColor: '#4CAF50',
-    borderRadius: 4,
-  },
-  strokeSliderThumb: {
-    position: 'absolute',
-    top: -5,
-    width: 18,
-    height: 18,
-    backgroundColor: '#4CAF50',
-    borderRadius: 9,
-    borderWidth: 2,
-    borderColor: 'white',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    marginLeft: -9, // Centrar el thumb
-  },
-  // Stick bonus button container
-  stickButtonContainer: {
-    position: 'absolute',
-    bottom: 10,
-    right: 10,
-    zIndex: 1000,
   },
 });
 

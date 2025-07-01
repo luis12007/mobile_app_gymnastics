@@ -1,21 +1,25 @@
+import { useRef, useState, Children, useCallback, useEffect } from "react";
+import { View, StyleSheet, Dimensions, TouchableOpacity, Text, Animated, Image, Platform } from "react-native";
+import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
+import { runOnJS } from "react-native-reanimated";
+import { Path, SkPath, Skia, Canvas, useImage, Image as SkiaImage } from "@shopify/react-native-skia";
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Animated, Dimensions, Easing, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import {
-  Gesture,
-  GestureDetector,
-  GestureHandlerRootView,
-} from 'react-native-gesture-handler';
-import Svg, { Path } from 'react-native-svg';
-import { getRateGeneralByTableId, updateRateGeneral } from "../Database/database";
+import { updateRateGeneral, getRateGeneralByTableId } from '../Database/database';
+import VaultSelectorModal from './ModalVaultWag';
 
+// Detectar si estamos en entorno web
+const isWeb = Platform.OS === 'web';
+
+// Obtener dimensiones de la pantalla para responsividad
 const { width, height } = Dimensions.get("window");
+
+// Variables para determinar el tamaño del dispositivo (como en el original)
 var isLargeDevice = false;
 var isMediumLargeDevice = false;
 var isSmallDevice = false;
 var isTinyDevice = false;
 
-if (width >= 1368 ) {
+if (width >= 1368) {
   isLargeDevice = true;
 } else if (width >= 1200 && width < 1368) {
   isMediumLargeDevice = true;
@@ -25,3061 +29,1542 @@ if (width >= 1368 ) {
   isTinyDevice = true;
 }
 
-// Available colors for drawing
-const COLORS = ["black", "red", "blue", "green", "orange"];
-// Available stroke widths
-const STROKE_WIDTHS = [2, 5, 10, 15];
+// Configuración de layout para botones más compactos
+const BUTTON_SIZE = 50; // Tamaño reducido de botones
+const BUTTON_GAP = 5; // Separación entre botones
+const BUTTON_START_X = 0; // Posición inicial X
 
-// Color for canvas background and eraser
-const CANVAS_BACKGROUND = "rgb(224, 224, 224)";
+// Configuración global del pen (AsyncStorage keys)
+const PEN_CONFIG_KEY = '@whiteboard_pen_config';
 
-// Key for AsyncStorage to store whiteboard settings
-const WHITEBOARD_SETTINGS_KEY = 'WHITEBOARD_SETTINGS_DEFAULT';
-
-// Default settings
-const DEFAULT_SETTINGS = {
-  selectedColor: "black",
-  selectedStrokeWidth: 3,
-  selectedPen: 0,
-  isEraser: false
+// Configuración por defecto del pen
+const DEFAULT_PEN_CONFIG = {
+  color: 'black',
+  strokeWidth: 2,
+  penType: 0, // 0: Normal, 1: Telestrator, 2: Highlighter
 };
 
-// Interface for path data
+// Variable global para mantener la configuración en memoria
+let globalPenConfig = { ...DEFAULT_PEN_CONFIG };
+
+// Funciones utilitarias para manejar la configuración global del pen
+const loadGlobalPenConfig = async () => {
+  try {
+    const configString = await AsyncStorage.getItem(PEN_CONFIG_KEY);
+    if (configString) {
+      const config = JSON.parse(configString);
+      globalPenConfig = { ...DEFAULT_PEN_CONFIG, ...config };
+      console.log('Loaded pen config:', globalPenConfig);
+    }
+  } catch (error) {
+    console.warn('Error loading pen config:', error);
+    globalPenConfig = { ...DEFAULT_PEN_CONFIG };
+  }
+  return globalPenConfig;
+};
+
+const saveGlobalPenConfig = async (config: typeof DEFAULT_PEN_CONFIG) => {
+  try {
+    globalPenConfig = { ...config };
+    await AsyncStorage.setItem(PEN_CONFIG_KEY, JSON.stringify(config));
+    console.log('Saved pen config:', config);
+  } catch (error) {
+    console.warn('Error saving pen config:', error);
+  }
+};
+
+const updateGlobalPenConfig = async (updates: Partial<typeof DEFAULT_PEN_CONFIG>) => {
+  const newConfig = { ...globalPenConfig, ...updates };
+  await saveGlobalPenConfig(newConfig);
+  return newConfig;
+};
+
+// Interfaces
 interface PathData {
   path: string;
   color: string;
   strokeWidth: number;
-  isEraser: boolean;
+  isEraser?: boolean;
   penType?: number; // 0: Normal, 1: Telestrator, 2: Highlighter
 }
 
-// Interface for MainRateGeneral
-interface MainRateGeneral {
-  id: number;
+interface WhiteboardProps {
+  rateGeneralId?: number;
   tableId: number;
-  stickBonus: boolean;
-  numberOfElements: number;
-  difficultyValues: number;
-  elementGroups1: number;
-  elementGroups2: number;
-  elementGroups3: number;
-  elementGroups4: number;
-  elementGroups5: number;
-  execution: number;
-  eScore: number;
-  myScore: number;
-  compD: number;
-  compE: number;
-  compSd: number;
-  compNd: number;
-  compScore: number;
-  comments: string;
-  paths: string; // This will store our serialized paths data
+  stickBonus?: boolean;
+  setStickBonus?: Function;
+  percentage?: number;
+  oncodetable?: () => void; // Función para abrir vault table
 }
 
-interface WhiteboardScreenProps {
-  rateGeneralId?: number; // ID of the main rate general record
-  tableId: number; // ID of the associated table
-  setStickBonus?: Function; // Function to update the stick bonus state
-  stickBonus?: boolean; // Current state of the stick bonus
-  percentage?: number; // Current percentage value
-  oncodetable?: () => void; // Optional callback for code table
-  onSaveComplete?: () => void; // Optional callback when save is complete
-}
+// Calcular altura del canvas basado en el tamaño del dispositivo (como en jump original)
+const canvasHeight = (() => {
+  console.log("Screen dimensions:", { width, height });
+  
+  let canvasHeight = 300; // Altura base
+  
+  if (isLargeDevice) {
+    canvasHeight = 720; // Dispositivos grandes
+  } else if (isMediumLargeDevice) {
+    canvasHeight = 650; // Dispositivos medianos grandes
+  } else if (isSmallDevice) {
+    canvasHeight = 650; // Dispositivos pequeños
+  } else if (isTinyDevice) {
+    canvasHeight = 350; // Dispositivos muy pequeños
+  }
+  
+  console.log("Canvas height for jump:", canvasHeight);
+  
+  return canvasHeight;
+})();
 
-const OptimizedWhiteboardDebug = ({ 
-  rateGeneralId, 
+const DrawingCanvas = ({ 
+  rateGeneralId = 0, 
   tableId, 
   stickBonus = false, 
   setStickBonus = () => {}, 
   percentage = 0,
-  oncodetable,
-  onSaveComplete,
-}: WhiteboardScreenProps) => {
-  // Drawing state
-  const [paths, setPaths] = useState<PathData[]>([]);
+  oncodetable
+}: WhiteboardProps) => {
+  // Cargar imagen de fondo usando Skia
+  const backgroundImage = useImage(require('../assets/images/Jump.png'));
+  
+  const currentPath = useRef<SkPath | null>(null);
+  const [paths, setPaths] = useState<SkPath[]>([]);
+  const [pathsData, setPathsData] = useState<PathData[]>([]);
+  const [currentPathDisplay, setCurrentPathDisplay] = useState<SkPath | null>(null);
+  const isDrawingRef = useRef(false);
+  const lastPoint = useRef<{ x: number; y: number } | null>(null);
+  const saveTimeoutRef = useRef<number | null>(null);
+
+  // Estados para los botones con límites de memoria
   const [undoStack, setUndoStack] = useState<PathData[]>([]);
-  const [currentPath, setCurrentPath] = useState<string>('');
-  const [drawing, setDrawing] = useState<boolean>(false);
-  
-  // Loading and saving state
-  const [loading, setLoading] = useState<boolean>(true);
-  const [saving, setSaving] = useState<boolean>(false);
-  
-  // Debug state
-  const [debugMode, setDebugMode] = useState<boolean>(false);
-  const [lastTouchInfo, setLastTouchInfo] = useState<any>({});
-  const [touchSource, setTouchSource] = useState<string>('None');
-  const [pointerTypeValue, setPointerTypeValue] = useState<string>('Unknown');
-  
-  // Variables para guardar el color y el grosor del trazo
-  const [selectedColor, setSelectedColor] = useState(DEFAULT_SETTINGS.selectedColor);
-  const [selectedStrokeWidth, setSelectedStrokeWidth] = useState(DEFAULT_SETTINGS.selectedStrokeWidth);
-  const [isEraser, setIsEraser] = useState(DEFAULT_SETTINGS.isEraser);
-  const [selectedPen, setSelectedPen] = useState<number>(DEFAULT_SETTINGS.selectedPen);
-  
-  // Menu state
+  const [isEraser, setIsEraser] = useState<boolean>(false);
   const [menuOpen, setMenuOpen] = useState<boolean>(false);
-  const menuAnimation = useRef(new Animated.Value(0)).current;
-  const eraserButtonAnim = useRef(new Animated.Value(-60)).current;
-  const penButtonAnim = useRef(new Animated.Value(-60)).current;
   
-  // Entrance animations
+  // Estado para el modal de vault
+  const [vaultModalVisible, setVaultModalVisible] = useState<boolean>(false);
+  
+  // Estados para configuración de pen/eraser
+  const [currentColor, setCurrentColor] = useState<string>(globalPenConfig.color); // Usar configuración global
+  const [currentStrokeWidth, setCurrentStrokeWidth] = useState<number>(globalPenConfig.strokeWidth); // Usar configuración global
+  const [selectedPen, setSelectedPen] = useState<number>(globalPenConfig.penType); // Usar configuración global
+  const [normalPenColor, setNormalPenColor] = useState<string>(globalPenConfig.color); // Recordar color del pen normal
+  const [previousStrokeWidth, setPreviousStrokeWidth] = useState<number>(globalPenConfig.strokeWidth); // Recordar grosor antes del eraser
+  
+  // Límites para optimización de memoria
+  const MAX_UNDO_STACK = 20; // Limitar a 50 acciones de undo
+  const MAX_PATHS_MEMORY = 500; // Limitar paths en memoria
+  
+  // Animaciones para los botones (usando posiciones como en el original)
   const menuButtonAnim = useRef(new Animated.Value(-60)).current;
   const undoButtonAnim = useRef(new Animated.Value(-60)).current;
   const redoButtonAnim = useRef(new Animated.Value(-60)).current;
-  const bottomButtonsAnim = useRef(new Animated.Value(60)).current;
-  
-  // Refs for optimal performance
-  const pathBufferRef = useRef<string>('');
-  const lastPointRef = useRef<{x: number, y: number}>({ x: 0, y: 0 });
-  const pointsBufferRef = useRef<Array<{x: number, y: number}>>([]);
-  
-  // Save timeout ref to handle debouncing
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
-  // Save status animation state
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
-  const saveStatusAnim = useRef(new Animated.Value(0)).current;
-  const loadingRotateAnim = useRef(new Animated.Value(0)).current;
-  const saveStatusTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const eraserButtonAnim = useRef(new Animated.Value(-60)).current;
+  const penButtonAnim = useRef(new Animated.Value(-60)).current;
+  const redPenButtonAnim = useRef(new Animated.Value(-60)).current;
+  const bluePenButtonAnim = useRef(new Animated.Value(-60)).current;
+  const strokeBarAnim = useRef(new Animated.Value(-60)).current;
+  const stickButtonAnim = useRef(new Animated.Value(60)).current;
+  const vaultButtonAnim = useRef(new Animated.Value(60)).current; // Nuevo botón vault
 
-  // Cargar configuraciones desde AsyncStorage
+  // Cargar paths guardados al montar el componente
   useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        const settings = await AsyncStorage.getItem(WHITEBOARD_SETTINGS_KEY);
-        if (settings) {
-          const parsedSettings = JSON.parse(settings);
-          setSelectedColor(parsedSettings.selectedColor || DEFAULT_SETTINGS.selectedColor);
-          setSelectedStrokeWidth(parsedSettings.selectedStrokeWidth || DEFAULT_SETTINGS.selectedStrokeWidth);
-          setIsEraser(parsedSettings.isEraser || DEFAULT_SETTINGS.isEraser);
-          setSelectedPen(parsedSettings.selectedPen || DEFAULT_SETTINGS.selectedPen);
-        }
-      } catch (error) {
-        console.error("Error loading whiteboard settings:", error);
-      }
+    const initializeComponent = async () => {
+      // Cargar configuración global del pen
+      const config = await loadGlobalPenConfig();
+      
+      // Actualizar estados con la configuración cargada
+      setCurrentColor(config.color);
+      setCurrentStrokeWidth(config.strokeWidth);
+      setSelectedPen(config.penType);
+      setNormalPenColor(config.color);
+      setPreviousStrokeWidth(config.strokeWidth);
+      
+      // Cargar paths guardados
+      loadSavedPaths();
     };
-    loadSettings();
-  }, []);
-
-  // Guardar configuraciones en AsyncStorage
-  useEffect(() => {
-    const saveSettings = async () => {
-      try {
-        const settings = {
-          selectedColor,
-          selectedStrokeWidth,
-          isEraser,
-          selectedPen,
-        };
-        await AsyncStorage.setItem(WHITEBOARD_SETTINGS_KEY, JSON.stringify(settings));
-      } catch (error) {
-        console.error("Error saving whiteboard settings:", error);
-      }
-    };
-    saveSettings();
-  }, [selectedColor, selectedStrokeWidth, isEraser, selectedPen]);
-  
-  // Load existing drawing data on component mount
-  useEffect(() => {
-    loadDrawingData();
     
-    // Run entrance animations
+    initializeComponent();
+    
+    // Animaciones de entrada para los botones (posiciones corregidas)
     Animated.parallel([
       Animated.timing(menuButtonAnim, {
         toValue: 10,
         duration: 300,
         useNativeDriver: true,
-        easing: Easing.out(Easing.back(1.5))
       }),
       Animated.timing(undoButtonAnim, {
-        toValue: 70,
+        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 1, // Coincide con el estilo
         duration: 300,
         useNativeDriver: true,
-        easing: Easing.out(Easing.back(1.5))
       }),
       Animated.timing(redoButtonAnim, {
-        toValue: 130,
+        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 2, // Coincide con el estilo
         duration: 300,
         useNativeDriver: true,
-        easing: Easing.out(Easing.back(1.5))
       }),
       Animated.timing(eraserButtonAnim, {
-        toValue: 190,
+        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 3, // Coincide con el estilo
         duration: 300,
         useNativeDriver: true,
-        easing: Easing.out(Easing.back(1.5))
       }),
       Animated.timing(penButtonAnim, {
-        toValue: 250,
+        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 4, // Coincide con el estilo
         duration: 300,
         useNativeDriver: true,
-        easing: Easing.out(Easing.back(1.5))
       }),
-      Animated.timing(bottomButtonsAnim, {
-        toValue: 10,
+      Animated.timing(redPenButtonAnim, {
+        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 5, // Botón rojo
         duration: 300,
         useNativeDriver: true,
-        easing: Easing.out(Easing.back(1.5))
+      }),
+      Animated.timing(bluePenButtonAnim, {
+        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 6, // Botón azul
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(strokeBarAnim, {
+        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 7, // Barra de stroke
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(stickButtonAnim, {
+        toValue: 10, // Desde abajo hacia arriba
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(vaultButtonAnim, {
+        toValue: 10, // Vault button también desde abajo
+        duration: 300,
+        useNativeDriver: true,
       })
     ]).start();
-  }, []);
-  
-  // Load existing drawing from the database
-  const loadDrawingData = async () => {
-    try {
-      setLoading(true);
-      
-      if (tableId) {
-        const rateGeneral = await getRateGeneralByTableId(tableId);
-        console.log("Loaded rateGeneral:", rateGeneral);
-        
-        if (rateGeneral && rateGeneral.paths) {
-          try {
-            // Parse the stored paths data
-            const parsedPaths = JSON.parse(rateGeneral.paths);
-            if (Array.isArray(parsedPaths)) {
-  // Ensure penType is set for all paths
-  const fixedPaths = parsedPaths.map(p => ({
-    ...p,
-    penType: typeof p.penType === "number" ? p.penType : 0
-  }));
-  setPaths(fixedPaths);
-}
-            
-            // Also load stick bonus state
-            if (typeof rateGeneral.stickBonus === 'boolean') {
-            }
-          } catch (parseError) {
-            console.error("Error parsing stored paths data:", parseError);
-            // If there's an error parsing, just start with empty paths
-            setPaths([]);
-          }
-        }
+    
+    return () => {
+      // Cleanup: cancelar timers y limpiar memoria
+      if (saveTimeoutRef.current) {
+        window.clearTimeout(saveTimeoutRef.current);
       }
-    } catch (error) {
-      console.error("Error loading drawing data:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  // Start loading animation
-  const startLoadingAnimation = () => {
-    setSaveStatus('loading');
-    
-    // Fade in the indicator
-    Animated.timing(saveStatusAnim, {
-      toValue: 1,
-      duration: 200,
-      useNativeDriver: true,
-    }).start();
-    
-    // Start rotating animation for loading spinner
-    const rotateAnimation = () => {
-      loadingRotateAnim.setValue(0);
-      Animated.timing(loadingRotateAnim, {
-        toValue: 1,
-        duration: 1000,
-        useNativeDriver: true,
-        easing: Easing.linear,
-      }).start(() => {
-        if (saveStatus === 'loading') {
-          rotateAnimation();
-        }
-      });
+      cleanup();
     };
-    rotateAnimation();
-  };
-  
-  // Show success animation
-  const showSuccessAnimation = () => {
-    setSaveStatus('success');
+  }, [tableId]);
+
+  // Función para limpiar memoria mejorada
+  const cleanup = useCallback(() => {
+    // Limpiar arrays para liberar memoria
+    setPaths([]);
+    setPathsData([]);
+    setCurrentPathDisplay(null);
+    currentPath.current = null;
+    lastPoint.current = null;
     
-    // Clear any existing timeout
-    if (saveStatusTimeoutRef.current) {
-      clearTimeout(saveStatusTimeoutRef.current);
+    // Limpiar undo stack para liberar memoria
+    setUndoStack([]);
+    
+    // Limpiar timeouts
+    if (saveTimeoutRef.current) {
+      window.clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
     }
-    
-    // Hide after 1 second
-    saveStatusTimeoutRef.current = setTimeout(() => {
-      Animated.timing(saveStatusAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }).start(() => {
-        setSaveStatus('idle');
-      });
-    }, 1000);
-  };
-  
-  // Show error animation
-  const showErrorAnimation = (errorMessage: string) => {
-    setSaveStatus('error');
-    
-    // Show error alert
-    Alert.alert(
-      'Save Error',
-      `Failed to save drawing: ${errorMessage}`,
-      [{ text: 'OK' }]
-    );
-    
-    // Clear any existing timeout
-    if (saveStatusTimeoutRef.current) {
-      clearTimeout(saveStatusTimeoutRef.current);
-    }
-    
-    // Hide after 1 second
-    saveStatusTimeoutRef.current = setTimeout(() => {
-      Animated.timing(saveStatusAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }).start(() => {
-        setSaveStatus('idle');
-      });
-    }, 1000);
-  };
-  
-  // Save drawing data to the database
-  const saveDrawingData = async () => {
+  }, []);
+
+  // Cargar paths desde la base de datos
+  const loadSavedPaths = useCallback(async () => {
     try {
-      startLoadingAnimation();
+      const rateData = await getRateGeneralByTableId(tableId);
       
-      if (tableId) {
-        // Get current rate general data
-        const rateGeneral = await getRateGeneralByTableId(tableId);
-        
-        if (rateGeneral) {
-          // Make a deep copy of paths to ensure we're saving the most current data
-          const currentPaths = [...paths];
+      if (rateData && rateData.paths) {
+        try {
+          const savedPathsData: PathData[] = JSON.parse(rateData.paths);
           
-          // Serialize paths data
-          const serializedPaths = JSON.stringify(currentPaths);
+          // Convertir pathsData a SkPath objects de manera eficiente
+          const skPaths: SkPath[] = [];
           
-          console.log("Saving paths count:", currentPaths.length);
+          savedPathsData.forEach((pathData) => {
+            try {
+              const path = Skia.Path.MakeFromSVGString(pathData.path);
+              if (path) {
+                skPaths.push(path);
+              }
+            } catch (error) {
+              console.warn('Error loading path:', error);
+            }
+          });
           
-          // Update the rateGeneral object with the new paths data and stick bonus
-          const updatedRateGeneral: MainRateGeneral = {
-            ...rateGeneral,
-            paths: serializedPaths,
-          };
-          
-          // Save to database
-          await updateRateGeneral(rateGeneral.id, updatedRateGeneral);
-          
-          // Show success animation
-          showSuccessAnimation();
-          
-          // Call the onSaveComplete callback if provided
-          if (onSaveComplete) {
-            onSaveComplete();
-          }
+          setPathsData(savedPathsData);
+          setPaths(skPaths);
+        } catch (parseError) {
+          console.warn('Error parsing saved paths:', parseError);
+          setPathsData([]);
+          setPaths([]);
         }
       }
     } catch (error) {
-      console.error("Error saving drawing data:", error);
-      showErrorAnimation(error instanceof Error ? error.message : 'Unknown error occurred');
+      console.error('Error loading paths:', error);
     }
-  };
-  
-  // Debounced save function to avoid too many database writes
-  const debouncedSave = () => {
-    // Clear any existing timeout
+  }, [tableId]);
+
+  // Guardar paths de manera eficiente con debounce
+  const savePaths = useCallback(async (newPathsData: PathData[]) => {
+    try {
+      // Limitar el número de paths para evitar problemas de memoria (máximo 1000)
+      const limitedPaths = newPathsData.slice(-1000);
+      
+      const pathsString = JSON.stringify(limitedPaths);
+      
+      const rateData = await getRateGeneralByTableId(tableId);
+      if (rateData) {
+        await updateRateGeneral(rateData.id, { paths: pathsString });
+      }
+      
+      console.log(`Saved ${limitedPaths.length} paths efficiently`);
+    } catch (error) {
+      console.error('Error saving paths:', error);
+    }
+  }, [tableId]);
+
+  // Guardar con debounce para evitar demasiadas escrituras
+  const debouncedSave = useCallback((newPathsData: PathData[]) => {
     if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
+      window.clearTimeout(saveTimeoutRef.current);
     }
     
-    // Set a new timeout to save after 500ms of inactivity
-    saveTimeoutRef.current = setTimeout(() => {
-      // Log the current paths state before saving
-      console.log("Debounced save triggered with paths count:", paths.length);
-      saveDrawingData();
-    }, 500);
-  };
-  
-  // Track changes to paths and save when needed
-  useEffect(() => {
-  if (!loading) {
-    debouncedSave();
-  }
-}, [paths]);
-  
-  // Toggle menu open/closed with animation
-  const toggleMenu = () => {
-    const toValue = menuOpen ? 0 : 1;
-    Animated.timing(menuAnimation, {
-      toValue,
-      duration: 300,
-      useNativeDriver: false,
-    }).start();
-    setMenuOpen(!menuOpen);
-  };
-  
-  // Handle undo with direct save
-  const handleUndo = () => {
-    if (paths.length > 0) {
-      const lastPath = paths[paths.length - 1];
+    saveTimeoutRef.current = window.setTimeout(() => {
+      savePaths(newPathsData);
+    }, 1000); // Esperar 1 segundo antes de guardar
+  }, [savePaths]);
+
+  const updatePaths = useCallback((newPath: SkPath) => {
+    // Obtener configuración actual según el modo y tipo de pen
+    let pathColor: string;
+    let pathStrokeWidth: number;
+    
+    if (isEraser) {
+      pathColor = '#e0e0e0'; // Eraser usa color de fondo
+      pathStrokeWidth = currentStrokeWidth * 4; // Eraser 4x más grueso
+    } else {
+      // Configuración según el tipo de pen
+      switch (selectedPen) {
+        case 1: // Telestrator
+          pathColor = 'red';
+          pathStrokeWidth = 2; // Fijo para telestrator
+          break;
+        case 2: // Highlighter
+          pathColor = 'yellow';
+          pathStrokeWidth = currentStrokeWidth;
+          break;
+        default: // Normal pen
+          pathColor = currentColor;
+          pathStrokeWidth = currentStrokeWidth;
+          break;
+      }
+    }
+    
+    // Convertir SkPath a string para guardar
+    const pathString = newPath.toSVGString();
+    const newPathData: PathData = {
+      path: pathString,
+      color: pathColor,
+      strokeWidth: pathStrokeWidth,
+      isEraser: isEraser,
+      penType: selectedPen
+    };
+    
+    // Limpiar undo stack cuando se agrega un nuevo path para ahorrar memoria
+    if (undoStack.length > 0) {
+      setUndoStack([]);
+    }
+    
+    // Actualizar estados con límite de memoria
+    setPaths((prevState) => {
+      const newPaths = [...prevState, newPath];
+      // Limitar paths en memoria para performance
+      if (newPaths.length > MAX_PATHS_MEMORY) {
+        return newPaths.slice(-MAX_PATHS_MEMORY);
+      }
+      return newPaths;
+    });
+    
+    setPathsData((prevData) => {
+      const newData = [...prevData, newPathData];
       
-      // Update paths state and save
-      setPaths(prev => {
-        const newPaths = prev.slice(0, -1);
-        
-        // Force an immediate save to ensure it persists
-        setTimeout(() => saveDrawingData(), 100);
-        
-        return newPaths;
+      // Limitar paths data para performance
+      const limitedData = newData.length > MAX_PATHS_MEMORY 
+        ? newData.slice(-MAX_PATHS_MEMORY) 
+        : newData;
+      
+      // Guardar de manera asíncrona con debounce
+      debouncedSave(limitedData);
+      
+      return limitedData;
+    });
+  }, [debouncedSave, isEraser, undoStack.length, currentColor, currentStrokeWidth, selectedPen]);
+
+  // Funciones para los botones con optimización de memoria
+  const toggleMenu = useCallback(() => {
+    setMenuOpen(!menuOpen);
+    // Eliminar animaciones de botones - mantener siempre visibles
+  }, [menuOpen]);
+
+  const handleUndo = useCallback(() => {
+    if (paths.length > 0 && pathsData.length > 0) {
+      const lastPath = pathsData[pathsData.length - 1];
+      
+      // Agregar al stack de undo con límite de memoria
+      setUndoStack(prev => {
+        const newStack = [...prev, lastPath];
+        // Limitar el tamaño del stack para evitar problemas de memoria
+        return newStack.length > MAX_UNDO_STACK 
+          ? newStack.slice(-MAX_UNDO_STACK) 
+          : newStack;
       });
       
-      // Add to undo stack
-      setUndoStack(prev => [...prev, lastPath]);
+      // Remover el último path
+      setPaths(prev => prev.slice(0, -1));
+      setPathsData(prev => {
+        const newData = prev.slice(0, -1);
+        debouncedSave(newData);
+        return newData;
+      });
     }
-  };
-  
-  // Redo last undone path
-  const handleRedo = () => {
+  }, [paths.length, pathsData, debouncedSave]);
+
+  const handleRedo = useCallback(() => {
     if (undoStack.length > 0) {
-      // Get the last item from the undo stack
       const pathToRedo = undoStack[undoStack.length - 1];
       
-      // Remove from undo stack first
+      // Remover del undo stack
       setUndoStack(prev => prev.slice(0, -1));
       
-      // Add to paths and trigger a save
-      setPaths(prev => {
-        const newPaths = [...prev, pathToRedo];
-        
-        // Force an immediate save to ensure it persists
-        setTimeout(() => saveDrawingData(), 100);
-        
-        return newPaths;
-      });
-    }
-  };
-  
-  // Toggle eraser mode
-  const toggleEraser = () => {
-    if (!isEraser) {
-      setSelectedPen(0);
-    }
-    setIsEraser(!isEraser);
-  };
-  
-  // Clear the canvas
-  const clearCanvas = () => {
-    setPaths([]);
-    setUndoStack([]);
-    setCurrentPath('');
-    pathBufferRef.current = '';
-    pointsBufferRef.current = [];
-    
-    setTimeout(() => debouncedSave(), 0);
-  };
-
-  // Toggle stick bonus
-  const toggleStickBonus = () => {
-    setStickBonus(!stickBonus);
-    setTimeout(() => debouncedSave(), 0);
-  };
-  
-  // Toggle debug mode
-  const toggleDebugMode = () => {
-    setDebugMode(!debugMode);
-    if (!debugMode) {
-      console.log('Debug mode enabled - touch info will be logged to console');
-    }
-  };
-  
-  // Compute menu height for animation
-  const menuHeight = menuAnimation.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 270],
-  });
-  
-  // Rotation interpolation for loading spinner
-  const loadingRotation = loadingRotateAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
-  
-  // Optimization: Pre-save all points immediately to avoid missing any
-  const panGesture = Gesture.Pan()
-    .runOnJS(true)
-    // Optimize for performance
-    .minDistance(0)
-    .maxPointers(1)
-    .onStart((event) => {
-      // Skip if touching the menu button area
-      if (event.x < 60 && event.y < 60) {
-        return;
-      }
-      
-      // Skip if touching the undo button area
-      if (event.x > 60 && event.x < 120 && event.y < 60) {
-        return;
-      }
-      
-      // Skip if touching the redo button area
-      if (event.x > 120 && event.x < 180 && event.y < 60) {
-        return;
-      }
-      
-      // Skip if touching the menu area when open
-      if (menuOpen && event.x < 280 && event.y < 370) {
-        return;
-      }
-      
-      // Skip if touching the bottom button area
-      if (event.x > width - 190 && event.y > height - 70) {
-        return;
-      }
-      
-      // Determine if it's a stylus
-      const isPencil = 
-        event.pointerType === 'pen' || 
-        event.pointerType === 1 ||
-        event.tool === 'pen' || 
-        (event.iOS && event.iOS.force > 0) ||
-        (event.pencilTouches && event.pencilTouches.length > 0);
-      
-      // Store the raw pointer type value and detection result for debugging
-      if (debugMode) {
-        console.log('Touch Start Properties:', JSON.stringify(event, null, 2));
-        setLastTouchInfo(event);
-        setPointerTypeValue(String(event.pointerType || 'undefined'));
-        setTouchSource(isPencil ? 'Likely Stylus/Pen' : 'Likely Finger');
-      }
-      
-      // --- CHANGE: On Android, allow drawing with any pointer type ---
-      const allowDrawing = Platform.OS === 'android' ? true : isPencil;
-      // --------------------------------------------------------------
-      
-      if (allowDrawing) {
-        // Immediately save the starting point without waiting for validation
-        const { x, y } = event;
-        
-        // Store the starting point for both immediate and delayed drawing
-        lastPointRef.current = { x, y };
-        pathBufferRef.current = `M${x} ${y}`;
-        pointsBufferRef.current = [{ x, y }];
-        
-        // Also update the visible path
-        setCurrentPath(`M${x} ${y}`);
-        setDrawing(true);
-        
-        // Clear undo stack when starting a new drawing
-        if (undoStack.length > 0) {
-          setUndoStack([]);
-        }
-      } else {
-        // Not a pen - don't draw, but update debug info
-        // Reset any potential drawing state
-        setDrawing(false);
-        setCurrentPath('');
-        pathBufferRef.current = '';
-        pointsBufferRef.current = [];
-      }
-    })
-    .onUpdate((event) => {
-      // Only process updates if we're in drawing mode (which only happens with pen)
-      if (!drawing) return;
-      
-      // Immediately capture all points, even if not all render
-      const { x, y } = event;
-      
-      // Store points for buffer to ensure we don't miss any
-      pointsBufferRef.current.push({ x, y });
-      
-      // Calculate distance to optimize performance by skipping tiny movements
-      const lastPoint = lastPointRef.current;
-      const distance = Math.sqrt(
-        Math.pow(x - lastPoint.x, 2) + 
-        Math.pow(y - lastPoint.y, 2)
-      );
-      
-      // Only update on significant movements (reduces excessive updates)
-      // This threshold can be adjusted - lower means more precision but more updates
-      if (distance > 0) {
-        // Update last point reference
-        lastPointRef.current = { x, y };
-        
-        // Update buffer path
-        pathBufferRef.current += ` L${x} ${y}`;
-        
-        // Update visible path with a slight delay
-        setCurrentPath(pathBufferRef.current);
-      }
-      
-      // Debug info - update even if not drawing
-      if (debugMode) {
-        setLastTouchInfo(event);
-      }
-    })
-    .onEnd((event) => {
-      // Capture all missed points before finishing
-      if (drawing) {
-        // Create the final path by processing all buffered points
-        let finalPath = '';
-        
-        // Only proceed if we have at least 2 points
-        if (pointsBufferRef.current.length > 1) {
-          // Start with the first point
-          const firstPoint = pointsBufferRef.current[0];
-          finalPath = `M${firstPoint.x} ${firstPoint.y}`;
-          
-          // Add all subsequent points as lines
-          for (let i = 1; i < pointsBufferRef.current.length; i++) {
-            const point = pointsBufferRef.current[i];
-            finalPath += ` L${point.x} ${point.y}`;
-          }
-          
-          // For highlighter pen (type 2), automatically close the path
-          if (selectedPen === 2) {
-            // Close back to the first point to create a fillable shape
-            finalPath += ` Z`;
-          }
-          
-          // Add the final path to paths array if it has actual content
+      // Recrear el SkPath y agregarlo
+      try {
+        const skPath = Skia.Path.MakeFromSVGString(pathToRedo.path);
+        if (skPath) {
           setPaths(prev => {
-            const newPaths = [...prev, { 
-              path: finalPath, 
-              color: selectedPen === 1 ? "red" : selectedPen === 2 ? "yellow" : selectedColor, // Force colors for special pens
-              strokeWidth: selectedPen === 1 ? 2 : selectedStrokeWidth, // Force thin stroke for telestrator
-              isEraser: isEraser,
-              penType: selectedPen
-            }];
-            
-            // Force an immediate save instead of debouncing
-            setTimeout(() => saveDrawingData(), 100);
-            
-            return newPaths;
+            const newPaths = [...prev, skPath];
+            // Aplicar límite de memoria
+            return newPaths.length > MAX_PATHS_MEMORY 
+              ? newPaths.slice(-MAX_PATHS_MEMORY) 
+              : newPaths;
+          });
+          
+          setPathsData(prev => {
+            const newData = [...prev, pathToRedo];
+            const limitedData = newData.length > MAX_PATHS_MEMORY 
+              ? newData.slice(-MAX_PATHS_MEMORY) 
+              : newData;
+            debouncedSave(limitedData);
+            return limitedData;
           });
         }
-        
-        // Reset state
-        setCurrentPath('');
-        pathBufferRef.current = '';
-        pointsBufferRef.current = [];
-        setDrawing(false);
-        
-        // Final debug info
-        if (debugMode) {
-          console.log('Touch End Properties:', JSON.stringify(event, null, 2));
-          setLastTouchInfo({...event, endType: 'End'});
-        }
+      } catch (error) {
+        console.warn('Error recreating path for redo:', error);
       }
-    });
-  
-    // Only for web
-const [webDrawing, setWebDrawing] = useState(false);
-
-const handleWebTouchStart = (e: React.TouchEvent | React.MouseEvent) => {
-  if (Platform.OS !== 'web') return;
-  let x, y;
-  if ('touches' in e && e.touches.length > 0) {
-    x = e.touches[0].clientX;
-    y = e.touches[0].clientY;
-  } else if ('clientX' in e) {
-    x = e.clientX;
-    y = e.clientY;
-  }
-    lastPointRef.current = { x, y };
-    pathBufferRef.current = `M${x} ${y}`;
-    pointsBufferRef.current = [{ x, y }];
-    setCurrentPath(`M${x} ${y}`);
-    setWebDrawing(true);
-};
-
-const handleWebTouchMove = (e: React.TouchEvent | React.MouseEvent) => {
-  if (Platform.OS !== 'web' || !webDrawing) return;
-  let x, y;
-  if ('touches' in e && e.touches.length > 0) {
-    x = e.touches[0].clientX;
-    y = e.touches[0].clientY;
-  } else if ('clientX' in e) {
-    x = e.clientX;
-    y = e.clientY;
-  }
-    pointsBufferRef.current.push({ x, y });
-    pathBufferRef.current += ` L${x} ${y}`;
-    setCurrentPath(pathBufferRef.current);
-};
-
-const handleWebTouchEnd = () => {
-  if (Platform.OS !== 'web' || !webDrawing) return;
-  if (pointsBufferRef.current.length > 1) {
-    const firstPoint = pointsBufferRef.current[0];
-    let finalPath = `M${firstPoint.x} ${firstPoint.y}`;
-    for (let i = 1; i < pointsBufferRef.current.length; i++) {
-      const point = pointsBufferRef.current[i];
-      finalPath += ` L${point.x} ${point.y}`;
     }
-    setPaths(prev => [
-      ...prev,
-      {
-        path: finalPath,
-        color: selectedPen === 1 ? "red" : selectedPen === 2 ? "yellow" : selectedColor,
-        strokeWidth: selectedPen === 1 ? 2 : selectedStrokeWidth,
-        isEraser: isEraser,
-        penType: selectedPen,
-      },
-    ]);
-  }
-  setCurrentPath('');
-  pathBufferRef.current = '';
-  pointsBufferRef.current = [];
-  setWebDrawing(false);
-};
+  }, [undoStack, debouncedSave]);
+
+  const toggleEraser = useCallback(() => {
+    if (!isEraser) {
+      // Activando eraser
+      // Validación: si no estamos en pen normal, cambiar a pen normal primero
+      if (selectedPen !== 0) {
+        // Guardar el color actual si estamos en pen normal
+        if (selectedPen === 0) {
+          setNormalPenColor(currentColor);
+        }
+        // Cambiar a pen normal antes de activar eraser
+        setSelectedPen(0);
+        setCurrentColor(normalPenColor);
+      }
+      
+      // Guardar el grosor actual antes de activar eraser
+      setPreviousStrokeWidth(currentStrokeWidth);
+      
+      // Establecer grosor máximo para eraser (limitado a 10 para que no se salga de la barra)
+      setCurrentStrokeWidth(Math.min(10, 15)); // Máximo 10 para mantener dentro del gráfico
+      
+      setIsEraser(true);
+    } else {
+      // Desactivando eraser - restaurar grosor previo
+      setCurrentStrokeWidth(previousStrokeWidth);
+      setIsEraser(false);
+    }
+  }, [isEraser, selectedPen, currentColor, normalPenColor, currentStrokeWidth, previousStrokeWidth]);
+
+  const toggleStickBonus = useCallback(() => {
+    const newStickBonus = !stickBonus;
+    if (setStickBonus) {
+      setStickBonus(newStickBonus);
+    }
+  }, [stickBonus, setStickBonus]);
+
+  // Función para abrir vault table
+  const openVaultTable = useCallback(() => {
+    if (oncodetable) {
+      oncodetable(); // Llamar la función original si existe
+    } else {
+      setVaultModalVisible(true); // O abrir modal local
+    }
+  }, [oncodetable]);
+
+  // Función para manejar selección de vault
+  const handleVaultSelect = useCallback((vault: any, groupId: number, value: number, description: string) => {
+    console.log('Vault selected:', { vault, groupId, value, description });
+    setVaultModalVisible(false);
+    // Aquí puedes agregar lógica adicional para manejar la selección del vault
+  }, []);
+
+  // Funciones para cambiar color y grosor del pen/eraser
+  const changeColor = useCallback(async (color: string) => {
+    setCurrentColor(color);
+    // Si estamos en pen normal, recordar este color
+    if (selectedPen === 0) {
+      setNormalPenColor(color);
+      // Guardar globalmente solo para pen normal
+      await updateGlobalPenConfig({ color });
+    }
+  }, [selectedPen]);
+
+  const changeStrokeWidth = useCallback(async (width: number) => {
+    setCurrentStrokeWidth(width);
+    // Solo guardar globalmente si estamos en pen normal (no en eraser, telestrator o highlighter)
+    if (selectedPen === 0 && !isEraser) {
+      await updateGlobalPenConfig({ strokeWidth: width });
+    }
+  }, [selectedPen, isEraser]);
+
+  // Funciones para cambiar tipo de pen
+  const selectNormalPen = useCallback(async () => {
+    // Si estamos en eraser, restaurar grosor previo
+    if (isEraser) {
+      setCurrentStrokeWidth(previousStrokeWidth);
+    }
+    
+    setSelectedPen(0);
+    setCurrentColor('black'); // Siempre usar color negro para el lápiz principal
+    setIsEraser(false);
+    
+    // Guardar configuración global
+    await updateGlobalPenConfig({ 
+      penType: 0, 
+      color: 'black',
+      strokeWidth: isEraser ? previousStrokeWidth : currentStrokeWidth
+    });
+  }, [isEraser, previousStrokeWidth, currentStrokeWidth]);
+
+  const selectTelestrator = useCallback(async () => {
+    // Si estamos en eraser, guardar el grosor actual como previo
+    if (isEraser) {
+      setPreviousStrokeWidth(currentStrokeWidth);
+    }
+    
+    // Si estamos en pen normal, guardar el color actual
+    if (selectedPen === 0) {
+      setNormalPenColor(currentColor);
+      // Actualizar la configuración global con el color del pen normal
+      await updateGlobalPenConfig({ color: currentColor });
+    }
+    setSelectedPen(1);
+    setCurrentColor('red');
+    setCurrentStrokeWidth(2);
+    setIsEraser(false);
+  }, [selectedPen, currentColor, isEraser, currentStrokeWidth]);
+
+  const selectHighlighter = useCallback(async () => {
+    // Si estamos en eraser, guardar el grosor actual como previo
+    if (isEraser) {
+      setPreviousStrokeWidth(currentStrokeWidth);
+    }
+    
+    // Si estamos en pen normal, guardar el color actual
+    if (selectedPen === 0) {
+      setNormalPenColor(currentColor);
+      // Actualizar la configuración global con el color del pen normal
+      await updateGlobalPenConfig({ color: currentColor });
+    }
+    setSelectedPen(2);
+    setCurrentColor('yellow');
+    setIsEraser(false);
+  }, [selectedPen, currentColor, isEraser, currentStrokeWidth]);
+
+  // Función para seleccionar lápiz rojo
+  const selectRedPen = useCallback(async () => {
+    // Si estamos en eraser, restaurar grosor previo
+    if (isEraser) {
+      setCurrentStrokeWidth(previousStrokeWidth);
+    }
+    
+    setSelectedPen(0);
+    setCurrentColor('red');
+    setIsEraser(false);
+    
+    // Guardar configuración global
+    await updateGlobalPenConfig({ 
+      penType: 0, 
+      color: 'red',
+      strokeWidth: isEraser ? previousStrokeWidth : currentStrokeWidth
+    });
+  }, [isEraser, previousStrokeWidth, currentStrokeWidth]);
+
+  // Función para seleccionar lápiz azul
+  const selectBluePen = useCallback(async () => {
+    // Si estamos en eraser, restaurar grosor previo
+    if (isEraser) {
+      setCurrentStrokeWidth(previousStrokeWidth);
+    }
+    
+    setSelectedPen(0);
+    setCurrentColor('blue');
+    setIsEraser(false);
+    
+    // Guardar configuración global
+    await updateGlobalPenConfig({ 
+      penType: 0, 
+      color: 'blue',
+      strokeWidth: isEraser ? previousStrokeWidth : currentStrokeWidth
+    });
+  }, [isEraser, previousStrokeWidth, currentStrokeWidth]);
+
+  // Función para manejar el cambio en la barra de stroke
+  const handleStrokeBarChange = useCallback(async (event: any) => {
+    const { locationX } = event.nativeEvent;
+    const barWidth = 150; // Ancho efectivo más largo (160 - 10 de padding)
+    const percentage = Math.max(0, Math.min(1, locationX / barWidth));
+    const newWidth = Math.round(1 + (percentage * 9)); // De 1 a 10
+    
+    setCurrentStrokeWidth(newWidth);
+    
+    // Guardar configuración global
+    await updateGlobalPenConfig({ 
+      penType: selectedPen, 
+      color: currentColor,
+      strokeWidth: newWidth
+    });
+  }, [selectedPen, currentColor]);
+
+  // Gesture para la barra de stroke
+  const strokeSliderGesture = Gesture.Pan()
+    .runOnJS(true)
+    .onUpdate((event) => {
+      const { x } = event;
+      const barWidth = 150; // Ancho efectivo más largo (160 - 10 de padding)
+      const percentage = Math.max(0, Math.min(1, x / barWidth));
+      const newWidth = Math.round(1 + (percentage * 9)); // De 1 a 10
+      
+      if (newWidth !== currentStrokeWidth) {
+        runOnJS(setCurrentStrokeWidth)(newWidth);
+      }
+    })
+    .onEnd(async () => {
+      // Guardar configuración al final del gesto
+      runOnJS(async () => {
+        await updateGlobalPenConfig({ 
+          penType: selectedPen, 
+          color: currentColor,
+          strokeWidth: currentStrokeWidth
+        });
+      })();
+    });
+
+  // Función para interpolar puntos y hacer líneas más suaves
+  const addSmoothPoint = (path: SkPath, x: number, y: number) => {
+    if (lastPoint.current) {
+      const lastX = lastPoint.current.x;
+      const lastY = lastPoint.current.y;
+      
+      // Calcular distancia entre puntos
+      const distance = Math.sqrt((x - lastX) ** 2 + (y - lastY) ** 2);
+      
+      // Si la distancia es grande, agregar puntos intermedios para suavizar
+      if (distance > 5) {
+        const steps = Math.ceil(distance / 3); // Más puntos para mayor suavidad
+        
+        for (let i = 1; i <= steps; i++) {
+          const ratio = i / steps;
+          const interpX = lastX + (x - lastX) * ratio;
+          const interpY = lastY + (y - lastY) * ratio;
+          path.lineTo(interpX, interpY);
+        }
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    
+    lastPoint.current = { x, y };
+  };
+
+  const drawGesture = Gesture.Pan()
+      .runOnJS(true)
+      .minDistance(0) // Eliminar el umbral de distancia
+      .onStart((event) => {
+        const { x, y } = event;
+        // Solo permitir dibujo con stylus/pen, no con dedo
+        // pointerType: 0 = touch/finger, 1 = pen/stylus, 2 = mouse
+        if (event.pointerType !== undefined && event.pointerType === 0) {
+          return; // Ignorar toques con dedo
+        }
+        
+        isDrawingRef.current = true;
+        currentPath.current = Skia.Path.Make();
+        currentPath.current.moveTo(x, y);
+        lastPoint.current = { x, y };
+        setCurrentPathDisplay(currentPath.current.copy());
+      })
+      .onUpdate((event) => {
+        const { x, y } = event;
+        // Solo continuar si no es un dedo
+        if (event.pointerType !== undefined && event.pointerType === 0) {
+          return;
+        }
+        
+        if (currentPath.current && isDrawingRef.current) {
+          addSmoothPoint(currentPath.current, x, y);
+          setCurrentPathDisplay(currentPath.current.copy());
+        }
+      })
+      .onEnd((event) => {
+        // Solo terminar si no es un dedo
+        if (event.pointerType !== undefined && event.pointerType === 0) {
+          return;
+        }
+        
+        if (currentPath.current && isDrawingRef.current) {
+          runOnJS(updatePaths)(currentPath.current.copy());
+          setCurrentPathDisplay(null);
+          currentPath.current = null;
+          isDrawingRef.current = false;
+          lastPoint.current = null;
+        }
+      });
+
   return (
-    <GestureHandlerRootView style={styles.container}>
-      {/* Drawing canvas */}
-      <GestureDetector gesture={panGesture}>
-        <View 
-        style={[
-          isLargeDevice ? styles.canvasLarge : null,
-          isMediumLargeDevice ? styles.canvasMediumLarge : null,
-          isSmallDevice ? styles.canvasSmall : null,
-          isTinyDevice ? styles.canvasTiny : null,
-        ]}
-        onTouchStart={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchStart : undefined}
-        onTouchMove={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchMove : undefined}
-        onTouchEnd={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchEnd : undefined}
-        onMouseDown={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchStart : undefined}
-        onMouseMove={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchMove : undefined}
-        onMouseUp={Platform.OS === 'web' || Platform.OS === 'android' ? handleWebTouchEnd : undefined}
-        >
-          {/* Background image - outside SVG to stay on top */}
-          <Image
-            source={require('../assets/images/Jump.png')}
-            style={[
-              isLargeDevice ? styles.backgroundImageLarge : null,
-              isMediumLargeDevice ? styles.backgroundImageMediumLarge : null,
-              isSmallDevice ? styles.backgroundImageSmall : null,
-              isTinyDevice ? styles.backgroundImageTiny : null,
-            ]}
-            resizeMode="contain"
-            pointerEvents="none"
-          />
-          <Svg height="100%" width="100%" style={{ position: 'absolute', top: 0, left: 0 }}>
-            {/* Normal pen paths (type 0) */}
-            {paths
-              .filter(pathData => pathData.penType === 0)
-              .map((pathData, index) => (
-                <Path
-                  key={`normal-path-${index}`}
-                  d={pathData.path}
-                  stroke={pathData.isEraser ? CANVAS_BACKGROUND : pathData.color}
-                  strokeWidth={pathData.isEraser ? pathData.strokeWidth * 3 : pathData.strokeWidth}
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-            ))}
+    <View style={styles.container}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <GestureDetector gesture={drawGesture}>
+          <View style={[styles.canvasContainer, { height: canvasHeight }]}>
+            {/* Canvas para dibujar con imagen de fondo integrada */}
+            <Canvas style={[styles.canvas, { height: canvasHeight }]}>
+              {/* LAYER 1: Normal paths (type 0) - incluye eraser que se ve como gris */}
+              {Children.toArray(pathsData
+                .filter(pathData => pathData.penType === 0 || !pathData.penType)
+                .map((pathData, index) => {
+                  const pathIndex = pathsData.findIndex(p => p === pathData);
+                  const path = paths[pathIndex];
+                  if (!path) return null;
+                  
+                  const displayColor = pathData.isEraser ? '#e0e0e0' : pathData.color;
+                  
+                  return (
+                    <Path 
+                      key={`normal-${pathIndex}`}
+                      path={path} 
+                      color={displayColor}
+                      style="stroke"
+                      strokeWidth={pathData.strokeWidth}
+                      strokeCap="round"
+                      strokeJoin="round"
+                      opacity={1}
+                    />
+                  );
+                })
+              )}
 
-            {/* Telestrator paths (type 1) */}
-            {paths
-              .filter(pathData => pathData.penType === 1)
-              .map((pathData, index) => (
-                <Path
-                  key={`telestrator-path-${index}`}
-                  d={pathData.path}
-                  stroke={pathData.isEraser ? CANVAS_BACKGROUND : "red"}
-                  strokeWidth={pathData.isEraser ? 6 : 2}
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  opacity={0.8}
+              {/* Current path para pen normal (tipo 0) y eraser - renderizado en LAYER 1 */}
+              {currentPathDisplay && (selectedPen === 0 || isEraser) && (
+                <Path 
+                  path={currentPathDisplay} 
+                  color={isEraser ? '#e0e0e0' : currentColor}
+                  style="stroke"
+                  strokeWidth={isEraser ? currentStrokeWidth * 4 : currentStrokeWidth}
+                  strokeCap="round"
+                  strokeJoin="round"
+                  opacity={1}
                 />
-            ))}
+              )}
 
-            {/* Highlighter paths (type 2) - renders as filled areas */}
-            {paths
-              .filter(pathData => pathData.penType === 2)
-              .map((pathData, index) => {
-                let fillPath = pathData.path;
-                
-                if (fillPath && fillPath.length > 0) {
-                  if (!fillPath.endsWith('Z')) {
-                    fillPath += ' Z';
-                  }
-                }
+              {/* LAYER 2: Imagen de fondo - renderizada por encima de normal paths */}
+              {backgroundImage && (() => {
+                // Calcular dimensiones para 90% del ancho y centrado
+                const imageWidth = width * 0.9; // 90% del ancho total
+                const imageX = (width - imageWidth) / 2; // Centrar horizontalmente
                 
                 return (
-                  <Path
-                    key={`highlighter-path-${index}`}
-                    d={fillPath}
-                    stroke={pathData.isEraser ? CANVAS_BACKGROUND : "yellow"}
-                    strokeWidth={pathData.isEraser ? 3 : 1}
-                    fill={pathData.isEraser ? CANVAS_BACKGROUND : "yellow"}
-                    fillOpacity={0.3}
-                    strokeOpacity={0.5}
+                  <SkiaImage
+                    image={backgroundImage}
+                    x={imageX}
+                    y={0}
+                    width={imageWidth}
+                    height={canvasHeight}
+                    fit="contain"
                   />
                 );
-            })}
-            
-            {/* Render current path */}
-            {currentPath ? (
-              <Path
-                d={currentPath}
-                stroke={isEraser ? CANVAS_BACKGROUND : (
-                  selectedPen === 1 ? "red" : 
-                  selectedPen === 2 ? "yellow" : 
-                  selectedColor
-                )}
-                strokeWidth={isEraser ? (selectedPen === 1 ? 6 : selectedStrokeWidth * 3) : (selectedPen === 1 ? 2 : selectedStrokeWidth)}
-                fill={selectedPen === 2 && !isEraser ? "yellow" : "none"}
-                fillOpacity={selectedPen === 2 && !isEraser ? 0.3 : 0}
-                strokeOpacity={selectedPen === 1 ? 0.8 : 1}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            ) : null}
-          </Svg>
-        </View>
-      </GestureDetector>
+              })()}
 
-      {/* Menu button in top left with animation */}
+              {/* LAYER 3: Telestrator paths (type 1) - por encima de la imagen */}
+              {Children.toArray(pathsData
+                .filter(pathData => pathData.penType === 1)
+                .map((pathData, index) => {
+                  const pathIndex = pathsData.findIndex(p => p === pathData);
+                  const path = paths[pathIndex];
+                  if (!path) return null;
+                  
+                  return (
+                    <Path 
+                      key={`telestrator-${pathIndex}`}
+                      path={path} 
+                      color={pathData.color}
+                      style="stroke"
+                      strokeWidth={pathData.strokeWidth}
+                      strokeCap="round"
+                      strokeJoin="round"
+                      opacity={0.8}
+                    />
+                  );
+                })
+              )}
+
+              {/* Current path para telestrator (tipo 1) - renderizado en LAYER 3 */}
+              {currentPathDisplay && selectedPen === 1 && !isEraser && (
+                <Path 
+                  path={currentPathDisplay} 
+                  color="red"
+                  style="stroke"
+                  strokeWidth={2}
+                  strokeCap="round"
+                  strokeJoin="round"
+                  opacity={0.8}
+                />
+              )}
+
+              {/* LAYER 4: Highlighter paths (type 2) - por encima de todo */}
+              {Children.toArray(pathsData
+                .filter(pathData => pathData.penType === 2)
+                .map((pathData, index) => {
+                  const pathIndex = pathsData.findIndex(p => p === pathData);
+                  const path = paths[pathIndex];
+                  if (!path) return null;
+                  
+                  return (
+                    <>
+                      {/* Relleno del highlighter */}
+                      <Path 
+                        key={`highlighter-fill-${pathIndex}`}
+                        path={path} 
+                        color={pathData.color}
+                        style="fill"
+                        opacity={0.3}
+                      />
+                      {/* Borde del highlighter */}
+                      <Path 
+                        key={`highlighter-stroke-${pathIndex}`}
+                        path={path} 
+                        color={pathData.color}
+                        style="stroke"
+                        strokeWidth={pathData.strokeWidth}
+                        strokeCap="round"
+                        strokeJoin="round"
+                        opacity={0.5}
+                      />
+                    </>
+                  );
+                })
+              )}
+
+              {/* Current path para highlighter (tipo 2) - renderizado en LAYER 4 */}
+              {currentPathDisplay && selectedPen === 2 && !isEraser && (
+                <>
+                  <Path 
+                    path={currentPathDisplay} 
+                    color="yellow"
+                    style="fill"
+                    opacity={0.3}
+                  />
+                  <Path 
+                    path={currentPathDisplay} 
+                    color="yellow"
+                    style="stroke"
+                    strokeWidth={currentStrokeWidth}
+                    strokeCap="round"
+                    strokeJoin="round"
+                    opacity={0.5}
+                  />
+                </>
+              )}
+            </Canvas>
+          </View>
+        </GestureDetector>
+
+        {/* Stroke Width Control Bar con GestureDetector dentro del GestureHandlerRootView */}
+        <Animated.View style={[
+          styles.strokeBarContainer,
+          { transform: [{ translateX: strokeBarAnim }] }
+        ]}>
+          <View style={styles.strokeBar}>
+            {/* Indicador de grosor actual */}
+            <View style={styles.strokeIndicator}>
+              <View style={[
+                styles.strokePreview, 
+                { 
+                  width: currentStrokeWidth * 2, 
+                  height: currentStrokeWidth * 2,
+                  backgroundColor: currentColor 
+                }
+              ]} />
+              <Text style={styles.strokeValue}>{currentStrokeWidth}</Text>
+            </View>
+            
+            {/* Barra interactiva */}
+            <GestureDetector gesture={strokeSliderGesture}>
+              <TouchableOpacity 
+                style={styles.strokeSliderContainer}
+                onPress={handleStrokeBarChange}
+                activeOpacity={1}
+              >
+                <View style={styles.strokeSliderTrack}>
+                  {/* Progreso de la barra */}
+                  <View style={[
+                    styles.strokeSliderProgress,
+                    { width: `${((currentStrokeWidth - 1) / 9) * 100}%` }
+                  ]} />
+                  {/* Indicador circular */}
+                  <View style={[
+                    styles.strokeSliderThumb,
+                    { left: `${((currentStrokeWidth - 1) / 9) * 100}%` }
+                  ]} />
+                </View>
+              </TouchableOpacity>
+            </GestureDetector>
+          </View>
+        </Animated.View>
+      </GestureHandlerRootView>
+
+      {/* Menu button */}
       <Animated.View style={[
-        isLargeDevice ? styles.menuButtonContainerLarge : null,
-        isMediumLargeDevice ? styles.menuButtonContainerMediumLarge : null,
-        isSmallDevice ? styles.menuButtonContainerSmall : null,
-        isTinyDevice ? styles.menuButtonContainerTiny : null,
+        styles.menuButtonContainer,
         { transform: [{ translateX: menuButtonAnim }] }
       ]}>
         <TouchableOpacity 
-          style={[
-            isLargeDevice ? styles.menuButtonLarge : null,
-            isMediumLargeDevice ? styles.menuButtonMediumLarge : null,
-            isSmallDevice ? styles.menuButtonSmall : null,
-            isTinyDevice ? styles.menuButtonTiny : null,
-          ]}
+          style={[styles.menuButton, menuOpen && styles.activeButton]}
           onPress={toggleMenu}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Text style={[
-            isLargeDevice ? styles.menuButtonTextLarge : null,
-            isMediumLargeDevice ? styles.menuButtonTextMediumLarge : null,
-            isSmallDevice ? styles.menuButtonTextSmall : null,
-            isTinyDevice ? styles.menuButtonTextTiny : null,
-          ]}>☰</Text>
+          <Text style={styles.buttonText}>☰</Text>
         </TouchableOpacity>
       </Animated.View>
-      
-      {/* Undo button next to menu button */}
+
+      {/* Menu desplegable responsivo */}
+      {menuOpen && (
+        <View style={styles.menuDropdown}>
+          <Text style={styles.menuTitle}>Herramientas de Dibujo</Text>
+          
+          {/* Selector de color */}
+          <View style={styles.menuSection}>
+            <Text style={styles.menuSectionTitle}>Color:</Text>
+            <View style={styles.colorRow}>
+              {['black', 'red', 'blue', 'green', 'orange'].map((color) => (
+                <TouchableOpacity
+                  key={color}
+                  style={[
+                    styles.colorButton,
+                    { backgroundColor: color },
+                    currentColor === color && styles.selectedColorButton
+                  ]}
+                  onPress={() => changeColor(color)}
+                />
+              ))}
+            </View>
+          </View>
+
+          {/* Selector de grosor */}
+          <View style={styles.menuSection}>
+            <Text style={styles.menuSectionTitle}>Grosor: {currentStrokeWidth}px</Text>
+            <View style={styles.strokeRow}>
+              {[2, 5, 10, 15].map((width) => (
+                <TouchableOpacity
+                  key={width}
+                  style={[
+                    styles.strokeButton,
+                    currentStrokeWidth === width && styles.selectedStrokeButton
+                  ]}
+                  onPress={() => changeStrokeWidth(width)}
+                >
+                  <View style={[
+                    styles.strokeDot,
+                    { 
+                      width: Math.max(6, width * 1.5), 
+                      height: Math.max(6, width * 1.5),
+                      borderRadius: Math.max(3, width * 0.75)
+                    }
+                  ]} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Selector de tipo de pen */}
+          <View style={styles.menuSection}>
+            <Text style={styles.menuSectionTitle}>Tipo de Pen:</Text>
+            <View style={styles.penTypeRow}>
+              <TouchableOpacity
+                style={[
+                  styles.penTypeButton,
+                  selectedPen === 0 && styles.selectedPenTypeButton
+                ]}
+                onPress={selectNormalPen}
+              >
+                <Text style={styles.penTypeIcon}>✏️</Text>
+                <Text style={styles.penTypeLabel}>Normal</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.penTypeButton,
+                  selectedPen === 1 && styles.selectedPenTypeButton
+                ]}
+                onPress={selectTelestrator}
+              >
+                <Text style={styles.penTypeIcon}>🖍️</Text>
+                <Text style={styles.penTypeLabel}>Telestrator</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.penTypeButton,
+                  selectedPen === 2 && styles.selectedPenTypeButton
+                ]}
+                onPress={selectHighlighter}
+              >
+                <Text style={styles.penTypeIcon}>⭐</Text>
+                <Text style={styles.penTypeLabel}>Highlighter</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Botón para cerrar menú */}
+          <TouchableOpacity 
+            style={styles.closeMenuButton}
+            onPress={toggleMenu}
+          >
+            <Text style={styles.closeMenuText}>Cerrar</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Undo button */}
       <Animated.View style={[
-        isLargeDevice ? styles.undoButtonContainerLarge : null,
-        isMediumLargeDevice ? styles.undoButtonContainerMediumLarge : null,
-        isSmallDevice ? styles.undoButtonContainerSmall : null,
-        isTinyDevice ? styles.undoButtonContainerTiny : null,
+        styles.undoButtonContainer,
         { transform: [{ translateX: undoButtonAnim }] }
       ]}>
         <TouchableOpacity 
           style={[
-            isLargeDevice ? styles.undoButtonLarge : null,
-            isMediumLargeDevice ? styles.undoButtonMediumLarge : null,
-            isSmallDevice ? styles.undoButtonSmall : null,
-            isTinyDevice ? styles.undoButtonTiny : null,
+            styles.actionButton,
             paths.length === 0 && styles.disabledButton
           ]}
           onPress={handleUndo}
           disabled={paths.length === 0}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Text style={[
-            isLargeDevice ? styles.undoButtonTextLarge : null,
-            isMediumLargeDevice ? styles.undoButtonTextMediumLarge : null,
-            isSmallDevice ? styles.undoButtonTextSmall : null,
-            isTinyDevice ? styles.undoButtonTextTiny : null,
-          ]}>↩</Text>
+          <Text style={styles.buttonText}>↩</Text>
         </TouchableOpacity>
       </Animated.View>
-      
-      {/* Redo button next to undo button */}
+
+      {/* Redo button */}
       <Animated.View style={[
-        isLargeDevice ? styles.redoButtonContainerLarge : null,
-        isMediumLargeDevice ? styles.redoButtonContainerMediumLarge : null,
-        isSmallDevice ? styles.redoButtonContainerSmall : null,
-        isTinyDevice ? styles.redoButtonContainerTiny : null,
+        styles.redoButtonContainer,
         { transform: [{ translateX: redoButtonAnim }] }
       ]}>
         <TouchableOpacity 
           style={[
-            isLargeDevice ? styles.redoButtonLarge : null,
-            isMediumLargeDevice ? styles.redoButtonMediumLarge : null,
-            isSmallDevice ? styles.redoButtonSmall : null,
-            isTinyDevice ? styles.redoButtonTiny : null,
+            styles.actionButton,
             undoStack.length === 0 && styles.disabledButton
           ]}
           onPress={handleRedo}
           disabled={undoStack.length === 0}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Text style={[
-            isLargeDevice ? styles.redoButtonTextLarge : null,
-            isMediumLargeDevice ? styles.redoButtonTextMediumLarge : null,
-            isSmallDevice ? styles.redoButtonTextSmall : null,
-            isTinyDevice ? styles.redoButtonTextTiny : null,
-          ]}>↪</Text>
+          <Text style={styles.buttonText}>↪</Text>
         </TouchableOpacity>
       </Animated.View>
-      {/* Eraser button next to redo button */}
-            <Animated.View style={[
-              isLargeDevice ? styles.eraserButtonContainerLarge : null,
-              isMediumLargeDevice ? styles.eraserButtonContainerMediumLarge : null,
-              isSmallDevice ? styles.eraserButtonContainerSmall : null,
-              isTinyDevice ? styles.eraserButtonContainerTiny : null,
-              { transform: [{ translateX: eraserButtonAnim }] }
-            ]}>
-              <TouchableOpacity 
-                style={[
-                  isLargeDevice ? styles.eraserButtonLarge : null,
-                  isMediumLargeDevice ? styles.eraserButtonMediumLarge : null,
-                  isSmallDevice ? styles.eraserButtonSmall : null,
-                  isTinyDevice ? styles.eraserButtonTiny : null,
-                  isEraser && styles.activeButton
-                ]}
-                onPress={toggleEraser}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Text style={[
-                  isLargeDevice ? styles.eraserButtonTextLarge : null,
-                  isMediumLargeDevice ? styles.eraserButtonTextMediumLarge : null,
-                  isSmallDevice ? styles.eraserButtonTextSmall : null,
-                  isTinyDevice ? styles.eraserButtonTextTiny : null,
-                ]}>🧽</Text>
-              </TouchableOpacity>
-            </Animated.View>
-            
-            {/* Pen button next to eraser button */}
-            <Animated.View style={[
-              isLargeDevice ? styles.penButtonContainerLarge : null,
-              isMediumLargeDevice ? styles.penButtonContainerMediumLarge : null,
-              isSmallDevice ? styles.penButtonContainerSmall : null,
-              isTinyDevice ? styles.penButtonContainerTiny : null,
-              { transform: [{ translateX: penButtonAnim }] }
-            ]}>
-              <TouchableOpacity 
-                style={[
-                  isLargeDevice ? styles.penButtonLarge : null,
-                  isMediumLargeDevice ? styles.penButtonMediumLarge : null,
-                  isSmallDevice ? styles.penButtonSmall : null,
-                  isTinyDevice ? styles.penButtonTiny : null,
-                  !isEraser && styles.activeButton
-                ]}
-                onPress={() => {
-                  setIsEraser(false);
-                  setSelectedPen(0);
-                }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Text style={[
-                  isLargeDevice ? styles.penButtonTextLarge : null,
-                  isMediumLargeDevice ? styles.penButtonTextMediumLarge : null,
-                  isSmallDevice ? styles.penButtonTextSmall : null,
-                  isTinyDevice ? styles.penButtonTextTiny : null,
-                ]}>✏️</Text>
-              </TouchableOpacity>
-            </Animated.View>
-      
-      {/* The menu itself */}
-      <Animated.View 
-        style={[
-          isLargeDevice ? styles.menuContainerLarge : null,
-          isMediumLargeDevice ? styles.menuContainerMediumLarge : null,
-          isSmallDevice ? styles.menuContainerSmall : null,
-          isTinyDevice ? styles.menuContainerTiny : null,
-          { height: menuHeight, opacity: menuAnimation }
-        ]}
-        pointerEvents={menuOpen ? "auto" : "none"}
-      >
-        <View style={[
-          isLargeDevice ? styles.menuContentLarge : null,
-          isMediumLargeDevice ? styles.menuContentMediumLarge : null,
-          isSmallDevice ? styles.menuContentSmall : null,
-          isTinyDevice ? styles.menuContentTiny : null,
-        ]}>
-          <View style={{flexDirection: 'row'}}>
-            {/* Left Column */}
-            <View style={{flex: 0.65}}>
-              {/* Colors */}
-              <View style={[
-                isLargeDevice ? styles.menuSectionLarge : null,
-                isMediumLargeDevice ? styles.menuSectionMediumLarge : null,
-                isSmallDevice ? styles.menuSectionSmall : null,
-                isTinyDevice ? styles.menuSectionTiny : null,
-              ]}>
-                <Text style={[
-                  isLargeDevice ? styles.menuSectionTitleLarge : null,
-                  isMediumLargeDevice ? styles.menuSectionTitleMediumLarge : null,
-                  isSmallDevice ? styles.menuSectionTitleSmall : null,
-                  isTinyDevice ? styles.menuSectionTitleTiny : null,
-                ]}>Colors</Text>
-                <View style={[
-                  isLargeDevice ? styles.colorRowLarge : null,
-                  isMediumLargeDevice ? styles.colorRowMediumLarge : null,
-                  isSmallDevice ? styles.colorRowSmall : null,
-                  isTinyDevice ? styles.colorRowTiny : null,
-                ]}>
-                  {COLORS.map(color => (
-                    <TouchableOpacity
-                      key={color}
-                      style={[
-                        isLargeDevice ? styles.colorOptionLarge : null,
-                        isMediumLargeDevice ? styles.colorOptionMediumLarge : null,
-                        isSmallDevice ? styles.colorOptionSmall : null,
-                        isTinyDevice ? styles.colorOptionTiny : null,
-                        { backgroundColor: color },
-                        selectedColor === color && !isEraser && styles.selectedOption
-                      ]}
-                      onPress={() => {
-                        setSelectedColor(color);
-                        setIsEraser(false);
-                      }}
-                    />
-                  ))}
-                </View>
-              </View>
 
-              {/* Stroke Widths */}
-              <View style={[
-                isLargeDevice ? styles.menuSectionLarge : null,
-                isMediumLargeDevice ? styles.menuSectionMediumLarge : null,
-                isSmallDevice ? styles.menuSectionSmall : null,
-                isTinyDevice ? styles.menuSectionTiny : null,
-              ]}>
-                <Text style={[
-                  isLargeDevice ? styles.menuSectionTitleLarge : null,
-                  isMediumLargeDevice ? styles.menuSectionTitleMediumLarge : null,
-                  isSmallDevice ? styles.menuSectionTitleSmall : null,
-                  isTinyDevice ? styles.menuSectionTitleTiny : null,
-                ]}>Stroke Width</Text>
-                <View style={[
-                  isLargeDevice ? styles.widthRowLarge : null,
-                  isMediumLargeDevice ? styles.widthRowMediumLarge : null,
-                  isSmallDevice ? styles.widthRowSmall : null,
-                  isTinyDevice ? styles.widthRowTiny : null,
-                ]}>
-                  {STROKE_WIDTHS.map(width => (
-                    <TouchableOpacity
-                      key={`width-${width}`}
-                      style={[
-                        isLargeDevice ? styles.widthOptionLarge : null,
-                        isMediumLargeDevice ? styles.widthOptionMediumLarge : null,
-                        isSmallDevice ? styles.widthOptionSmall : null,
-                        isTinyDevice ? styles.widthOptionTiny : null,
-                        selectedStrokeWidth === width && styles.selectedOption
-                      ]}
-                      onPress={() => setSelectedStrokeWidth(width)}
-                    >
-                      <View style={[
-                        styles.widthCircle, 
-                        { 
-                          width: width * 1.2,
-                          height: width * 1.2, 
-                          borderRadius: (width * 1.2) / 2,
-                          backgroundColor: isEraser ? "#ccc" : selectedColor 
-                        }
-                      ]} />
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            </View>
-
-            {/* Right Column */}
-            <View style={{flex: 1}}>
-              {/* Pens */}
-              <View style={[
-                isLargeDevice ? styles.menuSectionLarge : null,
-                isMediumLargeDevice ? styles.menuSectionMediumLarge : null,
-                isSmallDevice ? styles.menuSectionSmall : null,
-                isTinyDevice ? styles.menuSectionTiny : null,
-              ]}>
-                <Text style={[
-                  isLargeDevice ? styles.menuSectionTitleLarge : null,
-                  isMediumLargeDevice ? styles.menuSectionTitleMediumLarge : null,
-                  isSmallDevice ? styles.menuSectionTitleSmall : null,
-                  isTinyDevice ? styles.menuSectionTitleTiny : null,
-                ]}>Pen</Text>
-                <View style={[
-                  isLargeDevice ? styles.penRowLarge : null,
-                  isMediumLargeDevice ? styles.penRowMediumLarge : null,
-                  isSmallDevice ? styles.penRowSmall : null,
-                  isTinyDevice ? styles.penRowTiny : null,
-                ]}>
-                  <TouchableOpacity
-                    style={[
-                      isLargeDevice ? styles.penOptionLarge : null,
-                      isMediumLargeDevice ? styles.penOptionMediumLarge : null,
-                      isSmallDevice ? styles.penOptionSmall : null,
-                      isTinyDevice ? styles.penOptionTiny : null,
-                      selectedPen === 0 && styles.selectedOption
-                    ]}
-                    onPress={() => {
-                      setSelectedPen(0);
-                      setSelectedColor("black");
-                      setIsEraser(false);
-                    }}
-                  >
-                    <Text style={[
-                      isLargeDevice ? styles.toolButtonTextLarge : null,
-                      isMediumLargeDevice ? styles.toolButtonTextMediumLarge : null,
-                      isSmallDevice ? styles.toolButtonTextSmall : null,
-                      isTinyDevice ? styles.toolButtonTextTiny : null,
-                    ]}>✏️</Text>
-                    <Text style={[
-                      isLargeDevice ? styles.penLabelLarge : null,
-                      isMediumLargeDevice ? styles.penLabelMediumLarge : null,
-                      isSmallDevice ? styles.penLabelSmall : null,
-                      isTinyDevice ? styles.penLabelTiny : null,
-                    ]}>Normal</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      isLargeDevice ? styles.penOptionLarge : null,
-                      isMediumLargeDevice ? styles.penOptionMediumLarge : null,
-                      isSmallDevice ? styles.penOptionSmall : null,
-                      isTinyDevice ? styles.penOptionTiny : null,
-                      selectedPen === 1 && styles.selectedOption
-                    ]}
-                    onPress={() => {
-                      setSelectedPen(1);
-                      setSelectedColor("red");
-                      setSelectedStrokeWidth(2);
-                      setIsEraser(false);
-                    }}
-                  >
-                    <Text style={[
-                      isLargeDevice ? styles.toolButtonTextLarge : null,
-                      isMediumLargeDevice ? styles.toolButtonTextMediumLarge : null,
-                      isSmallDevice ? styles.toolButtonTextSmall : null,
-                      isTinyDevice ? styles.toolButtonTextTiny : null,
-                    ]}>🖍️</Text>
-                    <Text style={[
-                      isLargeDevice ? styles.penLabelLarge : null,
-                      isMediumLargeDevice ? styles.penLabelMediumLarge : null,
-                      isSmallDevice ? styles.penLabelSmall : null,
-                      isTinyDevice ? styles.penLabelTiny : null,
-                    ]}>Telestrator</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      isLargeDevice ? styles.penOptionLarge : null,
-                      isMediumLargeDevice ? styles.penOptionMediumLarge : null,
-                      isSmallDevice ? styles.penOptionSmall : null,
-                      isTinyDevice ? styles.penOptionTiny : null,
-                      selectedPen === 2 && styles.selectedOption
-                    ]}
-                    onPress={() => {
-                      setSelectedPen(2);
-                      setSelectedColor("yellow");
-                      setIsEraser(false);
-                    }}
-                  >
-                    <Text style={[
-                      isLargeDevice ? styles.toolButtonTextLarge : null,
-                      isMediumLargeDevice ? styles.toolButtonTextMediumLarge : null,
-                      isSmallDevice ? styles.toolButtonTextSmall : null,
-                      isTinyDevice ? styles.toolButtonTextTiny : null,
-                    ]}>⭐</Text>
-                    <Text style={[
-                      isLargeDevice ? styles.penLabelLarge : null,
-                      isMediumLargeDevice ? styles.penLabelMediumLarge : null,
-                      isSmallDevice ? styles.penLabelSmall : null,
-                      isTinyDevice ? styles.penLabelTiny : null,
-                    ]}>Highlighter</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {/* Tools */}
-              <View style={[
-                isLargeDevice ? styles.menuSectionLarge : null,
-                isMediumLargeDevice ? styles.menuSectionMediumLarge : null,
-                isSmallDevice ? styles.menuSectionSmall : null,
-                isTinyDevice ? styles.menuSectionTiny : null,
-              ]}>
-                <Text style={[
-                  isLargeDevice ? styles.menuSectionTitleLarge : null,
-                  isMediumLargeDevice ? styles.menuSectionTitleMediumLarge : null,
-                  isSmallDevice ? styles.menuSectionTitleSmall : null,
-                  isTinyDevice ? styles.menuSectionTitleTiny : null,
-                ]}>Tools</Text>
-                <View style={[
-                  isLargeDevice ? styles.toolsRowLarge : null,
-                  isMediumLargeDevice ? styles.toolsRowMediumLarge : null,
-                  isSmallDevice ? styles.toolsRowSmall : null,
-                  isTinyDevice ? styles.toolsRowTiny : null,
-                ]}>
-                  <TouchableOpacity
-                    style={[
-                      isLargeDevice ? styles.toolButtonLarge : null,
-                      isMediumLargeDevice ? styles.toolButtonMediumLarge : null,
-                      isSmallDevice ? styles.toolButtonSmall : null,
-                      isTinyDevice ? styles.toolButtonTiny : null,
-                      isEraser && styles.selectedOption
-                    ]}
-                    onPress={toggleEraser}
-                  >
-                    <Text style={[
-                      isLargeDevice ? styles.toolButtonTextLarge : null,
-                      isMediumLargeDevice ? styles.toolButtonTextMediumLarge : null,
-                      isSmallDevice ? styles.toolButtonTextSmall : null,
-                      isTinyDevice ? styles.toolButtonTextTiny : null,
-                    ]}>Eraser</Text>
-                  </TouchableOpacity>
-                  {/* <TouchableOpacity
-                    style={[
-                      isLargeDevice ? styles.toolButtonLarge : null,
-                      isMediumLargeDevice ? styles.toolButtonMediumLarge : null,
-                      isSmallDevice ? styles.toolButtonSmall : null,
-                      isTinyDevice ? styles.toolButtonTiny : null,
-                    ]}
-                    onPress={clearCanvas}
-                  >
-                    <Text style={[
-                      isLargeDevice ? styles.toolButtonTextLarge : null,
-                      isMediumLargeDevice ? styles.toolButtonTextMediumLarge : null,
-                      isSmallDevice ? styles.toolButtonTextSmall : null,
-                      isTinyDevice ? styles.toolButtonTextTiny : null,
-                    ]}>Clear</Text>
-                  </TouchableOpacity> */}
-                </View>
-              </View>
-            </View>
-          </View>
-        </View>
-      </Animated.View>
-      
-      {/* Bottom buttons */}
+      {/* Eraser button */}
       <Animated.View style={[
-        isLargeDevice ? styles.bottomButtonsContainerLarge : null,
-        isMediumLargeDevice ? styles.bottomButtonsContainerMediumLarge : null,
-        isSmallDevice ? styles.bottomButtonsContainerSmall : null,
-        isTinyDevice ? styles.bottomButtonsContainerTiny : null,
-        { transform: [{ translateY: bottomButtonsAnim }] }
+        styles.eraserButtonContainer,
+        { transform: [{ translateX: eraserButtonAnim }] }
       ]}>
         <TouchableOpacity 
           style={[
-            isLargeDevice ? styles.stickButtonLargeSTICK : null,
-            isMediumLargeDevice ? styles.stickButtonMediumLargeSTICK : null,
-            isSmallDevice ? styles.stickButtonSmallSTICK : null,
-            isTinyDevice ? styles.stickButtonTinySTICK : null,
+            styles.actionButton,
+            isEraser && styles.activeButton
+          ]}
+          onPress={toggleEraser}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Text style={styles.buttonText}>🧽</Text>
+        </TouchableOpacity>
+      </Animated.View>
+
+      {/* Pen button */}
+      <Animated.View style={[
+        styles.penButtonContainer,
+        { transform: [{ translateX: penButtonAnim }] }
+      ]}>
+        <TouchableOpacity 
+          style={[
+            styles.actionButton,
+            !isEraser && selectedPen === 0 && currentColor === 'black' && styles.activeButton
+          ]}
+          onPress={selectNormalPen}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Text style={styles.buttonText}>✏️</Text>
+        </TouchableOpacity>
+      </Animated.View>
+
+      {/* Red Pen button */}
+      <Animated.View style={[
+        styles.redPenButtonContainer,
+        { transform: [{ translateX: redPenButtonAnim }] }
+      ]}>
+        <TouchableOpacity 
+          style={[
+            styles.actionButton,
+            !isEraser && currentColor === 'red' && styles.activeButton
+          ]}
+          onPress={selectRedPen}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Text style={styles.buttonText}>🔴</Text>
+        </TouchableOpacity>
+      </Animated.View>
+
+      {/* Blue Pen button */}
+      <Animated.View style={[
+        styles.bluePenButtonContainer,
+        { transform: [{ translateX: bluePenButtonAnim }] }
+      ]}>
+        <TouchableOpacity 
+          style={[
+            styles.actionButton,
+            !isEraser && currentColor === 'blue' && styles.activeButton
+          ]}
+          onPress={selectBluePen}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Text style={styles.buttonText}>🔵</Text>
+        </TouchableOpacity>
+      </Animated.View>
+
+      {/* Stick Bonus button - bottom right */}
+      <Animated.View style={[
+        styles.stickButtonContainer,
+        { transform: [{ translateY: stickButtonAnim }] }
+      ]}>
+        <TouchableOpacity 
+          style={[
+            styles.stickButton,
             stickBonus && styles.stickButtonActive
           ]}
           onPress={toggleStickBonus}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Text style={[
-            isLargeDevice ? styles.buttonTextLarge : null,
-            isMediumLargeDevice ? styles.buttonTextMediumLarge : null,
-            isSmallDevice ? styles.buttonTextSmall : null,
-            isTinyDevice ? styles.buttonTextTiny : null,
-          ]}>STICK BONUS</Text>
+          <Text style={styles.stickButtonText}>STICK BONUS</Text>
         </TouchableOpacity>
       </Animated.View>
 
+      {/* Vault Table button - bottom left */}
       <Animated.View style={[
-        isLargeDevice ? styles.bottomButtonsContainercodetableLarge : null,
-        isMediumLargeDevice ? styles.bottomButtonsContainercodetableMediumLarge : null,
-        isSmallDevice ? styles.bottomButtonsContainercodetableSmall : null,
-        isTinyDevice ? styles.bottomButtonsContainercodetableTiny : null,
-        { transform: [{ translateY: bottomButtonsAnim }] }
+        styles.vaultButtonContainer,
+        { transform: [{ translateY: vaultButtonAnim }] }
       ]}>
         <TouchableOpacity 
-          style={[
-            isLargeDevice ? styles.stickButtonLarge : null,
-            isMediumLargeDevice ? styles.stickButtonMediumLarge : null,
-            isSmallDevice ? styles.stickButtonSmall : null,
-            isTinyDevice ? styles.stickButtonTiny : null,
-          ]}
-          onPress={oncodetable}
+          style={styles.vaultButton}
+          onPress={openVaultTable}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Text style={[
-            isLargeDevice ? styles.buttonTextLarge : null,
-            isMediumLargeDevice ? styles.buttonTextMediumLarge : null,
-            isSmallDevice ? styles.buttonTextSmall : null,
-            isTinyDevice ? styles.buttonTextTiny : null,
-          ]}>VAULT TABLE</Text>
+          <Text style={styles.vaultButtonText}>VAULT TABLE</Text>
         </TouchableOpacity>
       </Animated.View>
 
-      <Text style={[
-        isLargeDevice ? styles.finalcalcContainerLarge : null,
-        isMediumLargeDevice ? styles.finalcalcContainerMediumLarge : null,
-        isSmallDevice ? styles.finalcalcContainerSmall : null,
-        isTinyDevice ? styles.finalcalcContainerTiny : null,
-      ]}>{percentage}</Text>
+      {/* Percentage display */}
+      <Text style={styles.percentageText}>{percentage}</Text>
 
-      {/* Save Status Indicator */}
-      <Animated.View style={[
-        isLargeDevice ? styles.saveStatusContainerLarge : null,
-        isMediumLargeDevice ? styles.saveStatusContainerMediumLarge : null,
-        isSmallDevice ? styles.saveStatusContainerSmall : null,
-        isTinyDevice ? styles.saveStatusContainerTiny : null,
-        {
-          opacity: saveStatusAnim,
-          transform: [{ scale: saveStatusAnim }]
-        }
-      ]}>
-        {saveStatus === 'loading' && (
-          <Animated.View style={[
-            isLargeDevice ? styles.saveIndicatorLarge : null,
-            isMediumLargeDevice ? styles.saveIndicatorMediumLarge : null,
-            isSmallDevice ? styles.saveIndicatorSmall : null,
-            isTinyDevice ? styles.saveIndicatorTiny : null,
-            styles.loadingIndicator,
-            { transform: [{ rotate: loadingRotation }] }
-          ]}>
-            <View style={[
-              isLargeDevice ? styles.loadingSpinnerLarge : null,
-              isMediumLargeDevice ? styles.loadingSpinnerMediumLarge : null,
-              isSmallDevice ? styles.loadingSpinnerSmall : null,
-              isTinyDevice ? styles.loadingSpinnerTiny : null,
-            ]} />
-          </Animated.View>
-        )}
-        
-        {saveStatus === 'success' && (
-          <View style={[
-            isLargeDevice ? styles.saveIndicatorLarge : null,
-            isMediumLargeDevice ? styles.saveIndicatorMediumLarge : null,
-            isSmallDevice ? styles.saveIndicatorSmall : null,
-            isTinyDevice ? styles.saveIndicatorTiny : null,
-            styles.successIndicator
-          ]}>
-            <Text style={[
-              isLargeDevice ? styles.statusIconLarge : null,
-              isMediumLargeDevice ? styles.statusIconMediumLarge : null,
-              isSmallDevice ? styles.statusIconSmall : null,
-              isTinyDevice ? styles.statusIconTiny : null,
-            ]}>✓</Text>
-          </View>
-        )}
-        
-        {saveStatus === 'error' && (
-          <View style={[
-            isLargeDevice ? styles.saveIndicatorLarge : null,
-            isMediumLargeDevice ? styles.saveIndicatorMediumLarge : null,
-            isSmallDevice ? styles.saveIndicatorSmall : null,
-            isTinyDevice ? styles.saveIndicatorTiny : null,
-            styles.errorIndicator
-          ]}>
-            <Text style={[
-              isLargeDevice ? styles.statusIconLarge : null,
-              isMediumLargeDevice ? styles.statusIconMediumLarge : null,
-              isSmallDevice ? styles.statusIconSmall : null,
-              isTinyDevice ? styles.statusIconTiny : null,
-            ]}>✗</Text>
-          </View>
-        )}
-      </Animated.View>
-    </GestureHandlerRootView>
+      {/* Vault Modal */}
+      <VaultSelectorModal
+        visible={vaultModalVisible}
+        onClose={() => setVaultModalVisible(false)}
+        onSelect={handleVaultSelect}
+      />
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#f5f5f5',
-  },
-  
-  // Canvas styles - Large Device
-  canvasLarge: {
-    height: 540,
-    backgroundColor: CANVAS_BACKGROUND,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  // Canvas styles - Medium Large Device
-  canvasMediumLarge: {
-    height: 620,
-    backgroundColor: CANVAS_BACKGROUND,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  // Canvas styles - Small Device
-  canvasSmall: {
-    height: 620,
-    backgroundColor: CANVAS_BACKGROUND,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  // Canvas styles - Tiny Device
-  canvasTiny: {
-    height: 240,
-    backgroundColor: CANVAS_BACKGROUND,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  
-  // Background image styles - Large Device
-  backgroundImageLarge: {
-    position: 'absolute',
-    width: '78%',
-    height: '78%',
-    top: '11%',
-    left: '11%',
-    opacity: 0.8,
-    zIndex: 1,
-  },
-  // Background image styles - Medium Large Device
-  backgroundImageMediumLarge: {
-    position: 'absolute',
-    width: '75%',
-    height: '75%',
-    top: '12.5%',
-    left: '12.5%',
-    opacity: 0.8,
-    zIndex: 1,
-  },
-  // Background image styles - Small Device
-  backgroundImageSmall: {
-    position: 'absolute',
-    width: '72%',
-    height: '72%',
-    top: '14%',
-    left: '14%',
-    opacity: 0.8,
-    zIndex: 1,
-  },
-  // Background image styles - Tiny Device
-  backgroundImageTiny: {
-    position: 'absolute',
-    width: '70%',
-    height: '70%',
-    top: '15%',
-    left: '15%',
-    opacity: 0.8,
-    zIndex: 1,
-  },
-  
-  // Menu container styles - Large Device
-  menuContainerLarge: {
-    position: 'absolute',
-    top: 80,
-    left: 12,
-    width: 660,
-    backgroundColor: 'rgba(245, 245, 245, 0.95)',
-    borderRadius: 12,
-    zIndex: 10,
-    overflow: 'hidden',
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  // Menu container styles - Medium Large Device
-  menuContainerMediumLarge: {
-    position: 'absolute',
-    top: 70,
-    left: 10,
-    width: 600,
-    backgroundColor: 'rgba(245, 245, 245, 0.95)',
-    borderRadius: 10,
-    zIndex: 10,
-    overflow: 'hidden',
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  // Menu container styles - Small Device
-  menuContainerSmall: {
-    position: 'absolute',
-    top: 60,
-    left: 8,
-    width: 540,
-    backgroundColor: 'rgba(245, 245, 245, 0.95)',
-    borderRadius: 8,
-    zIndex: 10,
-    overflow: 'hidden',
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  // Menu container styles - Tiny Device
-  menuContainerTiny: {
-    position: 'absolute',
-    top: 50,
-    left: 6,
-    width: 480,
-    backgroundColor: 'rgba(245, 245, 245, 0.95)',
-    borderRadius: 6,
-    zIndex: 10,
-    overflow: 'hidden',
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  
-  // Menu button container styles - Large Device
-  menuButtonContainerLarge: {
-    position: 'absolute',
-    top: 12,
-    left: 0,
-    zIndex: 10,
-  },
-  // Menu button container styles - Medium Large Device
-  menuButtonContainerMediumLarge: {
-    position: 'absolute',
-    top: 10,
-    left: 0,
-    zIndex: 10,
-  },
-  // Menu button container styles - Small Device
-  menuButtonContainerSmall: {
-    position: 'absolute',
-    top: 8,
-    left: 0,
-    zIndex: 10,
-  },
-  // Menu button container styles - Tiny Device
-  menuButtonContainerTiny: {
-    position: 'absolute',
-    top: 6,
-    left: 0,
-    zIndex: 10,
-  },
-  
-  // Menu button styles - Large Device
-  menuButtonLarge: {
-    width: 55,
-    height: 55,
-    borderRadius: 27.5,
-    backgroundColor: '#ddd',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  // Menu button styles - Medium Large Device
-  menuButtonMediumLarge: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#ddd',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  // Menu button styles - Small Device
-  menuButtonSmall: {
-    width: 45,
-    height: 45,
-    borderRadius: 22.5,
-    backgroundColor: '#ddd',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  // Menu button styles - Tiny Device
-  menuButtonTiny: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#ddd',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  
-  // Menu button text styles - Large Device
-  menuButtonTextLarge: {
-    fontSize: 28,
-    fontWeight: 'bold',
-  },
-  // Menu button text styles - Medium Large Device
-  menuButtonTextMediumLarge: {
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  // Menu button text styles - Small Device
-  menuButtonTextSmall: {
-    fontSize: 22,
-    fontWeight: 'bold',
-  },
-  // Menu button text styles - Tiny Device
-  menuButtonTextTiny: {
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  
-  // Undo button container styles - Large Device
-  undoButtonContainerLarge: {
-    position: 'absolute',
-    top: 12,
-    left: 0,
-    zIndex: 10,
-  },
-  // Undo button container styles - Medium Large Device
-  undoButtonContainerMediumLarge: {
-    position: 'absolute',
-    top: 10,
-    left: 0,
-    zIndex: 10,
-  },
-  // Undo button container styles - Small Device
-  undoButtonContainerSmall: {
-    position: 'absolute',
-    top: 8,
-    left: 0,
-    zIndex: 10,
-  },
-  // Undo button container styles - Tiny Device
-  undoButtonContainerTiny: {
-    position: 'absolute',
-    top: 6,
-    left: 0,
-    zIndex: 10,
-  },
-  
-  // Undo button styles - Large Device
-  undoButtonLarge: {
-    width: 55,
-    height: 55,
-    borderRadius: 27.5,
-    backgroundColor: '#0052b4',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  // Undo button styles - Medium Large Device
-  undoButtonMediumLarge: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#0052b4',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  // Undo button styles - Small Device
-  undoButtonSmall: {
-    width: 45,
-    height: 45,
-    borderRadius: 22.5,
-    backgroundColor: '#0052b4',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  // Undo button styles - Tiny Device
-  undoButtonTiny: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#0052b4',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  
-  // Undo button text styles - Large Device
-  undoButtonTextLarge: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  // Undo button text styles - Medium Large Device
-  undoButtonTextMediumLarge: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  // Undo button text styles - Small Device
-  undoButtonTextSmall: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  // Undo button text styles - Tiny Device
-  undoButtonTextTiny: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  
-  // Redo button container styles - Large Device
-  redoButtonContainerLarge: {
-    position: 'absolute',
-    top: 12,
-    left: 0,
-    zIndex: 10,
-  },
-  // Redo button container styles - Medium Large Device
-  redoButtonContainerMediumLarge: {
-    position: 'absolute',
-    top: 10,
-    left: 0,
-    zIndex: 10,
-  },
-  // Redo button container styles - Small Device
-  redoButtonContainerSmall: {
-    position: 'absolute',
-    top: 8,
-    left: 0,
-    zIndex: 10,
-  },
-  // Redo button container styles - Tiny Device
-  redoButtonContainerTiny: {
-    position: 'absolute',
-    top: 6,
-    left: 0,
-    zIndex: 10,
-  },
-  
-  // Redo button styles - Large Device
-  redoButtonLarge: {
-    width: 55,
-    height: 55,
-    borderRadius: 27.5,
-    backgroundColor: '#28a745',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  // Redo button styles - Medium Large Device
-  redoButtonMediumLarge: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#28a745',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  // Redo button styles - Small Device
-  redoButtonSmall: {
-    width: 45,
-    height: 45,
-    borderRadius: 22.5,
-    backgroundColor: '#28a745',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  // Redo button styles - Tiny Device
-  redoButtonTiny: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#28a745',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  
-  // Redo button text styles - Large Device
-  redoButtonTextLarge: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  // Redo button text styles - Medium Large Device
-  redoButtonTextMediumLarge: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  // Redo button text styles - Small Device
-  redoButtonTextSmall: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  // Redo button text styles - Tiny Device
-  redoButtonTextTiny: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  
-  disabledButton: {
-    backgroundColor: '#999',
-    opacity: 0.5,
-  },
-  
-  // Menu content styles - Large Device
-  menuContentLarge: {
-    padding: 18,
-  },
-  // Menu content styles - Medium Large Device
-  menuContentMediumLarge: {
-    padding: 15,
-  },
-  // Menu content styles - Small Device
-  menuContentSmall: {
-    padding: 12,
-  },
-  // Menu content styles - Tiny Device
-  menuContentTiny: {
-    padding: 10,
-  },
-  
-  // Menu section styles - Large Device
-  menuSectionLarge: {
-    marginBottom: 18,
-  },
-  // Menu section styles - Medium Large Device
-  menuSectionMediumLarge: {
-    marginBottom: 15,
-  },
-  // Menu section styles - Small Device
-  menuSectionSmall: {
-    marginBottom: 12,
-  },
-  // Menu section styles - Tiny Device
-  menuSectionTiny: {
-    marginBottom: 10,
-  },
-  
-  // Menu section title styles - Large Device
-  menuSectionTitleLarge: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 10,
-    color: '#333',
-  },
-  // Menu section title styles - Medium Large Device
-  menuSectionTitleMediumLarge: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 8,
-    color: '#333',
-  },
-  // Menu section title styles - Small Device
-  menuSectionTitleSmall: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginBottom: 6,
-    color: '#333',
-  },
-  // Menu section title styles - Tiny Device
-  menuSectionTitleTiny: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    marginBottom: 5,
-    color: '#333',
-  },
-  
-  // Color row styles - Large Device
-  colorRowLarge: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginRight: 14,
-  },
-  // Color row styles - Medium Large Device
-  colorRowMediumLarge: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginRight: 12,
-  },
-  // Color row styles - Small Device
-  colorRowSmall: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginRight: 10,
-  },
-  // Color row styles - Tiny Device
-  colorRowTiny: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginRight: 8,
-  },
-  
-  // Color option styles - Large Device
-  colorOptionLarge: {
-    width: 35,
-    height: 35,
-    borderRadius: 17.5,
-    marginRight: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  // Color option styles - Medium Large Device
-  colorOptionMediumLarge: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    marginRight: 10,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  // Color option styles - Small Device
-  colorOptionSmall: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    marginRight: 8,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  // Color option styles - Tiny Device
-  colorOptionTiny: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    marginRight: 6,
-    marginBottom: 6,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  
-  // Width row styles - Large Device
-  widthRowLarge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  // Width row styles - Medium Large Device
-  widthRowMediumLarge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  // Width row styles - Small Device
-  widthRowSmall: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  // Width row styles - Tiny Device
-  widthRowTiny: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  
-  // Width option styles - Large Device
-  widthOptionLarge: {
-    width: 45,
-    height: 45,
-    borderRadius: 22.5,
-    marginRight: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f0f0f0',
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  // Width option styles - Medium Large Device
-  widthOptionMediumLarge: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f0f0f0',
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  // Width option styles - Small Device
-  widthOptionSmall: {
-    width: 35,
-    height: 35,
-    borderRadius: 17.5,
-    marginRight: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f0f0f0',
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  // Width option styles - Tiny Device
-  widthOptionTiny: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    marginRight: 6,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f0f0f0',
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  
-  widthCircle: {
-    backgroundColor: 'black',
-  },
-  
-  // Tools row styles - Large Device
-  toolsRowLarge: {
-    flexDirection: 'row',
-    marginBottom: 12,
-  },
-  // Tools row styles - Medium Large Device
-  toolsRowMediumLarge: {
-    flexDirection: 'row',
-    marginBottom: 10,
-  },
-  // Tools row styles - Small Device
-  toolsRowSmall: {
-    flexDirection: 'row',
-    marginBottom: 8,
-  },
-  // Tools row styles - Tiny Device
-  toolsRowTiny: {
-    flexDirection: 'row',
-    marginBottom: 6,
-  },
-  
-  // Tool button styles - Large Device
-  toolButtonLarge: {
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 6,
-    marginRight: 12,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  // Tool button styles - Medium Large Device
-  toolButtonMediumLarge: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 5,
-    marginRight: 10,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  // Tool button styles - Small Device
-  toolButtonSmall: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 4,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  // Tool button styles - Tiny Device
-  toolButtonTiny: {
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 3,
-    marginRight: 6,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  
-  // Tool button text styles - Large Device
-  toolButtonTextLarge: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  // Tool button text styles - Medium Large Device
-  toolButtonTextMediumLarge: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  // Tool button text styles - Small Device
-  toolButtonTextSmall: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  // Tool button text styles - Tiny Device
-  toolButtonTextTiny: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  
-  selectedOption: {
-    borderColor: '#007AFF',
-    borderWidth: 2,
-  },
-  
-  // Pen row styles - Large Device
-  penRowLarge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-    marginTop: 3,
-  },
-  // Pen row styles - Medium Large Device
-  penRowMediumLarge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-    marginTop: 2,
-  },
-  // Pen row styles - Small Device
-  penRowSmall: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-    marginTop: 2,
-  },
-  // Pen row styles - Tiny Device
-  penRowTiny: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 6,
-    marginTop: 1,
-  },
-  
-  // Pen option styles - Large Device
-  penOptionLarge: {
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 6,
-    marginRight: 12,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    minWidth: 38,
-    alignItems: 'center',
-  },
-  // Pen option styles - Medium Large Device
-  penOptionMediumLarge: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 5,
-    marginRight: 10,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    minWidth: 32,
-    alignItems: 'center',
-  },
-  // Pen option styles - Small Device
-  penOptionSmall: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 4,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    minWidth: 28,
-    alignItems: 'center',
-  },
-  // Pen option styles - Tiny Device
-  penOptionTiny: {
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 3,
-    marginRight: 6,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    minWidth: 24,
-    alignItems: 'center',
-  },
-  
-  // Pen label styles - Large Device
-  penLabelLarge: {
-    fontSize: 12,
-    marginTop: 3,
-  },
-  // Pen label styles - Medium Large Device
-  penLabelMediumLarge: {
-    fontSize: 10,
-    marginTop: 2,
-  },
-  // Pen label styles - Small Device
-  penLabelSmall: {
-    fontSize: 9,
-    marginTop: 2,
-  },
-  // Pen label styles - Tiny Device
-  penLabelTiny: {
-    fontSize: 8,
-    marginTop: 1,
-  },
-  
-  // Bottom buttons container styles - Large Device
-  bottomButtonsContainerLarge: {
-    position: 'absolute',
+    backgroundColor: '#e0e0e0',
+    marginVertical: 8,
+    marginHorizontal: 4,
+    minHeight: canvasHeight - 20,
+  },
+  canvasContainer: {
+    width: '100%',
+    position: 'relative',
+  },
+  canvas: {
+    width: '100%',
     backgroundColor: 'transparent',
-    bottom: 25,
-    width: 190,
-    right: 18,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    zIndex: 20,
-  },
-  // Bottom buttons container styles - Medium Large Device
-  bottomButtonsContainerMediumLarge: {
-    position: 'absolute',
-    backgroundColor: 'transparent',
-    bottom: 20,
-    width: 170,
-    right: 15,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    zIndex: 20,
-  },
-  // Bottom buttons container styles - Small Device
-  bottomButtonsContainerSmall: {
-    position: 'absolute',
-    backgroundColor: 'transparent',
-    bottom: 15,
-    width: 150,
-    right: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    zIndex: 20,
-  },
-  // Bottom buttons container styles - Tiny Device
-  bottomButtonsContainerTiny: {
-    position: 'absolute',
-    backgroundColor: 'transparent',
-    bottom: 10,
-    width: 130,
-    right: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    zIndex: 20,
-  },
-  
-  // Bottom buttons container code table styles - Large Device
-  bottomButtonsContainercodetableLarge: {
-    position: 'absolute',
-    backgroundColor: 'transparent',
-    bottom: 25,
-    width: 190,
-    left: 18,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    zIndex: 20,
-  },
-  // Bottom buttons container code table styles - Medium Large Device
-  bottomButtonsContainercodetableMediumLarge: {
-    position: 'absolute',
-    backgroundColor: 'transparent',
-    bottom: 20,
-    width: 170,
-    left: 15,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    zIndex: 20,
-  },
-  // Bottom buttons container code table styles - Small Device
-  bottomButtonsContainercodetableSmall: {
-    position: 'absolute',
-    backgroundColor: 'transparent',
-    bottom: 15,
-    width: 150,
-    left: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    zIndex: 20,
-  },
-  // Bottom buttons container code table styles - Tiny Device
-  bottomButtonsContainercodetableTiny: {
-    position: 'absolute',
-    backgroundColor: 'transparent',
-    bottom: 10,
-    width: 130,
-    left: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    zIndex: 20,
-  },
-  
-  // Final calc container styles - Large Device
-  finalcalcContainerLarge: {
-    position: 'absolute',
-    backgroundColor: 'transparent',
-    top: 12,
-    fontSize: 24,
-    right: 25,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    zIndex: 20,
-  },
-  // Final calc container styles - Medium Large Device
-  finalcalcContainerMediumLarge: {
-    position: 'absolute',
-    backgroundColor: 'transparent',
-    top: 10,
-    fontSize: 20,
-    right: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    zIndex: 20,
-  },
-  // Final calc container styles - Small Device
-  finalcalcContainerSmall: {
-    position: 'absolute',
-    backgroundColor: 'transparent',
-    top: 8,
-    fontSize: 18,
-    right: 15,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    zIndex: 20,
-  },
-  // Final calc container styles - Tiny Device
-  finalcalcContainerTiny: {
-    position: 'absolute',
-    backgroundColor: 'transparent',
-    top: 6,
-    fontSize: 16,
-    right: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    zIndex: 20,
-  },
-  
-  // Stick button styles - Large Device
-  stickButtonLarge: {
-    flex: 1,
-    backgroundColor: "#B4B4B4",
-    padding: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  stickButtonLargeSTICK: {
-    flex: 1,
-    backgroundColor: "#DC3545",
-    padding: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  // Stick button styles - Medium Large Device
-  stickButtonMediumLarge: {
-    flex: 1,
-    backgroundColor: "#B4B4B4",
-    padding: 10,
-    borderRadius: 10,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  stickButtonMediumLargeSTICK: {
-    flex: 1,
-    backgroundColor: "#DC3545",
-    padding: 10,
-    borderRadius: 10,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  // Stick button styles - Small Device
-  stickButtonSmall: {
-    flex: 1,
-    backgroundColor: "#B4B4B4",
-    padding: 8,
-    borderRadius: 8,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  stickButtonSmallSTICK: {
-    flex: 1,
-    backgroundColor: "#DC3545",
-    padding: 8,
-    borderRadius: 8,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  // Stick button styles - Tiny Device
-  stickButtonTiny: {
-    flex: 1,
-    backgroundColor: "#B4B4B4",
-    padding: 6,
-    borderRadius: 6,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  stickButtonTinySTICK: {
-    flex: 1,
-    backgroundColor: "#DC3545",
-    padding: 6,
-    borderRadius: 6,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  
-  stickButtonActive: {
-    backgroundColor: "#3AAA35",
-  },
-  
-  // Button text styles - Large Device
-  buttonTextLarge: {
-    fontSize: 14,
-    color: "white",
-    fontWeight: "bold",
-  },
-  // Button text styles - Medium Large Device
-  buttonTextMediumLarge: {
-    fontSize: 12,
-    color: "white",
-    fontWeight: "bold",
-  },
-  // Button text styles - Small Device
-  buttonTextSmall: {
-    fontSize: 11,
-    color: "white",
-    fontWeight: "bold",
-  },
-  // Button text styles - Tiny Device
-  buttonTextTiny: {
-    fontSize: 10,
-    color: "white",
-    fontWeight: "bold",
-  },
-  
-  // Legacy styles (keeping for compatibility)
-  colorPenRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  debugPanel: {
-    padding: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    position: 'absolute',
-    top: 70,
-    left: 0,
-    right: 0,
-    zIndex: 100,
-  },
-  debugTitle: {
-    color: '#ff4500',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 5,
-    textAlign: 'center',
-  },
-  debugText: {
-    color: 'white',
-    fontSize: 14,
-    marginBottom: 3,
-  },
-  highlightText: {
-    color: '#ffcc00',
-    fontWeight: 'bold',
-  },
-  centeredImageContainer: {
     position: 'absolute',
     top: 0,
     left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 50,
   },
-  centeredImage: {
-    position: 'absolute',
-    alignSelf: 'center',
-    zIndex: 9999,
-    width: 700,
-    height: 700,
-    opacity: 0.8,
-    paddingBottom: 100,
-  },
-  
-  // Save status container styles - Large Device
-  saveStatusContainerLarge: {
-    position: 'absolute',
-    top: 12,
-    right: 80,
-    zIndex: 100,
-  },
-  // Save status container styles - Medium Large Device
-  saveStatusContainerMediumLarge: {
+  // Estilos para los botones (posiciones calculadas dinámicamente)
+  menuButtonContainer: {
     position: 'absolute',
     top: 10,
-    right: 70,
-    zIndex: 100,
+    left: BUTTON_START_X, // Botón 0: posición inicial
+    zIndex: 1000,
   },
-  // Save status container styles - Small Device
-  saveStatusContainerSmall: {
+  undoButtonContainer: {
     position: 'absolute',
-    top: 8,
-    right: 60,
-    zIndex: 100,
+    top: 10,
+    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 1, // Botón 1
+    zIndex: 1000,
   },
-  // Save status container styles - Tiny Device
-  saveStatusContainerTiny: {
+  redoButtonContainer: {
     position: 'absolute',
-    top: 6,
-    right: 50,
-    zIndex: 100,
+    top: 10,
+    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 2, // Botón 2
+    zIndex: 1000,
   },
-  
-  // Save indicator styles - Large Device
-  saveIndicatorLarge: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+  eraserButtonContainer: {
+    position: 'absolute',
+    top: 10,
+    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 3, // Botón 3
+    zIndex: 1000,
+  },
+  penButtonContainer: {
+    position: 'absolute',
+    top: 10,
+    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 4, // Botón 4
+    zIndex: 1000,
+  },
+  // Stick bonus button - bottom right
+  stickButtonContainer: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    zIndex: 1000,
+  },
+  // Vault button - bottom left
+  vaultButtonContainer: {
+    position: 'absolute',
+    bottom: 10,
+    left: 10,
+    zIndex: 1000,
+  },
+  menuButton: {
+    width: BUTTON_SIZE,
+    height: BUTTON_SIZE,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: BUTTON_SIZE / 2,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
   },
-  // Save indicator styles - Medium Large Device
-  saveIndicatorMediumLarge: {
-    width: 45,
-    height: 45,
-    borderRadius: 22.5,
+  actionButton: {
+    width: BUTTON_SIZE,
+    height: BUTTON_SIZE,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: BUTTON_SIZE / 2,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
   },
-  // Save indicator styles - Small Device
-  saveIndicatorSmall: {
-    width: 40,
-    height: 40,
+  buttonText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  activeButton: {
+    backgroundColor: 'rgba(76, 175, 80, 0.9)',
+  },
+  disabledButton: {
+    backgroundColor: 'rgba(200, 200, 200, 0.5)',
+    opacity: 0.6,
+  },
+  // Estilos específicos para stick bonus
+  stickButton: {
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    backgroundColor: '#DC3545',
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
+    minWidth: 120,
   },
-  // Save indicator styles - Tiny Device
-  saveIndicatorTiny: {
-    width: 35,
-    height: 35,
-    borderRadius: 17.5,
+  stickButtonActive: {
+    backgroundColor: '#3AAA35', // Color verde como el original
+  },
+  stickButtonText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'center',
+  },
+  // Estilos específicos para vault button
+  vaultButton: {
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    backgroundColor: '#007BFF', // Azul para vault
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
+    minWidth: 120,
   },
-  
-  loadingIndicator: {
-    backgroundColor: '#007AFF',
-  },
-  
-  successIndicator: {
-    backgroundColor: '#28a745',
-  },
-  
-  errorIndicator: {
-    backgroundColor: '#dc3545',
-  },
-  
-  // Loading spinner styles - Large Device
-  loadingSpinnerLarge: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 3,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    borderTopColor: 'white',
-  },
-  // Loading spinner styles - Medium Large Device
-  loadingSpinnerMediumLarge: {
-    width: 27,
-    height: 27,
-    borderRadius: 13.5,
-    borderWidth: 3,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    borderTopColor: 'white',
-  },
-  // Loading spinner styles - Small Device
-  loadingSpinnerSmall: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    borderTopColor: 'white',
-  },
-  // Loading spinner styles - Tiny Device
-  loadingSpinnerTiny: {
-    width: 21,
-    height: 21,
-    borderRadius: 10.5,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    borderTopColor: 'white',
-  },
-  
-  // Status icon styles - Large Device
-  statusIconLarge: {
-    fontSize: 24,
+  vaultButtonText: {
+    fontSize: 14,
     fontWeight: 'bold',
     color: 'white',
+    textAlign: 'center',
   },
-  // Status icon styles - Medium Large Device
-  statusIconMediumLarge: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: 'white',
-  },
-  // Status icon styles - Small Device
-  statusIconSmall: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: 'white',
-  },
-  // Status icon styles - Tiny Device
-  statusIconTiny: {
+  percentageText: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
     fontSize: 18,
     fontWeight: 'bold',
-    color: 'white',
+    color: '#333',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
+    zIndex: 999, // Menor que los botones para no interferir
   },
-  
-  // Toolbar styles
-  toolbar: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 10,
-    backgroundColor: "#f0f0f0",
+  // Estilos para el menú desplegable responsivo
+  menuDropdown: {
+    position: 'absolute',
+    top: 70,
+    left: 10,
+    right: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 15,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+    zIndex: 1001,
+    maxWidth: Math.min(width * 0.8, 400), // Responsivo: máximo 80% del ancho o 400px
+    alignSelf: 'center',
   },
-  toolButton: {
-    padding: 10,
-    borderRadius: 5,
-    backgroundColor: "#ddd",
-    marginHorizontal: 5,
+  menuTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 15,
   },
-  activeToolButton: {
-    backgroundColor: "#007AFF",
+  menuSection: {
+    marginBottom: 15,
   },
-  toolButtonText: {
-    color: "#333",
-    fontWeight: "bold",
+  menuSectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  colorRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   colorButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    marginHorizontal: 5,
-    borderWidth: 2,
-    borderColor: "#ddd",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 3,
+    borderColor: 'transparent',
   },
-  activeColorButton: {
-    borderColor: "#007AFF",
+  selectedColorButton: {
+    borderColor: '#333',
+    borderWidth: 3,
+  },
+  strokeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   strokeButton: {
-    padding: 10,
-    borderRadius: 5,
-    backgroundColor: "#ddd",
-    marginHorizontal: 5,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(240, 240, 240, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
-  activeStrokeButton: {
-    backgroundColor: "#007AFF",
+  selectedStrokeButton: {
+    backgroundColor: 'rgba(76, 175, 80, 0.8)',
+    borderColor: '#333',
   },
   strokeButtonText: {
-    color: "#333",
-    fontWeight: "bold",
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#333',
   },
-  redoButton: {
+  strokeDot: {
+    backgroundColor: '#333',
+    borderRadius: 10,
+  },
+  closeMenuButton: {
+    backgroundColor: 'rgba(220, 53, 69, 0.8)',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    alignSelf: 'center',
+    marginTop: 10,
+  },
+  closeMenuText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  // Estilos para tipos de pen
+  penTypeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  penTypeButton: {
+    flex: 1,
+    minWidth: 80,
     padding: 10,
-    borderRadius: 5,
-    backgroundColor: "#ddd",
-    marginHorizontal: 5,
+    backgroundColor: 'rgba(240, 240, 240, 0.8)',
+    borderRadius: 10,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
-  redoButtonText: {
-    color: "#333",
-    fontWeight: "bold",
+  selectedPenTypeButton: {
+    backgroundColor: 'rgba(76, 175, 80, 0.8)',
+    borderColor: '#333',
   },
-  // Eraser button container styles
-  eraserButtonContainerLarge: {
-    position: 'absolute',
-    top: 12,
-    left: 0,
-    zIndex: 10,
+  penTypeIcon: {
+    fontSize: 20,
+    marginBottom: 4,
   },
-  eraserButtonContainerMediumLarge: {
+  penTypeLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#333',
+    textAlign: 'center',
+  },
+  // Red Pen button
+  redPenButtonContainer: {
     position: 'absolute',
     top: 10,
-    left: 0,
-    zIndex: 10,
+    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 5, // Botón 5
+    zIndex: 1000,
   },
-  eraserButtonContainerSmall: {
-    position: 'absolute',
-    top: 8,
-    left: 0,
-    zIndex: 10,
-  },
-  eraserButtonContainerTiny: {
-    position: 'absolute',
-    top: 6,
-    left: 0,
-    zIndex: 10,
-  },
-  
-  // Eraser button styles
-  eraserButtonLarge: {
-    width: 55,
-    height: 55,
-    borderRadius: 27.5,
-    backgroundColor: '#dc3545',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  eraserButtonMediumLarge: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#dc3545',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  eraserButtonSmall: {
-    width: 45,
-    height: 45,
-    borderRadius: 22.5,
-    backgroundColor: '#dc3545',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  eraserButtonTiny: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#dc3545',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  
-  // Eraser button text styles
-  eraserButtonTextLarge: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  eraserButtonTextMediumLarge: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  eraserButtonTextSmall: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  eraserButtonTextTiny: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  
-  // Pen button container styles
-  penButtonContainerLarge: {
-    position: 'absolute',
-    top: 12,
-    left: 0,
-    zIndex: 10,
-  },
-  penButtonContainerMediumLarge: {
+  // Blue Pen button
+  bluePenButtonContainer: {
     position: 'absolute',
     top: 10,
-    left: 0,
-    zIndex: 10,
+    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 6, // Botón 6
+    zIndex: 1000,
   },
-  penButtonContainerSmall: {
+  // Stroke Width Control Bar
+  strokeBarContainer: {
     position: 'absolute',
-    top: 8,
-    left: 0,
-    zIndex: 10,
+    top: 10,
+    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 7, // A la derecha de los botones de colores
+    zIndex: 1000,
   },
-  penButtonContainerTiny: {
-    position: 'absolute',
-    top: 6,
-    left: 0,
-    zIndex: 10,
-  },
-  
-  // Pen button styles
-  penButtonLarge: {
-    width: 55,
-    height: 55,
-    borderRadius: 27.5,
-    backgroundColor: '#6c757d',
-    justifyContent: 'center',
+  strokeBar: {
+    flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  penButtonMediumLarge: {
-    width: 50,
-    height: 50,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
     borderRadius: 25,
-    backgroundColor: '#6c757d',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
+    minWidth: 160, // Ancho mínimo más grande para la barra
   },
-  penButtonSmall: {
-    width: 45,
-    height: 45,
-    borderRadius: 22.5,
-    backgroundColor: '#6c757d',
-    justifyContent: 'center',
+  // Estilos para la nueva barra interactiva de stroke
+  strokeIndicator: {
     alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    justifyContent: 'center',
+    marginRight: 8,
+    minWidth: 40,
+  },
+  strokePreview: {
+    borderRadius: 10,
+    marginBottom: 2,
+  },
+  strokeValue: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  strokeSliderContainer: {
+    width: 160, // Hacer la barra más larga
+    height: 30,
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+  strokeSliderTrack: {
+    height: 8,
+    backgroundColor: 'rgba(200, 200, 200, 0.8)',
+    borderRadius: 4,
+    position: 'relative',
+  },
+  strokeSliderProgress: {
+    height: 8,
+    backgroundColor: '#4CAF50',
+    borderRadius: 4,
+  },
+  strokeSliderThumb: {
+    position: 'absolute',
+    top: -5,
+    width: 18,
+    height: 18,
+    backgroundColor: '#4CAF50',
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: 'white',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
-  },
-  penButtonTiny: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#6c757d',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  
-  // Pen button text styles
-  penButtonTextLarge: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  penButtonTextMediumLarge: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  penButtonTextSmall: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  penButtonTextTiny: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  
-  // Active button state
-  activeButton: {
-    backgroundColor: '#007AFF',
-    transform: [{ scale: 1.1 }],
+    marginLeft: -9, // Centrar el thumb
   },
 });
-export default OptimizedWhiteboardDebug;
+
+export default DrawingCanvas;

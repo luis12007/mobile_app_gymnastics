@@ -1,5 +1,5 @@
 export const unstable_settings = {
-  unmountOnBlur: true,
+  unmountOnBlur: false,
 };
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
@@ -285,6 +285,13 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
 
   const [isCustomKeyboardVisible, setIsCustomKeyboardVisible] = useState(false);
 
+  // Debug and warning states
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [saveWarning, setSaveWarning] = useState("");
+  const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
+  const [saveAttempts, setSaveAttempts] = useState(0);
+  const [logs, setLogs] = useState<Array<{id: number, timestamp: string, level: string, message: string}>>([]);
+
   const [showDropdown, setShowDropdown] = useState<{ [key: string]: boolean }>({
     I: false,
     II: false,
@@ -365,12 +372,15 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       console.log("rateid:", rateid);
       if (rateid) {
         updateRateGeneral(rateid, updateData).then((success) => {
+          trackSaveAttempt(success, "stick bonus");
           if (success) {
             console.log(`Saved stickBonus in MainRateGeneral.`);
           } else {
             console.error(`Failed to save stickBonus in MainRateGeneral.`);
           }
         });
+      } else {
+        showSaveWarning("No rate ID available. Cannot save stick bonus.");
       }
     } catch (error) {
       console.error("Error saving stickBonus to MainRateGeneral:", error);
@@ -629,6 +639,104 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     }
   }, [showEModal]);
 
+  // Save warning and debugging functions
+  const showSaveWarning = (message: string) => {
+    setSaveWarning(message);
+    setTimeout(() => setSaveWarning(""), 5000); // Clear warning after 5 seconds
+  };
+
+  const trackSaveAttempt = (success: boolean, operation: string) => {
+    setSaveAttempts(prev => prev + 1);
+    if (success) {
+      setLastSaveTime(new Date());
+      setSaveWarning("");
+    } else {
+      showSaveWarning(`Failed to save ${operation}. Please check your connection.`);
+    }
+  };
+
+  // Log capture functionality
+  const addLog = (level: string, message: string) => {
+    const newLog = {
+      id: Date.now() + Math.random(),
+      timestamp: new Date().toLocaleTimeString(),
+      level,
+      message
+    };
+    setLogs(prev => [newLog, ...prev].slice(0, 100)); // Keep only last 100 logs
+  };
+
+  // Log clearing function
+  const clearLogs = () => {
+    setLogs([]);
+  };
+
+  // Helper function to get log level style
+  const getLogLevelStyle = (level: string) => {
+    switch (level) {
+      case 'LOG':
+        return styles.logLevelLOG;
+      case 'ERROR':
+        return styles.logLevelERROR;
+      case 'WARN':
+        return styles.logLevelWARN;
+      case 'INFO':
+        return styles.logLevelINFO;
+      default:
+        return {};
+    }
+  };
+
+  // Setup log interception
+  useEffect(() => {
+    // Store original console methods
+    const originalLog = console.log;
+    const originalError = console.error;
+    const originalWarn = console.warn;
+    const originalInfo = console.info;
+
+    // Override console methods to capture logs
+    console.log = (...args) => {
+      const message = args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+      ).join(' ');
+      addLog('LOG', message);
+      originalLog.apply(console, args);
+    };
+
+    console.error = (...args) => {
+      const message = args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+      ).join(' ');
+      addLog('ERROR', message);
+      originalError.apply(console, args);
+    };
+
+    console.warn = (...args) => {
+      const message = args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+      ).join(' ');
+      addLog('WARN', message);
+      originalWarn.apply(console, args);
+    };
+
+    console.info = (...args) => {
+      const message = args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+      ).join(' ');
+      addLog('INFO', message);
+      originalInfo.apply(console, args);
+    };
+
+    // Cleanup function to restore original console methods
+    return () => {
+      console.log = originalLog;
+      console.error = originalError;
+      console.warn = originalWarn;
+      console.info = originalInfo;
+    };
+  }, []);
+
   // Add this callback to calculate the element groups total whenever the values change
   useEffect(() => {
     const total =
@@ -650,6 +758,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         };
 
         const success = await updateRateGeneral(rateid, updateData);
+        trackSaveAttempt(success, "element groups total");
 
         if (success) {
           console.log(`Saved element groups total in MainRateGeneral.`);
@@ -712,6 +821,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       };
 
       const success = await updateRateGeneral(rateid, updateData);
+      trackSaveAttempt(success, `element group ${group}`);
 
       setElementGroupsTotal(total);
       setSv(total + difficultyValues + cv);
@@ -747,6 +857,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       }
 
       const success2 = await updateRateGeneral(rateid, updateData2);
+      trackSaveAttempt(success2, "my score and element groups total");
       if (success2) {
         console.log(`Saved element groups total in MainRateGeneral.`);
       } else {
@@ -1109,6 +1220,13 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Save Warning Banner */}
+      {saveWarning ? (
+        <View style={styles.warningBanner}>
+          <Text style={styles.warningText}>⚠️ {saveWarning}</Text>
+        </View>
+      ) : null}
+      
       {/* Element Group Modals */}
       {Object.keys(showElementGroupModal).map((group) => (
         <Modal
@@ -1327,6 +1445,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                 if (!isNaN(num)) {
                   const rounded = Math.round(num * 10) / 10;
                   setNdInputcomp(rounded.toString());
+                  setndcomp(rounded);
 
                   let compscorecalc = d + e + (sb ? 0.1 : 0.0) - rounded;
 
@@ -1340,6 +1459,36 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                   );
 
                   setScore(finalScore);
+
+                  /* ============================================================== */
+                  // Calculate percentage when ND changes (same logic as E modal)
+                  const newdelt = Math.abs(
+                    Math.round((eScore - e) * 10) / 10
+                  );
+                  setDelt(newdelt);
+                  console.log("delt:", newdelt);
+
+                  const newded = 10 - e;
+                  setSetded(Number(newded));
+                  console.log("ded:", Number(newded));
+
+                  /* logic of the table */
+                  const dedInterval = getDeductionIntervalValue(Number(newded));
+                  console.log("dedInterval:", dedInterval);
+                  const percentageValue = getPercentageFromTable(
+                    dedInterval,
+                    newdelt
+                  );
+                  console.log("percentageValue:", percentageValue);
+                  setpercentage(percentageValue);
+
+                  updateMainTable(gymnastid, {
+                    delt: newdelt,
+                    percentage: percentageValue,
+                  });
+                  console.log("percentage:", percentageValue);
+                  /* ============================================================== */
+
                   updateRateGeneral(rateid, {
                     compNd: rounded,
                     compScore: finalScore,
@@ -1813,10 +1962,40 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
 
                   setScore(finalScore);
 
+                  /* ============================================================== */
+                  // Calculate percentage when D changes (same logic as E modal)
+                  const newdelt = Math.abs(
+                    Math.round((eScore - e) * 10) / 10
+                  );
+                  setDelt(newdelt);
+                  console.log("delt:", newdelt);
+
+                  const newded = 10 - e;
+                  setSetded(Number(newded));
+                  console.log("ded:", Number(newded));
+
+                  /* logic of the table */
+                  const dedInterval = getDeductionIntervalValue(Number(newded));
+                  console.log("dedInterval:", dedInterval);
+                  const percentageValue = getPercentageFromTable(
+                    dedInterval,
+                    newdelt
+                  );
+                  console.log("percentageValue:", percentageValue);
+                  setpercentage(percentageValue);
+
+                  updateMainTable(gymnastid, {
+                    delt: newdelt,
+                    percentage: percentageValue,
+                  });
+                  console.log("percentage:", percentageValue);
+                  /* ============================================================== */
+
                   // Save to database
                   updateRateGeneral(rateid, {
                     compD: rounded,
                     compScore: finalScore,
+                    ded: newded,
                   })
                     .then((success) => {
                       if (success) {
@@ -2037,6 +2216,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
             }}
           >
             <TextInput
+
               ref={cvInputRef}
               style={[
                 styles.infoValueText,
@@ -2353,7 +2533,70 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                   console.log("Final myScore (execution):", finalScore);
                   setMyScore(finalScore);
 
-                  // ...existing code...
+                  /* ============================================================== */
+                  // Calculate percentage when execution changes
+                  // rounded = execution deductions (e.g., 3.5)
+                  // eScore = execution score after deductions (e.g., 6.5)
+                  // We need to use the current E score for calculations, not eScore
+                  // delt = difference between current E score and some baseline
+                  // ded = 10 - current E score
+                  
+                  console.log("Current values for percentage calculation:");
+                  console.log("- rounded (execution deductions):", rounded);
+                  console.log("- eScore (calculated execution score):", eScore);
+                  console.log("- e (current E score):", e);
+                  
+                  const newdelt = Math.abs(
+                    Math.round((eScore - e) * 10) / 10
+                  );
+                  setDelt(newdelt);
+                  console.log("delt (execution modal):", newdelt);
+
+                  const newded = 10 - e; // Use current E score, not eScore
+                  setSetded(Number(newded));
+                  console.log("ded (execution modal):", Number(newded));
+
+                  /* logic of the table */
+                  const dedInterval = getDeductionIntervalValue(Number(newded));
+                  console.log("dedInterval:", dedInterval);
+                  const percentageValue = getPercentageFromTable(
+                    dedInterval,
+                    newdelt
+                  );
+                  console.log("percentageValue (execution modal):", percentageValue);
+                  setpercentage(percentageValue);
+
+                  // Save to MainTable and MainRateGeneral with promise handling
+                  updateMainTable(gymnastid, {
+                    delt: newdelt,
+                    percentage: percentageValue,
+                  }).then((mainTableSuccess) => {
+                    if (mainTableSuccess) {
+                      console.log(`Successfully saved delt = ${newdelt} and percentage = ${percentageValue} to MainTable from execution modal.`);
+                    } else {
+                      console.error(`Failed to save delt and percentage to MainTable from execution modal.`);
+                    }
+                  }).catch((error) => {
+                    console.error("Error saving to MainTable from execution modal:", error);
+                  });
+                  
+                  updateRateGeneral(rateid, {
+                    execution: rounded,
+                    eScore: eScore,
+                    myScore: finalScore,
+                    ded: newded,
+                  })
+                    .then((success) => {
+                      if (success) {
+                        console.log(`Saved execution = ${rounded} and percentage = ${percentageValue} in database.`);
+                      } else {
+                        console.error(`Failed to save execution in database.`);
+                      }
+                    })
+                    .catch((error) => {
+                      console.error("Error saving execution to database:", error);
+                    });
+                  /* ============================================================== */
                 } else {
                   Alert.alert(
                     "Invalid Input",
@@ -2909,6 +3152,163 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
             </Text>
           </TouchableOpacity>
         </View>
+
+        {/* Debug Panel Toggle Button */}
+        <View style={styles.debugToggleContainer}>
+          <TouchableOpacity
+            style={styles.debugToggleButton}
+            onPress={() => setShowDebugPanel(!showDebugPanel)}
+          >
+            <Text style={styles.debugToggleText}>
+              {showDebugPanel ? "Hide Debug Info" : "Show Debug Info"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Debug Information Panel */}
+        {showDebugPanel && (
+          <View style={styles.debugPanel}>
+            <Text style={styles.debugTitle}>🔧 Debug Information</Text>
+            
+            <ScrollView style={styles.debugScrollView}>
+              {/* Competition Info */}
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Competition Info:</Text>
+                <Text style={styles.debugText}>Competition ID: {competenceId}</Text>
+                <Text style={styles.debugText}>Event: {event}</Text>
+                <Text style={styles.debugText}>Participant: {number}/{participants}</Text>
+                <Text style={styles.debugText}>Folder ID: {folderId}</Text>
+                <Text style={styles.debugText}>Discipline: {discipline ? "WAG" : "MAG"}</Text>
+              </View>
+
+              {/* Gymnast Info */}
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Gymnast Info:</Text>
+                <Text style={styles.debugText}>ID: {gymnastid}</Text>
+                <Text style={styles.debugText}>Name: {gymnastName}</Text>
+                <Text style={styles.debugText}>NOC: {gymnastNoc}</Text>
+                <Text style={styles.debugText}>BIB: {gymnastBib}</Text>
+                <Text style={styles.debugText}>Event: {gymnastEvent}</Text>
+              </View>
+
+              {/* Rate Info */}
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Rate Info:</Text>
+                <Text style={styles.debugText}>Rate ID: {rateid}</Text>
+                <Text style={styles.debugText}>Total Elements: {totalElements}</Text>
+                <Text style={styles.debugText}>Difficulty Values: {difficultyValues}</Text>
+                <Text style={styles.debugText}>Element Groups Total: {elementGroupsTotal}</Text>
+                <Text style={styles.debugText}>CV: {cv}</Text>
+                <Text style={styles.debugText}>SV: {sv}</Text>
+                <Text style={styles.debugText}>ND: {nd}</Text>
+                <Text style={styles.debugText}>Stick Bonus: {stickbonus ? "Yes" : "No"}</Text>
+              </View>
+
+              {/* Scores */}
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Scores:</Text>
+                <Text style={styles.debugText}>Execution: {execution}</Text>
+                <Text style={styles.debugText}>E-Score: {eScore}</Text>
+                <Text style={styles.debugText}>My Score: {myScore}</Text>
+                <Text style={styles.debugText}>Score: {score}</Text>
+                <Text style={styles.debugText}>Delta: {delt}</Text>
+                <Text style={styles.debugText}>Deduction: {ded}</Text>
+                <Text style={styles.debugText}>Percentage: {percentage}</Text>
+              </View>
+
+              {/* Element Counts */}
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Element Counts:</Text>
+                {Object.entries(elementCounts).map(([key, value]) => (
+                  <Text key={key} style={styles.debugText}>
+                    {key}: {value.value} (Selected: {value.selected ? "Yes" : "No"})
+                  </Text>
+                ))}
+              </View>
+
+              {/* Element Groups */}
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Element Groups:</Text>
+                {Object.entries(elementGroupValues).map(([key, value]) => (
+                  <Text key={key} style={styles.debugText}>
+                    Group {key}: {value}
+                  </Text>
+                ))}
+              </View>
+
+              {/* Competition Deductions */}
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Competition Info:</Text>
+                <Text style={styles.debugText}>D: {d}</Text>
+                <Text style={styles.debugText}>E: {e}</Text>
+                <Text style={styles.debugText}>ND Comp: {ndcomp}</Text>
+                <Text style={styles.debugText}>SB: {sb ? "Yes" : "No"}</Text>
+              </View>
+
+              {/* Save Information */}
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Save Status:</Text>
+                <Text style={styles.debugText}>Save Attempts: {saveAttempts}</Text>
+                <Text style={styles.debugText}>
+                  Last Save: {lastSaveTime ? lastSaveTime.toLocaleString() : "Never"}
+                </Text>
+                <Text style={styles.debugText}>
+                  Current Warning: {saveWarning || "None"}
+                </Text>
+              </View>
+
+              {/* Modal States */}
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Modal States:</Text>
+                <Text style={styles.debugText}>CV Modal: {showCvModal ? "Open" : "Closed"}</Text>
+                <Text style={styles.debugText}>ND Modal: {showNdModal ? "Open" : "Closed"}</Text>
+                <Text style={styles.debugText}>Execution Modal: {showExecutionModal ? "Open" : "Closed"}</Text>
+                <Text style={styles.debugText}>Comments Modal: {showCommentsModal ? "Open" : "Closed"}</Text>
+                <Text style={styles.debugText}>D Modal: {showDModal ? "Open" : "Closed"}</Text>
+                <Text style={styles.debugText}>E Modal: {showEModal ? "Open" : "Closed"}</Text>
+                <Text style={styles.debugText}>ND Comp Modal: {showNdCompModal ? "Open" : "Closed"}</Text>
+              </View>
+
+              {/* Comments */}
+              <View style={styles.debugSection}>
+                <Text style={styles.debugSectionTitle}>Comments:</Text>
+                <Text style={styles.debugText}>
+                  Comments: "{comments}" (Length: {comments.length})
+                </Text>
+              </View>
+
+              {/* Application Logs */}
+              <View style={styles.debugSection}>
+                <View style={styles.logsHeader}>
+                  <Text style={styles.debugSectionTitle}>Application Logs ({logs.length}):</Text>
+                  <TouchableOpacity onPress={clearLogs} style={styles.clearLogsButton}>
+                    <Text style={styles.clearLogsText}>Clear</Text>
+                  </TouchableOpacity>
+                </View>
+                <ScrollView style={styles.logsContainer} nestedScrollEnabled={true}>
+                  {logs.length === 0 ? (
+                    <Text style={styles.debugText}>No logs captured yet...</Text>
+                  ) : (
+                    logs.map((log) => (
+                      <View key={log.id} style={styles.logEntry}>
+                        <View style={styles.logHeader}>
+                          <Text style={[styles.logLevel, getLogLevelStyle(log.level)]}>
+                            {log.level}
+                          </Text>
+                          <Text style={styles.logTimestamp}>{log.timestamp}</Text>
+                        </View>
+                        <Text style={styles.logMessage} numberOfLines={3} ellipsizeMode="tail">
+                          {log.message}
+                        </Text>
+                      </View>
+                    ))
+                  )}
+                </ScrollView>
+              </View>
+
+            </ScrollView>
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -3900,6 +4300,151 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "bold",
     fontSize: 16,
+  },
+  // Warning banner styles
+  warningBanner: {
+    backgroundColor: "#ff6b6b",
+    padding: 12,
+    marginHorizontal: 10,
+    marginTop: 10,
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: "#ff4757",
+  },
+  warningText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "bold",
+    textAlign: "center",
+  },
+  // Debug panel styles
+  debugToggleContainer: {
+    padding: 10,
+    alignItems: "center",
+  },
+  debugToggleButton: {
+    backgroundColor: "#6c757d",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 5,
+  },
+  debugToggleText: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  debugPanel: {
+    backgroundColor: "#f8f9fa",
+    margin: 10,
+    borderRadius: 10,
+    padding: 15,
+    borderWidth: 2,
+    borderColor: "#dee2e6",
+    maxHeight: 400,
+  },
+  debugTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#495057",
+    textAlign: "center",
+    marginBottom: 15,
+  },
+  debugScrollView: {
+    maxHeight: 350,
+  },
+  debugSection: {
+    backgroundColor: "white",
+    padding: 12,
+    marginBottom: 10,
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: "#007bff",
+  },
+  debugSectionTitle: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#007bff",
+    marginBottom: 8,
+  },
+  debugText: {
+    fontSize: 12,
+    color: "#495057",
+    marginBottom: 3,
+    fontFamily: "monospace",
+  },
+  
+  // Logs styles
+  logsHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  clearLogsButton: {
+    backgroundColor: "#dc3545",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  clearLogsText: {
+    color: "white",
+    fontSize: 10,
+    fontWeight: "bold",
+  },
+  logsContainer: {
+    maxHeight: 200,
+    backgroundColor: "#f8f9fa",
+    borderRadius: 4,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: "#e9ecef",
+  },
+  logEntry: {
+    backgroundColor: "white",
+    padding: 8,
+    marginBottom: 4,
+    borderRadius: 4,
+    borderLeftWidth: 3,
+    borderLeftColor: "#6c757d",
+  },
+  logHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  logLevel: {
+    fontSize: 10,
+    fontWeight: "bold",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 3,
+    color: "white",
+    backgroundColor: "#6c757d",
+  },
+  logLevelLOG: {
+    backgroundColor: "#28a745",
+  },
+  logLevelERROR: {
+    backgroundColor: "#dc3545",
+  },
+  logLevelWARN: {
+    backgroundColor: "#ffc107",
+    color: "#212529",
+  },
+  logLevelINFO: {
+    backgroundColor: "#17a2b8",
+  },
+  logTimestamp: {
+    fontSize: 10,
+    color: "#6c757d",
+    fontFamily: "monospace",
+  },
+  logMessage: {
+    fontSize: 11,
+    color: "#495057",
+    fontFamily: "monospace",
+    lineHeight: 14,
   },
 });
 

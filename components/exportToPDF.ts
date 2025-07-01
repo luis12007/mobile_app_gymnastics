@@ -126,1337 +126,7 @@ const getJumpImageBase64 = async (): Promise<string | null> => {
   }
 };
 
-export const generateMainJumpPDF = async (data?: MainTableWithRateGeneral[]) => {
-  console.log('Generating Jump PDF...');
-  // Check if data is provided
-  console.log('Data:', data);
-  if (!data || !Array.isArray(data) || data.length === 0) {
-    throw new Error('No data provided for PDF generation');
-  }
 
-  // Get the base64 image
-  const jumpImageBase64 = await getJumpImageBase64();
-
-  // Function to render whiteboard paths from stored paths string
-  const renderWhiteboardPaths = (pathsString: string) => {
-    if (!pathsString) return '';
-    
-    try {
-      const paths = JSON.parse(pathsString);
-      if (!Array.isArray(paths)) return '';
-      
-      return paths.map((pathData, index) => {
-        // Scale the path coordinates by 1.3x for zoom effect
-        let scaledPath = pathData.path;
-        
-        // Parse and scale SVG path commands
-        if (pathData.path) {
-          // Simple scaling by replacing coordinate values
-          scaledPath = pathData.path.replace(/([ML])\s*([0-9.-]+)\s*([0-9.-]+)/g, (match, command, x, y) => {
-            /* const scaledX = parseFloat(x) * 1.6 - 240;
-            const scaledY = parseFloat(y) * 1.6; */
-            const scaledX = parseFloat(x) * 1;
-            const scaledY = parseFloat(y) * 1;
-            return `${command} ${scaledX} ${scaledY}`;
-          });
-        }
-        
-        let pathElement = '';
-        
-        if (pathData.penType === 2) {
-          // Highlighter - filled path
-          pathElement = `
-            <path 
-              d="${scaledPath}" 
-              stroke="${pathData.color || 'yellow'}" 
-              stroke-width="4" 
-              fill="${pathData.color || 'yellow'}" 
-              fill-opacity="0.4" 
-              stroke-opacity="0.8"
-            />`;
-        } else if (pathData.penType === 1) {
-          // Telestrator - thin red line
-          pathElement = `
-            <path 
-              d="${scaledPath}" 
-              stroke="red" 
-              stroke-width="3" 
-              fill="none" 
-              stroke-linecap="round" 
-              stroke-linejoin="round" 
-              opacity="1"
-            />`;
-        } else {
-          // Normal pen
-          pathElement = `
-            <path 
-              d="${scaledPath}" 
-              stroke="${pathData.isEraser ? '#e0e0e0' : (pathData.color || 'black')}" 
-              stroke-width="${pathData.strokeWidth || 3}" 
-              fill="none" 
-              stroke-linecap="round" 
-              stroke-linejoin="round"
-            />`;
-        }
-        
-        return pathElement;
-      }).join('');
-    } catch (error) {
-      console.error('Error parsing paths:', error);
-      return '';
-    }
-  };
-
-  const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="UTF-8">
-      <style>
-        * {
-          margin: 0;
-          padding: 0;
-          box-sizing: border-box;
-        }
-        
-        body {
-          font-family: Arial, sans-serif;
-          font-size: 10px;
-          line-height: 1.2;
-          color: #333;
-          background: #f5f5f5;
-          padding: 8px;
-        }
-        
-        .page {
-          background: white;
-          margin-bottom: 20px;
-          padding: 15px;
-          border-radius: 8px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-          page-break-after: always;
-        }
-        
-        .header {
-          text-align: center;
-          margin-bottom: 15px;
-          background: linear-gradient(135deg, #0052b4, #004aad);
-          color: white;
-          padding: 12px;
-          border-radius: 6px;
-        }
-        
-        .header h1 {
-          font-size: 18px;
-          margin-bottom: 3px;
-        }
-        
-        .header h2 {
-          font-size: 14px;
-          font-weight: normal;
-        }
-        
-        .gymnast-info {
-          background: #e8f4ff;
-          padding: 8px;
-          border-radius: 4px;
-          margin-bottom: 15px;
-          border-left: 3px solid #0052b4;
-          font-size: 9px;
-        }
-        
-        .whiteboard-section {
-          background: #f9f9f9;
-          border-radius: 6px;
-          padding: 15px 25px 20px 25px;
-          border: 1px solid #ddd;
-          margin-bottom: 15px;
-          text-align: center;
-        }
-        
-        .whiteboard-title {
-          font-size: 12px;
-          font-weight: bold;
-          color: #0052b4;
-          margin-bottom: 8px;
-          text-align: center;
-        }
-        
-        .whiteboard-canvas {
-          width: 60%;
-          height: 180px;
-          background: #e0e0e0;
-          border: 1px solid #ccc;
-          border-radius: 4px;
-          margin: 0 auto;
-          position: relative;
-        }
-        
-        .tables-section {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 15px;
-          margin-bottom: 15px;
-        }
-        
-        .vault-table {
-          width: 100%;
-          border-collapse: collapse;
-          background: white;
-          border-radius: 4px;
-          overflow: hidden;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-          font-size: 8px;
-        }
-        
-        .vault-table-header {
-          background: #0052b4;
-          color: white;
-          text-align: center;
-          padding: 6px;
-          font-weight: bold;
-          font-size: 10px;
-        }
-        
-        .vault-table th,
-        .vault-table td {
-          border: 1px solid #ddd;
-          padding: 3px;
-          text-align: center;
-          font-weight: bold;
-        }
-        
-        .vault-table th {
-          background: #f0f0f0;
-          font-size: 8px;
-        }
-        
-        .vault-info-row {
-          background: #a9def9;
-        }
-        
-        .vault-info-value {
-          background: #6B9BDF;
-          color: white;
-          font-weight: bold;
-          font-size: 10px;
-        }
-        
-        .info-table {
-          width: 100%;
-          border-collapse: collapse;
-          background: white;
-          border-radius: 4px;
-          overflow: hidden;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-          font-size: 8px;
-          border: 1px solid #ddd;
-        }
-        
-        .info-table tr {
-          height: 22px;
-        }
-        
-        .info-label {
-          background: #a9def9;
-          padding: 3px 6px;
-          font-weight: bold;
-          text-align: right;
-          width: 120px;
-          border: 1px solid #ddd;
-          font-size: 8px;
-        }
-        
-        .info-value {
-          background: #6B9BDF;
-          padding: 3px;
-          text-align: center;
-          font-weight: bold;
-          border: 1px solid #ddd;
-          font-size: 10px;
-        }
-        
-        .info-value.green {
-          background: #00b050;
-        }
-        
-        .info-value.red {
-          background: #ff9b9b;
-        }
-        
-        .info-value.yellow {
-          background: #f8c471;
-        }
-        
-        .info-value.orange {
-          background: #ffcb41;
-        }
-        
-        .score-groups {
-          display: flex;
-          flex: 1;
-        }
-        
-        .score-group {
-          flex: 1;
-          text-align: center;
-          border: 1px solid #ddd;
-        }
-        
-        .score-header {
-          background: #D9D9D9;
-          padding: 3px;
-          font-weight: bold;
-          font-size: 8px;
-        }
-        
-        .score-value {
-          padding: 3px;
-          font-weight: bold;
-          font-size: 9px;
-        }
-        
-        .score-value.sv {
-          background: #6B9BDF;
-        }
-        
-        .score-value.nd {
-          background: #ff9b9b;
-        }
-        
-        .score-value.sb {
-          background: #00b050;
-          color: white;
-        }
-        
-        .score-value.execution {
-          background: #f8c471;
-        }
-        
-        .competition-section {
-          background: white;
-          border-radius: 4px;
-          margin: 0 auto 10px auto;
-          max-width: 600px;
-          overflow: hidden;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        
-        .comp-row {
-          display: flex;
-          height: 25px;
-        }
-        
-        .comp-label {
-          background: #00b050;
-          color: white;
-          text-align: center;
-          padding: 3px 6px;
-          font-weight: bold;
-          width: 120px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 8px;
-        }
-        
-        .comp-cell {
-          flex: 1;
-          background: #D9D9D9;
-          text-align: center;
-          padding: 3px;
-          font-weight: bold;
-          border: 1px solid black;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 8px;
-        }
-        
-        .comp-value {
-          flex: 1;
-          background: #00b050;
-          color: white;
-          text-align: center;
-          padding: 3px;
-          font-weight: bold;
-          border: 1px solid black;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 9px;
-        }
-        
-        .comments-section {
-          background: white;
-          padding: 10px;
-          border-radius: 4px;
-          margin-bottom: 10px;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        
-        .comments-section h3 {
-          color: #0052b4;
-          margin-bottom: 6px;
-          border-bottom: 1px solid #0052b4;
-          padding-bottom: 3px;
-          font-size: 11px;
-        }
-        
-        .comments-text {
-          font-size: 9px;
-          line-height: 1.3;
-          text-align: justify;
-        }
-        
-        .footer {
-          text-align: center;
-          margin-top: 15px;
-          font-size: 8px;
-          color: #666;
-          border-top: 1px solid #ddd;
-          padding-top: 8px;
-        }
-        
-        @media print {
-          body { padding: 5px; }
-          .page { margin-bottom: 0; page-break-after: always; }
-          .header h1 { font-size: 16px; }
-        }
-      </style>
-    </head>
-    <body>
-      ${data.map((gymnast, index) => `
-        <div class="page">
-          <div class="header">
-            <h1>🏅 GymJudge - Vault Report</h1>
-            <h2>${gymnast.name || 'Unknown Gymnast'} (${gymnast.noc || 'UNK'}) - ${gymnast.event || 'VT'}</h2>
-          </div>
-          
-          <div class="gymnast-info">
-            <strong>Gymnast:</strong> ${gymnast.name || 'Unknown'} | 
-            <strong>NOC:</strong> ${gymnast.noc || 'UNK'} | 
-            <strong>Event:</strong> ${gymnast.event || 'VT'} | 
-            <strong>Number:</strong> ${gymnast.number || 0} | 
-            <strong>BIB:</strong> ${gymnast.bib || 0} | 
-            <strong>Execution Performance:</strong> ${gymnast.percentage || 0}%
-          </div>
-          
-          <!-- Full Width Whiteboard Section -->
-          <div class="whiteboard-section">
-            <div class="whiteboard-title">Judge's Whiteboard</div>
-            <svg class="whiteboard-canvas" viewBox="0 0 1300 780" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
-              <!-- Jump background image -->
-              ${jumpImageBase64 ? `
-                <image href="${jumpImageBase64}" 
-                       width="1105" height="663" x="97.5" y="58.5" opacity="0.6" />
-              ` : `
-                <!-- Fallback: Simple vault layout -->
-                <rect x="100" y="300" width="1100" height="180" fill="#f0f0f0" stroke="#ccc" stroke-width="2" rx="10"/>
-                <rect x="600" y="320" width="100" height="140" fill="#e0e0e0" stroke="#999" stroke-width="2" rx="5"/>
-                <rect x="800" y="280" width="400" height="220" fill="#e8f4e8" stroke="#999" stroke-width="2" rx="10"/>
-              `}
-              ${renderWhiteboardPaths(gymnast.rateGeneral?.paths || '')}
-            </svg>
-          </div>
-          
-          <!-- Tables Section Below Whiteboard -->
-          <div class="tables-section">
-            <!-- Vault Information Table -->
-            <div>
-              <div class="vault-table-header">Vault Information</div>
-              <table class="vault-table">
-                <thead>
-                  <tr>
-                    <th>Category</th>
-                    <th>Value</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr class="vault-info-row">
-                    <td>Vault Number</td>
-                    <td class="vault-info-value">${gymnast.rateGeneral?.vaultNumber || 'N/A'}</td>
-                  </tr>
-                  <tr class="vault-info-row">
-                    <td>Start Value</td>
-                    <td class="vault-info-value">${(gymnast.sv || 0).toFixed(1)}</td>
-                  </tr>
-                  <tr class="vault-info-row">
-                    <td>Description</td>
-                    <td class="vault-info-value">${gymnast.rateGeneral?.vaultDescription || 'No description'}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            
-            <!-- Scoring Information Table -->
-            <div>
-              <table class="info-table">
-                <tr>
-                  <td class="info-label">SCORES</td>
-                  <td class="score-groups">
-                    <div class="score-group">
-                      <div class="score-header">SV</div>
-                      <div class="score-value sv">${(gymnast.sv || 0).toFixed(1)}</div>
-                    </div>
-                    <div class="score-group">
-                      <div class="score-header">ND</div>
-                      <div class="score-value nd">${(gymnast.nd || 0).toFixed(1)}</div>
-                    </div>
-                    <div class="score-group">
-                      <div class="score-header">SB</div>
-                      <div class="score-value sb">${gymnast.rateGeneral?.stickBonus ? '0.1' : '0.0'}</div>
-                    </div>
-                    <div class="score-group">
-                      <div class="score-header">EXEC</div>
-                      <div class="score-value execution">${(gymnast.rateGeneral?.execution || 0).toFixed(1)}</div>
-                    </div>
-                  </td>
-                </tr>
-                <tr>
-                  <td class="info-label">E SCORE</td>
-                  <td class="info-value">${(gymnast.rateGeneral?.eScore || 0).toFixed(3)}</td>
-                </tr>
-                <tr>
-                  <td class="info-label">MY SCORE</td>
-                  <td class="info-value orange">${(gymnast.rateGeneral?.myScore || 0).toFixed(3)}</td>
-                </tr>
-                <tr>
-                  <td class="info-label">PERFORMANCE</td>
-                  <td class="info-value">${(gymnast.percentage || 0)}%</td>
-                </tr>
-              </table>
-            </div>
-          </div>
-          
-          <!-- Competition Section Below Tables -->
-          <div class="competition-section">
-            <div class="comp-row">
-              <div class="comp-label">COMPETITION</div>
-              <div class="comp-cell">D</div>
-              <div class="comp-value">${(gymnast.rateGeneral?.compD || 0).toFixed(1)}</div>
-              <div class="comp-cell">E</div>
-              <div class="comp-value">${(gymnast.rateGeneral?.compE || 0).toFixed(3)}</div>
-              <div class="comp-cell">SB</div>
-              <div class="comp-value">${gymnast.rateGeneral?.compSd ? '0.1' : '0.0'}</div>
-              <div class="comp-cell">ND</div>
-              <div class="comp-value">${(gymnast.rateGeneral?.compNd || gymnast.nd || 0).toFixed(1)}</div>
-              <div class="comp-cell">SCORE</div>
-              <div class="comp-value">${(gymnast.rateGeneral?.compScore || 0).toFixed(3)}</div>
-            </div>
-          </div>
-          
-          <!-- Comments Section -->
-          <div class="comments-section">
-            <h3>💬 Judge Comments</h3>
-            <div class="comments-text">
-              ${gymnast.rateGeneral?.comments || 'No comments provided for this vault.'}
-            </div>
-          </div>
-          
-          ${index === data.length - 1 ? `
-            <div class="footer">
-              <p><strong>Generated by GymJudge</strong> on ${new Date().toLocaleString()}</p>
-              <p>© 2025 GymJudge. All rights reserved. | Report ID: GJ-${Date.now()}</p>
-            </div>
-          ` : ''}
-        </div>
-      `).join('')}
-    </body>
-    </html>
-  `;
-
-  try {
-    const { uri } = await Print.printToFileAsync({ 
-      html,
-      base64: false 
-    });
-    
-    await shareAsync(uri, { 
-      UTI: '.pdf', 
-      mimeType: 'application/pdf' 
-    });
-    
-    return uri;
-  } catch (error) {
-    console.error('Error generating Jump PDF:', error);
-    throw error;
-  }
-};
-
-
-export const generateMainFloorPDF = async (data?: MainTableWithRateGeneral[]) => {
-  if (!data || !Array.isArray(data) || data.length === 0) {
-    throw new Error('No data provided for PDF generation');
-  }
-
-  // Function to render whiteboard paths from stored paths string
-  const renderWhiteboardPaths = (pathsString: string) => {
-    if (!pathsString) return '';
-    
-    try {
-      const paths = JSON.parse(pathsString);
-      if (!Array.isArray(paths)) return '';
-      
-      return paths.map((pathData, index) => {
-        // Scale the path coordinates by 1.3x for zoom effect
-        let scaledPath = pathData.path;
-        
-        // Parse and scale SVG path commands
-        if (pathData.path) {
-          // Simple scaling by replacing coordinate values
-          scaledPath = pathData.path.replace(/([ML])\s*([0-9.-]+)\s*([0-9.-]+)/g, (match, command, x, y) => {
-            /* const scaledX = parseFloat(x) * 1.6 - 240;
-            const scaledY = parseFloat(y) * 1.6; */
-            const scaledX = parseFloat(x) * 1;
-            const scaledY = parseFloat(y) * 1;
-            return `${command} ${scaledX} ${scaledY}`;
-          });
-        }
-        
-        let pathElement = '';
-        
-        if (pathData.penType === 2) {
-          // Highlighter - filled path
-          pathElement = `
-            <path 
-              d="${scaledPath}" 
-              stroke="${pathData.color || 'yellow'}" 
-              stroke-width="4" 
-              fill="${pathData.color || 'yellow'}" 
-              fill-opacity="0.4" 
-              stroke-opacity="0.8"
-            />`;
-        } else if (pathData.penType === 1) {
-          // Telestrator - thin red line
-          pathElement = `
-            <path 
-              d="${scaledPath}" 
-              stroke="red" 
-              stroke-width="3" 
-              fill="none" 
-              stroke-linecap="round" 
-              stroke-linejoin="round" 
-              opacity="1"
-            />`;
-        } else {
-          // Normal pen
-          pathElement = `
-            <path 
-              d="${scaledPath}" 
-              stroke="${pathData.isEraser ? '#e0e0e0' : (pathData.color || 'black')}" 
-              stroke-width="${pathData.strokeWidth || 3}" 
-              fill="none" 
-              stroke-linecap="round" 
-              stroke-linejoin="round"
-            />`;
-        }
-        
-        return pathElement;
-      }).join('');
-    } catch (error) {
-      console.error('Error parsing paths:', error);
-      return '';
-    }
-  };
-
-  const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="UTF-8">
-      <style>
-        * {
-          margin: 0;
-          padding: 0;
-          box-sizing: border-box;
-        }
-        
-        body {
-          font-family: Arial, sans-serif;
-          font-size: 10px;
-          line-height: 1.2;
-          color: #333;
-          background: #f5f5f5;
-          padding: 8px;
-        }
-        
-        .page {
-          background: white;
-          margin-bottom: 20px;
-          padding: 15px;
-          border-radius: 8px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-          page-break-after: always;
-        }
-        
-        .header {
-          text-align: center;
-          margin-bottom: 15px;
-          background: linear-gradient(135deg, #0052b4, #004aad);
-          color: white;
-          padding: 12px;
-          border-radius: 6px;
-        }
-        
-        .header h1 {
-          font-size: 18px;
-          margin-bottom: 3px;
-        }
-        
-        .header h2 {
-          font-size: 14px;
-          font-weight: normal;
-        }
-        
-        .gymnast-info {
-          background: #e8f4ff;
-          padding: 8px;
-          border-radius: 4px;
-          margin-bottom: 15px;
-          border-left: 3px solid #0052b4;
-          font-size: 9px;
-        }
-        
-        .whiteboard-section {
-          background: #f9f9f9;
-          border-radius: 6px;
-          padding: 15px 25px 20px 25px;
-          border: 1px solid #ddd;
-          margin-bottom: 15px;
-          text-align: center;
-        }
-        
-        .whiteboard-title {
-          font-size: 12px;
-          font-weight: bold;
-          color: #0052b4;
-          margin-bottom: 8px;
-          text-align: center;
-        }
-        
-        .whiteboard-canvas {
-          width: 55%;
-          height: 180px;
-          background: #e0e0e0;
-          border: 1px solid #ccc;
-          border-radius: 4px;
-          margin: 0 auto;
-        }
-        
-        .tables-section {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 15px;
-          margin-bottom: 15px;
-        }
-        
-        .code-table {
-          width: 100%;
-          border-collapse: collapse;
-          background: white;
-          border-radius: 4px;
-          overflow: hidden;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-          font-size: 8px;
-        }
-        
-        .code-table-header {
-          background: #0052b4;
-          color: white;
-          text-align: center;
-          padding: 6px;
-          font-weight: bold;
-          font-size: 10px;
-        }
-        
-        .code-table th,
-        .code-table td {
-          border: 1px solid #ddd;
-          padding: 3px;
-          text-align: center;
-          font-weight: bold;
-        }
-        
-        .code-table th {
-          background: #f0f0f0;
-          font-size: 7px;
-        }
-        
-        .element-row {
-          background: #a9def9;
-        }
-        
-        .element-row.selected {
-          background: #a9def9 !important; 
-        }
-        
-        .element-row.selected td {
-          background: #a9def9 !important;
-          color: #333 !important; 
-        }
-                  .code-cell {
-          background: #a9def9;
-          color: #333;
-        }
-
-            .code-cell.selected {
-          background: #28a745 !important; 
-          color: white !important;
-        }
-
-
-        
-        .number-cell {
-          background: #a9def9;
-          color: #333;
-        }
-        
-        .number-cell.selected {
-          background: #28a745 !important; 
-          color: white !important;
-        }
-
-                .sel-cell {
-          background: #a9def9;
-          color: #333;
-        }
-
-          .sel-cell.selected {
-          background: #28a745 !important;
-          color: white !important;
-        }
-        
-        .selected-value {
-          color: #333; 
-        }
-
-        .selected-value.has-selection {
-          background: #28a745 !important; 
-          color: white !important;
-        }
-        
-        .info-table {
-          width: 100%;
-          border-collapse: collapse;
-          background: white;
-          border-radius: 4px;
-          overflow: hidden;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-          font-size: 8px;
-          border: 1px solid #ddd;
-        }
-        
-        .info-table tr {
-          height: 22px;
-        }
-        
-        .info-label {
-          background: #a9def9;
-          padding: 3px 6px;
-          font-weight: bold;
-          text-align: right;
-          width: 120px;
-          border: 1px solid #ddd;
-          font-size: 8px;
-        }
-        
-        .info-value {
-          background: #6B9BDF;
-          padding: 3px;
-          text-align: center;
-          font-weight: bold;
-          border: 1px solid #ddd;
-          font-size: 10px;
-        }
-        
-        .info-value.green {
-          background: #00b050;
-        }
-        
-        .info-value.red {
-          background: #ff9b9b;
-        }
-        
-        .info-value.yellow {
-          background: #f8c471;
-        }
-        
-        .info-value.orange {
-          background: #ffcb41;
-        }
-        
-        .info-label.cv {
-          background: #00b050;
-        }
-        
-        .element-groups {
-          display: flex;
-          flex: 1;
-        }
-        
-        .element-group {
-          flex: 1;
-          text-align: center;
-          border: 1px solid #ddd;
-        }
-        
-        .group-header {
-          background: #D9D9D9;
-          padding: 3px;
-          font-weight: bold;
-          font-size: 10px;
-        }
-        
-        .group-value {
-          background: #6B9BDF;
-          padding: 3px;
-          font-weight: bold;
-          font-size: 10px;
-        }
-        
-        .score-groups {
-          display: flex;
-          flex: 1;
-        }
-        
-        .score-group {
-          flex: 1;
-          text-align: center;
-          border: 1px solid #ddd;
-        }
-        
-        .score-header {
-          background: #D9D9D9;
-          padding: 3px;
-          font-weight: bold;
-          font-size: 8px;
-        }
-        
-        .score-value {
-          padding: 3px;
-          font-weight: bold;
-          font-size: 9px;
-        }
-        
-        .score-value.cv {
-          background: #f8c471;
-        }
-        
-        .score-value.sb {
-          background: #00b050;
-          color: white;
-        }
-        
-        .score-value.nd {
-          background: #ff9b9b;
-        }
-        
-        .score-value.sv {
-          background: #6B9BDF;
-        }
-        
-        .competition-section {
-          background: white;
-          border-radius: 4px;
-          margin: 0 auto 10px auto;
-          max-width: 600px;
-          overflow: hidden;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        
-        .competition-header {
-          background: #00b050;
-          color: white;
-          text-align: center;
-          padding: 6px;
-          font-weight: bold;
-          font-size: 10px;
-        }
-        
-        .comp-row {
-          display: flex;
-          height: 25px;
-        }
-        
-        .comp-label {
-          background: #00b050;
-          color: white;
-          text-align: center;
-          padding: 3px 6px;
-          font-weight: bold;
-          width: 120px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 8px;
-        }
-        
-        .comp-cell {
-          flex: 1;
-          background: #D9D9D9;
-          text-align: center;
-          padding: 3px;
-          font-weight: bold;
-          border: 1px solid black;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 8px;
-        }
-        
-        .comp-value {
-          flex: 1;
-          background: #00b050;
-          color: white;
-          text-align: center;
-          padding: 3px;
-          font-weight: bold;
-          border: 1px solid black;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 9px;
-        }
-        
-        .comments-section {
-          background: white;
-          padding: 10px;
-          border-radius: 4px;
-          margin-bottom: 10px;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        
-        .comments-section h3 {
-          color: #0052b4;
-          margin-bottom: 6px;
-          border-bottom: 1px solid #0052b4;
-          padding-bottom: 3px;
-          font-size: 11px;
-        }
-        
-        .comments-text {
-          font-size: 9px;
-          line-height: 1.3;
-          text-align: justify;
-        }
-        
-        .footer {
-          text-align: center;
-          margin-top: 15px;
-          font-size: 8px;
-          color: #666;
-          border-top: 1px solid #ddd;
-          padding-top: 8px;
-        }
-        
-        @media print {
-          body { padding: 5px; }
-          .page { margin-bottom: 0; page-break-after: always; }
-          .header h1 { font-size: 16px; }
-        }
-      </style>
-    </head>
-    <body>
-      ${data.map((gymnast, index) => `
-        <div class="page">
-          
-          
-          <div class="gymnast-info">
-            <strong>Gymnast:</strong> ${gymnast.name || 'Unknown'} | 
-            <strong>NOC:</strong> ${gymnast.noc || 'UNK'} | 
-            <strong>Event:</strong> ${gymnast.event || 'FX'} | 
-            <strong>Number:</strong> ${gymnast.number || 0} | 
-            <strong>BIB:</strong> ${gymnast.bib || 0} | 
-            <strong>Performance:</strong> ${gymnast.percentage || 0}%
-          </div>
-          
-          <!-- Full Width Whiteboard Section -->
-          <div class="whiteboard-section">
-            <div class="whiteboard-title">Judge's Whiteboard</div>
-            <svg class="whiteboard-canvas" viewBox="0 0 1300 780" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
-              ${renderWhiteboardPaths(gymnast.rateGeneral?.paths || '')}
-            </svg>
-          </div>
-          
-          <!-- Tables Section Below Whiteboard -->
-          <div class="tables-section">
-            <!-- Code Table Section -->
-            <div>
-              <div class="code-table-header">Elements Code Table</div>
-              <table class="code-table">
-                <thead>
-                  <tr>
-                    <th>Code</th>
-                    <th></th><th>N</th><th>U</th><th>N</th><th>B</th>
-                    <th>E</th><th>R</th><th></th>
-                    <th>Sel</th><th>Val</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr class="element-row">
-                    <td class="code-cell ${(gymnast.j || 0) > 0 ? 'selected' : ''}">J</td>
-                    <td class="number-cell ${(gymnast.j || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.j || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.j || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.j || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.j || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.j || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.j || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.j || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.j || 0) > 0 ? 'selected' : ''}">${gymnast.j || 0}</td>
-                    <td class="${(gymnast.j || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">J</td>
-                  </tr>
-                  <tr class="element-row">
-                    <td class="code-cell ${(gymnast.i || 0) > 0 ? 'selected' : ''}">I</td>
-                    <td class="number-cell ${(gymnast.i || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.i || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.i || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.i || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.i || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.i || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.i || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.i || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.i || 0) > 0 ? 'selected' : ''}">${gymnast.i || 0}</td>
-                    <td class="${(gymnast.i || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">I</td>
-                  </tr>
-                  <tr class="element-row">
-                    <td class="code-cell ${(gymnast.h || 0) > 0 ? 'selected' : ''}">H</td>
-                    <td class="number-cell ${(gymnast.h || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.h || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.h || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.h || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.h || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.h || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.h || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.h || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.h || 0) > 0 ? 'selected' : ''}">${gymnast.h || 0}</td>
-                    <td class="${(gymnast.h || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">H</td>
-                  </tr>
-                  <tr class="element-row">
-                    <td class="code-cell ${(gymnast.g || 0) > 0 ? 'selected' : ''}">G</td>
-                    <td class="number-cell ${(gymnast.g || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.g || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.g || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.g || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.g || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.g || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.g || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.g || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.g || 0) > 0 ? 'selected' : ''}">${gymnast.g || 0}</td>
-                    <td class="${(gymnast.g || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">G</td>
-                  </tr>
-                  <tr class="element-row">
-                    <td class="code-cell ${(gymnast.f || 0) > 0 ? 'selected' : ''}">F</td>
-                    <td class="number-cell ${(gymnast.f || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.f || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.f || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.f || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.f || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.f || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.f || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.f || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.f || 0) > 0 ? 'selected' : ''}">${gymnast.f || 0}</td>
-                    <td class="${(gymnast.f || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">F</td>
-                  </tr>
-                  <tr class="element-row">
-                    <td class="code-cell ${(gymnast.e || 0) > 0 ? 'selected' : ''}">E</td>
-                    <td class="number-cell ${(gymnast.e || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.e || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.e || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.e || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.e || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.e || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.e || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.e || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.e || 0) > 0 ? 'selected' : ''}">${gymnast.e || 0}</td>
-                    <td class="${(gymnast.e || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">E</td>
-                  </tr>
-                  <tr class="element-row">
-                    <td class="code-cell ${(gymnast.d || 0) > 0 ? 'selected' : ''}">D</td>
-                    <td class="number-cell ${(gymnast.d || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.d || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.d || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.d || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.d || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.d || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.d || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.d || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.d || 0) > 0 ? 'selected' : ''}">${gymnast.d || 0}</td>
-                    <td class="${(gymnast.d || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">D</td>
-                  </tr>
-                  <tr class="element-row">
-                    <td class="code-cell ${(gymnast.c || 0) > 0 ? 'selected' : ''}">C</td>
-                    <td class="number-cell ${(gymnast.c || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.c || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.c || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.c || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.c || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.c || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.c || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.c || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.c || 0) > 0 ? 'selected' : ''}">${gymnast.c || 0}</td>
-                    <td class="${(gymnast.c || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">C</td>
-                  </tr>
-                  <tr class="element-row">
-                    <td class="code-cell ${(gymnast.b || 0) > 0 ? 'selected' : ''}">B</td>
-                    <td class="number-cell ${(gymnast.b || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.b || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.b || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.b || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.b || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.b || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.b || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.b || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.b || 0) > 0 ? 'selected' : ''}">${gymnast.b || 0}</td>
-                    <td class="${(gymnast.b || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">B</td>
-                  </tr>
-                  <tr class="element-row">
-                    <td class="code-cell ${(gymnast.a || 0) > 0 ? 'selected' : ''}">A</td>
-                    <td class="number-cell ${(gymnast.a || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.a || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.a || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.a || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.a || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.a || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.a || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.a || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.a || 0) > 0 ? 'selected' : ''}">${gymnast.a || 0}</td>
-                    <td class="${(gymnast.a || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">A</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            
-            <!-- Info Table -->
-            <div>
-              <table class="info-table">
-                <tr>
-                  <td class="info-label">NUMBER OF ELEMENTS</td>
-                  <td class="info-value ${(gymnast.rateGeneral?.numberOfElements || 0) >= 6 && (gymnast.rateGeneral?.numberOfElements || 0) <= 8 ? 'green' : 'red'}">
-                    ${gymnast.rateGeneral?.numberOfElements || 0}
-                  </td>
-                </tr>
-                <tr>
-                  <td class="info-label">DIFFICULTY VALUES</td>
-                  <td class="info-value">${(gymnast.rateGeneral?.difficultyValues || 0).toFixed(1)}</td>
-                </tr>
-                <tr>
-                  <td class="info-label">ELEMENT GROUPS</td>
-                  <td class="element-groups">
-                    <div class="element-group">
-                      <div class="group-header">I</div>
-                      <div class="group-value">${(gymnast.rateGeneral?.elementGroups1 || 0).toFixed(1)}</div>
-                    </div>
-                    <div class="element-group">
-                      <div class="group-header">II</div>
-                      <div class="group-value">${(gymnast.rateGeneral?.elementGroups2 || 0).toFixed(1)}</div>
-                    </div>
-                    <div class="element-group">
-                      <div class="group-header">III</div>
-                      <div class="group-value">${(gymnast.rateGeneral?.elementGroups3 || 0).toFixed(1)}</div>
-                    </div>
-                    <div class="element-group">
-                      <div class="group-header">IV</div>
-                      <div class="group-value">${(gymnast.rateGeneral?.elementGroups4 || 0).toFixed(1)}</div>
-                    </div>
-                  </td>
-                </tr>
-                <tr>
-                  <td class="info-label">ELEMENT GROUPS TOTAL</td>
-                  <td class="info-value">${(gymnast.rateGeneral?.elementGroups5 || 0).toFixed(1)}</td>
-                </tr>
-                <tr>
-                  <td class="info-label">SCORES</td>
-                  <td class="score-groups">
-                    <div class="score-group">
-                      <div class="score-header">CV</div>
-                      <div class="score-value cv">${(gymnast.cv || 0).toFixed(1)}</div>
-                    </div>
-                    <div class="score-group">
-                      <div class="score-header">SB</div>
-                      <div class="score-value sb">${gymnast.rateGeneral?.stickBonus ? '0.1' : '0.0'}</div>
-                    </div>
-                    <div class="score-group">
-                      <div class="score-header">ND</div>
-                      <div class="score-value nd">${(gymnast.nd || 0).toFixed(1)}</div>
-                    </div>
-                    <div class="score-group">
-                      <div class="score-header">SV</div>
-                      <div class="score-value sv">${(gymnast.sv || 0).toFixed(1)}</div>
-                    </div>
-                  </td>
-                </tr>
-                <tr>
-                  <td class="info-label">EXECUTION</td>
-                  <td class="info-value">${(gymnast.rateGeneral?.execution || gymnast.e2 || 0).toFixed(1)}</td>
-                </tr>
-                <tr>
-                  <td class="info-label">E SCORE</td>
-                  <td class="info-value">${(gymnast.rateGeneral?.eScore || gymnast.e3 || 0).toFixed(3)}</td>
-                </tr>
-                <tr>
-                  <td class="info-label">MY SCORE</td>
-                  <td class="info-value orange">${(gymnast.rateGeneral?.myScore || 0).toFixed(3)}</td>
-                </tr>
-              </table>
-            </div>
-          </div>
-          
-          <!-- Competition Section Below Tables -->
-          <div class="competition-section">
-            <div class="comp-row">
-              <div class="comp-label">COMPETITION</div>
-              <div class="comp-cell">D</div>
-              <div class="comp-value">${(gymnast.rateGeneral?.compD || gymnast.d3 || 0).toFixed(1)}</div>
-              <div class="comp-cell">E</div>
-              <div class="comp-value">${(gymnast.rateGeneral?.compE || gymnast.e3 || 0).toFixed(3)}</div>
-              <div class="comp-cell">SB</div>
-              <div class="comp-value">${gymnast.rateGeneral?.compSd ? '0.1' : '0.0'}</div>
-              <div class="comp-cell">ND</div>
-              <div class="comp-value">${(gymnast.rateGeneral?.compNd || gymnast.nd || 0).toFixed(1)}</div>
-              <div class="comp-cell">SCORE</div>
-              <div class="comp-value">${(gymnast.rateGeneral?.compScore || 0).toFixed(3)}</div>
-            </div>
-          </div>
-          
-          <!-- Comments Section -->
-          <div class="comments-section">
-            <h3>💬 Judge Comments</h3>
-            <div class="comments-text">
-              ${gymnast.rateGeneral?.comments || 'No comments provided for this routine.'}
-            </div>
-          </div>
-          
-          ${index === data.length - 1 ? `
-            <div class="footer">
-              <p><strong>Generated by GymJudge</strong> on ${new Date().toLocaleString()}</p>
-              <p>© 2025 GymJudge. All rights reserved. | Report ID: GJ-${Date.now()}</p>
-            </div>
-          ` : ''}
-        </div>
-      `).join('')}
-    </body>
-    </html>
-  `;
-
-  try {
-    const { uri } = await Print.printToFileAsync({ 
-      html,
-      base64: false 
-    });
-    
-    await shareAsync(uri, { 
-      UTI: '.pdf', 
-      mimeType: 'application/pdf' 
-    });
-    
-    return uri;
-  } catch (error) {
-    console.error('Error generating PDF:', error);
-    throw error;
-  }
-};
 
 
 // FINAL TABLE PDF GENERATION
@@ -1781,7 +451,7 @@ export const generateFinalTablePDF = async (data: FinalTableData) => {
           <tbody>
             ${data.participants.map((participant, index) => {
               const isLastRow = index === data.participants.length - 1;
-              const truncateComment = (text) => {
+              const truncateComment = (text: string) => {
                 if (!text || text.trim() === '') return '';
                 
                 // Split text into chunks of 12 characters
@@ -1964,13 +634,55 @@ export const generateComprehensivePDF = async (
       const paths = JSON.parse(pathsString);
       if (!Array.isArray(paths)) return '';
       
-      return paths.map((pathData, index) => {
+      // Calculate bounding box of all paths
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      
+      paths.forEach(pathData => {
+        if (pathData.path) {
+          const matches = pathData.path.match(/([ML])\s*([0-9.-]+)\s*([0-9.-]+)/g);
+          if (matches) {
+            matches.forEach((match: string) => {
+              const coords = match.match(/([ML])\s*([0-9.-]+)\s*([0-9.-]+)/);
+              if (coords) {
+                const x = parseFloat(coords[2]);
+                const y = parseFloat(coords[3]);
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x);
+                maxY = Math.max(maxY, y);
+              }
+            });
+          }
+        }
+      });
+      
+      // If we found valid coordinates, calculate centering transform
+      let transformGroup = '';
+      if (minX !== Infinity && minY !== Infinity && maxX !== -Infinity && maxY !== -Infinity) {
+        const pathWidth = maxX - minX;
+        const pathHeight = maxY - minY;
+        
+        // SVG viewBox dimensions
+        const svgWidth = 1300;
+        const svgHeight = 780;
+        
+        // Calculate centering offsets
+        const centerX = svgWidth / 2;
+        const centerY = svgHeight / 2;
+        const pathCenterX = minX + pathWidth / 2;
+        const pathCenterY = minY + pathHeight / 2;
+        
+        const offsetX = centerX - pathCenterX;
+        const offsetY = centerY - pathCenterY;
+        
+        transformGroup = `<g transform="translate(${offsetX}, ${offsetY})">`;
+      }
+      
+      const pathElements = paths.map((pathData, index) => {
         let scaledPath = pathData.path;
         
         if (pathData.path) {
-          scaledPath = pathData.path.replace(/([ML])\s*([0-9.-]+)\s*([0-9.-]+)/g, (match, command, x, y) => {
-            /* const scaledX = parseFloat(x) * 1.6 - 240;
-            const scaledY = parseFloat(y) * 1.6; */
+          scaledPath = pathData.path.replace(/([ML])\s*([0-9.-]+)\s*([0-9.-]+)/g, (match: string, command: string, x: string, y: string) => {
             const scaledX = parseFloat(x) * 1;
             const scaledY = parseFloat(y) * 1;
             return `${command} ${scaledX} ${scaledY}`;
@@ -2014,6 +726,13 @@ export const generateComprehensivePDF = async (
         
         return pathElement;
       }).join('');
+      
+      // Wrap paths in transform group if we have valid centering
+      if (transformGroup) {
+        return transformGroup + pathElements + '</g>';
+      } else {
+        return pathElements;
+      }
     } catch (error) {
       console.error('Error parsing paths:', error);
       return '';
@@ -2034,10 +753,10 @@ export const generateComprehensivePDF = async (
           </div>
           
           <div class="gymnast-info">
+          <strong>Number:</strong> ${gymnast.number || 0} | 
             <strong>Gymnast:</strong> ${gymnast.name || 'Unknown'} | 
             <strong>NOC:</strong> ${gymnast.noc || 'UNK'} | 
             <strong>Event:</strong> ${gymnast.event || 'VT'} | 
-            <strong>Number:</strong> ${gymnast.number || 0} | 
             <strong>BIB:</strong> ${gymnast.bib || 0} | 
             <strong>Execution Performance:</strong> ${gymnast.percentage || 0}%
           </div>
@@ -2049,7 +768,7 @@ export const generateComprehensivePDF = async (
               <!-- Jump background image -->
               ${jumpImageBase64 ? `
                 <image href="${jumpImageBase64}" 
-                       width="1105" height="663" x="97.5" y="58.5" opacity="0.6" />
+                       width="1105" height="663" x="125" y="60" opacity="0.6" />
               ` : `
                 <!-- Fallback: Simple vault layout -->
                 <rect x="100" y="300" width="1100" height="180" fill="#f0f0f0" stroke="#ccc" stroke-width="2" rx="10"/>
@@ -2187,144 +906,137 @@ export const generateComprehensivePDF = async (
             <div>
               <div class="code-table-header">Elements Code Table</div>
               <table class="code-table">
-                <thead>
-                  <tr>
-                    <th>Code</th>
-                    <th></th><th>N</th><th>U</th><th>N</th><th>B</th>
-                    <th>E</th><th>R</th><th></th>
-                    <th>Sel</th><th>Val</th>
-                  </tr>
-                </thead>
+                
                 <tbody>
                   <tr class="element-row">
-                    <td class="code-cell ${(gymnast.j || 0) > 0 ? 'selected' : ''}">J</td>
-                    <td class="number-cell ${(gymnast.j || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.j || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.j || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.j || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.j || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.j || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.j || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.j || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.j || 0) > 0 ? 'selected' : ''}">${gymnast.j || 0}</td>
-                    <td class="${(gymnast.j || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">J</td>
+                    <td class="code-cell ${(gymnast.j || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''} ">J</td>
+                    <td class="number-cell ${(gymnast.j || 0) === 1 ? 'selected' : ''}" ${(gymnast.j || 0) === 1 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.j || 0) === 2 ? 'selected' : ''}" ${(gymnast.j || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.j || 0) === 3 ? 'selected' : ''}" ${(gymnast.j || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.j || 0) === 4 ? 'selected' : ''}" ${(gymnast.j || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.j || 0) === 5 ? 'selected' : ''}" ${(gymnast.j || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.j || 0) === 6 ? 'selected' : ''}" ${(gymnast.j || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.j || 0) === 7 ? 'selected' : ''}" ${(gymnast.j || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.j || 0) === 8 ? 'selected' : ''}" ${(gymnast.j || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.j || 0) > 0 ? 'selected' : ''}" ${(gymnast.j || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.j || 0}</td>
+                    <td class="${(gymnast.j || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.j || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>J</td>
                   </tr>
                   <tr class="element-row">
-                    <td class="code-cell ${(gymnast.i || 0) > 0 ? 'selected' : ''}">I</td>
-                    <td class="number-cell ${(gymnast.i || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.i || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.i || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.i || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.i || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.i || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.i || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.i || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.i || 0) > 0 ? 'selected' : ''}">${gymnast.i || 0}</td>
-                    <td class="${(gymnast.i || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">I</td>
+                    <td class="code-cell ${(gymnast.i || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}">I</td>
+                    <td class="number-cell ${(gymnast.i || 0) === 1 ? 'selected' : ''}" ${(gymnast.i || 0) === 1 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.i || 0) === 2 ? 'selected' : ''}" ${(gymnast.i || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.i || 0) === 3 ? 'selected' : ''}" ${(gymnast.i || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.i || 0) === 4 ? 'selected' : ''}" ${(gymnast.i || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.i || 0) === 5 ? 'selected' : ''}" ${(gymnast.i || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.i || 0) === 6 ? 'selected' : ''}" ${(gymnast.i || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.i || 0) === 7 ? 'selected' : ''}" ${(gymnast.i || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.i || 0) === 8 ? 'selected' : ''}" ${(gymnast.i || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.i || 0) > 0 ? 'selected' : ''}" ${(gymnast.i || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.i || 0}</td>
+                    <td class="${(gymnast.i || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.i || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>I</td>
                   </tr>
                   <tr class="element-row">
-                    <td class="code-cell ${(gymnast.h || 0) > 0 ? 'selected' : ''}">H</td>
-                    <td class="number-cell ${(gymnast.h || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.h || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.h || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.h || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.h || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.h || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.h || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.h || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.h || 0) > 0 ? 'selected' : ''}">${gymnast.h || 0}</td>
-                    <td class="${(gymnast.h || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">H</td>
+                    <td class="code-cell ${(gymnast.h || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}">H</td>
+                    <td class="number-cell ${(gymnast.h || 0) === 1 ? 'selected' : ''}" ${(gymnast.h || 0) === 1 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.h || 0) === 2 ? 'selected' : ''}" ${(gymnast.h || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.h || 0) === 3 ? 'selected' : ''}" ${(gymnast.h || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.h || 0) === 4 ? 'selected' : ''}" ${(gymnast.h || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.h || 0) === 5 ? 'selected' : ''}" ${(gymnast.h || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.h || 0) === 6 ? 'selected' : ''}" ${(gymnast.h || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.h || 0) === 7 ? 'selected' : ''}" ${(gymnast.h || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.h || 0) === 8 ? 'selected' : ''}" ${(gymnast.h || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.h || 0) > 0 ? 'selected' : ''}" ${(gymnast.h || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.h || 0}</td>
+                    <td class="${(gymnast.h || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.h || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>H</td>
                   </tr>
                   <tr class="element-row">
-                    <td class="code-cell ${(gymnast.g || 0) > 0 ? 'selected' : ''}">G</td>
-                    <td class="number-cell ${(gymnast.g || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.g || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.g || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.g || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.g || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.g || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.g || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.g || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.g || 0) > 0 ? 'selected' : ''}">${gymnast.g || 0}</td>
-                    <td class="${(gymnast.g || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">G</td>
+                    <td class="code-cell ${(gymnast.g || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}">G</td>
+                    <td class="number-cell ${(gymnast.g || 0) === 1 ? 'selected' : ''}" ${(gymnast.g || 0) === 1 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.g || 0) === 2 ? 'selected' : ''}" ${(gymnast.g || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.g || 0) === 3 ? 'selected' : ''}" ${(gymnast.g || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.g || 0) === 4 ? 'selected' : ''}" ${(gymnast.g || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.g || 0) === 5 ? 'selected' : ''}" ${(gymnast.g || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.g || 0) === 6 ? 'selected' : ''}" ${(gymnast.g || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.g || 0) === 7 ? 'selected' : ''}" ${(gymnast.g || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.g || 0) === 8 ? 'selected' : ''}" ${(gymnast.g || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.g || 0) > 0 ? 'selected' : ''}" ${(gymnast.g || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.g || 0}</td>
+                    <td class="${(gymnast.g || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.g || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>G</td>
                   </tr>
                   <tr class="element-row">
-                    <td class="code-cell ${(gymnast.f || 0) > 0 ? 'selected' : ''}">F</td>
-                    <td class="number-cell ${(gymnast.f || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.f || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.f || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.f || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.f || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.f || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.f || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.f || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.f || 0) > 0 ? 'selected' : ''}">${gymnast.f || 0}</td>
-                    <td class="${(gymnast.f || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">F</td>
+                    <td class="code-cell ${(gymnast.f || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}">F</td>
+                    <td class="number-cell ${(gymnast.f || 0) === 1 ? 'selected' : ''}" ${(gymnast.f || 0) === 1 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.f || 0) === 2 ? 'selected' : ''}" ${(gymnast.f || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.f || 0) === 3 ? 'selected' : ''}" ${(gymnast.f || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.f || 0) === 4 ? 'selected' : ''}" ${(gymnast.f || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.f || 0) === 5 ? 'selected' : ''}" ${(gymnast.f || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.f || 0) === 6 ? 'selected' : ''}" ${(gymnast.f || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.f || 0) === 7 ? 'selected' : ''}" ${(gymnast.f || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.f || 0) === 8 ? 'selected' : ''}" ${(gymnast.f || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.f || 0) > 0 ? 'selected' : ''}" ${(gymnast.f || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.f || 0}</td>
+                    <td class="${(gymnast.f || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.f || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>F</td>
                   </tr>
                   <tr class="element-row">
-                    <td class="code-cell ${(gymnast.e || 0) > 0 ? 'selected' : ''}">E</td>
-                    <td class="number-cell ${(gymnast.e || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.e || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.e || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.e || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.e || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.e || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.e || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.e || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.e || 0) > 0 ? 'selected' : ''}">${gymnast.e || 0}</td>
-                    <td class="${(gymnast.e || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">E</td>
+                    <td class="code-cell ${(gymnast.e || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}">E</td>
+                    <td class="number-cell ${(gymnast.e || 0) === 1 ? 'selected' : ''}" ${(gymnast.e || 0) === 1 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.e || 0) === 2 ? 'selected' : ''}" ${(gymnast.e || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.e || 0) === 3 ? 'selected' : ''}" ${(gymnast.e || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.e || 0) === 4 ? 'selected' : ''}" ${(gymnast.e || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.e || 0) === 5 ? 'selected' : ''}" ${(gymnast.e || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.e || 0) === 6 ? 'selected' : ''}" ${(gymnast.e || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.e || 0) === 7 ? 'selected' : ''}" ${(gymnast.e || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.e || 0) === 8 ? 'selected' : ''}" ${(gymnast.e || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.e || 0) > 0 ? 'selected' : ''}" ${(gymnast.e || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.e || 0}</td>
+                    <td class="${(gymnast.e || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.e || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>E</td>
                   </tr>
                   <tr class="element-row">
-                    <td class="code-cell ${(gymnast.d || 0) > 0 ? 'selected' : ''}">D</td>
-                    <td class="number-cell ${(gymnast.d || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.d || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.d || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.d || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.d || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.d || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.d || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.d || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.d || 0) > 0 ? 'selected' : ''}">${gymnast.d || 0}</td>
-                    <td class="${(gymnast.d || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">D</td>
+                    <td class="code-cell ${(gymnast.d || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}">D</td>
+                    <td class="number-cell ${(gymnast.d || 0) === 1 ? 'selected' : ''}" ${(gymnast.d || 0) === 1 ? 'style="color:rgb(153, 1, 1)!important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.d || 0) === 2 ? 'selected' : ''}" ${(gymnast.d || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.d || 0) === 3 ? 'selected' : ''}" ${(gymnast.d || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.d || 0) === 4 ? 'selected' : ''}" ${(gymnast.d || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.d || 0) === 5 ? 'selected' : ''}" ${(gymnast.d || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.d || 0) === 6 ? 'selected' : ''}" ${(gymnast.d || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.d || 0) === 7 ? 'selected' : ''}" ${(gymnast.d || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.d || 0) === 8 ? 'selected' : ''}" ${(gymnast.d || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.d || 0) > 0 ? 'selected' : ''}" ${(gymnast.d || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.d || 0}</td>
+                    <td class="${(gymnast.d || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.d || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>D</td>
                   </tr>
                   <tr class="element-row">
-                    <td class="code-cell ${(gymnast.c || 0) > 0 ? 'selected' : ''}">C</td>
-                    <td class="number-cell ${(gymnast.c || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.c || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.c || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.c || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.c || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.c || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.c || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.c || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.c || 0) > 0 ? 'selected' : ''}">${gymnast.c || 0}</td>
-                    <td class="${(gymnast.c || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">C</td>
+                    <td class="code-cell ${(gymnast.c || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}">C</td>
+                    <td class="number-cell ${(gymnast.c || 0) === 1 ? 'selected' : ''}" ${(gymnast.c || 0) === 1 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.c || 0) === 2 ? 'selected' : ''}" ${(gymnast.c || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.c || 0) === 3 ? 'selected' : ''}" ${(gymnast.c || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.c || 0) === 4 ? 'selected' : ''}" ${(gymnast.c || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.c || 0) === 5 ? 'selected' : ''}" ${(gymnast.c || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.c || 0) === 6 ? 'selected' : ''}" ${(gymnast.c || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.c || 0) === 7 ? 'selected' : ''}" ${(gymnast.c || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.c || 0) === 8 ? 'selected' : ''}" ${(gymnast.c || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.c || 0) > 0 ? 'selected' : ''}" ${(gymnast.c || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.c || 0}</td>
+                    <td class="${(gymnast.c || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.c || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>C</td>
                   </tr>
                   <tr class="element-row">
-                    <td class="code-cell ${(gymnast.b || 0) > 0 ? 'selected' : ''}">B</td>
-                    <td class="number-cell ${(gymnast.b || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.b || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.b || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.b || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.b || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.b || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.b || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.b || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.b || 0) > 0 ? 'selected' : ''}">${gymnast.b || 0}</td>
-                    <td class="${(gymnast.b || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">B</td>
+                    <td class="code-cell ${(gymnast.b || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}">B</td>
+                    <td class="number-cell ${(gymnast.b || 0) === 1 ? 'selected' : ''}" ${(gymnast.b || 0) === 1 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.b || 0) === 2 ? 'selected' : ''}" ${(gymnast.b || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.b || 0) === 3 ? 'selected' : ''}" ${(gymnast.b || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.b || 0) === 4 ? 'selected' : ''}" ${(gymnast.b || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.b || 0) === 5 ? 'selected' : ''}" ${(gymnast.b || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.b || 0) === 6 ? 'selected' : ''}" ${(gymnast.b || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.b || 0) === 7 ? 'selected' : ''}" ${(gymnast.b || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.b || 0) === 8 ? 'selected' : ''}" ${(gymnast.b || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.b || 0) > 0 ? 'selected' : ''}" ${(gymnast.b || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.b || 0}</td>
+                    <td class="${(gymnast.b || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.b || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>B</td>
                   </tr>
                   <tr class="element-row">
-                    <td class="code-cell ${(gymnast.a || 0) > 0 ? 'selected' : ''}">A</td>
-                    <td class="number-cell ${(gymnast.a || 0) === 1 ? 'selected' : ''}">1</td>
-                    <td class="number-cell ${(gymnast.a || 0) === 2 ? 'selected' : ''}">2</td>
-                    <td class="number-cell ${(gymnast.a || 0) === 3 ? 'selected' : ''}">3</td>
-                    <td class="number-cell ${(gymnast.a || 0) === 4 ? 'selected' : ''}">4</td>
-                    <td class="number-cell ${(gymnast.a || 0) === 5 ? 'selected' : ''}">5</td>
-                    <td class="number-cell ${(gymnast.a || 0) === 6 ? 'selected' : ''}">6</td>
-                    <td class="number-cell ${(gymnast.a || 0) === 7 ? 'selected' : ''}">7</td>
-                    <td class="number-cell ${(gymnast.a || 0) === 8 ? 'selected' : ''}">8</td>
-                    <td class="sel-cell ${(gymnast.a || 0) > 0 ? 'selected' : ''}">${gymnast.a || 0}</td>
-                    <td class="${(gymnast.a || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}">A</td>
+                    <td class="code-cell ${(gymnast.a || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}">A</td>
+                    <td class="number-cell ${(gymnast.a || 0) === 1 ? 'selected' : ''}" ${(gymnast.a || 0) === 1 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.a || 0) === 2 ? 'selected' : ''}" ${(gymnast.a || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.a || 0) === 3 ? 'selected' : ''}" ${(gymnast.a || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.a || 0) === 4 ? 'selected' : ''}" ${(gymnast.a || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.a || 0) === 5 ? 'selected' : ''}" ${(gymnast.a || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.a || 0) === 6 ? 'selected' : ''}" ${(gymnast.a || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.a || 0) === 7 ? 'selected' : ''}" ${(gymnast.a || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.a || 0) === 8 ? 'selected' : ''}" ${(gymnast.a || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.a || 0) > 0 ? 'selected' : ''}" ${(gymnast.a || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.a || 0}</td>
+                    <td class="${(gymnast.a || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.a || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>A</td>
                   </tr>
                 </tbody>
               </table>
@@ -2489,7 +1201,7 @@ export const generateComprehensivePDF = async (
           <tbody>
             ${finalTableData.participants.map((participant, index) => {
               const isLastRow = index === finalTableData.participants.length - 1;
-              const truncateComment = (text) => {
+              const truncateComment = (text: string) => {
                 if (!text || text.trim() === '') return '';
                 const chunks = [];
                 for (let i = 0; i < text.length; i += 12) {
@@ -2545,19 +1257,19 @@ export const generateComprehensivePDF = async (
         <h3 style="color: #0052b4; margin-bottom: 15px;">📊 Competition Statistics</h3>
         <div class="stats-grid">
           <div class="stat-box">
-            <div class="stat-number">${finalTableData.participants.filter(p => p.scores.startValue > 0 || p.scores.executionScore > 0 || p.details.delta > 0).length}</div>
+            <div class="stat-number">${finalTableData.participants.filter(p => p.scores.startValue > 0 && p.scores.executionScore > 0 && p.details.delta > 0).length}</div>
             <div class="stat-label">Total Participants</div>
           </div>
           <div class="stat-box">
             <div class="stat-number">${(() => {
-              const realParticipants = finalTableData.participants.filter(p => p.scores.startValue > 0 || p.scores.executionScore > 0 || p.details.delta > 0);
-              return realParticipants.length > 0 ? (realParticipants.reduce((sum, p) => sum + p.details.percentage, 0) / realParticipants.length).toFixed(1) : '0.0';
+              const realParticipants = finalTableData.participants.filter(p => p.scores.startValue > 0 && p.scores.executionScore > 0 && p.details.delta > 0);
+              return realParticipants.length > 0 ? (realParticipants.reduce((sum, p) => sum + p.details.percentage, 0) / realParticipants.length).toFixed(2) : '0.0';
             })()}%</div>
             <div class="stat-label">Average Percentage</div>
           </div>
           <div class="stat-box">
             <div class="stat-number">${(() => {
-              const realParticipants = finalTableData.participants.filter(p => p.scores.startValue > 0 || p.scores.executionScore > 0 || p.details.delta > 0);
+              const realParticipants = finalTableData.participants.filter(p => p.scores.startValue > 0 && p.scores.executionScore > 0 && p.details.delta > 0);
               return realParticipants.length > 0 ? Math.min(...realParticipants.map(p => p.details.percentage)) : 0;
             })()}%</div>
             <div class="stat-label">Lowest Percentage</div>
@@ -2614,14 +1326,14 @@ export const generateComprehensivePDF = async (
         }
         
         .red-text {
-          color: #FF0000 !important;
+          color:rgb(153, 1, 1) !important;
         }
         
         .green-text {
-          color: #4CAF50 !important;
+          color:rgb(27, 92, 29) !important;
         }
         .yellow-text {
-          color: #DAA520 !important;
+          color:rgb(188, 142, 28) !important;
         }
 
         .page {
@@ -2807,7 +1519,8 @@ export const generateComprehensivePDF = async (
         
         .number-cell.selected {
           background: #28a745 !important; 
-          color: white !important;
+          color: #ffffff !important;
+          font-weight: bold !important;
         }
 
         .sel-cell {
@@ -2821,7 +1534,7 @@ export const generateComprehensivePDF = async (
         }
         
         .selected-value {
-          color: #333; 
+          color:  #333; 
         }
 
         .selected-value.has-selection {
