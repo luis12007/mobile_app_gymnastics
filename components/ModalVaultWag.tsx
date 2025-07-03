@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState, useEffect } from 'react';
 import { Dimensions, Modal, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import CustomNumberPad from './CustomNumberPad';
 
 // Vault data structure
 interface VaultOption {
@@ -34,6 +35,10 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
   const [searchNumber, setSearchNumber] = useState('');
   const [searchValue, setSearchValue] = useState('');
   const [searchDescription, setSearchDescription] = useState('');
+  const [showNumberPad, setShowNumberPad] = useState(false);
+  const [activeInputType, setActiveInputType] = useState<'number' | 'value' | null>(null);
+  const [tempInputValue, setTempInputValue] = useState('');
+  const [originalInputValue, setOriginalInputValue] = useState('');
   const windowWidth = Dimensions.get('window').width;
   const isSmallScreen = windowWidth < 600;
 
@@ -103,7 +108,7 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
       title: "GROUP 3: HANDSPRING WITH 1/4 - 1/2 TURN (90° - 180°) IN 1ST FLIGHT PHASE (TSUKAHARA) - SALTO BWD WITH/WITHOUT TWIST IN 2ND FLIGHT PHASE",
       color: lightGreen,
       vaults: [
-        { id: "310", number: "310", value: 3.2, description: "Tsukahara tucked (Tsukahara)" },
+        { id: "310", number: "310", value: 3.2, description: "Tsukahara tucked (Tourischeva)" },
         { id: "311", number: "311", value: 3.4, description: "Tsukahara tucked with 1/2 twist (180°) off" },
         { id: "312", number: "312", value: 3.8, description: "Tsukahara tucked with 1/1 twist (360°) off (Kim)" },
         { id: "313", number: "313", value: 4.2, description: "Tsukahara tucked with 1 1/2 twist (540°) off" },
@@ -171,6 +176,10 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
       setSearchNumber('');
       setSearchValue('');
       setSearchDescription('');
+      setShowNumberPad(false);
+      setActiveInputType(null);
+      setTempInputValue('');
+      setOriginalInputValue('');
     }
   }, [visible]);
 
@@ -183,6 +192,60 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
       
       return numberMatch && valueMatch && descriptionMatch;
     });
+  };
+
+  // Funciones para manejar el teclado numérico
+  const handleNumberInputPress = (type: 'number' | 'value') => {
+    setActiveInputType(type);
+    const currentValue = type === 'number' ? searchNumber : searchValue;
+    setOriginalInputValue(currentValue);
+    setTempInputValue(currentValue);
+    setShowNumberPad(true);
+  };
+
+  const handleNumberPadPress = (number: string) => {
+    const newValue = tempInputValue + number;
+    setTempInputValue(newValue);
+    
+    // Actualizar en tiempo real
+    if (activeInputType === 'number') {
+      setSearchNumber(newValue);
+    } else if (activeInputType === 'value') {
+      setSearchValue(newValue);
+    }
+  };
+
+  const handleNumberPadBackspace = () => {
+    const newValue = tempInputValue.slice(0, -1);
+    setTempInputValue(newValue);
+    
+    // Actualizar en tiempo real
+    if (activeInputType === 'number') {
+      setSearchNumber(newValue);
+    } else if (activeInputType === 'value') {
+      setSearchValue(newValue);
+    }
+  };
+
+  const handleNumberPadConfirm = () => {
+    // Los valores ya se han actualizado en tiempo real
+    setShowNumberPad(false);
+    setActiveInputType(null);
+    setTempInputValue('');
+    setOriginalInputValue('');
+  };
+
+  const handleNumberPadClose = () => {
+    // Restaurar valores originales si se cancela
+    if (activeInputType === 'number') {
+      setSearchNumber(originalInputValue);
+    } else if (activeInputType === 'value') {
+      setSearchValue(originalInputValue);
+    }
+    setShowNumberPad(false);
+    setActiveInputType(null);
+    setTempInputValue('');
+    setOriginalInputValue('');
   };
 
   const handleSelect = (vault: VaultOption, groupId: number, value: number, description: string) => {
@@ -208,27 +271,36 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
           
           {/* Search Bars */}
           <View style={styles.searchContainer}>
-            <View style={styles.searchInputContainer}>
+            <TouchableOpacity 
+              style={styles.searchInputContainer}
+              onPress={() => handleNumberInputPress('number')}
+              activeOpacity={0.7}
+            >
               <Ionicons name="search" size={16} color="#666" style={styles.searchIcon} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search by number..."
-                value={searchNumber}
-                onChangeText={setSearchNumber}
-                placeholderTextColor="#999"
-              />
-            </View>
-            <View style={styles.searchInputContainer}>
+              <View style={styles.searchInputTextWrapper}>
+                <Text style={[
+                  styles.searchInputText,
+                  !searchNumber && styles.searchInputPlaceholder
+                ]}>
+                  {searchNumber || "Search by number..."}
+                </Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.searchInputContainer}
+              onPress={() => handleNumberInputPress('value')}
+              activeOpacity={0.7}
+            >
               <Ionicons name="search" size={16} color="#666" style={styles.searchIcon} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search by value..."
-                value={searchValue}
-                onChangeText={setSearchValue}
-                placeholderTextColor="#999"
-                keyboardType="numeric"
-              />
-            </View>
+              <View style={styles.searchInputTextWrapper}>
+                <Text style={[
+                  styles.searchInputText,
+                  !searchValue && styles.searchInputPlaceholder
+                ]}>
+                  {searchValue || "Search by value..."}
+                </Text>
+              </View>
+            </TouchableOpacity>
             <View style={styles.searchInputContainer}>
               <Ionicons name="search" size={16} color="#666" style={styles.searchIcon} />
               <TextInput
@@ -295,6 +367,16 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
             </TouchableOpacity>
           </View>
         </View>
+        {showNumberPad && (
+          <CustomNumberPad
+            visible={showNumberPad}
+            currentValue={tempInputValue}
+            onClose={handleNumberPadClose}
+            onNumberPress={handleNumberPadPress}
+            onBackspace={handleNumberPadBackspace}
+            onConfirm={handleNumberPadConfirm}
+          />
+        )}
       </SafeAreaView>
     </Modal>
   );
@@ -470,6 +552,26 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333',
     height: '100%',
+    paddingVertical: 0,
+    textAlignVertical: 'center',
+    includeFontPadding: false,
+  },
+  searchInputTextWrapper: {
+    flex: 1,
+    height: '100%',
+    justifyContent: 'center',
+  },
+  searchInputText: {
+    color: '#333',
+    fontSize: 14,
+    lineHeight: 16,
+    textAlignVertical: 'center',
+    includeFontPadding: false,
+    paddingVertical: 0,
+    marginVertical: 0,
+  },
+  searchInputPlaceholder: {
+    color: '#999',
   },
 });
 

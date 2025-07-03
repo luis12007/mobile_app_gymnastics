@@ -1,25 +1,80 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, TouchableOpacity, Text, StyleSheet, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 interface CustomNumberPadProps {
   visible: boolean;
+  value?: string;
   currentValue?: string;
-  onNumberPress: (number: string) => void;
-  onBackspace: () => void;
-  onConfirm: () => void;
-  onClose: () => void;
+  onValueChange?: (value: string) => void;
+  onNumberPress?: (number: string) => void;
+  onBackspace?: () => void;
+  onConfirm?: () => void;
+  onClose: (finalValue?: string) => void;
+  title?: string;
+  placeholder?: string;
+  maxLength?: number;
 }
 
 const CustomNumberPad: React.FC<CustomNumberPadProps> = ({
   visible,
-  currentValue = '',
+  value = '',
+  currentValue,
+  onValueChange,
   onNumberPress,
   onBackspace,
   onConfirm,
   onClose,
+  title = 'Enter Number',
+  placeholder = 'Enter number...',
+  maxLength = 10,
 }) => {
+  const [internalValue, setInternalValue] = useState<string>('');
+
+  // Sincronizar valor interno con props
+  useEffect(() => {
+    const displayValue = value || currentValue || '';
+    setInternalValue(displayValue);
+  }, [value, currentValue]);
+
   if (!visible) return null;
+
+  const handleNumberPress = (number: string) => {
+    if (internalValue.length >= maxLength) return;
+    
+    const newValue = internalValue + number;
+    setInternalValue(newValue);
+    
+    if (onNumberPress) {
+      onNumberPress(number);
+    }
+    if (onValueChange) {
+      onValueChange(newValue);
+    }
+  };
+
+  const handleBackspace = () => {
+    const newValue = internalValue.slice(0, -1);
+    setInternalValue(newValue);
+    
+    if (onBackspace) {
+      onBackspace();
+    }
+    if (onValueChange) {
+      onValueChange(newValue);
+    }
+  };
+
+  const handleConfirm = () => {
+    if (onConfirm) {
+      onConfirm();
+    }
+    onClose(internalValue);
+  };
+
+  const handleClose = () => {
+    onClose(internalValue);
+  };
 
   const { width, height } = Dimensions.get('window');
   const keyWidth = (width - 80) / 3 - 10; // Mejor cálculo para 3 columnas con más margen
@@ -38,7 +93,7 @@ const CustomNumberPad: React.FC<CustomNumberPadProps> = ({
         <TouchableOpacity
           key={`${key}-${index}`}
           style={[styles.key, styles.actionKey, { width: keyWidth, height: keyHeight }]}
-          onPress={onBackspace}
+          onPress={handleBackspace}
           activeOpacity={0.7}
         >
           <Ionicons name="backspace-outline" size={28} color="#fff" />
@@ -50,7 +105,7 @@ const CustomNumberPad: React.FC<CustomNumberPadProps> = ({
       <TouchableOpacity
         key={`${key}-${index}`}
         style={[styles.key, styles.numberKey, { width: keyWidth }]}
-        onPress={() => onNumberPress(key)}
+        onPress={() => handleNumberPress(key)}
         activeOpacity={0.7}
       >
         <Text style={styles.keyText}>{key}</Text>
@@ -63,7 +118,7 @@ const CustomNumberPad: React.FC<CustomNumberPadProps> = ({
       {/* Overlay para cerrar */}
       <TouchableOpacity 
         style={styles.overlay} 
-        onPress={onClose}
+        onPress={handleClose}
         activeOpacity={1}
       />
       
@@ -73,7 +128,7 @@ const CustomNumberPad: React.FC<CustomNumberPadProps> = ({
         <View style={styles.headerRow}>
           <TouchableOpacity
             style={[styles.headerButton, styles.closeButton]}
-            onPress={onClose}
+            onPress={handleClose}
             activeOpacity={0.7}
           >
             <Ionicons name="close" size={20} color="#666" />
@@ -82,7 +137,7 @@ const CustomNumberPad: React.FC<CustomNumberPadProps> = ({
           
           <TouchableOpacity
             style={[styles.headerButton, styles.confirmButton]}
-            onPress={onConfirm}
+            onPress={handleConfirm}
             activeOpacity={0.7}
           >
             <Ionicons name="checkmark" size={20} color="#fff" />
@@ -93,10 +148,10 @@ const CustomNumberPad: React.FC<CustomNumberPadProps> = ({
         {/* Display del valor actual */}
         <View style={styles.displayContainer}>
           <Text style={styles.displayText}>
-            {currentValue || ''}
+            {internalValue || ''}
           </Text>
-          {!currentValue && (
-            <Text style={styles.displayPlaceholder}>Enter number...</Text>
+          {!internalValue && (
+            <Text style={styles.displayPlaceholder}>{placeholder}</Text>
           )}
         </View>
         
@@ -120,11 +175,12 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    zIndex: 1000,
+    zIndex: 999999, // Z-index máximo para asegurar que esté por encima de todo
+    elevation: 999, // Para Android
   },
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
   },
   keyboardContainer: {
     backgroundColor: '#d1d5db',
@@ -133,9 +189,10 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 5,
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 20, // Mayor elevación para Android
+    zIndex: 999999, // Asegurar z-index máximo
   },
   headerRow: {
     flexDirection: 'row',

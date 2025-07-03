@@ -95,6 +95,7 @@ interface WhiteboardProps {
   setStickBonus?: Function;
   percentage?: number;
   oncodetable?: () => void; // Función para abrir vault table
+  discipline?: boolean; // Prop to control stick bonus visibility
 }
 
 // Calcular altura del canvas basado en el tamaño del dispositivo (como en jump original)
@@ -124,7 +125,8 @@ const DrawingCanvas = ({
   stickBonus = false, 
   setStickBonus = () => {}, 
   percentage = 0,
-  oncodetable
+  oncodetable,
+  discipline = false
 }: WhiteboardProps) => {
   // Cargar imagen de fondo usando Skia
   const backgroundImage = useImage(require('../assets/images/Jump.png'));
@@ -1156,21 +1158,23 @@ const DrawingCanvas = ({
       </Animated.View>
 
       {/* Stick Bonus button - bottom right */}
-      <Animated.View style={[
-        styles.stickButtonContainer,
-        { transform: [{ translateY: stickButtonAnim }] }
-      ]}>
-        <TouchableOpacity 
-          style={[
-            styles.stickButton,
-            stickBonus && styles.stickButtonActive
-          ]}
-          onPress={toggleStickBonus}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Text style={styles.stickButtonText}>STICK BONUS</Text>
-        </TouchableOpacity>
-      </Animated.View>
+      {discipline && (
+        <Animated.View style={[
+          styles.stickButtonContainer,
+          { transform: [{ translateY: stickButtonAnim }] }
+        ]}>
+          <TouchableOpacity 
+            style={[
+              styles.stickButton,
+              stickBonus && styles.stickButtonActive
+            ]}
+            onPress={toggleStickBonus}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Text style={styles.stickButtonText}>STICK BONUS</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      )}
 
       {/* Vault Table button - bottom left */}
       <Animated.View style={[

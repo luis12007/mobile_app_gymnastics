@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState, useEffect } from 'react';
 import { Dimensions, Modal, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import CustomNumberPad from './CustomNumberPad';
 
 // Vault data structure
 interface VaultOption {
@@ -34,6 +35,10 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
   const [searchNumber, setSearchNumber] = useState('');
   const [searchValue, setSearchValue] = useState('');
   const [searchDescription, setSearchDescription] = useState('');
+  const [showNumberPad, setShowNumberPad] = useState(false);
+  const [activeInputType, setActiveInputType] = useState<'number' | 'value' | null>(null);
+  const [tempInputValue, setTempInputValue] = useState('');
+  const [originalInputValue, setOriginalInputValue] = useState('');
   const windowWidth = Dimensions.get('window').width;
   const isSmallScreen = windowWidth < 600;
 
@@ -43,6 +48,10 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
       setSearchNumber('');
       setSearchValue('');
       setSearchDescription('');
+      setShowNumberPad(false);
+      setActiveInputType(null);
+      setTempInputValue('');
+      setOriginalInputValue('');
     }
   }, [visible]);
 
@@ -71,12 +80,12 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
         { id: "107", number: "107", value: 2.8, description: "Handspring and salto forward piked 1/2 turn (Cuervo piked)" },
         { id: "108", number: "108", value: 3.2, description: "Handspring and salto forward piked 1/1 turn (Cuervo piked 1/2 turn)" },
         { id: "109", number: "109", value: 3.6, description: "Handspring and salto forward piked 3/2 turn (Cuervo piked 1/1 turn)" },
-        { id: "110", number: "110", value: 3.6, description: "Handspring and salto forward straight 1/2 turn (Cuervo straight)" },
-        { id: "111", number: "111", value: 4.0, description: "Handspring and salto forward straight 1/1 turn (Cuervo straight 1/2 turn)" },
-        { id: "114", number: "114", value: 4.4, description: "Handspring and salto forward straight 3/2 turns (Cuervo straight 3/2 turns)" },
-        { id: "115", number: "115", value: 4.8, description: "Handspring and salto forward straight 2/1 turns (Lou Yun)" },
-        { id: "116", number: "116", value: 5.2, description: "Handspring and salto forward straight 5/2 turns (Yeo 2)" },
-        { id: "117", number: "117", value: 5.6, description: "Handspring and salto forward straight 3/1 turns (Yang Hak Leon)" },
+        { id: "113", number: "113", value: 3.6, description: "Handspring and salto forward straight 1/2 turn (Cuervo straight)" },
+        { id: "114", number: "114", value: 4.0, description: "Handspring and salto forward straight 1/1 turn (Cuervo straight 1/2 turn)" },
+        { id: "115", number: "115", value: 4.4, description: "Handspring and salto forward straight 3/2 turns (Lou Yun)" },
+        { id: "116", number: "116", value: 4.8, description: "Handspring and salto forward straight 2/1 turns (Cuervo straight 3/2 turns) " },
+        { id: "117", number: "117", value: 5.2, description: "Handspring and salto forward straight 5/2 turns (Yeo 2)" },
+        { id: "118", number: "118", value: 5.6, description: "Handspring and salto forward straight 3/1 turns (Yang Hak Leon)" },
         { id: "119", number: "119", value: 2.4, description: "Tsukahara tucked 1/1 turn (Kasamatsu)" },
         { id: "120", number: "120", value: 2.8, description: "Tsukahara tucked 3/2 turns" },
         { id: "121", number: "121", value: 3.2, description: "Tsukahara tucked 2/1 turns (Barbieri)" },
@@ -91,7 +100,7 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
     },
     {
       id: 2,
-      title: "EG 2: Handspring salto vaults with or without simple twists, and all double salto fwd or without simple twists, and all double salto forward and backward.",
+      title: "EG 2: Handspring salto vaults with or without simple twists, and all double salto forward.",
       color: "#d8ecf5", // Light blue
       vaults: [
         { id: "201", number: "201", value: 1.2, description: "Handspring forward" },
@@ -133,15 +142,15 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
       title: "EG 4: Round off entry and single salto vaults with complex twists.",
       color: "#f5ca79", // Light orange/yellow
       vaults: [
-        { id: "401", number: "401", value: 2.4, description: "Yurchenko tucked 1/1turn" },
+        { id: "401", number: "401", value: 2.4, description: "Yurchenko tucked 1/1 turn" },
         { id: "402", number: "402", value: 2.8, description: "Yurchenko tucked 3/2 turn" },
-        { id: "403", number: "403", value: 3.2, description: "Yurchenko tucked 2/1turns" },
+        { id: "403", number: "403", value: 3.2, description: "Yurchenko tucked 2/1 turns" },
         { id: "404", number: "404", value: 3.6, description: "Yurchenko tucked 5/2 turns" },
         { id: "405", number: "405", value: 3.6, description: "Yurchenko straight 1/1 turn" },
         { id: "406", number: "406", value: 4.0, description: "Yurchenko straight 3/2 turns" },
         { id: "407", number: "407", value: 4.4, description: "Yurchenko straight 2/1 turns" },
         { id: "408", number: "408", value: 4.8, description: "Yurchenko straight 5/2 turns (Shewfelt)" },
-        { id: "409", number: "409", value: 5.2, description: "Yurchenko straight 3/1turns (Shirai-Kim Hee Hoon)" },
+        { id: "409", number: "409", value: 5.2, description: "Yurchenko straight 3/1 turns (Shirai-Kim Hee Hoon)" },
         { id: "410", number: "410", value: 5.6, description: "Yurchenko straight 7/2 turns (Shirai 2)" },
         { id: "413", number: "413", value: 2.6, description: "Round Off 1/2 turn & handspring salto forward tucked 1/2 turn" },
         { id: "414", number: "414", value: 3.0, description: "Round Off 1/2 turn & handspring salto forward piked 1/2 turn (Nemov)" },
@@ -186,6 +195,60 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
   // Title background color from the image
   const titleBackgroundColor = "#ffeb3b";
 
+  // Funciones para manejar el teclado numérico
+  const handleNumberInputPress = (type: 'number' | 'value') => {
+    setActiveInputType(type);
+    const currentValue = type === 'number' ? searchNumber : searchValue;
+    setOriginalInputValue(currentValue);
+    setTempInputValue(currentValue);
+    setShowNumberPad(true);
+  };
+
+  const handleNumberPadPress = (number: string) => {
+    const newValue = tempInputValue + number;
+    setTempInputValue(newValue);
+    
+    // Actualizar en tiempo real
+    if (activeInputType === 'number') {
+      setSearchNumber(newValue);
+    } else if (activeInputType === 'value') {
+      setSearchValue(newValue);
+    }
+  };
+
+  const handleNumberPadBackspace = () => {
+    const newValue = tempInputValue.slice(0, -1);
+    setTempInputValue(newValue);
+    
+    // Actualizar en tiempo real
+    if (activeInputType === 'number') {
+      setSearchNumber(newValue);
+    } else if (activeInputType === 'value') {
+      setSearchValue(newValue);
+    }
+  };
+
+  const handleNumberPadConfirm = () => {
+    // Los valores ya se han actualizado en tiempo real
+    setShowNumberPad(false);
+    setActiveInputType(null);
+    setTempInputValue('');
+    setOriginalInputValue('');
+  };
+
+  const handleNumberPadClose = () => {
+    // Restaurar valores originales si se cancela
+    if (activeInputType === 'number') {
+      setSearchNumber(originalInputValue);
+    } else if (activeInputType === 'value') {
+      setSearchValue(originalInputValue);
+    }
+    setShowNumberPad(false);
+    setActiveInputType(null);
+    setTempInputValue('');
+    setOriginalInputValue('');
+  };
+
   return (
     <Modal
       visible={visible}
@@ -204,27 +267,36 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
           
           {/* Search Bars */}
           <View style={styles.searchContainer}>
-            <View style={styles.searchInputContainer}>
+            <TouchableOpacity 
+              style={styles.searchInputContainer}
+              onPress={() => handleNumberInputPress('number')}
+              activeOpacity={0.7}
+            >
               <Ionicons name="search" size={16} color="#666" style={styles.searchIcon} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search by number..."
-                value={searchNumber}
-                onChangeText={setSearchNumber}
-                placeholderTextColor="#999"
-              />
-            </View>
-            <View style={styles.searchInputContainer}>
+              <View style={styles.searchInputTextWrapper}>
+                <Text style={[
+                  styles.searchInputText,
+                  !searchNumber && styles.searchInputPlaceholder
+                ]}>
+                  {searchNumber || "Search by number..."}
+                </Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.searchInputContainer}
+              onPress={() => handleNumberInputPress('value')}
+              activeOpacity={0.7}
+            >
               <Ionicons name="search" size={16} color="#666" style={styles.searchIcon} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search by value..."
-                value={searchValue}
-                onChangeText={setSearchValue}
-                placeholderTextColor="#999"
-                keyboardType="numeric"
-              />
-            </View>
+              <View style={styles.searchInputTextWrapper}>
+                <Text style={[
+                  styles.searchInputText,
+                  !searchValue && styles.searchInputPlaceholder
+                ]}>
+                  {searchValue || "Search by value..."}
+                </Text>
+              </View>
+            </TouchableOpacity>
             <View style={styles.searchInputContainer}>
               <Ionicons name="search" size={16} color="#666" style={styles.searchIcon} />
               <TextInput
@@ -291,6 +363,16 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
             </TouchableOpacity>
           </View>
         </View>
+        {showNumberPad && (
+          <CustomNumberPad
+            visible={showNumberPad}
+            currentValue={tempInputValue}
+            onClose={handleNumberPadClose}
+            onNumberPress={handleNumberPadPress}
+            onBackspace={handleNumberPadBackspace}
+            onConfirm={handleNumberPadConfirm}
+          />
+        )}
       </SafeAreaView>
     </Modal>
   );
@@ -466,6 +548,26 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333',
     height: '100%',
+    paddingVertical: 0,
+    textAlignVertical: 'center',
+    includeFontPadding: false,
+  },
+  searchInputTextWrapper: {
+    flex: 1,
+    height: '100%',
+    justifyContent: 'center',
+  },
+  searchInputText: {
+    color: '#333',
+    fontSize: 14,
+    lineHeight: 16,
+    textAlignVertical: 'center',
+    includeFontPadding: false,
+    paddingVertical: 0,
+    marginVertical: 0,
+  },
+  searchInputPlaceholder: {
+    color: '#999',
   },
 });
 

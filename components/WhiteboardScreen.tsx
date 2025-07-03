@@ -77,6 +77,7 @@ interface WhiteboardProps {
   stickBonus?: boolean;
   setStickBonusset?: Function;
   percentage?: number;
+  discipline?: boolean;
 }
 
 // Calcular altura del canvas optimizada para el contexto del padre
@@ -104,7 +105,8 @@ const DrawingCanvas = ({
   tableId, 
   stickBonus = false, 
   setStickBonusset, 
-  percentage = 0 
+  percentage = 0,
+  discipline = true
 }: WhiteboardProps) => {
   const currentPath = useRef<SkPath | null>(null);
   const [paths, setPaths] = useState<SkPath[]>([]);
@@ -1118,22 +1120,24 @@ const DrawingCanvas = ({
 
 
 
-      {/* Stick Bonus button - bottom right */}
-      <Animated.View style={[
-        styles.stickButtonContainer,
-        { transform: [{ translateY: stickButtonAnim }] }
-      ]}>
-        <TouchableOpacity 
-          style={[
-            styles.stickButton,
-            stickBonus && styles.stickButtonActive
-          ]}
-          onPress={toggleStickBonus}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Text style={styles.stickButtonText}>STICK BONUS</Text>
-        </TouchableOpacity>
-      </Animated.View>
+      {/* Stick Bonus button - bottom right - Only show for discipline=true */}
+      {discipline && (
+        <Animated.View style={[
+          styles.stickButtonContainer,
+          { transform: [{ translateY: stickButtonAnim }] }
+        ]}>
+          <TouchableOpacity 
+            style={[
+              styles.stickButton,
+              stickBonus && styles.stickButtonActive
+            ]}
+            onPress={toggleStickBonus}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Text style={styles.stickButtonText}>STICK BONUS</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      )}
 
       {/* Percentage display */}
       <Text style={styles.percentageText}>{percentage}</Text>
@@ -1491,6 +1495,26 @@ const styles = StyleSheet.create({
     bottom: 10,
     right: 10,
     zIndex: 1000,
+  },
+  // Web fallback styles
+  webFallback: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    padding: 20,
+  },
+  webFallbackText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  webFallbackSubtext: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
   },
 });
 

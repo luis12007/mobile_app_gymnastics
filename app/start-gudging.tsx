@@ -24,16 +24,23 @@ import {
 import { read, utils } from "xlsx";
 import {
   deleteMainTable,
+  deleteRateGeneral,
   deleteRateGeneralByTableId,
+  deleteRateJump,
   getCompetenceById,
   getMainTableById,
   getMainTablesByCompetenceId,
   getRateGeneralByTableId,
+  getRateGeneralTables,
+  getRateJumpByTableId,
+  getRateJumpTables,
   insertMainTable,
   insertRateGeneral,
+  insertRateJump,
   updateCompetence,
   updateMainTable,
 } from "../Database/database"; // Adjust the import path as needed
+import ModalCustomNumberPad from "../components/ModalCustomNumberPad"; // Import the new component
 
 // Get screen dimensions for responsive design
 const { width, height } = Dimensions.get("window");
@@ -202,6 +209,17 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
   const [invalidGymnastIds, setInvalidGymnastIds] = useState<number[]>([]);
   const [isTypeSearchExpanded, setIsTypeSearchExpanded] = useState(false);
 
+  // Estados para el modal de agregar gimnasta
+  const [showAddGymnastModal, setShowAddGymnastModal] = useState(false);
+  const [addAtEnd, setAddAtEnd] = useState(true);
+  const [insertPosition, setInsertPosition] = useState("");
+  const [insertPositionError, setInsertPositionError] = useState("");
+  
+  // Estados para el CustomNumberPad del modal
+  const [showNumberPad, setShowNumberPad] = useState(false);
+  const [numberPadValue, setNumberPadValue] = useState("");
+  const [hideMainModal, setHideMainModal] = useState(false); // Estado para ocultar el modal principal
+
   // Track which field is being edited
   const [editingField, setEditingField] = useState<{
     gymnastId: number | null;
@@ -357,15 +375,49 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
             event: table.event || "",
             noc: table.noc?.toString() || "", // Convert to string
             bib: table.bib?.toString() || "",
-            // Add other fields as needed
+            // Incluir todos los campos de scoring para mantener consistencia
+            j: table.j || 0,
+            i: table.i || 0,
+            h: table.h || 0,
+            g: table.g || 0,
+            f: table.f || 0,
+            e: table.e || 0,
+            d: table.d || 0,
+            c: table.c || 0,
+            b: table.b || 0,
+            a: table.a || 0,
+            dv: table.dv || 0,
+            eg: table.eg || 0,
+            sb: table.sb || 0,
+            nd: table.nd || 0,
+            cv: table.cv || 0,
+            sv: table.sv || 0,
+            e2: table.e2 || 0,
+            d3: table.d3 || 0,
+            e3: table.e3 || 0,
+            delt: table.delt || 0,
+            percentage: table.percentage || 0,
           }));
 
-          setGymnasts(formattedGymnasts);
+          // Validar y corregir numeración correlativa al cargar
+          const correlativeGymnasts = await ensureCorrelativeNumbering(formattedGymnasts);
+          
+          // Validar que no hay duplicados
+          if (!validateNoDuplicateNumbers(correlativeGymnasts)) {
+            console.warn("Números duplicados detectados al cargar. Corrigiendo...");
+            // Si hay duplicados, forzar corrección
+            const correctedGymnasts = await ensureCorrelativeNumbering(correlativeGymnasts);
+            setGymnasts(correctedGymnasts);
+          } else {
+            setGymnasts(correlativeGymnasts);
+          }
+
         } catch (error) {
           console.error("Error loading data:", error);
           Alert.alert("Error", "Failed to load gymnasts data");
         } finally {
           setIsLoading(false);
+          setInitialLoadComplete(true);
         }
       }
     };
@@ -618,6 +670,35 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
     }
   };
 
+// Función para garantizar numeración correlativa
+const ensureCorrelativeNumbering = async (gymnastsArray: GymnastEntry[]) => {
+  // Ordenar por número actual para mantener el orden relativo
+  const sortedGymnasts = gymnastsArray.sort((a, b) => a.number - b.number);
+  
+  // Reasignar números correlativos (1, 2, 3, 4, 5...)
+  const correlativeGymnasts = sortedGymnasts.map((gymnast, index) => ({
+    ...gymnast,
+    number: index + 1
+  }));
+
+  // Actualizar en base de datos solo si el número cambió
+  for (const gymnast of correlativeGymnasts) {
+    const originalGymnast = gymnastsArray.find(g => g.id === gymnast.id);
+    if (originalGymnast && gymnast.number !== originalGymnast.number) {
+      await updateMainTable(gymnast.id, { number: gymnast.number });
+    }
+  }
+
+  return correlativeGymnasts;
+};
+
+// Función para validar que no hay números duplicados
+const validateNoDuplicateNumbers = (gymnastsArray: GymnastEntry[]): boolean => {
+  const numbers = gymnastsArray.map(g => g.number);
+  const uniqueNumbers = new Set(numbers);
+  return numbers.length === uniqueNumbers.size;
+};
+
 // Perform the actual deletion
 const performDelete = async () => {
   if (selectedGymnasts.length === 0) {
@@ -663,17 +744,14 @@ const performDelete = async () => {
       gymnast => !selectedGymnasts.includes(gymnast.id)
     );
 
-    // Reorganize numbers
-    const reorganizedGymnasts = remainingGymnasts.map((gymnast, index) => ({
-      ...gymnast,
-      number: index + 1
-    }));
+    // Garantizar numeración correlativa después de eliminar
+    const reorganizedGymnasts = await ensureCorrelativeNumbering(remainingGymnasts);
 
-    // Update numbers in database
-    for (const gymnast of reorganizedGymnasts) {
-      if (gymnast.number !== gymnasts.find(g => g.id === gymnast.id)?.number) {
-        await updateMainTable(gymnast.id, { number: gymnast.number });
-      }
+    // Validar que no hay duplicados
+    if (!validateNoDuplicateNumbers(reorganizedGymnasts)) {
+      console.error("Error: Números duplicados detectados después de eliminar");
+      Alert.alert("Error", "Error en la numeración. Por favor contacte soporte.");
+      return;
     }
 
     setGymnasts(reorganizedGymnasts);
@@ -701,13 +779,38 @@ const performDelete = async () => {
   }
 };
 
-  const handleAddGymnast = async () => {
+  const handleAddGymnast = async (insertAtPosition?: number) => {
     try {
-      // Encontrar el siguiente número disponible
-      const usedNumbers = gymnasts.map((g) => g.number);
-      let newNumber = 1;
-      while (usedNumbers.includes(newNumber)) {
-        newNumber++;
+      // Validar que no excedamos el límite de participantes
+      if (gymnasts.length >= participants) {
+        Alert.alert("Límite Alcanzado", `No se pueden agregar más de ${participants} participantes`);
+        return;
+      }
+
+      let newNumber: number;
+      let updatedGymnasts: GymnastEntry[];
+
+      if (insertAtPosition !== undefined && insertAtPosition > 0 && insertAtPosition <= gymnasts.length + 1) {
+        // Insertar en posición específica
+        newNumber = insertAtPosition;
+        
+        // Obtener gimnastas ordenados
+        const sortedGymnasts = [...gymnasts].sort((a, b) => a.number - b.number);
+        
+        // Actualizar números de los gimnastas que vienen después de la posición de inserción
+        for (const gymnast of sortedGymnasts) {
+          if (gymnast.number >= insertAtPosition) {
+            const updatedNumber = gymnast.number + 1;
+            await updateMainTable(gymnast.id, { number: updatedNumber });
+            gymnast.number = updatedNumber;
+          }
+        }
+        
+        updatedGymnasts = sortedGymnasts;
+      } else {
+        // Agregar al final (comportamiento por defecto)
+        newNumber = gymnasts.length + 1;
+        updatedGymnasts = [...gymnasts];
       }
 
       // Crear un nuevo gimnasta con valores predeterminados
@@ -774,29 +877,35 @@ const performDelete = async () => {
       await insertRateGeneral(mainRateGeneralData);
 
       if (id) {
-        // Agregar al estado local y reordenar
         // Crear el gimnasta agregado para el historial
         const addedGymnast = { ...newGymnast, id };
         
         // Agregar al historial
         addHistory('add', [addedGymnast]);
 
-        // Agregar al estado local y reordenar
-        const updatedGymnasts = [...gymnasts, addedGymnast];
-        const sortedGymnasts = updatedGymnasts.sort((a, b) => a.number - b.number);
-
-
+        // Agregar al estado local
+        const finalUpdatedGymnasts = [...updatedGymnasts, addedGymnast];
+        
+        // Garantizar numeración correlativa
+        const correlativeGymnasts = await ensureCorrelativeNumbering(finalUpdatedGymnasts);
+        
+        // Validar que no hay duplicados
+        if (!validateNoDuplicateNumbers(correlativeGymnasts)) {
+          console.error("Error: Números duplicados detectados después de agregar");
+          Alert.alert("Error", "Error en la numeración. Por favor contacte soporte.");
+          return;
+        }
 
         // Aplicar animación de reordenamiento
         rowAnimations.length = 0;
-        sortedGymnasts.forEach(() => {
+        correlativeGymnasts.forEach(() => {
           rowAnimations.push({
             opacity: new Animated.Value(0),
             translateX: new Animated.Value(-20),
           });
         });
 
-        setGymnasts(sortedGymnasts);
+        setGymnasts(correlativeGymnasts);
 
         // Iniciar animación
         rowAnimations.forEach((anim, index) => {
@@ -827,6 +936,12 @@ const performDelete = async () => {
           await updateCompetence(competenceId, updatedCompetence);
           setCompetenceData(updatedCompetence);
         }
+
+        // Cerrar modal
+        setShowAddGymnastModal(false);
+        setInsertPosition("");
+        setInsertPositionError("");
+        setHideMainModal(false); // Resetear estado del modal
       }
     } catch (error) {
       console.error("Error adding gymnast:", error);
@@ -834,30 +949,107 @@ const performDelete = async () => {
     }
   };
 
+  // Función para mostrar el modal de agregar
+  const showAddGymnastOptions = () => {
+    setAddAtEnd(true);
+    setInsertPosition("");
+    setInsertPositionError("");
+    setNumberPadValue("");
+    setShowAddGymnastModal(true);
+  };
+
+  // Función para abrir el NumberPad
+  const openNumberPad = () => {
+    console.log("Opening NumberPad...", { insertPosition, showNumberPad });
+    setNumberPadValue(insertPosition);
+    setHideMainModal(true); // Ocultar el modal principal
+    console.log("Main modal hidden, showing NumberPad...");
+    setShowNumberPad(true);
+    console.log("NumberPad should be visible now");
+  };
+
+  // Función para manejar el cierre del NumberPad
+  const handleNumberPadClose = (finalValue?: string) => {
+    console.log("Closing NumberPad with value:", finalValue);
+    setShowNumberPad(false);
+    setHideMainModal(false); // Volver a mostrar el modal principal
+    console.log("Main modal restored, NumberPad hidden");
+    if (finalValue !== undefined) {
+      setInsertPosition(finalValue);
+      setInsertPositionError("");
+    }
+  };
+
+  // Function to validate insertion position
+  const validateInsertPosition = (position: string): boolean => {
+    if (!position || position.trim() === "") {
+      setInsertPositionError("Please enter a position");
+      return false;
+    }
+
+    const numPosition = parseInt(position);
+    if (isNaN(numPosition)) {
+      setInsertPositionError("Must be a valid number");
+      return false;
+    }
+
+    if (numPosition < 1) {
+      setInsertPositionError("Position must be greater than 0");
+      return false;
+    }
+
+    if (numPosition > gymnasts.length + 1) {
+      setInsertPositionError(`Maximum position is ${gymnasts.length + 1}`);
+      return false;
+    }
+
+    // Check if position already exists
+    const existingGymnast = gymnasts.find(g => g.number === numPosition);
+    if (existingGymnast) {
+      setInsertPositionError(`Gymnast already exists at position ${numPosition}. Will insert and move others down.`);
+      return true; // Valid, just a warning
+    }
+
+    setInsertPositionError("");
+    return true;
+  };
+
+  // Función para confirmar la creación
+  const confirmAddGymnast = () => {
+    if (addAtEnd) {
+      handleAddGymnast();
+    } else {
+      if (validateInsertPosition(insertPosition)) {
+        const numPosition = parseInt(insertPosition);
+        handleAddGymnast(numPosition);
+      }
+    }
+  };
+
+  // Función para reordenar los gimnastas y aplicar animación
   // Función para reordenar los gimnastas y aplicar animación
   const reorderGymnasts = async () => {
     try {
-      // Ordenar gimnastas por número
-      const sortedGymnasts = [...gymnasts].sort((a, b) => a.number - b.number);
+      // Usar la función de numeración correlativa
+      const correlativeGymnasts = await ensureCorrelativeNumbering(gymnasts);
 
-      // Actualizar números en la base de datos
-      for (const [index, gymnast] of sortedGymnasts.entries()) {
-        if (gymnast.number !== index + 1) {
-          await updateMainTable(gymnast.id, { number: index + 1 });
-          gymnast.number = index + 1; // Actualizar localmente
-        }
+      // Validar que no hay duplicados
+      if (!validateNoDuplicateNumbers(correlativeGymnasts)) {
+        console.error("Error: Números duplicados detectados durante reordenamiento");
+        Alert.alert("Error", "Error en la numeración durante reordenamiento.");
+        return;
       }
 
       // Aplicar animación de reordenamiento
       rowAnimations.length = 0;
-      sortedGymnasts.forEach(() => {
+      correlativeGymnasts.forEach(() => {
         rowAnimations.push({
           opacity: new Animated.Value(0),
           translateX: new Animated.Value(-20),
         });
       });
 
-      setGymnasts(sortedGymnasts);
+      setGymnasts(correlativeGymnasts);
 
       // Iniciar animación
       rowAnimations.forEach((anim, index) => {
@@ -883,7 +1075,7 @@ const performDelete = async () => {
     }
   };
 
-  const handleSelectStart = () => {
+  const handleSelectStart = async () => {
     // Validate gymnasts for empty fields
     const invalids = gymnasts
       .filter((g) => !g.name || !g.event || !g.noc)
@@ -907,84 +1099,42 @@ const performDelete = async () => {
       return;
     }
 
-    /* start go to the first gymnast */
+    /* Enhanced start judging with validation and recovery */
     if (gymnasts.length > 0) {
-      if (number !== 0) {
-        const firstGymnast = gymnasts[number - 1];
-        if (firstGymnast === undefined) {
-          const firstGymnast = gymnasts[0];
-          const event = firstGymnast.event;
-          if (event === "VT") {
-            router.replace(
-              `/main-jump?competenceId=${firstGymnast.competenceId}&gymnastId=${
-                firstGymnast.id
-              }&event=${event}&discipline=${discipline}&gymnast=${
-                firstGymnast.id
-              }&number=${
-                number + 1
-              }&participants=${participants}&folderId=${folderId}`
-            );
-          } else {
-            router.replace(
-              `/main-floor?competenceId=${
-                firstGymnast.competenceId
-              }&gymnastId=${
-                firstGymnast.id
-              }&event=${event}&discipline=${discipline}&gymnast=${
-                firstGymnast.id
-              }&number=${
-                number + 1
-              }&participants=${participants}&folderId=${folderId}`
-            );
-          }
-          return;
-        }
-        const event = firstGymnast.event;
-        if (event === "VT") {
-          router.replace(
-            `/main-jump?competenceId=${firstGymnast.competenceId}&gymnastId=${
-              firstGymnast.id
-            }&event=${event}&discipline=${discipline}&gymnast=${
-              firstGymnast.id
-            }&number=${
-              number + 1
-            }&participants=${participants}&folderId=${folderId}`
-          );
-        } else {
-          router.replace(
-            `/main-floor?competenceId=${firstGymnast.competenceId}&gymnastId=${
-              firstGymnast.id
-            }&event=${event}&discipline=${discipline}&gymnast=${
-              firstGymnast.id
-            }&number=${
-              number + 1
-            }&participants=${participants}&folderId=${folderId}`
-          );
-        }
+      let targetGymnastNumber = number !== 0 ? number : 1;
+      let targetGymnast = gymnasts.find(g => g.number === targetGymnastNumber);
+      
+      // If target gymnast doesn't exist, find by index
+      if (!targetGymnast && number !== 0) {
+        targetGymnast = gymnasts[number - 1];
+      }
+
+      // If still not found, default to first gymnast
+      if (!targetGymnast) {
+        targetGymnast = gymnasts[0];
+      }
+
+      // Use validation and recovery function
+      const validationResult = await validateAndRecoverGymnastData(
+        targetGymnast?.id || null, 
+        targetGymnast?.number || 1, 
+        true
+      );
+      
+      if (!validationResult) {
+        return; // Error already shown in validation function
+      }
+
+      const { gymnastId: validGymnastId, event: validEvent } = validationResult;
+
+      if (validEvent === "VT") {
+        router.replace(
+          `/main-jump?competenceId=${competenceId}&gymnastId=${validGymnastId}&event=${validEvent}&discipline=${discipline}&gymnast=${validGymnastId}&number=${targetGymnastNumber}&participants=${participants}&folderId=${folderId}`
+        );
       } else {
-        const firstGymnast = gymnasts[0];
-        const event = firstGymnast.event;
-        if (event === "VT") {
-          router.replace(
-            `/main-jump?competenceId=${firstGymnast.competenceId}&gymnastId=${
-              firstGymnast.id
-            }&event=${event}&discipline=${discipline}&gymnast=${
-              firstGymnast.id
-            }&number=${
-              number + 1
-            }&participants=${participants}&folderId=${folderId}`
-          );
-        } else {
-          router.replace(
-            `/main-floor?competenceId=${firstGymnast.competenceId}&gymnastId=${
-              firstGymnast.id
-            }&event=${event}&discipline=${discipline}&gymnast=${
-              firstGymnast.id
-            }&number=${
-              number + 1
-            }&participants=${participants}&folderId=${folderId}`
-          );
-        }
+        router.replace(
+          `/main-floor?competenceId=${competenceId}&gymnastId=${validGymnastId}&event=${validEvent}&discipline=${discipline}&gymnast=${validGymnastId}&number=${targetGymnastNumber}&participants=${participants}&folderId=${folderId}`
+        );
       }
     }
   };
@@ -1049,21 +1199,203 @@ const performDelete = async () => {
     setIsTypeSearchExpanded(false);
   };
 
-  const gotogymnastcalculator = (
+  // Enhanced validation and recovery function
+  const validateAndRecoverGymnastData = async (
+    targetGymnastId: number | null,
+    targetNumber: number,
+    showLoadingMessage: boolean = false
+  ): Promise<{
+    gymnastId: number;
+    gymnastNumber: number;
+    event: string;
+    wasRecovered: boolean;
+    recoveryMessage?: string;
+  } | null> => {
+    try {
+      // Find the target gymnast
+      let targetGymnast = gymnasts.find(g => g.id === targetGymnastId);
+      let wasRecovered = false;
+      let recoveryMessage = "";
+      let needsRecovery = false;
+
+      // If gymnast not found by ID or ID is null, try to find by number
+      if (!targetGymnast && targetNumber > 0) {
+        needsRecovery = true;
+        targetGymnast = gymnasts.find(g => g.number === targetNumber);
+        if (targetGymnast) {
+          wasRecovered = true;
+          recoveryMessage = "Gymnast data recovered by number.";
+        }
+      }
+
+      // If still not found, default to first gymnast
+      if (!targetGymnast) {
+        needsRecovery = true;
+        targetGymnast = gymnasts[0];
+        if (targetGymnast) {
+          wasRecovered = true;
+          recoveryMessage = "Defaulted to first gymnast due to missing data.";
+          
+          // Update MainTable to reflect the change to gymnast 1
+          try {
+            await updateMainTable(targetGymnast.id, { number: 1 });
+          } catch (error) {
+            console.error("Error updating MainTable:", error);
+          }
+        }
+      }
+
+      // Only show loading message if we actually need recovery and the flag is set
+      if (needsRecovery && showLoadingMessage) {
+        Alert.alert("Info", "Gathering gymnast information...");
+      }
+
+      if (!targetGymnast) {
+        Alert.alert("Error", "No gymnasts available for judging.");
+        return null;
+      }
+
+      // Validate essential gymnast data
+      if (!targetGymnast.name || !targetGymnast.event || !targetGymnast.noc) {
+        Alert.alert("Error", "Gymnast data is incomplete. Please fill all required fields.");
+        return null;
+      }
+
+      // Check if MainRateGeneral or MainRateJump records exist and are valid
+      const gymnastNumber = targetGymnast.number;
+      let dataRecoveryPerformed = false;
+
+      if (targetGymnast.event === "VT") {
+        // Check MainRateJump
+        try {
+          const rateJump = await getRateJumpByTableId(targetGymnast.id);
+          if (!rateJump) {
+            // Delete any existing record with the same number and recreate
+            const allRateJumps = await getRateJumpTables();
+            const conflictingRecord = allRateJumps.find((r: any) => r.tableId === targetGymnast!.id);
+            if (conflictingRecord) {
+              await deleteRateJump(conflictingRecord.id);
+            }
+            
+            // Create new record
+            await insertRateJump({
+              tableId: targetGymnast.id,
+              stickBonus: false,
+              vaultNumber: 1,
+              startValue: 0,
+              description: "",
+              execution: 0,
+              myScore: 0,
+              compD: 0,
+              compE: 0,
+              compSd: 0,
+              compNd: 0,
+              score: 0
+            });
+            
+            dataRecoveryPerformed = true;
+            recoveryMessage += (recoveryMessage ? " " : "") + "Vault scoring data was missing and has been recreated. Please re-enter your scores.";
+          }
+        } catch (error) {
+          console.error("Error validating/recovering MainRateJump:", error);
+          Alert.alert("Error", "Unable to validate vault scoring data.");
+          return null;
+        }
+      } else {
+        // Check MainRateGeneral
+        try {
+          const rateGeneral = await getRateGeneralByTableId(targetGymnast.id);
+          if (!rateGeneral) {
+            // Delete any existing record with the same number and recreate
+            const allRateGenerals = await getRateGeneralTables();
+            const conflictingRecord = allRateGenerals.find((r: any) => r.tableId === targetGymnast!.id);
+            if (conflictingRecord) {
+              await deleteRateGeneral(conflictingRecord.id);
+            }
+            
+            // Create new record
+            await insertRateGeneral({
+              tableId: targetGymnast.id,
+              stickBonus: false,
+              numberOfElements: 0,
+              difficultyValues: 0,
+              elementGroups1: 0,
+              elementGroups2: 0,
+              elementGroups3: 0,
+              elementGroups4: 0,
+              elementGroups5: 0,
+              execution: 0,
+              eScore: 0,
+              myScore: 0,
+              compD: 0,
+              compE: 0,
+              compSd: 0,
+              compNd: 0,
+              compScore: 0,
+              comments: "",
+              paths: "",
+              ded: 0,
+              dedexecution: 0,
+              vaultNumber: "0",
+              vaultDescription: ""
+            });
+            
+            dataRecoveryPerformed = true;
+            recoveryMessage += (recoveryMessage ? " " : "") + "Floor/apparatus scoring data was missing and has been recreated. Please re-enter your scores.";
+          }
+        } catch (error) {
+          console.error("Error validating/recovering MainRateGeneral:", error);
+          Alert.alert("Error", "Unable to validate apparatus scoring data.");
+          return null;
+        }
+      }
+
+      // Show recovery message if any recovery was performed
+      if (dataRecoveryPerformed || wasRecovered) {
+        setTimeout(() => {
+          Alert.alert("Data Recovery", recoveryMessage);
+        }, 100);
+      }
+
+      return {
+        gymnastId: targetGymnast.id,
+        gymnastNumber: targetGymnast.number,
+        event: targetGymnast.event,
+        wasRecovered: wasRecovered || dataRecoveryPerformed,
+        recoveryMessage: dataRecoveryPerformed || wasRecovered ? recoveryMessage : undefined
+      };
+
+    } catch (error) {
+      console.error("Error in validateAndRecoverGymnastData:", error);
+      Alert.alert("Error", "Unable to validate gymnast data.");
+      return null;
+    }
+  };
+
+  const gotogymnastcalculator = async (
     competenceId: number,
-    gymnastId: number,
+    gymnastId: number | null,
     event: string,
     discipline: boolean,
     gymnast: number,
     number: number
   ) => {
-    if (event === "VT") {
+    // Validate and recover gymnast data
+    const validationResult = await validateAndRecoverGymnastData(gymnastId, number, false);
+    
+    if (!validationResult) {
+      return; // Error already shown in validation function
+    }
+
+    const { gymnastId: validGymnastId, event: validEvent } = validationResult;
+
+    if (validEvent === "VT") {
       router.replace(
-        `/main-jump?competenceId=${competenceId}&gymnastId=${gymnastId}&event=${event}&discipline=${discipline}&gymnast=${gymnast}&number=${number}&participants=${participants}&folderId=${folderId}`
+        `/main-jump?competenceId=${competenceId}&gymnastId=${validGymnastId}&event=${validEvent}&discipline=${discipline}&gymnast=${validGymnastId}&number=${number}&participants=${participants}&folderId=${folderId}`
       );
     } else {
       router.replace(
-        `/main-floor?competenceId=${competenceId}&gymnastId=${gymnastId}&event=${event}&discipline=${discipline}&gymnast=${gymnast}&number=${number}&participants=${participants}&folderId=${folderId}`
+        `/main-floor?competenceId=${competenceId}&gymnastId=${validGymnastId}&event=${validEvent}&discipline=${discipline}&gymnast=${validGymnastId}&number=${number}&participants=${participants}&folderId=${folderId}`
       );
     }
   };
@@ -1232,20 +1564,17 @@ const handleUndo = async () => {
       percentage: table.percentage || 0,
     }));
 
-    // Reordenar números
-    const reorderedGymnasts = formattedGymnasts
-      .sort((a, b) => a.number - b.number)
-      .map((gymnast, index) => ({ ...gymnast, number: index + 1 }));
+    // Garantizar numeración correlativa después de deshacer
+    const correlativeGymnasts = await ensureCorrelativeNumbering(formattedGymnasts);
 
-    // Actualizar números en base de datos
-    for (const gymnast of reorderedGymnasts) {
-      const originalGymnast = formattedGymnasts.find(g => g.id === gymnast.id);
-      if (originalGymnast && gymnast.number !== originalGymnast.number) {
-        await updateMainTable(gymnast.id, { number: gymnast.number });
-      }
+    // Validar que no hay duplicados
+    if (!validateNoDuplicateNumbers(correlativeGymnasts)) {
+      console.error("Error: Números duplicados detectados después de deshacer");
+      Alert.alert("Error", "Error en la numeración después de deshacer.");
+      return;
     }
 
-    setGymnasts(reorderedGymnasts);
+    setGymnasts(correlativeGymnasts);
     
     // Remover del historial
     setHistory(prev => prev.slice(0, -1));
@@ -1770,20 +2099,19 @@ const processAndInsertData = async (data: any[]) => {
   console.log("🔄 Reordenando gimnastas...");
   
   const allUpdatedGymnasts = await getMainTablesByCompetenceId(competenceId);
-  const sortedGymnasts = allUpdatedGymnasts.sort((a, b) => a.number - b.number);
   
-  // Actualizar numeración correlativa en base de datos
-  for (let index = 0; index < sortedGymnasts.length; index++) {
-    const gymnast = sortedGymnasts[index];
-    const newNumber = index + 1;
-    if (gymnast.number !== newNumber) {
-      await updateMainTable(gymnast.id, { number: newNumber });
-      gymnast.number = newNumber;
-    }
+  // Aplicar numeración correlativa usando nuestra función
+  const correlativeGymnasts = await ensureCorrelativeNumbering(allUpdatedGymnasts);
+
+  // Validar que no hay duplicados
+  if (!validateNoDuplicateNumbers(correlativeGymnasts)) {
+    console.error("Error: Números duplicados detectados después de importar");
+    Alert.alert("Error", "Error en la numeración después de importar.");
+    return;
   }
 
   // Actualizar estado local con todos los campos necesarios
-  const finalGymnasts = sortedGymnasts.map((table) => ({
+  const finalGymnasts = correlativeGymnasts.map((table) => ({
     id: table.id,
     competenceId: table.competenceId,
     number: table.number,
@@ -1893,7 +2221,8 @@ const processAndInsertData = async (data: any[]) => {
                     shadowOpacity: 0.25,
                     shadowRadius: 3.84,
                     elevation: 5,
-                    width: "100%",
+                    minWidth: isTinyDevice ? 80 : 100, // Ancho mínimo para evitar compresión
+                    maxWidth: isTinyDevice ? 120 : 150, // Ancho máximo para evitar que se extienda demasiado
                     position: "absolute",
                     top: "100%",
                     left: 0,
@@ -1963,6 +2292,15 @@ const processAndInsertData = async (data: any[]) => {
             />
             <Text style={styles.compactActionText}>Import</Text>
           </TouchableOpacity>
+
+          <TouchableOpacity style={styles.compactActionButton} onPress={showAddGymnastOptions}>
+            <Ionicons 
+              name="add-outline" 
+              size={isTinyDevice ? 16 : 20} 
+              color="#0052b4" 
+            />
+            <Text style={styles.compactActionText}>Add</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Right Section - Navigation Buttons */}
@@ -1989,7 +2327,7 @@ const processAndInsertData = async (data: any[]) => {
                 opacity: gymnasts.length > 0 ? 1 : 0.5,
               },
             ]}
-            onPress={() => handleSelectStart()}
+            onPress={async () => await handleSelectStart()}
             disabled={gymnasts.length === 0 || isSaving}
           >
             <Ionicons 
@@ -2091,9 +2429,9 @@ const processAndInsertData = async (data: any[]) => {
 
                 <TouchableOpacity
                   style={styles.noCell}
-                  onPress={() => {
+                  onPress={async () => {
                     if (!isDeleteMode) {
-                      gotogymnastcalculator(
+                      await gotogymnastcalculator(
                         competenceId,
                         gymnast.id,
                         gymnast.event,
@@ -2288,7 +2626,7 @@ const processAndInsertData = async (data: any[]) => {
 
           {/* Add Gymnast Row - hide in delete mode */}
           {gymnasts.length < participants && !isearching && !isDeleteMode && (
-            <TouchableOpacity style={styles.addRow} onPress={handleAddGymnast}>
+            <TouchableOpacity style={styles.addRow} onPress={showAddGymnastOptions}>
               <Text style={styles.addText}>+</Text>
             </TouchableOpacity>
           )}
@@ -2316,7 +2654,7 @@ const processAndInsertData = async (data: any[]) => {
                   opacity: gymnasts.length > 0 ? 1 : 0.5,
                 },
               ]}
-              onPress={() => handleSelectStart()}
+              onPress={async () => await handleSelectStart()}
               disabled={gymnasts.length === 0 || isSaving}
             >
               <Text style={styles.buttonText}>
@@ -2422,6 +2760,188 @@ const processAndInsertData = async (data: any[]) => {
         </View>
       )}
 
+      {/* Add Gymnast Modal */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={showAddGymnastModal && !hideMainModal}
+        onRequestClose={() => {
+          setShowAddGymnastModal(false);
+          setHideMainModal(false);
+        }}
+        /* addig z */
+        style={{ zIndex: -5 }} // Ensure modal is above other components
+      >
+        <View style={styles.addModalOverlay}>
+          <View
+            style={[
+              isLargeDevice ? styles.addGymnastModal : null,
+              isSmallDevice ? styles.addGymnastModalSmall : null,
+              isTinyDevice ? styles.addGymnastModalTiny : null,
+            ]}
+          >
+            {/* Header */}
+            <View style={styles.addModalHeader}>
+              <Ionicons 
+                name="add-circle-outline" 
+                size={isTinyDevice ? 24 : isSmallDevice ? 28 : 32} 
+                color="#0052b4" 
+              />
+              <Text
+                style={[
+                  isLargeScreen ? styles.addModalTitle : styles.addModalTitleSmall
+                ]}
+              >
+                Add Gymnast
+              </Text>
+            </View>
+
+            {/* Options */}
+            <View style={styles.addOptionsContainer}>
+              {/* Option 1: Al final */}
+              <TouchableOpacity
+                style={[
+                  styles.optionButton,
+                  addAtEnd && styles.optionButtonSelected
+                ]}
+                onPress={() => {
+                  setAddAtEnd(true);
+                  setInsertPositionError("");
+                }}
+              >
+                <View style={styles.optionContent}>
+                  <View style={styles.optionIconContainer}>
+                    <Ionicons 
+                      name={addAtEnd ? "radio-button-on" : "radio-button-off"} 
+                      size={isTinyDevice ? 20 : 24} 
+                      color={addAtEnd ? "#0052b4" : "#666"} 
+                    />
+                  </View>
+                  <View style={styles.optionTextContainer}>
+                    <Text style={[
+                      styles.optionTitle,
+                      addAtEnd && styles.optionTitleSelected
+                    ]}>
+                      Add at the end
+                    </Text>
+                    <Text style={styles.optionDescription}>
+                      Will be added as gymnast #{gymnasts.length + 1}
+                    </Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+
+              {/* Option 2: Posición específica */}
+              <TouchableOpacity
+                style={[
+                  styles.optionButton,
+                  !addAtEnd && styles.optionButtonSelected
+                ]}
+                onPress={() => {
+                  setAddAtEnd(false);
+                  setInsertPositionError("");
+                }}
+              >
+                <View style={styles.optionContent}>
+                  <View style={styles.optionIconContainer}>
+                    <Ionicons 
+                      name={!addAtEnd ? "radio-button-on" : "radio-button-off"} 
+                      size={isTinyDevice ? 20 : 24} 
+                      color={!addAtEnd ? "#0052b4" : "#666"} 
+                    />
+                  </View>
+                  <View style={styles.optionTextContainer}>
+                    <Text style={[
+                      styles.optionTitle,
+                      !addAtEnd && styles.optionTitleSelected
+                    ]}>
+                      Insert at position
+                    </Text>
+                    <Text style={styles.optionDescription}>
+                      Following gymnasts will move down
+                    </Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+
+              {/* Input para posición específica */}
+              {!addAtEnd && (
+                <View style={styles.positionInputContainer}>
+                  <Text style={styles.positionInputLabel}>
+                    Position (1 - {gymnasts.length + 1}):
+                  </Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.positionInput,
+                      insertPositionError && insertPositionError.includes("Error") && styles.positionInputError,
+                      styles.numberPadButton
+                    ]}
+                    onPress={openNumberPad}
+                  >
+                    <Text style={[
+                      styles.numberPadButtonText,
+                      !insertPosition && styles.numberPadPlaceholder
+                    ]}>
+                      {insertPosition || "Tap to enter position"}
+                    </Text>
+                    <Text style={styles.numberPadIcon}>🔢</Text>
+                  </TouchableOpacity>
+                  
+                  {insertPositionError ? (
+                    <Text style={[
+                      styles.positionInputError,
+                      insertPositionError.includes("already exists") && styles.positionInputWarning
+                    ]}>
+                      {insertPositionError}
+                    </Text>
+                  ) : null}
+                </View>
+              )}
+            </View>
+
+            {/* Buttons */}
+            <View style={styles.addModalButtons}>
+              <TouchableOpacity
+                style={[
+                  isLargeScreen ? styles.cancelButton : styles.cancelButtonSmall
+                ]}
+                onPress={() => {
+                  setShowAddGymnastModal(false);
+                  setInsertPosition("");
+                  setInsertPositionError("");
+                  setHideMainModal(false); // Resetear estado del modal
+                }}
+              >
+                <Text
+                  style={[
+                    isLargeScreen ? styles.cancelButtonText : styles.cancelButtonTextSmall
+                  ]}
+                >
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  isLargeScreen ? styles.confirmButton : styles.confirmButtonSmall,
+                  (!addAtEnd && !insertPosition) && styles.buttonDisabled
+                ]}
+                onPress={confirmAddGymnast}
+                disabled={!addAtEnd && !insertPosition}
+              >
+                <Text
+                  style={[
+                    isLargeScreen ? styles.confirmButtonText : styles.confirmButtonTextSmall
+                  ]}
+                >
+                  Add
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Delete Confirmation Modal */}
       <Modal
         animationType="fade"
@@ -2488,6 +3008,24 @@ const processAndInsertData = async (data: any[]) => {
           </View>
         </View>
       </Modal>
+
+      {/* Modal Custom Number Pad para posición */}
+      <ModalCustomNumberPad
+        visible={showNumberPad}
+        value={numberPadValue}
+        onValueChange={(value) => {
+          console.log("NumberPad value changed:", value);
+          setNumberPadValue(value);
+        }}
+        onClose={(finalValue) => {
+          console.log("NumberPad closed with value:", finalValue);
+          handleNumberPadClose(finalValue);
+        }}
+        title="Enter Position"
+        placeholder="0"
+        maxLength={3}
+      />
+
     </View>
   );
 };
@@ -2570,8 +3108,8 @@ const styles = StyleSheet.create({
       : {}),
   },
   dropdownItem: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: isTinyDevice ? 8 : 12,
+    paddingHorizontal: isTinyDevice ? 12 : 16,
     borderBottomWidth: 1,
     borderBottomColor: "#ddd",
   },
@@ -2596,8 +3134,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0,
   },
   dropdownItemText: {
-    fontSize: 16,
+    fontSize: isTinyDevice ? 12 : 14,
     color: "#333",
+    textAlign: "center", // Centrar texto en dispositivos pequeños
   },
   dropdownButton: {
     backgroundColor: "#e8e8e8",
@@ -2754,6 +3293,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.5)",
     justifyContent: "center",
     alignItems: "center",
+    zIndex: 5000, // Lower than ModalCustomNumberPad (10000)
   },
   // Confirmation modal - large screen
   confirmationModal: {
@@ -2812,35 +3352,41 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
+    gap: 12, // Espacio entre botones
   },
   // Confirm button - large screen
   confirmButton: {
     backgroundColor: "#0047AB",
     borderRadius: 10,
     padding: 12,
-    width: "40%",
+    flex: 1,
     shadowColor: "#000",
-    alignSelf: "center",
     shadowOffset: { width: 0, height: 2.5 },
     shadowOpacity: 0.55,
     shadowRadius: 3.84,
     elevation: 5,
-    marginRight: 50,
     alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    minHeight: 48,
+    marginHorizontal: 6, // Margen horizontal
   },
   // Confirm button - small screen
   confirmButtonSmall: {
     backgroundColor: "#0047AB",
     borderRadius: 8,
     padding: 10,
-    width: "40%",
+    flex: 1,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.55,
     shadowRadius: 3,
     elevation: 5,
-    marginRight: 30,
     alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    minHeight: 44,
+    marginHorizontal: 6, // Margen horizontal
   },
   // Confirm button text - large screen
   confirmButtonText: {
@@ -2859,28 +3405,30 @@ const styles = StyleSheet.create({
     backgroundColor: "#DC3545",
     borderRadius: 10,
     padding: 12,
-    marginLeft: 50,
+    flex: 1,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2.5 },
     shadowOpacity: 0.55,
     shadowRadius: 3.84,
     elevation: 5,
-    width: "40%",
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: 48,
   },
   // Cancel button - small screen
   cancelButtonSmall: {
     backgroundColor: "#DC3545",
     borderRadius: 8,
     padding: 10,
-    marginLeft: 30,
+    flex: 1,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.55,
     shadowRadius: 3,
     elevation: 5,
-    width: "40%",
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
   },
   // Cancel button text - large screen
   cancelButtonText: {
@@ -3019,11 +3567,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingHorizontal: isTinyDevice ? 12 : 16,
+    paddingVertical: isTinyDevice ? 8 : 12,
     backgroundColor: "white",
     borderRadius: 15,
-    marginHorizontal: 20,
+    marginHorizontal: isTinyDevice ? 10 : 15,
     marginBottom: 10,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
@@ -3031,73 +3579,87 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 3,
     zIndex: 10,
+    minHeight: isTinyDevice ? 50 : 60, // Altura mínima para evitar superposiciones
   },
 
   inputsSection: {
-    flex: 2,
+    flex: isTinyDevice ? 2.5 : 2.2, // Ajustar flex para dispositivos pequeños
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: isTinyDevice ? 4 : 6, // Menor gap en dispositivos pequeños
+    marginRight: isTinyDevice ? 4 : 8, // Margen derecho para separar de la siguiente sección
   },
 
   actionsSection: {
-    flex: 2,
+    flex: isTinyDevice ? 2.2 : 2,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 12,
+    gap: isTinyDevice ? 6 : 8, // Menor gap en dispositivos pequeños
+    marginHorizontal: isTinyDevice ? 2 : 4, // Margen horizontal para separar de otras secciones
   },
 
   navigationSection: {
-    flex: 1.5,
+    flex: isTinyDevice ? 1.3 : 1.5,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
-    gap: 8,
+    gap: isTinyDevice ? 4 : 6, // Menor gap en dispositivos pequeños
+    marginLeft: isTinyDevice ? 4 : 8, // Margen izquierdo para separar de la sección anterior
   },
 
   compactInputContainer: {
     flex: 1,
     position: "relative",
+    minWidth: isTinyDevice ? 60 : 80, // Ancho mínimo para evitar que se compriman demasiado
+    maxWidth: isTinyDevice ? 100 : 120, // Ancho máximo para evitar que crezcan demasiado
   },
 
   compactInput: {
     backgroundColor: "#f5f5f5",
     borderRadius: 8,
-    padding: isTinyDevice ? 8 : 10,
-    fontSize: isTinyDevice ? 12 : 14,
+    padding: isTinyDevice ? 6 : 8,
+    fontSize: isTinyDevice ? 10 : 12,
     color: "#333",
+    textAlign: "center",
+    minHeight: isTinyDevice ? 32 : 36, // Altura mínima consistente
   },
 
   compactDropdownButton: {
     backgroundColor: "#f5f5f5",
     borderRadius: 8,
-    padding: isTinyDevice ? 8 : 10,
+    padding: isTinyDevice ? 6 : 8,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    minHeight: isTinyDevice ? 32 : 36, // Altura mínima consistente
   },
 
   compactDropdownText: {
-    fontSize: isTinyDevice ? 12 : 14,
+    fontSize: isTinyDevice ? 10 : 12,
     color: "#333",
     flex: 1,
+    textAlign: "center", // Centrar texto para mejor apariencia
   },
 
   compactActionButton: {
     backgroundColor: "#f8f9fa",
     borderRadius: 8,
-    paddingHorizontal: isTinyDevice ? 8 : 12,
-    paddingVertical: isTinyDevice ? 6 : 8,
+    paddingHorizontal: isTinyDevice ? 6 : 8,
+    paddingVertical: isTinyDevice ? 4 : 6,
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: isTinyDevice ? 2 : 3,
     borderWidth: 1,
     borderColor: "#e9ecef",
+    marginHorizontal: isTinyDevice ? 2 : 3, // Menor margen horizontal
+    minWidth: isTinyDevice ? 45 : 55, // Ancho mínimo para mantener consistencia
+    minHeight: isTinyDevice ? 32 : 36, // Altura mínima consistente
+    justifyContent: "center", // Centrar contenido
   },
 
   compactActionText: {
-    fontSize: isTinyDevice ? 10 : 12,
+    fontSize: isTinyDevice ? 8 : 10,
     color: "#0052b4",
     fontWeight: "500",
   },
@@ -3105,27 +3667,253 @@ const styles = StyleSheet.create({
   compactNavButton: {
     backgroundColor: "#6c757d",
     borderRadius: 8,
-    paddingHorizontal: isTinyDevice ? 8 : 12,
-    paddingVertical: isTinyDevice ? 6 : 8,
+    paddingHorizontal: isTinyDevice ? 6 : 8,
+    paddingVertical: isTinyDevice ? 4 : 6,
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: isTinyDevice ? 2 : 3,
+    minWidth: isTinyDevice ? 45 : 55, // Ancho mínimo para mantener consistencia
+    minHeight: isTinyDevice ? 32 : 36, // Altura mínima consistente
+    justifyContent: "center", // Centrar contenido
   },
 
   compactStartButton: {
     backgroundColor: "#0052b4",
     borderRadius: 8,
-    paddingHorizontal: isTinyDevice ? 8 : 12,
-    paddingVertical: isTinyDevice ? 6 : 8,
+    paddingHorizontal: isTinyDevice ? 6 : 8,
+    paddingVertical: isTinyDevice ? 4 : 6,
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: isTinyDevice ? 2 : 3,
+    minWidth: isTinyDevice ? 50 : 60, // Ancho mínimo ligeramente mayor para el botón principal
+    minHeight: isTinyDevice ? 32 : 36, // Altura mínima consistente
+    justifyContent: "center", // Centrar contenido
   },
 
   compactNavText: {
-    fontSize: isTinyDevice ? 10 : 12,
+    fontSize: isTinyDevice ? 8 : 10,
     color: "#fff",
     fontWeight: "500",
+  },
+
+  // Add Gymnast Modal Styles
+  addGymnastModal: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    minWidth: 400,
+    maxWidth: 500,
+    width: "85%",
+    maxHeight: "80%",
+    alignItems: "stretch",
+    elevation: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    zIndex: 5001, // Lower than ModalCustomNumberPad
+  },
+
+  addGymnastModalSmall: {
+    backgroundColor: "#fff",
+    borderRadius: 14,
+    padding: 20,
+    minWidth: 350,
+    maxWidth: 450,
+    width: "90%",
+    maxHeight: "75%",
+    alignItems: "stretch",
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    zIndex: 5001, // Lower than ModalCustomNumberPad
+  },
+
+  addGymnastModalTiny: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+    minWidth: 300,
+    maxWidth: 350,
+    width: "95%",
+    maxHeight: "70%",
+    alignItems: "stretch",
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    zIndex: 5001, // Lower than ModalCustomNumberPad
+  },
+
+  addModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e0e0e0",
+  },
+
+  addModalTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#0052b4",
+    marginLeft: 12,
+  },
+
+  addModalTitleSmall: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#0052b4",
+    marginLeft: 10,
+  },
+
+  addOptionsContainer: {
+    marginBottom: 24,
+  },
+
+  optionButton: {
+    backgroundColor: "#f8f9fa",
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: "#e9ecef",
+    marginBottom: 12,
+    overflow: "hidden",
+  },
+
+  optionButtonSelected: {
+    borderColor: "#0052b4",
+    backgroundColor: "#f0f7ff",
+  },
+
+  optionContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+  },
+
+  optionIconContainer: {
+    marginRight: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  optionTextContainer: {
+    flex: 1,
+  },
+
+  optionTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 4,
+  },
+
+  optionTitleSelected: {
+    color: "#0052b4",
+  },
+
+  optionDescription: {
+    fontSize: 14,
+    color: "#666",
+    lineHeight: 18,
+  },
+
+  positionInputContainer: {
+    marginTop: 8,
+    paddingHorizontal: 4,
+  },
+
+  positionInputLabel: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#333",
+    marginBottom: 8,
+  },
+
+  positionInput: {
+    backgroundColor: "#fff",
+    borderWidth: 2,
+    borderColor: "#e9ecef",
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    textAlign: "center",
+    minHeight: 44,
+  },
+
+  positionInputError: {
+    borderColor: "#dc3545",
+    backgroundColor: "#fdf2f2",
+  },
+
+  positionInputWarning: {
+    fontSize: 12,
+    color: "#856404",
+    backgroundColor: "#fff3cd",
+    borderColor: "#ffeaa7",
+    padding: 8,
+    borderRadius: 6,
+    marginTop: 6,
+    textAlign: "center",
+  },
+
+  addModalButtons: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 16,
+    paddingHorizontal: 8,
+  },
+
+  // Estilos para el input de posición como TouchableOpacity
+  positionInputText: {
+    fontSize: 16,
+    color: "#333",
+    textAlign: "center",
+  },
+
+  positionInputPlaceholder: {
+    color: "#999",
+  },
+
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+
+  // Estilos para el botón del NumberPad
+  numberPadButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "#ffffff",
+    borderWidth: 2,
+    borderColor: "#0052b4",
+    borderRadius: 8,
+    minHeight: 50,
+  },
+
+  numberPadButtonText: {
+    fontSize: 16,
+    color: "#333",
+    fontWeight: "600",
+    flex: 1,
+  },
+
+  numberPadPlaceholder: {
+    color: "#999",
+    fontStyle: "italic",
+  },
+
+  numberPadIcon: {
+    fontSize: 18,
+    marginLeft: 8,
   },
 });
 

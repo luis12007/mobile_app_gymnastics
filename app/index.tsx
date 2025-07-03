@@ -1,6 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFonts } from "expo-font";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -14,9 +17,10 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
+  ScrollView
 } from "react-native";
-import { getUserById } from "../Database/database";
+import { getUserById, getFoldersByUserId, exportFolderData, importFolderData } from "../Database/database";
 
 const { width, height } = Dimensions.get("window");
 var isLargeDevice = false;
@@ -56,6 +60,14 @@ export default function SelectSex() {
   // Estados para disciplina por defecto
   const [defaultDiscipline, setDefaultDiscipline] = useState<boolean | null>(null); // true = MAG, false = WAG, null = no default
   const [isLoadingDefault, setIsLoadingDefault] = useState(true);
+
+  // Estados para importar/exportar
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [userFolders, setUserFolders] = useState<any[]>([]);
+  const [selectedFolder, setSelectedFolder] = useState<any>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   // Load the custom font
   const [fontsLoaded] = useFonts({
@@ -332,6 +344,118 @@ export default function SelectSex() {
   const handleDeviceInfoChange = (text) => {
     setDeviceInfo(text);
     parseDeviceInfo(text);
+  };
+
+  // Función para cargar folders del usuario
+  const loadUserFolders = async () => {
+    try {
+      if (userId === 0) {
+        setUserFolders([]);
+        return;
+      }
+      
+      const folders = await getFoldersByUserId(userId);
+      setUserFolders(folders || []);
+    } catch (error) {
+      console.error("Error loading user folders:", error);
+      setUserFolders([]);
+    }
+  };
+
+  // Función para exportar folder
+  const handleExportFolder = async () => {
+    if (!selectedFolder) {
+      Alert.alert("Error", "Por favor selecciona un folder para exportar");
+      return;
+    }
+    
+    setIsExporting(true);
+    try {
+      // Exportar datos del folder
+      const exportedData = await exportFolderData(selectedFolder.id);
+      
+      if (!exportedData) {
+        throw new Error("No se pudieron exportar los datos del folder");
+      }
+
+      // Crear archivo temporal
+      const fileName = `folder_${selectedFolder.name}_${new Date().toISOString().split('T')[0]}.json`;
+      const fileUri = FileSystem.documentDirectory + fileName;
+      
+      await FileSystem.writeAsStringAsync(fileUri, exportedData);
+
+      // Compartir archivo
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'application/json',
+          dialogTitle: 'Exportar Folder'
+        });
+        
+        Alert.alert(
+          "Éxito", 
+          "Folder exportado correctamente. El archivo ha sido compartido.",
+          [{ text: "OK", onPress: () => setShowExportModal(false) }]
+        );
+      } else {
+        Alert.alert("Error", "No se puede compartir archivos en este dispositivo");
+      }
+
+    } catch (error: any) {
+      console.error("Error exporting folder:", error);
+      Alert.alert("Error", `No se pudo exportar el folder: ${error.message || error}`);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Función para importar folder
+  const handleImportFolder = async () => {
+    setIsImporting(true);
+    try {
+      // Seleccionar archivo
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/json', 'text/plain'],
+        copyToCacheDirectory: true
+      });
+
+      if (result.canceled) {
+        setIsImporting(false);
+        return;
+      }
+
+      // Leer archivo
+      const fileContent = await FileSystem.readAsStringAsync(result.assets[0].uri);
+      
+      // Validar y importar
+      const success = await importFolderData(fileContent, userId);
+      
+      if (success) {
+        Alert.alert(
+          "Éxito", 
+          "Folder importado correctamente. Los datos se han agregado a tu cuenta.",
+          [{ text: "OK", onPress: () => setShowImportModal(false) }]
+        );
+      } else {
+        throw new Error("Error al procesar el archivo de importación");
+      }
+
+    } catch (error: any) {
+      console.error("Error importing folder:", error);
+      Alert.alert("Error", `No se pudo importar el folder: ${error.message || error}`);
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  // Abrir modal de exportación
+  const openExportModal = () => {
+    loadUserFolders();
+    setShowExportModal(true);
+  };
+
+  // Abrir modal de importación
+  const openImportModal = () => {
+    setShowImportModal(true);
   };
 
   // Si está cargando o debe auto-route, mostrar loading o nada
@@ -712,6 +836,165 @@ return (
                 setDeviceId('');
                 setGeneratedKey('');
               }}
+            >
+              <Text style={[
+                isLargeDevice ? styles.closeButtonTextLarge : null,
+                isMediumLargeDevice ? styles.closeButtonTextMediumLarge : null,
+                isSmallDevice ? styles.closeButtonTextSmall : null,
+                isTinyDevice ? styles.closeButtonTextTiny : null,
+              ]}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal para exportar folders */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={showExportModal}
+        onRequestClose={() => setShowExportModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[
+            isLargeDevice ? styles.modalContainerLarge : null,
+            isMediumLargeDevice ? styles.modalContainerMediumLarge : null,
+            isSmallDevice ? styles.modalContainerSmall : null,
+            isTinyDevice ? styles.modalContainerTiny : null,
+          ]}>
+            <Text style={[
+              isLargeDevice ? styles.modalTitleLarge : null,
+              isMediumLargeDevice ? styles.modalTitleMediumLarge : null,
+              isSmallDevice ? styles.modalTitleSmall : null,
+              isTinyDevice ? styles.modalTitleTiny : null,
+            ]}>Exportar Folder</Text>
+            
+            <Text style={[
+              isLargeDevice ? styles.modalLabelLarge : null,
+              isMediumLargeDevice ? styles.modalLabelMediumLarge : null,
+              isSmallDevice ? styles.modalLabelSmall : null,
+              isTinyDevice ? styles.modalLabelTiny : null,
+            ]}>Selecciona el folder que deseas exportar:</Text>
+            
+            {/* Lista de folders del usuario */}
+            <ScrollView style={{ width: '100%' }}>
+              {userFolders.length === 0 ? (
+                <Text style={styles.noFoldersText}>No tienes folders disponibles para exportar.</Text>
+              ) : (
+                userFolders.map((folder) => (
+                  <TouchableOpacity
+                    key={folder.id}
+                    style={[
+                      styles.folderItem,
+                      selectedFolder?.id === folder.id && styles.selectedFolderItem
+                    ]}
+                    onPress={() => setSelectedFolder(folder)}
+                  >
+                    <Text style={styles.folderItemText}>{folder.name}</Text>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+            
+            <TouchableOpacity 
+              style={[
+                isLargeDevice ? styles.generateButtonLarge : null,
+                isMediumLargeDevice ? styles.generateButtonMediumLarge : null,
+                isSmallDevice ? styles.generateButtonSmall : null,
+                isTinyDevice ? styles.generateButtonTiny : null,
+                !selectedFolder && styles.disabledButton,
+                isExporting && styles.loadingButton
+              ]}
+              onPress={handleExportFolder}
+              disabled={!selectedFolder || isExporting}
+            >
+              <Text style={[
+                isLargeDevice ? styles.buttonTextLarge : null,
+                isMediumLargeDevice ? styles.buttonTextMediumLarge : null,
+                isSmallDevice ? styles.buttonTextSmall : null,
+                isTinyDevice ? styles.buttonTextTiny : null,
+              ]}>
+                {isExporting ? 'Exportando...' : 'Exportar Folder'}
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[
+                isLargeDevice ? styles.closeButtonLarge : null,
+                isMediumLargeDevice ? styles.closeButtonMediumLarge : null,
+                isSmallDevice ? styles.closeButtonSmall : null,
+                isTinyDevice ? styles.closeButtonTiny : null,
+              ]}
+              onPress={() => setShowExportModal(false)}
+            >
+              <Text style={[
+                isLargeDevice ? styles.closeButtonTextLarge : null,
+                isMediumLargeDevice ? styles.closeButtonTextMediumLarge : null,
+                isSmallDevice ? styles.closeButtonTextSmall : null,
+                isTinyDevice ? styles.closeButtonTextTiny : null,
+              ]}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal para importar folders */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={showImportModal}
+        onRequestClose={() => setShowImportModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[
+            isLargeDevice ? styles.modalContainerLarge : null,
+            isMediumLargeDevice ? styles.modalContainerMediumLarge : null,
+            isSmallDevice ? styles.modalContainerSmall : null,
+            isTinyDevice ? styles.modalContainerTiny : null,
+          ]}>
+            <Text style={[
+              isLargeDevice ? styles.modalTitleLarge : null,
+              isMediumLargeDevice ? styles.modalTitleMediumLarge : null,
+              isSmallDevice ? styles.modalTitleSmall : null,
+              isTinyDevice ? styles.modalTitleTiny : null,
+            ]}>Importar Folder</Text>
+            
+            <Text style={[
+              isLargeDevice ? styles.modalLabelLarge : null,
+              isMediumLargeDevice ? styles.modalLabelMediumLarge : null,
+              isSmallDevice ? styles.modalLabelSmall : null,
+              isTinyDevice ? styles.modalLabelTiny : null,
+            ]}>Selecciona el archivo del folder que deseas importar:</Text>
+            
+            <TouchableOpacity 
+              style={[
+                isLargeDevice ? styles.generateButtonLarge : null,
+                isMediumLargeDevice ? styles.generateButtonMediumLarge : null,
+                isSmallDevice ? styles.generateButtonSmall : null,
+                isTinyDevice ? styles.generateButtonTiny : null,
+                isImporting && styles.loadingButton
+              ]}
+              onPress={handleImportFolder}
+              disabled={isImporting}
+            >
+              <Text style={[
+                isLargeDevice ? styles.buttonTextLarge : null,
+                isMediumLargeDevice ? styles.buttonTextMediumLarge : null,
+                isSmallDevice ? styles.buttonTextSmall : null,
+                isTinyDevice ? styles.buttonTextTiny : null,
+              ]}>
+                {isImporting ? 'Importando...' : 'Importar Folder'}
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[
+                isLargeDevice ? styles.closeButtonLarge : null,
+                isMediumLargeDevice ? styles.closeButtonMediumLarge : null,
+                isSmallDevice ? styles.closeButtonSmall : null,
+                isTinyDevice ? styles.closeButtonTiny : null,
+              ]}
+              onPress={() => setShowImportModal(false)}
             >
               <Text style={[
                 isLargeDevice ? styles.closeButtonTextLarge : null,
@@ -1151,8 +1434,8 @@ const styles = StyleSheet.create({
   // Toggle button text styles - Tiny Device
   toggleButtonTextTiny: {
     color: "#F1F3F5",
-    fontSize: 12,
     fontWeight: "bold",
+    fontSize: 12,
     fontFamily: "Rajdhani-Bold",
     textAlign: "center",
   },
@@ -1837,5 +2120,173 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+
+  // Folder item styles
+  folderItem: {
+    backgroundColor: '#ffffff',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  folderItemText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  selectedFolderItem: {
+    backgroundColor: '#e0f7fa',
+    borderColor: '#004aad',
+  },
+  
+  // No folders text style
+  noFoldersText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 20,
+  },
+
+  // Import/Export container styles - Large Device
+  importExportContainerLarge: {
+    position: 'absolute',
+    top: 40,
+    right: 40,
+    zIndex: 10,
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+  },
+  // Import/Export container styles - Medium Large Device
+  importExportContainerMediumLarge: {
+    position: 'absolute',
+    top: 35,
+    right: 35,
+    zIndex: 10,
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+  },
+  // Import/Export container styles - Small Device
+  importExportContainerSmall: {
+    position: 'absolute',
+    top: 30,
+    right: 30,
+    zIndex: 10,
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+  },
+  // Import/Export container styles - Tiny Device
+  importExportContainerTiny: {
+    position: 'absolute',
+    top: 25,
+    right: 25,
+    zIndex: 10,
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+  },
+  
+  // Import/Export button styles - Large Device
+  importExportButtonLarge: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    marginBottom: 8,
+  },
+  // Import/Export button styles - Medium Large Device
+  importExportButtonMediumLarge: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    marginBottom: 7,
+  },
+  // Import/Export button styles - Small Device
+  importExportButtonSmall: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    marginBottom: 6,
+  },
+  // Import/Export button styles - Tiny Device
+  importExportButtonTiny: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    marginBottom: 7,
+  },
+
+  // Import/Export text styles - Large Device
+  importExportTextLarge: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+  // Import/Export text styles - Medium Large Device
+  importExportTextMediumLarge: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 6,
+  },
+  // Import/Export text styles - Small Device
+  importExportTextSmall: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginLeft: 5,
+  },
+  // Import/Export text styles - Tiny Device
+  importExportTextTiny: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 6,
   },
 });

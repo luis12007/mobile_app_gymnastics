@@ -1257,19 +1257,19 @@ export const generateComprehensivePDF = async (
         <h3 style="color: #0052b4; margin-bottom: 15px;">📊 Competition Statistics</h3>
         <div class="stats-grid">
           <div class="stat-box">
-            <div class="stat-number">${finalTableData.participants.filter(p => p.scores.startValue > 0 && p.scores.executionScore > 0 && p.details.delta > 0).length}</div>
+            <div class="stat-number">${finalTableData.participants.filter(p => p.scores.executionScore > 0 ).length}</div>
             <div class="stat-label">Total Participants</div>
           </div>
           <div class="stat-box">
             <div class="stat-number">${(() => {
-              const realParticipants = finalTableData.participants.filter(p => p.scores.startValue > 0 && p.scores.executionScore > 0 && p.details.delta > 0);
+              const realParticipants = finalTableData.participants.filter(p => p.scores.executionScore > 0);
               return realParticipants.length > 0 ? (realParticipants.reduce((sum, p) => sum + p.details.percentage, 0) / realParticipants.length).toFixed(2) : '0.0';
             })()}%</div>
             <div class="stat-label">Average Percentage</div>
           </div>
           <div class="stat-box">
             <div class="stat-number">${(() => {
-              const realParticipants = finalTableData.participants.filter(p => p.scores.startValue > 0 && p.scores.executionScore > 0 && p.details.delta > 0);
+              const realParticipants = finalTableData.participants.filter(p => p.scores.executionScore > 0);
               return realParticipants.length > 0 ? Math.min(...realParticipants.map(p => p.details.percentage)) : 0;
             })()}%</div>
             <div class="stat-label">Lowest Percentage</div>

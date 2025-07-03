@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Dimensions,
   Modal,
@@ -116,6 +117,7 @@ const GymnasticsScoreTable: React.FC = () => {
 
   const [tables, setTables] = useState<MainTableWithRateGeneral[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [pdfExporting, setPdfExporting] = useState(false);
   const [competencecurrent, setcurrentcompetence] = useState<Competence | null>(null);
@@ -125,6 +127,7 @@ const GymnasticsScoreTable: React.FC = () => {
     const fetchTables = async () => {
       try {
         setLoading(true);
+        setError(null);
         const mainTables = await getMainTablesByCompetenceId(competenceId);
         const getcompetence = await getCompetenceById(competenceId);
         console.log("current competence:", getcompetence);
@@ -137,10 +140,18 @@ const GymnasticsScoreTable: React.FC = () => {
           sortedTables.map(async (table) => {
             try {
               const rateGeneral = await getRateGeneralByTableId(table.id);
-              return { ...table, rateGeneral };
+              return { 
+                ...table, 
+                bib: typeof table.bib === 'string' ? parseInt(table.bib) || 0 : table.bib,
+                rateGeneral: rateGeneral || undefined 
+              };
             } catch (error) {
               console.error(`Error fetching rate general for table ${table.id}:`, error);
-              return { ...table };
+              return { 
+                ...table, 
+                bib: typeof table.bib === 'string' ? parseInt(table.bib) || 0 : table.bib,
+                rateGeneral: undefined 
+              };
             }
           })
         );
@@ -148,6 +159,7 @@ const GymnasticsScoreTable: React.FC = () => {
         setTables(tablesWithRates);
       } catch (error) {
         console.error("Error fetching tables:", error);
+        setError(error instanceof Error ? error.message : "Error desconocido al cargar los datos");
       } finally {
         setLoading(false);
       }
@@ -227,6 +239,9 @@ const handleDownloadPDF = async () => {
     };
 
     // Generate comprehensive PDF with individual pages + final table
+    if (!competencecurrent) {
+      throw new Error("No se pudo obtener la información de la competencia");
+    }
     await generateComprehensivePDF(tables, finalTableData, competencecurrent);
     
     console.log('Comprehensive PDF generated successfully');
@@ -242,13 +257,14 @@ const handleDownloadPDF = async () => {
     
     router.replace(`/main-menu?discipline=${discipline}`);
     
-  } catch (error) {
-    console.error("Error exporting PDF:", error);
+  } catch (err) {
+    console.error("Error exporting PDF:", err);
     setPdfExporting(false);
     
+    const errorMessage = err instanceof Error ? err.message : "Error desconocido";
     Alert.alert(
       "Error", 
-      `Failed to generate PDF: ${error.message}. Please try again.`,
+      `Failed to generate PDF: ${errorMessage}. Please try again.`,
       [{ text: "OK" }]
     );
   }
@@ -267,6 +283,170 @@ const handleDownloadPDF = async () => {
       isSmallDevice ? styles.containerSmall : null,
       isTinyDevice ? styles.containerTiny : null,
     ]}>
+      {/* Loading Screen */}
+      {loading && (
+        <View style={[
+          isLargeDevice ? styles.loadingContainerLarge : null,
+          isMediumLargeDevice ? styles.loadingContainerMediumLarge : null,
+          isSmallDevice ? styles.loadingContainerSmall : null,
+          isTinyDevice ? styles.loadingContainerTiny : null,
+        ]}>
+          <View style={[
+            isLargeDevice ? styles.loadingCardLarge : null,
+            isMediumLargeDevice ? styles.loadingCardMediumLarge : null,
+            isSmallDevice ? styles.loadingCardSmall : null,
+            isTinyDevice ? styles.loadingCardTiny : null,
+          ]}>
+            <ActivityIndicator 
+              size="large" 
+              color="#0052b4" 
+              style={[
+                isLargeDevice ? styles.loadingSpinnerLarge : null,
+                isMediumLargeDevice ? styles.loadingSpinnerMediumLarge : null,
+                isSmallDevice ? styles.loadingSpinnerSmall : null,
+                isTinyDevice ? styles.loadingSpinnerTiny : null,
+              ]}
+            />
+            <Text style={[
+              isLargeDevice ? styles.loadingTextLarge : null,
+              isMediumLargeDevice ? styles.loadingTextMediumLarge : null,
+              isSmallDevice ? styles.loadingTextSmall : null,
+              isTinyDevice ? styles.loadingTextTiny : null,
+            ]}>
+              Cargando Gimnastas
+            </Text>
+            <Text style={[
+              isLargeDevice ? styles.loadingSubtextLarge : null,
+              isMediumLargeDevice ? styles.loadingSubtextMediumLarge : null,
+              isSmallDevice ? styles.loadingSubtextSmall : null,
+              isTinyDevice ? styles.loadingSubtextTiny : null,
+            ]}>
+              Por favor espera mientras cargamos los datos...
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* Error Screen */}
+      {!loading && error && (
+        <View style={[
+          isLargeDevice ? styles.errorContainerLarge : null,
+          isMediumLargeDevice ? styles.errorContainerMediumLarge : null,
+          isSmallDevice ? styles.errorContainerSmall : null,
+          isTinyDevice ? styles.errorContainerTiny : null,
+        ]}>
+          <View style={[
+            isLargeDevice ? styles.errorCardLarge : null,
+            isMediumLargeDevice ? styles.errorCardMediumLarge : null,
+            isSmallDevice ? styles.errorCardSmall : null,
+            isTinyDevice ? styles.errorCardTiny : null,
+          ]}>
+            <Text style={[
+              isLargeDevice ? styles.errorIconLarge : null,
+              isMediumLargeDevice ? styles.errorIconMediumLarge : null,
+              isSmallDevice ? styles.errorIconSmall : null,
+              isTinyDevice ? styles.errorIconTiny : null,
+            ]}>⚠️</Text>
+            <Text style={[
+              isLargeDevice ? styles.errorTitleLarge : null,
+              isMediumLargeDevice ? styles.errorTitleMediumLarge : null,
+              isSmallDevice ? styles.errorTitleSmall : null,
+              isTinyDevice ? styles.errorTitleTiny : null,
+            ]}>
+              Error al cargar datos
+            </Text>
+            <Text style={[
+              isLargeDevice ? styles.errorMessageLarge : null,
+              isMediumLargeDevice ? styles.errorMessageMediumLarge : null,
+              isSmallDevice ? styles.errorMessageSmall : null,
+              isTinyDevice ? styles.errorMessageTiny : null,
+            ]}>
+              {error}
+            </Text>
+            <TouchableOpacity
+              style={[
+                isLargeDevice ? styles.retryButtonLarge : null,
+                isMediumLargeDevice ? styles.retryButtonMediumLarge : null,
+                isSmallDevice ? styles.retryButtonSmall : null,
+                isTinyDevice ? styles.retryButtonTiny : null,
+              ]}
+              onPress={() => {
+                setError(null);
+                setLoading(true);
+                // Re-trigger fetch
+                const fetchTables = async () => {
+                  try {
+                    setLoading(true);
+                    setError(null);
+                    const mainTables = await getMainTablesByCompetenceId(competenceId);
+                    const getcompetence = await getCompetenceById(competenceId);
+                    console.log("current competence:", getcompetence);
+                    setcurrentcompetence(getcompetence);
+                    const sortedTables = [...mainTables].sort((a, b) => a.number - b.number);
+                    const tablesWithRates = await Promise.all(
+                      sortedTables.map(async (table) => {
+                        try {
+                          const rateGeneral = await getRateGeneralByTableId(table.id);
+                          return { 
+                            ...table, 
+                            bib: typeof table.bib === 'string' ? parseInt(table.bib) || 0 : table.bib,
+                            rateGeneral: rateGeneral || undefined 
+                          };
+                        } catch (error) {
+                          console.error(`Error fetching rate general for table ${table.id}:`, error);
+                          return { 
+                            ...table, 
+                            bib: typeof table.bib === 'string' ? parseInt(table.bib) || 0 : table.bib,
+                            rateGeneral: undefined 
+                          };
+                        }
+                      })
+                    );
+                    console.log("Tables with rates:", tablesWithRates);
+                    setTables(tablesWithRates);
+                  } catch (error) {
+                    console.error("Error fetching tables:", error);
+                    setError(error instanceof Error ? error.message : "Error desconocido al cargar los datos");
+                  } finally {
+                    setLoading(false);
+                  }
+                };
+                fetchTables();
+              }}
+            >
+              <Text style={[
+                isLargeDevice ? styles.retryButtonTextLarge : null,
+                isMediumLargeDevice ? styles.retryButtonTextMediumLarge : null,
+                isSmallDevice ? styles.retryButtonTextSmall : null,
+                isTinyDevice ? styles.retryButtonTextTiny : null,
+              ]}>
+                Reintentar
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                isLargeDevice ? styles.backButtonLarge : null,
+                isMediumLargeDevice ? styles.backButtonMediumLarge : null,
+                isSmallDevice ? styles.backButtonSmall : null,
+                isTinyDevice ? styles.backButtonTiny : null,
+              ]}
+              onPress={() => router.replace(`/main-menu?discipline=${discipline}`)}
+            >
+              <Text style={[
+                isLargeDevice ? styles.backButtonTextLarge : null,
+                isMediumLargeDevice ? styles.backButtonTextMediumLarge : null,
+                isSmallDevice ? styles.backButtonTextSmall : null,
+                isTinyDevice ? styles.backButtonTextTiny : null,
+              ]}>
+                Volver al menú
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+      
+      {/* Main Content - Only show when not loading and no error */}
+      {!loading && !error && (
       <ScrollView horizontal showsHorizontalScrollIndicator={true} style={[
         isLargeDevice ? styles.horizontalScrollLarge : null,
         isMediumLargeDevice ? styles.horizontalScrollMediumLarge : null,
@@ -455,9 +635,9 @@ const handleDownloadPDF = async () => {
                   isSmallDevice ? styles.tableRowSmall : null,
                   isTinyDevice ? styles.tableRowTiny : null,
                   table.id === gymnastId ? (
-                    isLargeDevice ? styles.selectedRowLarge : null ||
-                    isMediumLargeDevice ? styles.selectedRowMediumLarge : null ||
-                    isSmallDevice ? styles.selectedRowSmall : null ||
+                    isLargeDevice ? styles.selectedRowLarge :
+                    isMediumLargeDevice ? styles.selectedRowMediumLarge :
+                    isSmallDevice ? styles.selectedRowSmall :
                     isTinyDevice ? styles.selectedRowTiny : null
                   ) : null
                 ]}
@@ -755,7 +935,7 @@ const handleDownloadPDF = async () => {
           </ScrollView>
         </View>
       </ScrollView>
-
+      )}
       {/* Button Row */}
       <View style={[
         isLargeDevice ? styles.buttonContainerLarge : null,
@@ -890,7 +1070,7 @@ const handleDownloadPDF = async () => {
                   isTinyDevice ? styles.buttonTextTiny : null,
                 ]}>EXIT</Text>
               </TouchableOpacity>
-            </View>
+          </View>
           </View>
         </View>
       </Modal>
@@ -2330,6 +2510,476 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  // Loading container styles - Large Device
+  loadingContainerLarge: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f4f8',
+    padding: 20,
+  },
+  // Loading container styles - Medium Large Device
+  loadingContainerMediumLarge: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f4f8',
+    padding: 18,
+  },
+  // Loading container styles - Small Device
+  loadingContainerSmall: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f4f8',
+    padding: 16,
+  },
+  // Loading container styles - Tiny Device
+  loadingContainerTiny: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f4f8',
+    padding: 20,
+  },
+
+  // Loading card styles - Large Device
+  loadingCardLarge: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 30,
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    minWidth: 200,
+  },
+  // Loading card styles - Medium Large Device
+  loadingCardMediumLarge: {
+    backgroundColor: 'white',
+    borderRadius: 14,
+    padding: 28,
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    minWidth: 190,
+  },
+  // Loading card styles - Small Device
+  loadingCardSmall: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 25,
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    minWidth: 180,
+  },
+  // Loading card styles - Tiny Device
+  loadingCardTiny: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 30,
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    minWidth: 200,
+  },
+
+  // Loading spinner styles - Large Device
+  loadingSpinnerLarge: {
+    marginBottom: 20,
+  },
+  // Loading spinner styles - Medium Large Device
+  loadingSpinnerMediumLarge: {
+    marginBottom: 18,
+  },
+  // Loading spinner styles - Small Device
+  loadingSpinnerSmall: {
+    marginBottom: 16,
+  },
+  // Loading spinner styles - Tiny Device
+  loadingSpinnerTiny: {
+    marginBottom: 20,
+  },
+
+  // Loading text styles - Large Device
+  loadingTextLarge: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#0052b4',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  // Loading text styles - Medium Large Device
+  loadingTextMediumLarge: {
+    fontSize: 17,
+    fontWeight: 'bold',
+    color: '#0052b4',
+    textAlign: 'center',
+    marginBottom: 7,
+  },
+  // Loading text styles - Small Device
+  loadingTextSmall: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#0052b4',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  // Loading text styles - Tiny Device
+  loadingTextTiny: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#0052b4',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+
+  // Loading subtext styles - Large Device
+  loadingSubtextLarge: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+  },
+  // Loading subtext styles - Medium Large Device
+  loadingSubtextMediumLarge: {
+    fontSize: 13,
+    color: '#666',
+    textAlign: 'center',
+  },
+  // Loading subtext styles - Small Device
+  loadingSubtextSmall: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+  },
+  // Loading subtext styles - Tiny Device
+  loadingSubtextTiny: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+  },
+
+  // Error container styles - Large Device
+  errorContainerLarge: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f4f8',
+    padding: 20,
+  },
+  // Error container styles - Medium Large Device
+  errorContainerMediumLarge: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f4f8',
+    padding: 18,
+  },
+  // Error container styles - Small Device
+  errorContainerSmall: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f4f8',
+    padding: 16,
+  },
+  // Error container styles - Tiny Device
+  errorContainerTiny: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f4f8',
+    padding: 20,
+  },
+
+  // Error card styles - Large Device
+  errorCardLarge: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 30,
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    maxWidth: 400,
+    borderLeftWidth: 4,
+    borderLeftColor: '#d32f2f',
+  },
+  // Error card styles - Medium Large Device
+  errorCardMediumLarge: {
+    backgroundColor: 'white',
+    borderRadius: 14,
+    padding: 28,
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    maxWidth: 380,
+    borderLeftWidth: 4,
+    borderLeftColor: '#d32f2f',
+  },
+  // Error card styles - Small Device
+  errorCardSmall: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 25,
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    maxWidth: 350,
+    borderLeftWidth: 4,
+    borderLeftColor: '#d32f2f',
+  },
+  // Error card styles - Tiny Device
+  errorCardTiny: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 30,
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    maxWidth: 400,
+    borderLeftWidth: 4,
+    borderLeftColor: '#d32f2f',
+  },
+
+  // Error icon styles - Large Device
+  errorIconLarge: {
+    fontSize: 48,
+    marginBottom: 16,
+  },
+  // Error icon styles - Medium Large Device
+  errorIconMediumLarge: {
+    fontSize: 45,
+    marginBottom: 15,
+  },
+  // Error icon styles - Small Device
+  errorIconSmall: {
+    fontSize: 42,
+    marginBottom: 14,
+  },
+  // Error icon styles - Tiny Device
+  errorIconTiny: {
+    fontSize: 48,
+    marginBottom: 16,
+  },
+
+  // Error title styles - Large Device
+  errorTitleLarge: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#d32f2f',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  // Error title styles - Medium Large Device
+  errorTitleMediumLarge: {
+    fontSize: 19,
+    fontWeight: 'bold',
+    color: '#d32f2f',
+    textAlign: 'center',
+    marginBottom: 11,
+  },
+  // Error title styles - Small Device
+  errorTitleSmall: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#d32f2f',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  // Error title styles - Tiny Device
+  errorTitleTiny: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#d32f2f',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+
+  // Error message styles - Large Device
+  errorMessageLarge: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  // Error message styles - Medium Large Device
+  errorMessageMediumLarge: {
+    fontSize: 15,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 22,
+    lineHeight: 21,
+  },
+  // Error message styles - Small Device
+  errorMessageSmall: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  // Error message styles - Tiny Device
+  errorMessageTiny: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+
+  // Retry button styles - Large Device
+  retryButtonLarge: {
+    backgroundColor: '#0052b4',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    marginBottom: 12,
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  // Retry button styles - Medium Large Device
+  retryButtonMediumLarge: {
+    backgroundColor: '#0052b4',
+    paddingVertical: 11,
+    paddingHorizontal: 22,
+    borderRadius: 7,
+    marginBottom: 11,
+    minWidth: 115,
+    alignItems: 'center',
+  },
+  // Retry button styles - Small Device
+  retryButtonSmall: {
+    backgroundColor: '#0052b4',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 6,
+    marginBottom: 10,
+    minWidth: 110,
+    alignItems: 'center',
+  },
+  // Retry button styles - Tiny Device
+  retryButtonTiny: {
+    backgroundColor: '#0052b4',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    marginBottom: 12,
+    minWidth: 120,
+    alignItems: 'center',
+  },
+
+  // Retry button text styles - Large Device
+  retryButtonTextLarge: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  // Retry button text styles - Medium Large Device
+  retryButtonTextMediumLarge: {
+    color: 'white',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  // Retry button text styles - Small Device
+  retryButtonTextSmall: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  // Retry button text styles - Tiny Device
+  retryButtonTextTiny: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+
+  // Back button styles - Large Device
+  backButtonLarge: {
+    backgroundColor: '#666',
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  // Back button styles - Medium Large Device
+  backButtonMediumLarge: {
+    backgroundColor: '#666',
+    paddingVertical: 9,
+    paddingHorizontal: 22,
+    borderRadius: 7,
+    minWidth: 115,
+    alignItems: 'center',
+  },
+  // Back button styles - Small Device
+  backButtonSmall: {
+    backgroundColor: '#666',
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+    borderRadius: 6,
+    minWidth: 110,
+    alignItems: 'center',
+  },
+  // Back button styles - Tiny Device
+  backButtonTiny: {
+    backgroundColor: '#666',
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    minWidth: 120,
+    alignItems: 'center',
+  },
+
+  // Back button text styles - Large Device
+  backButtonTextLarge: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  // Back button text styles - Medium Large Device
+  backButtonTextMediumLarge: {
+    color: 'white',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  // Back button text styles - Small Device
+  backButtonTextSmall: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  // Back button text styles - Tiny Device
+  backButtonTextTiny: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
 

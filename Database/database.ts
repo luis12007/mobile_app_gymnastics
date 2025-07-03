@@ -1464,6 +1464,211 @@ export const addTestData = async () => {
   }
 };
 
+// Helper function to generate checksum for data integrity
+const generateChecksum = async (data: string): Promise<string> => {
+  try {
+    console.log("generateChecksum: Starting checksum generation");
+    const crypto = await import('expo-crypto');
+    console.log("generateChecksum: expo-crypto imported successfully");
+    const checksum = await crypto.digestStringAsync(
+      crypto.CryptoDigestAlgorithm.SHA256,
+      data
+    );
+    console.log("generateChecksum: Checksum generated successfully:", checksum.substring(0, 16) + "...");
+    return checksum;
+  } catch (error) {
+    console.error("Error generating checksum:", error);
+    return '';
+  }
+};
+
+// Export folder data with all related information
+export const exportFolderData = async (folderId: number): Promise<string | null> => {
+  try {
+    console.log("exportFolderData: Starting export for folderId:", folderId);
+
+    // Get folder
+    const folder = await getFolderById(folderId);
+    if (!folder) {
+      console.error("Folder not found");
+      return null;
+    }
+    
+    console.log("exportFolderData: Found folder:", folder.name);
+
+    // Get competences for this folder
+    const competences = await getCompetencesByFolderId(folderId);
+    console.log("exportFolderData: Found competences:", competences.length);
+    
+    // Get main tables and rate tables for each competence
+    const competenceData = [];
+    for (const competence of competences) {
+      const mainTables = await getMainTablesByCompetenceId(competence.id);
+      const tablesWithRates = [];
+      
+      for (const table of mainTables) {
+        const rateGeneral = await getRateGeneralByTableId(table.id);
+        const rateJump = await getRateJumpByTableId(table.id);
+        
+        tablesWithRates.push({
+          mainTable: table,
+          rateGeneral,
+          rateJump
+        });
+      }
+      
+      competenceData.push({
+        competence,
+        tables: tablesWithRates
+      });
+    }
+
+    console.log("exportFolderData: Collected all data, creating export object");
+
+    // Create export object
+    const exportData = {
+      version: "1.0",
+      exportDate: new Date().toISOString(),
+      folder,
+      competences: competenceData
+    };
+
+    // Convert to JSON string
+    const jsonData = JSON.stringify(exportData);
+    console.log("exportFolderData: JSON data created, length:", jsonData.length);
+    
+    // Generate checksum
+    console.log("exportFolderData: Generating checksum...");
+    const checksum = await generateChecksum(jsonData);
+    console.log("exportFolderData: Checksum generated:", checksum);
+    
+    // Create final export object with security
+    console.log("exportFolderData: Creating secure export data with btoa...");
+    const secureExportData = {
+      data: btoa(unescape(encodeURIComponent(jsonData))),
+      checksum,
+      metadata: {
+        version: "1.0",
+        exportDate: exportData.exportDate,
+        folderName: folder.name
+      }
+    };
+
+    console.log("exportFolderData: Export completed successfully");
+    return JSON.stringify(secureExportData);
+  } catch (error) {
+    console.error("Error exporting folder data:", error);
+    return null;
+  }
+};
+
+// Import folder data and recreate all related information
+export const importFolderData = async (importDataString: string, targetUserId: number): Promise<boolean> => {
+  try {
+    // Parse import data
+    const secureImportData = JSON.parse(importDataString);
+    
+    if (!secureImportData.data || !secureImportData.checksum) {
+      throw new Error("Invalid import file format");
+    }
+
+    // Decode data
+    const jsonData = decodeURIComponent(escape(atob(secureImportData.data)));
+    
+    // Verify checksum
+    const calculatedChecksum = await generateChecksum(jsonData);
+    if (calculatedChecksum !== secureImportData.checksum) {
+      throw new Error("Data integrity check failed - file may be corrupted");
+    }
+
+    // Parse the actual data
+    const importData = JSON.parse(jsonData);
+    
+    if (!importData.folder || !importData.competences) {
+      throw new Error("Invalid data structure in import file");
+    }
+
+    // Map to store old ID -> new ID mappings
+    const idMappings = {
+      folders: new Map<number, number>(),
+      competences: new Map<number, number>(),
+      mainTables: new Map<number, number>()
+    };
+
+    // Import folder (assign to target user)
+    const newFolderData = {
+      ...importData.folder,
+      userId: targetUserId
+    };
+    delete newFolderData.id; // Remove old ID
+
+    const newFolderId = await insertFolder(newFolderData);
+    if (!newFolderId) {
+      throw new Error("Failed to create folder");
+    }
+    idMappings.folders.set(importData.folder.id, newFolderId);
+
+    // Import competences
+    for (const competenceData of importData.competences) {
+      const newCompetenceData = {
+        ...competenceData.competence,
+        folderId: newFolderId,
+        userId: targetUserId
+      };
+      delete newCompetenceData.id; // Remove old ID
+
+      const newCompetenceId = await insertCompetence(newCompetenceData);
+      if (!newCompetenceId) {
+        throw new Error("Failed to create competence");
+      }
+      idMappings.competences.set(competenceData.competence.id, newCompetenceId);
+
+      // Import main tables and rate tables
+      for (const tableData of competenceData.tables) {
+        const newMainTableData = {
+          ...tableData.mainTable,
+          competenceId: newCompetenceId
+        };
+        delete newMainTableData.id; // Remove old ID
+
+        const newMainTableId = await insertMainTable(newMainTableData);
+        if (!newMainTableId) {
+          throw new Error("Failed to create main table");
+        }
+        idMappings.mainTables.set(tableData.mainTable.id, newMainTableId);
+
+        // Import rate general if exists
+        if (tableData.rateGeneral) {
+          const newRateGeneralData = {
+            ...tableData.rateGeneral,
+            tableId: newMainTableId
+          };
+          delete newRateGeneralData.id; // Remove old ID
+          await insertRateGeneral(newRateGeneralData);
+        }
+
+        // Import rate jump if exists
+        if (tableData.rateJump) {
+          const newRateJumpData = {
+            ...tableData.rateJump,
+            tableId: newMainTableId
+          };
+          delete newRateJumpData.id; // Remove old ID
+          await insertRateJump(newRateJumpData);
+        }
+      }
+    }
+
+    console.log("Import completed successfully", idMappings);
+    return true;
+  } catch (error) {
+    console.error("Error importing folder data:", error);
+    return false;
+  }
+};
+
+
+
 // Helper functions for querying related data
 export const getFolderWithCompetences = async (folderId: number): Promise<any> => {
   try {
