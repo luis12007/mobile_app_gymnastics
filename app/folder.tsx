@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { useFonts } from "expo-font";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -9,6 +10,7 @@ import {
   Easing,
   Image,
   Modal,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -101,10 +103,12 @@ interface Competence {
   folderId: number;
   name: string;
   description: string;
-  participants: number;
+  numberOfParticipants: number; // Match database interface
   type: string; // e.g., "Floor", "Jump", etc.
   gender: boolean; // true for MAG, false for WAG
   date: string;
+  sessionId: number;
+  userId: number;
 }
 
 const CompetitionItem: React.FC<CompetitionItemProps> = ({ 
@@ -319,6 +323,15 @@ const Folder: React.FC = () => {
   const [feedbackDeniedModel, setFeedbackDeniedModel] = useState(false);
   const [confirmationModel, setConfirmationModel] = useState(false);
   
+  // Loading states for better UX (ahora solo usamos isRefreshing y el modal unificado)
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Estados para la barra de carga unificada
+  const [showLoadingModal, setShowLoadingModal] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("");
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [isLoadingOperation, setIsLoadingOperation] = useState(false);
+  
   // Selection mode state
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedCompetitions, setSelectedCompetitions] = useState<number[]>([]);
@@ -342,12 +355,75 @@ const Folder: React.FC = () => {
   const buttonTranslate = useRef(new Animated.Value(50)).current;
   const deleteButtonAnim = useRef(new Animated.Value(0)).current;
   
+  // Animation values para la barra de carga
+  const loadingSpinAnim = useRef(new Animated.Value(0)).current;
+  const loadingScaleAnim = useRef(new Animated.Value(0.8)).current;
+  const loadingOpacityAnim = useRef(new Animated.Value(0)).current;
+  
   // Load the custom font
   const [fontsLoaded] = useFonts({
     "Rajdhani-Bold": require("../assets/fonts/Rajdhani/Rajdhani-Bold.ttf"),
     "Rajdhani-medium": require("../assets/fonts/Rajdhani/Rajdhani-Medium.ttf"),
     "Rajdhani-light": require("../assets/fonts/Rajdhani/Rajdhani-Light.ttf"),
   });
+
+  // Funciones para controlar la barra de carga unificada
+  const showLoading = (message: string, progress: number = 0) => {
+    setLoadingMessage(message);
+    setLoadingProgress(progress);
+    setIsLoadingOperation(true);
+    setShowLoadingModal(true);
+    
+    // Animar entrada del modal
+    Animated.parallel([
+      Animated.timing(loadingOpacityAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(loadingScaleAnim, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.back(1.2)),
+      }),
+    ]).start();
+    
+    // Animación de rotación continua
+    Animated.loop(
+      Animated.timing(loadingSpinAnim, {
+        toValue: 1,
+        duration: 2000,
+        useNativeDriver: true,
+      })
+    ).start();
+  };
+
+  const updateLoading = (message: string, progress: number) => {
+    setLoadingMessage(message);
+    setLoadingProgress(progress);
+  };
+
+  const hideLoading = () => {
+    // Animar salida del modal
+    Animated.parallel([
+      Animated.timing(loadingOpacityAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(loadingScaleAnim, {
+        toValue: 0.8,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setShowLoadingModal(false);
+      setIsLoadingOperation(false);
+      setLoadingProgress(0);
+      loadingSpinAnim.setValue(0);
+    });
+  };
 
   
 
@@ -369,65 +445,106 @@ const addNewCompetition = async () => {
     return;
   }
   
+  const numberOfParticipants = parseInt(competitionParticipants);
+  
+  // Cerrar modal y mostrar loading después de un pequeño delay
+  setAddCompetitionModalVisible(false);
+  setTimeout(() => {
+    showLoading("Creando competencia...", 0);
+  }, 300);
+  
   const competenceData = {
     folderId: folderId,
     name: competitionName,
     description: competitionDescription,
-    participants: parseInt(competitionParticipants),
+    numberOfParticipants: numberOfParticipants,
     type: competitionType,
     date: new Date().toISOString(),
-    gender: discipline
+    gender: discipline,
+    sessionId: 1, // Default session ID
+    userId: 1, // Default user ID
   };
   
   try {
+    // Actualizar mensaje de progreso
+    updateLoading("Creando competencia...", 10);
+    
     // Insert the competition into the database
     await updateFolder(folderId, { filled: true }); // Update the folder to mark it as filled
     const competitionId = await insertCompetence(competenceData);
     
     if (competitionId) {
-      // Create Main Table entries for each participant
-      await createMainTableEntries(competitionId, parseInt(competitionParticipants));
+      console.log(`Competition created with ID: ${competitionId}`);
       
-      // Add the new competition to the state
-      const newCompetition = {
-        id: competitionId,
-        ...competenceData,
-      };
+      updateLoading("Competencia creada. Preparando participantes...", 25);
       
-      setCompetitions(prevCompetitions => [...prevCompetitions, newCompetition]);
+      // Create Main Table entries with progress tracking
+      try {
+        if (numberOfParticipants > 0) {
+          await createMainTableEntriesWithProgress(competitionId, numberOfParticipants);
+          console.log(`Successfully created ${numberOfParticipants} participants for competition ${competitionId}`);
+        }
+      } catch (participantError) {
+        console.error("Error creating participants:", participantError);
+        hideLoading();
+        // Still show success message for competition creation, but warn about participants
+        Alert.alert(
+          "Competencia Creada", 
+          `La competencia "${competitionName}" fue creada exitosamente, pero hubo problemas al crear algunos participantes. Puedes añadirlos manualmente más tarde.`,
+          [{ text: "OK" }]
+        );
+        return;
+      }
       
-      // Reset form and close modal
+      updateLoading("Actualizando lista de competencias...", 90);
+      
+      // Refresh the competitions list to ensure UI is up to date
+      await refreshCompetitions();
+      
+      updateLoading("¡Completado!", 100);
+      
+      // Reset form
       setCompetitionName("");
       setCompetitionDescription("");
       setCompetitionParticipants("");
       setCompetitionType("Floor");
-      setAddCompetitionModalVisible(false);
       
-      // Show success feedback
-      setFeedbackAcceptModel(true);
+      // Esperar un momento para mostrar el 100% antes de ocultar
       setTimeout(() => {
-        setFeedbackAcceptModel(false);
-      }, 1500);
+        hideLoading();
+        // Show success feedback
+        setFeedbackAcceptModel(true);
+        setTimeout(() => {
+          setFeedbackAcceptModel(false);
+        }, 1500);
+      }, 500);
+      
     } else {
+      hideLoading();
       Alert.alert("Error", "Failed to add competition.");
     }
   } catch (error) {
     console.error("Error adding competition:", error);
+    hideLoading();
     Alert.alert("Error", "Failed to add competition.");
   }
 };
 
-// Add this new function to create Main Table entries
-const createMainTableEntries = async (competenceId: number, numberOfParticipants: number) => {
+// Función mejorada para crear entradas de Main Table con progreso
+const createMainTableEntriesWithProgress = async (competenceId: number, numberOfParticipants: number) => {
   try {
+    // Create a main table entry for each participant with progress tracking
     for (let i = 1; i <= numberOfParticipants; i++) {
+      const progress = 25 + Math.floor((i / numberOfParticipants) * 65); // 25% to 90%
+      updateLoading(`Creando gimnasta ${i} de ${numberOfParticipants}...`, progress);
+      
       const mainTableData = {
         competenceId: competenceId,
         number: i, // Participant number
         name: "", // Empty initially
         event: "",
         noc: "",
-        bib: 0,
+        bib: "", // String type as per interface
         j: 0,
         i: 0,
         h: 0,
@@ -448,9 +565,9 @@ const createMainTableEntries = async (competenceId: number, numberOfParticipants
         d3: 0,
         e3: 0,
         delt: 0,
-        percentage: 0,
+        percentage: 0
       };
-
+      
       // Insert the main table entry and get the ID of the inserted row
       const mainTableId = await insertMainTable(mainTableData);
       if (!mainTableId) {
@@ -479,6 +596,10 @@ const createMainTableEntries = async (competenceId: number, numberOfParticipants
         compScore: 0,
         comments: "",
         paths: "",
+        ded: 0,
+        dedexecution: 0,
+        vaultNumber: "",
+        vaultDescription: "",
       };
 
       const rateGeneralResult = await insertRateGeneral(mainRateGeneralData);
@@ -486,9 +607,10 @@ const createMainTableEntries = async (competenceId: number, numberOfParticipants
         console.error(`Failed to create MainRateGeneral entry for MainTable ID: ${mainTableId}`);
       }
     }
-    console.log(`Successfully created ${numberOfParticipants} main table and rate general entries for competition ID: ${competenceId}`);
+    console.log(`Successfully created ${numberOfParticipants} main table entries and rate general entries for competition ID: ${competenceId}`);
   } catch (error) {
-    console.error("Error creating main table and rate general entries:", error);
+    console.error("Error creating main table entries:", error);
+    // We don't show an alert here as the competition was already created successfully
   }
 };
 
@@ -499,10 +621,20 @@ const createMainTableEntries = async (competenceId: number, numberOfParticipants
     
     try {
       const fetchedCompetitions = await getCompetencesByFolderId(folderId);
-      setCompetitions(fetchedCompetitions); /* TODO */
+      setCompetitions(fetchedCompetitions);
     } catch (error) {
       console.error("Error fetching competitions:", error);
       Alert.alert("Error", "Failed to load competitions.");
+    }
+  };
+
+  // Function to refresh competitions list - better UX
+  const refreshCompetitions = async () => {
+    setIsRefreshing(true);
+    try {
+      await fetchCompetitions();
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -542,6 +674,16 @@ const createMainTableEntries = async (competenceId: number, numberOfParticipants
       }).start();
     }, 1000);
   }, [folderId]);
+
+  // Refresh competitions when screen comes back into focus
+  useFocusEffect(
+    useCallback(() => {
+      // Refresh competitions when the screen is focused (user navigates back)
+      if (folderId) {
+        refreshCompetitions();
+      }
+    }, [folderId])
+  );
 
   // Function to toggle competition selection
   const toggleCompetitionSelection = (id: number) => {
@@ -609,48 +751,88 @@ const createMainTableEntries = async (competenceId: number, numberOfParticipants
 
   // Function to actually delete the selected competitions
 const performDelete = async () => {
+  if (isLoadingOperation) return; // Prevent multiple deletions
+  
+  // Cerrar modal de confirmación y mostrar loading después de un pequeño delay
+  setConfirmationModel(false);
+  setTimeout(() => {
+    showLoading("Preparando eliminación...", 0);
+  }, 300);
+  
   try {
-    // Add loading state to prevent multiple clicks
-    setConfirmationModel(false); // Close modal immediately to prevent double-clicks
-    
     console.log('Starting deletion process for competitions:', selectedCompetitions);
     
-    // Process deletions sequentially to avoid race conditions
+    // Calcular el número total de gimnastas a eliminar para el progreso
+    let totalGymnasts = 0;
+    const competitionsToDelete = [];
+    
+    updateLoading("Calculando datos a eliminar...", 5);
+    
     for (const competitionId of selectedCompetitions) {
-      console.log(`Deleting competition ${competitionId}...`);
+      try {
+        const competition = competitions.find(comp => comp.id === competitionId);
+        if (competition) {
+          totalGymnasts += competition.numberOfParticipants;
+          competitionsToDelete.push({
+            id: competitionId,
+            participants: competition.numberOfParticipants,
+            name: competition.name
+          });
+        }
+      } catch (error) {
+        console.error(`Error getting competition info for ${competitionId}:`, error);
+      }
+    }
+    
+    updateLoading(`Eliminando ${totalGymnasts} gimnastas de ${selectedCompetitions.length} competencia(s)...`, 10);
+    
+    let deletedGymnasts = 0;
+    
+    // Process deletions sequentially to avoid race conditions
+    for (let index = 0; index < competitionsToDelete.length; index++) {
+      const competition = competitionsToDelete[index];
+      console.log(`Deleting competition ${competition.id}...`);
+      
+      updateLoading(`Eliminando competencia "${competition.name}"...`, 10 + (index * 70 / competitionsToDelete.length));
       
       try {
         // Fetch main tables associated with the competition
-        const mainTables = await getMainTablesByCompetenceId(competitionId);
-        console.log(`Found ${mainTables.length} main tables for competition ${competitionId}`);
+        const mainTables = await getMainTablesByCompetenceId(competition.id);
+        console.log(`Found ${mainTables.length} main tables for competition ${competition.id}`);
 
-        // Delete rateGeneral entries for each main table
-        for (const mainTable of mainTables) {
+        // Delete rateGeneral entries for each main table with progress
+        for (let tableIndex = 0; tableIndex < mainTables.length; tableIndex++) {
+          const mainTable = mainTables[tableIndex];
           await deleteRateGeneralByTableId(mainTable.id);
+          deletedGymnasts++;
+          
+          // Actualizar progreso basado en gimnastas eliminados
+          const progressPercent = 10 + ((deletedGymnasts / totalGymnasts) * 70);
+          updateLoading(`Eliminando datos del gimnasta ${deletedGymnasts}/${totalGymnasts}...`, progressPercent);
+          
           console.log(`Deleted rate general for main table ${mainTable.id}`);
         }
 
         // Delete main tables associated with the competition
-        await deleteMainTableByCompetenceId(competitionId);
-        console.log(`Deleted main tables for competition ${competitionId}`);
+        await deleteMainTableByCompetenceId(competition.id);
+        console.log(`Deleted main tables for competition ${competition.id}`);
 
         // Finally, delete the competition
-        await deleteCompetence(competitionId);
-        console.log(`Deleted competition ${competitionId}`);
+        await deleteCompetence(competition.id);
+        console.log(`Deleted competition ${competition.id}`);
         
       } catch (error) {
-        console.error(`Error deleting competition ${competitionId}:`, error);
+        console.error(`Error deleting competition ${competition.id}:`, error);
         // Continue with other deletions even if one fails
       }
     }
 
-    // Update the competitions state to remove deleted competitions
-    // Use functional update to ensure we have the latest state
-    setCompetitions(prevCompetitions => {
-      const newCompetitions = prevCompetitions.filter(comp => !selectedCompetitions.includes(comp.id));
-      console.log(`Updated competitions list. Removed ${selectedCompetitions.length} competitions. Remaining: ${newCompetitions.length}`);
-      return newCompetitions;
-    });
+    updateLoading("Actualizando lista de competencias...", 85);
+
+    // Refresh the competitions list instead of manually updating state
+    await refreshCompetitions();
+
+    updateLoading("Limpiando selección...", 95);
 
     // Reset all selection states
     setSelectionMode(false);
@@ -664,20 +846,27 @@ const performDelete = async () => {
       useNativeDriver: true,
     }).start();
 
-    // Show success feedback
-    setFeedbackAcceptModel(true);
+    updateLoading("¡Eliminación completada!", 100);
+    
+    // Esperar un momento para mostrar el 100% antes de ocultar
     setTimeout(() => {
-      setFeedbackAcceptModel(false);
-    }, 1500);
+      hideLoading();
+      
+      // Show success feedback
+      setFeedbackAcceptModel(true);
+      setTimeout(() => {
+        setFeedbackAcceptModel(false);
+      }, 1500);
+    }, 500);
     
     console.log('Deletion process completed successfully');
     
   } catch (error) {
     console.error("Error in performDelete:", error);
+    hideLoading();
     Alert.alert("Error", "Failed to delete some competitions. Please try again.");
     
     // Reset states even if there's an error
-    setConfirmationModel(false);
     setSelectionMode(false);
     setSelectionAction(null);
     setSelectedCompetitions([]);
@@ -699,7 +888,7 @@ const performDelete = async () => {
         setEditingCompetition(competitionToEdit);
         setCompetitionName(competitionToEdit.name);
         setCompetitionDescription(competitionToEdit.description);
-        setCompetitionParticipants(competitionToEdit.participants.toString());
+        setCompetitionParticipants(competitionToEdit.numberOfParticipants.toString());
         setCompetitionType(competitionToEdit.type);
         setEditCompetitionModalVisible(true);
       }
@@ -708,7 +897,7 @@ const performDelete = async () => {
 
   // Function to save edited competition
   const saveEditedCompetition = async (id: number) => {
-    if (!editingCompetition) return;
+    if (!editingCompetition || isLoadingOperation) return;
     
     if (competitionName.trim() === "") {
       Alert.alert("Error", "Please fill in all required fields.");
@@ -720,43 +909,60 @@ const performDelete = async () => {
       return;
     }
     
+    // Cerrar modal y mostrar loading después de un pequeño delay
+    setEditCompetitionModalVisible(false);
+    setTimeout(() => {
+      showLoading("Actualizando competencia...", 10);
+    }, 300);
+    
     const updatedCompetition = {
       ...editingCompetition,
       name: competitionName,
       description: competitionDescription,
-      participants: parseInt(competitionParticipants),
+      numberOfParticipants: parseInt(competitionParticipants),
       type: competitionType,
     };
 
     try {
-      const result = await updateCompetence(id,updatedCompetition);
+      updateLoading("Guardando cambios...", 50);
+      
+      const result = await updateCompetence(id, updatedCompetition);
 
       /* count number of main table related to that competition an if th participants are less delete main table 
       with the competence id from 1 increasing up to the number of participants TODO */
       if (result) {
-        // Update the competitions state with the edited competition
-        setCompetitions(prevCompetitions => 
-          prevCompetitions.map(comp => 
-            comp.id === editingCompetition.id ? updatedCompetition : comp
-          )
-        );
+        updateLoading("Actualizando lista de competencias...", 80);
         
-        setEditCompetitionModalVisible(false);
+        // Refresh the competitions list to ensure UI is up to date
+        await refreshCompetitions();
+        
+        updateLoading("Limpiando selección...", 95);
+        
         setSelectionMode(false);
         setSelectionAction(null);
         setSelectedCompetitions([]);
         setEditingCompetition(null);
         
-        // Show success feedback
-        setFeedbackAcceptModel(true);
+        updateLoading("¡Actualización completada!", 100);
+        
+        // Esperar un momento para mostrar el 100% antes de ocultar
         setTimeout(() => {
-          setFeedbackAcceptModel(false);
-        }, 1500);
+          hideLoading();
+          
+          // Show success feedback
+          setFeedbackAcceptModel(true);
+          setTimeout(() => {
+            setFeedbackAcceptModel(false);
+          }, 1500);
+        }, 500);
+        
       } else {
+        hideLoading();
         Alert.alert("Error", "Failed to update competition.");
       }
     } catch (error) {
       console.error("Error updating competition:", error);
+      hideLoading();
       Alert.alert("Error", "Failed to update competition.");
     }
   };
@@ -805,7 +1011,13 @@ const performDelete = async () => {
       </TouchableOpacity>
       
       {selectionMode ? (
-        <TouchableOpacity onPress={cancelSelectionMode}>
+        <TouchableOpacity 
+          onPress={cancelSelectionMode}
+          disabled={isLoadingOperation}
+          style={[
+            isLoadingOperation && { opacity: 0.5 }
+          ]}
+        >
           <Text style={[
             isLargeDevice ? styles.cancelSelectionTextLarge : null,
             isMediumLargeDevice ? styles.cancelSelectionTextMediumLarge : null,
@@ -814,19 +1026,34 @@ const performDelete = async () => {
           ]}>Cancel</Text>
         </TouchableOpacity>
       ) : (
-        <TouchableOpacity onPress={() => setMenuVisible(true)}>
+        <TouchableOpacity 
+          onPress={() => setMenuVisible(true)}
+          disabled={isLoadingOperation}
+          style={[
+            isLoadingOperation && { opacity: 0.5 }
+          ]}
+        >
           <Ionicons name="menu" size={28} color="#000" />
         </TouchableOpacity>
       )}
     </Animated.View>
     
     {/* Competitions Grid with Staggered Animation */}
-    <ScrollView style={[
-      isLargeDevice ? styles.scrollViewLarge : null,
-      isMediumLargeDevice ? styles.scrollViewMediumLarge : null,
-      isSmallDevice ? styles.scrollViewSmall : null,
-      isTinyDevice ? styles.scrollViewTiny : null,
-    ]}>
+    <ScrollView 
+      style={[
+        isLargeDevice ? styles.scrollViewLarge : null,
+        isMediumLargeDevice ? styles.scrollViewMediumLarge : null,
+        isSmallDevice ? styles.scrollViewSmall : null,
+        isTinyDevice ? styles.scrollViewTiny : null,
+      ]}
+      refreshControl={
+        <RefreshControl
+          refreshing={isRefreshing}
+          onRefresh={refreshCompetitions}
+          tintColor="#007AFF"
+        />
+      }
+    >
       <View style={[
         isLargeDevice ? styles.foldersGridLarge : null,
         isMediumLargeDevice ? styles.foldersGridMediumLarge : null,
@@ -841,14 +1068,14 @@ const performDelete = async () => {
             description={competition.description}
             date={new Date(competition.date).toLocaleDateString()}
             type={competition.type}
-            participants={competition.participants}
+            participants={competition.numberOfParticipants}
             folderType={competition.type === "Floor" ? 1 : 2}
             selected={selectedCompetitions.includes(competition.id)}
             animationDelay={index * 100}
             gender={competition.gender ? true : false}
             selectionMode={selectionMode}
             onSelect={toggleCompetitionSelection}
-            folderId={folderId} // Pass the folderId to the CompetitionItem
+            folderId={folderId || 0} // Provide default value
           />
         ))}
       </View>
@@ -874,8 +1101,10 @@ const performDelete = async () => {
             isMediumLargeDevice ? styles.addButtonMediumLarge : null,
             isSmallDevice ? styles.addButtonSmall : null,
             isTinyDevice ? styles.addButtonTiny : null,
+            isLoadingOperation && { opacity: 0.6 } // Visual feedback when loading
           ]} 
           onPress={() => setAddCompetitionModalVisible(true)}
+          disabled={isLoadingOperation} // Disable when loading
         >
           <Text style={[
             isLargeDevice ? styles.addButtonTextLarge : null,
@@ -883,7 +1112,7 @@ const performDelete = async () => {
             isSmallDevice ? styles.addButtonTextSmall : null,
             isTinyDevice ? styles.addButtonTextTiny : null,
           ]}>
-            Add Competition
+            {isRefreshing ? "Refreshing..." : "Add Competition"}
           </Text>
         </TouchableOpacity>
       ) : selectionAction === 'edit' && selectedCompetitions.length === 1 ? (
@@ -893,8 +1122,10 @@ const performDelete = async () => {
             isMediumLargeDevice ? styles.editConfirmButtonMediumLarge : null,
             isSmallDevice ? styles.editConfirmButtonSmall : null,
             isTinyDevice ? styles.editConfirmButtonTiny : null,
+            isLoadingOperation && { opacity: 0.6 } // Visual feedback when loading
           ]} 
           onPress={handleEditConfirm}
+          disabled={isLoadingOperation} // Disable when loading
         >
           <Text style={[
             isLargeDevice ? styles.editConfirmButtonTextLarge : null,
@@ -928,8 +1159,10 @@ const performDelete = async () => {
             isMediumLargeDevice ? styles.deleteButtonMediumLarge : null,
             isSmallDevice ? styles.deleteButtonSmall : null,
             isTinyDevice ? styles.deleteButtonTiny : null,
+            isLoadingOperation && { opacity: 0.6 } // Visual feedback when loading
           ]} 
           onPress={confirmDelete}
+          disabled={isLoadingOperation} // Disable when loading
         >
           <Ionicons name="trash" size={isLargeDevice ? 24 : isMediumLargeDevice ? 22 : isSmallDevice ? 20 : 20} color="#fff" />
         </TouchableOpacity>
@@ -1055,7 +1288,7 @@ const performDelete = async () => {
       animationType="fade"
       transparent={true}
       visible={addCompetitionModalVisible}
-      onRequestClose={() => setAddCompetitionModalVisible(false)}
+      onRequestClose={() => !isLoadingOperation && setAddCompetitionModalVisible(false)}
     >
       <View style={[
         isLargeDevice ? styles.addModalOverlayLarge : null,
@@ -1132,8 +1365,10 @@ const performDelete = async () => {
                 isMediumLargeDevice ? styles.confirmButtonMediumLarge : null,
                 isSmallDevice ? styles.confirmButtonSmall : null,
                 isTinyDevice ? styles.confirmButtonTiny : null,
+                isLoadingOperation && { opacity: 0.6 } // Visual feedback when loading
               ]}
               onPress={addNewCompetition}
+              disabled={isLoadingOperation} // Disable when loading
             >
               <Text style={[
                 isLargeDevice ? styles.confirmButtonTextLarge : null,
@@ -1151,8 +1386,10 @@ const performDelete = async () => {
                 isMediumLargeDevice ? styles.cancelButtonMediumLarge : null,
                 isSmallDevice ? styles.cancelButtonSmall : null,
                 isTinyDevice ? styles.cancelButtonTiny : null,
+                isLoadingOperation && { opacity: 0.5 }
               ]}
               onPress={() => setAddCompetitionModalVisible(false)}
+              disabled={isLoadingOperation}
             >
               <Text style={[
                 isLargeDevice ? styles.cancelButtonTextLarge : null,
@@ -1173,7 +1410,7 @@ const performDelete = async () => {
       animationType="fade"
       transparent={true}
       visible={editCompetitionModalVisible}
-      onRequestClose={() => setEditCompetitionModalVisible(false)}
+      onRequestClose={() => !isLoadingOperation && setEditCompetitionModalVisible(false)}
     >
       <View style={[
         isLargeDevice ? styles.addModalOverlayLarge : null,
@@ -1251,8 +1488,10 @@ const performDelete = async () => {
                 isMediumLargeDevice ? styles.confirmButtonMediumLarge : null,
                 isSmallDevice ? styles.confirmButtonSmall : null,
                 isTinyDevice ? styles.confirmButtonTiny : null,
+                isLoadingOperation && { opacity: 0.6 } // Visual feedback when loading
               ]}
-              onPress={() => saveEditedCompetition(editingCompetition?.id)} // Pass the id here FIX
+              onPress={() => editingCompetition?.id && saveEditedCompetition(editingCompetition.id)} // Validate id exists
+              disabled={isLoadingOperation} // Disable when loading
             >
               <Text style={[
                 isLargeDevice ? styles.confirmButtonTextLarge : null,
@@ -1270,8 +1509,10 @@ const performDelete = async () => {
                 isMediumLargeDevice ? styles.cancelButtonMediumLarge : null,
                 isSmallDevice ? styles.cancelButtonSmall : null,
                 isTinyDevice ? styles.cancelButtonTiny : null,
+                isLoadingOperation && { opacity: 0.5 }
               ]}
               onPress={() => setEditCompetitionModalVisible(false)}
+              disabled={isLoadingOperation}
             >
               <Text style={[
                 isLargeDevice ? styles.cancelButtonTextLarge : null,
@@ -1292,7 +1533,7 @@ const performDelete = async () => {
       animationType="fade"
       transparent={true}
       visible={confirmationModel}
-      onRequestClose={() => setConfirmationModel(false)}
+      onRequestClose={() => !isLoadingOperation && setConfirmationModel(false)}
     >
       <View style={[
         isLargeDevice ? styles.addModalOverlayLarge : null,
@@ -1327,9 +1568,11 @@ const performDelete = async () => {
                 isMediumLargeDevice ? styles.confirmButtonMediumLarge : null,
                 isSmallDevice ? styles.confirmButtonSmall : null,
                 isTinyDevice ? styles.confirmButtonTiny : null,
+                isLoadingOperation && { opacity: 0.6 } // Visual feedback when loading
               ]}
               onPress={performDelete}
               activeOpacity={0.7} // Prevent multiple taps
+              disabled={isLoadingOperation} // Disable when loading
             >
               <Text style={[
                 isLargeDevice ? styles.confirmButtonTextLarge : null,
@@ -1345,9 +1588,11 @@ const performDelete = async () => {
                 isMediumLargeDevice ? styles.cancelButtonMediumLarge : null,
                 isSmallDevice ? styles.cancelButtonSmall : null,
                 isTinyDevice ? styles.cancelButtonTiny : null,
+                isLoadingOperation && { opacity: 0.5 }
               ]}
               onPress={() => setConfirmationModel(false)}
               activeOpacity={0.7}
+              disabled={isLoadingOperation}
             >
               <Text style={[
                 isLargeDevice ? styles.cancelButtonTextLarge : null,
@@ -1405,6 +1650,103 @@ const performDelete = async () => {
         </View>
       </TouchableOpacity>
     </Modal>
+
+    {/* Modal de Carga Unificada */}
+    <Modal
+      animationType="none"
+      transparent={true}
+      visible={showLoadingModal}
+      onRequestClose={() => {}} // No permitir cerrar durante la carga
+    >
+      <View style={{
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        justifyContent: 'center',
+        alignItems: 'center'
+      }}>
+        <Animated.View style={[
+          {
+            backgroundColor: 'white',
+            borderRadius: isLargeDevice ? 20 : isMediumLargeDevice ? 18 : isSmallDevice ? 16 : 14,
+            padding: isLargeDevice ? 40 : isMediumLargeDevice ? 35 : isSmallDevice ? 30 : 25,
+            width: isLargeDevice ? 380 : isMediumLargeDevice ? 340 : isSmallDevice ? 300 : 280,
+            alignItems: 'center',
+            shadowColor: '#000',
+            shadowOffset: {
+              width: 0,
+              height: 10,
+            },
+            shadowOpacity: 0.25,
+            shadowRadius: 20,
+            elevation: 15,
+          },
+          {
+            opacity: loadingOpacityAnim,
+            transform: [{ scale: loadingScaleAnim }]
+          }
+        ]}>
+          {/* Icono de carga animado */}
+          <Animated.View style={[
+            {
+              width: isLargeDevice ? 80 : isMediumLargeDevice ? 70 : isSmallDevice ? 60 : 50,
+              height: isLargeDevice ? 80 : isMediumLargeDevice ? 70 : isSmallDevice ? 60 : 50,
+              borderRadius: isLargeDevice ? 40 : isMediumLargeDevice ? 35 : isSmallDevice ? 30 : 25,
+              borderWidth: 4,
+              borderColor: '#007AFF',
+              borderTopColor: 'transparent',
+              marginBottom: isLargeDevice ? 30 : isMediumLargeDevice ? 25 : isSmallDevice ? 20 : 18,
+            },
+            {
+              transform: [{
+                rotate: loadingSpinAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['0deg', '360deg']
+                })
+              }]
+            }
+          ]} />
+
+          {/* Mensaje de carga */}
+          <Text style={{
+            fontSize: isLargeDevice ? 20 : isMediumLargeDevice ? 18 : isSmallDevice ? 16 : 14,
+            fontFamily: "Rajdhani-Bold",
+            color: '#333',
+            textAlign: 'center',
+            marginBottom: isLargeDevice ? 20 : isMediumLargeDevice ? 18 : isSmallDevice ? 16 : 14,
+          }}>
+            {loadingMessage}
+          </Text>
+
+          {/* Barra de progreso */}
+          <View style={{
+            width: '100%',
+            height: isLargeDevice ? 8 : isMediumLargeDevice ? 7 : isSmallDevice ? 6 : 5,
+            backgroundColor: '#E0E0E0',
+            borderRadius: isLargeDevice ? 4 : isMediumLargeDevice ? 3.5 : isSmallDevice ? 3 : 2.5,
+            overflow: 'hidden',
+            marginBottom: isLargeDevice ? 15 : isMediumLargeDevice ? 12 : isSmallDevice ? 10 : 8,
+          }}>
+            <Animated.View style={{
+              height: '100%',
+              backgroundColor: '#007AFF',
+              width: `${loadingProgress}%`,
+              borderRadius: isLargeDevice ? 4 : isMediumLargeDevice ? 3.5 : isSmallDevice ? 3 : 2.5,
+            }} />
+          </View>
+
+          {/* Porcentaje */}
+          <Text style={{
+            fontSize: isLargeDevice ? 16 : isMediumLargeDevice ? 15 : isSmallDevice ? 14 : 12,
+            fontFamily: "Rajdhani-medium",
+            color: '#666',
+            textAlign: 'center',
+          }}>
+            {Math.round(loadingProgress)}%
+          </Text>
+        </Animated.View>
+      </View>
+    </Modal>
+
   </SafeAreaView>
 );
 };

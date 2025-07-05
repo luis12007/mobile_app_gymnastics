@@ -424,11 +424,16 @@ const CustomNumberPadOptimized: React.FC<CustomNumberPadOptimizedProps> = React.
         break;
       case '.':
         // Allow decimal if enabled and not already present
-        if (allowDecimal && !currentValue.includes('.')) {
-          // If value is empty or just '0', start with '0.'
-          const newValue = (currentValue === '' || currentValue === '0') ? '0.' : currentValue + '.';
-          onValueChange(newValue);
-          isEditingRef.current = true;
+        if (allowDecimal) {
+          if (!isEditingRef.current) {
+            // If not editing, start fresh with '0.'
+            onValueChange('0.');
+            isEditingRef.current = true;
+          } else if (!currentValue.includes('.')) {
+            // If editing and no decimal present, append decimal
+            const newValue = (currentValue === '' || currentValue === '0') ? '0.' : currentValue + '.';
+            onValueChange(newValue);
+          }
         }
         break;
       case '✓':
@@ -436,28 +441,25 @@ const CustomNumberPadOptimized: React.FC<CustomNumberPadOptimizedProps> = React.
         if (onClose) onClose(currentValue);
         break;
       default:
-        // Handle numeric input (0-9) - OPTIMIZED: Reduced complexity and logging
-        if (currentValue.length < maxLength) {
+        // Handle numeric input (0-9)
+        if (/^\d$/.test(buttonText)) { // Only for digits 0-9
           let newValue;
           
-          // Critical fix: if the value ends with a decimal point, ALWAYS append
-          if (currentValue.endsWith('.')) {
-            newValue = currentValue + buttonText;
-          }
-          // If we're not editing and the value is a simple whole number (no decimal), replace it
-          else if (!isEditingRef.current && currentValue !== '' && currentValue !== '0' && !currentValue.includes('.') && !currentValue.includes(' ')) {
-            // Replace only for simple numbers like "8" but not "8." or "0" or empty
+          if (!isEditingRef.current) {
+            // If not editing, replace the current value completely
             newValue = buttonText;
-          } else if (currentValue === '0' && buttonText !== '0' && !isEditingRef.current) {
-            // Replace "0" with non-zero digit only if not editing
-            newValue = buttonText;
+            isEditingRef.current = true; // Now user is editing
           } else {
-            // Always append in all other cases
-            newValue = currentValue + buttonText;
+            // If editing, check if we can append
+            if (currentValue.length < maxLength) {
+              newValue = currentValue + buttonText;
+            } else {
+              // Can't append due to max length
+              return;
+            }
           }
           
           onValueChange(newValue);
-          isEditingRef.current = true; // User is now editing
         }
         break;
     }

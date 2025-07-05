@@ -38,7 +38,7 @@ interface MainTable {
   name: string;
   event: string;
   noc: string;
-  bib: number;
+  bib: string;
   j: number;
   i: number;
   h: number;
@@ -128,38 +128,198 @@ const GymnasticsScoreTable: React.FC = () => {
       try {
         setLoading(true);
         setError(null);
+        
         const mainTables = await getMainTablesByCompetenceId(competenceId);
+        
+        if (mainTables.length === 0) {
+          setError("No gymnasts found for this competition");
+          return;
+        }
+        
         const getcompetence = await getCompetenceById(competenceId);
-        console.log("current competence:", getcompetence);
+        
+        if (!getcompetence) {
+          setError("Competition not found");
+          return;
+        }
+        
         setcurrentcompetence(getcompetence);
+        
         // Sort tables by number
         const sortedTables = [...mainTables].sort((a, b) => a.number - b.number);
         
-        // Fetch rate general data for each table
-        const tablesWithRates = await Promise.all(
-          sortedTables.map(async (table) => {
+        // Fetch rate general data for each table with robust error handling
+        const tablesWithRates: MainTableWithRateGeneral[] = [];
+        let skippedGymnasts: Array<{name: string, id: number, reason: string}> = [];
+        let processedCount = 0;
+        let errorCount = 0;
+        let consecutiveErrors = 0;
+        
+        const BATCH_SIZE = 10; // Increase batch size for better performance
+        const TIMEOUT_MS = 2000; // Reduce timeout to 2 seconds
+        const MAX_CONSECUTIVE_ERRORS = 10; // Stop if we get 10 errors in a row
+        const MAX_TOTAL_ERRORS = 50; // Stop if we get 50 total errors
+        
+        // Process gymnasts in small batches to prevent UI blocking and memory issues
+        for (let batchStart = 0; batchStart < sortedTables.length; batchStart += BATCH_SIZE) {
+          const batchEnd = Math.min(batchStart + BATCH_SIZE, sortedTables.length);
+          const batch = sortedTables.slice(batchStart, batchEnd);
+          
+          for (let batchIndex = 0; batchIndex < batch.length; batchIndex++) {
+            const table = batch[batchIndex];
+            const globalIndex = batchStart + batchIndex;
+            
             try {
-              const rateGeneral = await getRateGeneralByTableId(table.id);
-              return { 
-                ...table, 
-                bib: typeof table.bib === 'string' ? parseInt(table.bib) || 0 : table.bib,
+              // Early validation - skip obviously corrupt data
+              if (!table.id || !table.name || table.name.trim() === '' || table.id <= 0) {
+                skippedGymnasts.push({
+                  name: table.name || 'Unknown',
+                  id: table.id || 0,
+                  reason: 'Invalid gymnast data'
+                });
+                continue;
+              }
+              
+              // Check for suspicious data patterns that might cause crashes
+              if (typeof table.name !== 'string' || table.name.length > 200) {
+                skippedGymnasts.push({
+                  name: table.name || 'Unknown',
+                  id: table.id,
+                  reason: 'Suspicious name data'
+                });
+                continue;
+              }
+              
+              // Check for numeric field corruption that could cause crashes
+              const numericFields = ['number', 'j', 'i', 'h', 'g', 'f', 'e', 'd', 'c', 'b', 'a'];
+              let hasCorruptNumericData = false;
+              for (const field of numericFields) {
+                const value = table[field as keyof typeof table];
+                if (value !== null && value !== undefined && typeof value !== 'number' && isNaN(Number(value))) {
+                  hasCorruptNumericData = true;
+                }
+              }
+              
+              // Reduced timeout for database operations
+              const rateGeneralPromise = getRateGeneralByTableId(table.id);
+              const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Database timeout')), TIMEOUT_MS)
+              );
+              
+              let rateGeneral = null;
+              try {
+                rateGeneral = await Promise.race([rateGeneralPromise, timeoutPromise]) as MainRateGeneral | null;
+              } catch (timeoutError) {
+                errorCount++;
+                skippedGymnasts.push({
+                  name: table.name,
+                  id: table.id,
+                  reason: 'Database timeout'
+                });
+                continue;
+              }
+            
+              
+              if (rateGeneral) {
+                // Validate rate general data
+                if (typeof rateGeneral.myScore !== 'number' || 
+                    typeof rateGeneral.compScore !== 'number' || 
+                    typeof rateGeneral.eScore !== 'number') {
+                  errorCount++;
+                  skippedGymnasts.push({
+                    name: table.name,
+                    id: table.id,
+                    reason: 'Corrupt score data'
+                  });
+                  continue;
+                }
+              }
+              
+              // Validate and sanitize table data with defensive programming
+              const processedTable: MainTableWithRateGeneral = { 
+                ...table,
+                // Ensure all numeric fields are valid numbers with defaults
+                id: (typeof table.id === 'number' && table.id > 0) ? table.id : parseInt(String(table.id)) || 0,
+                number: (typeof table.number === 'number' && table.number >= 0) ? table.number : parseInt(String(table.number)) || 0,
+                bib: typeof table.bib === 'string' ? table.bib || "" : (table.bib || ""),
+                j: (typeof table.j === 'number' && !isNaN(table.j)) ? table.j : 0,
+                i: (typeof table.i === 'number' && !isNaN(table.i)) ? table.i : 0,
+                h: (typeof table.h === 'number' && !isNaN(table.h)) ? table.h : 0,
+                g: (typeof table.g === 'number' && !isNaN(table.g)) ? table.g : 0,
+                f: (typeof table.f === 'number' && !isNaN(table.f)) ? table.f : 0,
+                e: (typeof table.e === 'number' && !isNaN(table.e)) ? table.e : 0,
+                d: (typeof table.d === 'number' && !isNaN(table.d)) ? table.d : 0,
+                c: (typeof table.c === 'number' && !isNaN(table.c)) ? table.c : 0,
+                b: (typeof table.b === 'number' && !isNaN(table.b)) ? table.b : 0,
+                a: (typeof table.a === 'number' && !isNaN(table.a)) ? table.a : 0,
+                dv: (typeof table.dv === 'number' && !isNaN(table.dv)) ? table.dv : 0,
+                eg: (typeof table.eg === 'number' && !isNaN(table.eg)) ? table.eg : 0,
+                sb: (typeof table.sb === 'number' && !isNaN(table.sb)) ? table.sb : 0,
+                nd: (typeof table.nd === 'number' && !isNaN(table.nd)) ? table.nd : 0,
+                cv: (typeof table.cv === 'number' && !isNaN(table.cv)) ? table.cv : 0,
+                sv: (typeof table.sv === 'number' && !isNaN(table.sv)) ? table.sv : 0,
+                e2: (typeof table.e2 === 'number' && !isNaN(table.e2)) ? table.e2 : 0,
+                d3: (typeof table.d3 === 'number' && !isNaN(table.d3)) ? table.d3 : 0,
+                e3: (typeof table.e3 === 'number' && !isNaN(table.e3)) ? table.e3 : 0,
+                delt: (typeof table.delt === 'number' && !isNaN(table.delt)) ? table.delt : 0,
+                percentage: (typeof table.percentage === 'number' && !isNaN(table.percentage)) ? table.percentage : 0,
+                // Ensure string fields are valid with sanitization
+                name: (typeof table.name === 'string' && table.name.trim().length > 0) ? table.name.trim() : 'Unknown',
+                event: (typeof table.event === 'string' && table.event.trim().length > 0) ? table.event.trim() : 'FX',
+                noc: (typeof table.noc === 'string') ? table.noc.trim() : '---',
                 rateGeneral: rateGeneral || undefined 
               };
+              
+              tablesWithRates.push(processedTable);
+              processedCount++;
+              consecutiveErrors = 0; // Reset consecutive error counter on success
+              
             } catch (error) {
-              console.error(`Error fetching rate general for table ${table.id}:`, error);
-              return { 
-                ...table, 
-                bib: typeof table.bib === 'string' ? parseInt(table.bib) || 0 : table.bib,
-                rateGeneral: undefined 
-              };
+              errorCount++;
+              consecutiveErrors++;
+              skippedGymnasts.push({
+                name: table.name || 'Unknown',
+                id: table.id || 0,
+                reason: error instanceof Error ? error.message : 'Processing error'
+              });
+              
+              // Circuit breaker - stop if too many consecutive errors
+              if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                break;
+              }
+              
+              // Also stop if total errors exceed threshold
+              if (errorCount >= MAX_TOTAL_ERRORS) {
+                break;
+              }
+              
+              // Continue processing other gymnasts
+              continue;
             }
-          })
-        );
-        console.log("Tables with rates:", tablesWithRates);
+          }
+          
+          // Check circuit breaker conditions between batches
+          if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS || errorCount >= MAX_TOTAL_ERRORS) {
+            break;
+          }
+          
+          // Small delay between batches to prevent UI blocking
+          if (batchEnd < sortedTables.length) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        }
+        
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          setError(`Processing stopped after ${consecutiveErrors} consecutive errors. Showing ${tablesWithRates.length} valid gymnasts.`);
+        } else if (errorCount >= MAX_TOTAL_ERRORS) {
+          setError(`Processing stopped after ${errorCount} total errors. Showing ${tablesWithRates.length} valid gymnasts.`);
+        }
+        
         setTables(tablesWithRates);
+        
       } catch (error) {
-        console.error("Error fetching tables:", error);
-        setError(error instanceof Error ? error.message : "Error desconocido al cargar los datos");
+        const errorMessage = error instanceof Error ? error.message : "Error desconocido al cargar los datos";
+        setError(errorMessage);
       } finally {
         setLoading(false);
       }
@@ -177,7 +337,6 @@ const GymnasticsScoreTable: React.FC = () => {
   };
 
   const handleFinishJudging = () => {
-    // Show the modal instead of navigating directly
     setModalVisible(false);
     setModalVisible(true);
   };
@@ -185,8 +344,6 @@ const GymnasticsScoreTable: React.FC = () => {
 const handleDownloadPDF = async () => {
   try {
     setPdfExporting(true);
-    
-    console.log('Starting comprehensive PDF generation...');
     
     // Prepare data for comprehensive PDF
     const finalTableData = {
@@ -198,53 +355,54 @@ const handleDownloadPDF = async () => {
         totalParticipants: tables.length,
         competenceId: competenceId || 1
       },
-      participants: tables.map((table, index) => ({
-        position: index + 1,
-        number: table.number || index + 1,
-        name: table.name || "Unknown Gymnast",
-        noc: table.noc || "---",
-        event: table.event || event || "FX",
-        bib: table.bib || index + 1,
-        elements: {
-          j: table.j || 0,
-          i: table.i || 0,
-          h: table.h || 0,
-          g: table.g || 0,
-          f: table.f || 0,
-          e: table.e || 0,
-          d: table.d || 0,
-          c: table.c || 0,
-          b: table.b || 0,
-          a: table.a || 0
-        },
-        scores: {
-          difficultyValues: table.rateGeneral?.difficultyValues || 0,
-          elementGroups: table.rateGeneral?.elementGroups5 || 0,
-          stickBonus: table.rateGeneral?.stickBonus ? 0.1 : 0,
-          neutralDeductions: table.nd || 0,
-          connectionValue: table.cv || 0,
-          startValue: table.sv || 0,
-          executionScore: table.rateGeneral?.eScore || 0,
-          dScore: table.rateGeneral?.compD || 0,
-          eScore: table.rateGeneral?.compE || 0,
-          finalScore: table.rateGeneral?.compScore || 0,
-          myScorefinal: table.rateGeneral?.myScore || 0,
-        },
-        details: {
-          delta: table.delt || 0,
-          percentage: table.percentage || 0,
-          comments: table.rateGeneral?.comments || ""
-        }
-      }))
+      participants: tables.map((table, index) => {
+        return {
+          position: index + 1,
+          number: table.number || index + 1,
+          name: table.name || "Unknown Gymnast",
+          noc: table.noc || "---",
+          event: table.event || event || "FX",
+          bib: table.bib ,
+          elements: {
+            j: table.j || 0,
+            i: table.i || 0,
+            h: table.h || 0,
+            g: table.g || 0,
+            f: table.f || 0,
+            e: table.e || 0,
+            d: table.d || 0,
+            c: table.c || 0,
+            b: table.b || 0,
+            a: table.a || 0
+          },
+          scores: {
+            difficultyValues: table.rateGeneral?.difficultyValues || 0,
+            elementGroups: table.rateGeneral?.elementGroups5 || 0,
+            stickBonus: table.rateGeneral?.stickBonus ? 0.1 : 0,
+            neutralDeductions: table.nd || 0,
+            connectionValue: table.cv || 0,
+            startValue: table.sv || 0,
+            executionScore: table.rateGeneral?.eScore || 0,
+            dScore: table.rateGeneral?.compD || 0,
+            eScore: table.rateGeneral?.compE || 0,
+            finalScore: table.rateGeneral?.compScore || 0,
+            myScorefinal: table.rateGeneral?.myScore || 0,
+          },
+          details: {
+            delta: table.delt || 0,
+            percentage: table.percentage || 0,
+            comments: table.rateGeneral?.comments || ""
+          }
+        };
+      })
     };
 
     // Generate comprehensive PDF with individual pages + final table
     if (!competencecurrent) {
       throw new Error("No se pudo obtener la información de la competencia");
     }
-    await generateComprehensivePDF(tables, finalTableData, competencecurrent);
     
-    console.log('Comprehensive PDF generated successfully');
+    await generateComprehensivePDF(tables, finalTableData, competencecurrent);
     
     setPdfExporting(false);
     setModalVisible(false);
@@ -258,10 +416,10 @@ const handleDownloadPDF = async () => {
     router.replace(`/main-menu?discipline=${discipline}`);
     
   } catch (err) {
-    console.error("Error exporting PDF:", err);
     setPdfExporting(false);
     
     const errorMessage = err instanceof Error ? err.message : "Error desconocido";
+    
     Alert.alert(
       "Error", 
       `Failed to generate PDF: ${errorMessage}. Please try again.`,
@@ -271,8 +429,7 @@ const handleDownloadPDF = async () => {
 };
 
   const handleExit = () => {
-    // Navigate back without exporting
-    setModalVisible(false)
+    setModalVisible(false);
     router.replace(`/main-menu?discipline=${discipline}`);
   };
 
@@ -373,39 +530,54 @@ const handleDownloadPDF = async () => {
               onPress={() => {
                 setError(null);
                 setLoading(true);
+                
                 // Re-trigger fetch
                 const fetchTables = async () => {
                   try {
                     setLoading(true);
                     setError(null);
+                    
                     const mainTables = await getMainTablesByCompetenceId(competenceId);
+                    
+                    if (mainTables.length === 0) {
+                      setError("No gymnasts found for this competition");
+                      return;
+                    }
+                    
                     const getcompetence = await getCompetenceById(competenceId);
-                    console.log("current competence:", getcompetence);
+                    
+                    if (!getcompetence) {
+                      setError("Competition not found");
+                      return;
+                    }
+                    
                     setcurrentcompetence(getcompetence);
+                    
                     const sortedTables = [...mainTables].sort((a, b) => a.number - b.number);
+                    
                     const tablesWithRates = await Promise.all(
-                      sortedTables.map(async (table) => {
+                      sortedTables.map(async (table, index) => {
                         try {
                           const rateGeneral = await getRateGeneralByTableId(table.id);
+                          
                           return { 
                             ...table, 
-                            bib: typeof table.bib === 'string' ? parseInt(table.bib) || 0 : table.bib,
+                            bib: typeof table.bib === 'string' ? table.bib || "" : table.bib,
                             rateGeneral: rateGeneral || undefined 
                           };
                         } catch (error) {
-                          console.error(`Error fetching rate general for table ${table.id}:`, error);
                           return { 
                             ...table, 
-                            bib: typeof table.bib === 'string' ? parseInt(table.bib) || 0 : table.bib,
+                            bib: typeof table.bib === 'string' ? table.bib || "" : table.bib,
                             rateGeneral: undefined 
                           };
                         }
                       })
                     );
-                    console.log("Tables with rates:", tablesWithRates);
+                    
                     setTables(tablesWithRates);
+                    
                   } catch (error) {
-                    console.error("Error fetching tables:", error);
                     setError(error instanceof Error ? error.message : "Error desconocido al cargar los datos");
                   } finally {
                     setLoading(false);

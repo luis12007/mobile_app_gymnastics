@@ -308,8 +308,6 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     IV: 0.0,
   });
 
-  const [isFirstTimeLoad, setIsFirstTimeLoad] = useState(true);
-
   // Optimized helper functions for better performance
   const formatValueForInput = React.useMemo(() => (value: number, decimals: number = 1): string => {
     if (value === 0) return "0";
@@ -489,7 +487,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
             setComments(rateTable.comments);
             setSetded(rateTable.ded);
 
-            // Check if all element groups are 0.0 (first time) and set defaults
+            // Check if all element groups are 0.0 and set defaults
             const loadedValues = {
               I: rateTable.elementGroups1 || 0.0,
               II: rateTable.elementGroups2 || 0.0,
@@ -499,10 +497,13 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
 
             const allAreZero = Object.values(loadedValues).every(
               (value) => value === 0.0
-            );
+            ) && rateTable.execution === 0 && rateTable.eScore === 0 && 
+            rateTable.compD === 0 && rateTable.compE === 0 && 
+            rateTable.compNd === 0 && rateTable.compScore === 0 && 
+            mainTable.cv === 0 && mainTable.nd === 0;
 
-            if (allAreZero && isFirstTimeLoad) {
-              // First time load with all zeros - set defaults to 0.5
+            if (allAreZero) {
+              // Set defaults when all values are zero
               const defaultValues = {
                 I: 0.5,
                 II: 0.5,
@@ -523,15 +524,18 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
               updateRateGeneral(rateTable.id, updateData).then((success) => {
                 if (success) {
                   console.log(
-                    "Saved default element group values (0.5 each) to database"
+                    "Saved default element group values to database"
                   );
-                  // Update SV and myScore with new total
+                  // Update local state with new values
                   const newTotal = 2.0;
                   setElementGroupsTotal(newTotal);
-                  setSv(rateTable.difficultyValues + newTotal + mainTable.cv);
+                  
+                  // Update SV and myScore with new total
+                  const newSv = rateTable.difficultyValues + newTotal + mainTable.cv;
+                  setSv(newSv);
                   const newmyscore =
                     rateTable.eScore +
-                    (rateTable.difficultyValues + newTotal + mainTable.cv) +
+                    newSv +
                     (rateTable.stickBonus ? 0.1 : 0.0) -
                     mainTable.nd;
                   const truncated = Math.floor(newmyscore * 100) / 100;
@@ -541,9 +545,9 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                   );
                   setMyScore(finalScore);
 
-                  // Update MainTable and RateGeneral with new values
+                  // Update MainTable with new SV
                   updateMainTable(gymnastid, {
-                    sv: rateTable.difficultyValues + newTotal + mainTable.cv,
+                    sv: newSv,
                   });
                   updateRateGeneral(rateTable.id, { myScore: finalScore });
                 } else {
@@ -551,11 +555,9 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                 }
               });
             } else {
-              // Not first time or values are not all zero - use loaded values
+              // Not all zero - use loaded values
               setElementGroupValues(loadedValues);
             }
-
-            setIsFirstTimeLoad(false);
           }
         }
       } catch (error) {
@@ -1096,6 +1098,30 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     return 0; // Out of range
   }
 
+  // Percentage table for discipline = true (MAG)
+  const percentageTableDisciplineTrue = [
+    // 0.000 0.100 0.200 0.300 0.400 0.500 0.600 0.700 0.800 0.900 1.000 1.100 1.200 1.300 1.400 1.500 1.600
+    [100, 75, 65, 55, 45, 35, 25, 15, 5, 0, 0, 0, 0, 0, 0, 0, 0], // 1: 0 - 0.40
+    [100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0, 0, 0], // 2: > 0.40 - 0.60
+    [100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0, 0], // 3: > 0.60 - 1.00
+    [100, 100, 94, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0], // 4: > 1.00 - 1.50
+    [100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0], // 5: > 1.50 - 2.00
+    [100, 100, 100, 96, 88, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0], // 6: > 2.00 - 2.50
+    [100, 100, 100, 100, 93, 87, 80, 70, 60, 50, 40, 30, 20, 0, 0, 0, 0], // 7: > 2.50
+  ];
+
+  // Percentage table for discipline = false (WAG)
+  const percentageTableDisciplineFalse = [
+    // 0.000 0.100 0.200 0.300 0.400 0.500 0.600 0.700 0.800 0.900 1.000 1.100 1.200 1.300 1.400 >1.400
+    [100, 100, 75, 65, 55, 45, 35, 25, 15, 5, 0, 0, 0, 0, 0, 0], // 1: 0 - 0.40
+    [100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0], // 2: > 0.40 - 0.60
+    [100, 100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0], // 3: > 0.60 - 1.00
+    [100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0], // 4: > 1.00 - 1.50
+    [100, 100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0], // 5: > 1.50 - 2.00
+    [100, 100, 100, 100, 95, 85, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0], // 6: > 2.00 - 2.50
+    [100, 100, 100, 100, 100, 95, 85, 80, 70, 60, 50, 40, 30, 20, 10, 0], // 7: > 2.50
+  ];
+
   const percentageTable = [
     // 0.000 0.100 0.200 0.300 0.400 0.500 0.600 0.700 0.800 0.900 1.000 1.100 1.200 1.300 1.400 1.500 1.600
     [100, 75, 65, 55, 45, 35, 25, 15, 5, 0, 0, 0, 0, 0, 0, 0, 0], // 1
@@ -1111,7 +1137,21 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     1.5, 1.6,
   ];
 
+  /**
+   * Calculate percentage from examination table based on discipline type
+   * @param dedInterval - Deduction interval (1-7)
+   * @param delt - Delta value (difference from expert deductions)
+   * @returns Percentage value based on the appropriate table
+   * 
+   * When discipline = true (MAG): Uses the original percentage table
+   * When discipline = false (WAG): Uses the new percentage table with different ranges
+   */
   function getPercentageFromTable(dedInterval: number, delt: number): number {
+    // Choose the appropriate table based on discipline
+    const currentPercentageTable = discipline 
+      ? percentageTableDisciplineTrue 
+      : percentageTableDisciplineFalse;
+
     if (delt >= 1.4) return 0;
     if (dedInterval < 1 || dedInterval > 7) return 0;
 
@@ -1126,7 +1166,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     if (delt < deltSteps[0]) deltIndex = 0;
 
     // Table is 0-indexed, dedInterval is 1-indexed
-    return percentageTable[dedInterval - 1][deltIndex] || 0;
+    return currentPercentageTable[dedInterval - 1][deltIndex] || 0;
   }
 
   // Optimized CV handlers for better performance

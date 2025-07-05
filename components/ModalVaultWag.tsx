@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState, useEffect } from 'react';
 import { Dimensions, Modal, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import CustomNumberPad from './CustomNumberPad';
+import CustomNumberPadOptimized from './CustomNumberPadOptimized';
 
 // Vault data structure
 interface VaultOption {
@@ -203,51 +203,6 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
     setShowNumberPad(true);
   };
 
-  const handleNumberPadPress = (number: string) => {
-    const newValue = tempInputValue + number;
-    setTempInputValue(newValue);
-    
-    // Actualizar en tiempo real
-    if (activeInputType === 'number') {
-      setSearchNumber(newValue);
-    } else if (activeInputType === 'value') {
-      setSearchValue(newValue);
-    }
-  };
-
-  const handleNumberPadBackspace = () => {
-    const newValue = tempInputValue.slice(0, -1);
-    setTempInputValue(newValue);
-    
-    // Actualizar en tiempo real
-    if (activeInputType === 'number') {
-      setSearchNumber(newValue);
-    } else if (activeInputType === 'value') {
-      setSearchValue(newValue);
-    }
-  };
-
-  const handleNumberPadConfirm = () => {
-    // Los valores ya se han actualizado en tiempo real
-    setShowNumberPad(false);
-    setActiveInputType(null);
-    setTempInputValue('');
-    setOriginalInputValue('');
-  };
-
-  const handleNumberPadClose = () => {
-    // Restaurar valores originales si se cancela
-    if (activeInputType === 'number') {
-      setSearchNumber(originalInputValue);
-    } else if (activeInputType === 'value') {
-      setSearchValue(originalInputValue);
-    }
-    setShowNumberPad(false);
-    setActiveInputType(null);
-    setTempInputValue('');
-    setOriginalInputValue('');
-  };
-
   const handleSelect = (vault: VaultOption, groupId: number, value: number, description: string) => {
     setSelectedVaults({...selectedVaults, [groupId]: vault});
     onSelect(vault, groupId, value, description);
@@ -368,13 +323,28 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
           </View>
         </View>
         {showNumberPad && (
-          <CustomNumberPad
+          <CustomNumberPadOptimized
             visible={showNumberPad}
-            currentValue={tempInputValue}
-            onClose={handleNumberPadClose}
-            onNumberPress={handleNumberPadPress}
-            onBackspace={handleNumberPadBackspace}
-            onConfirm={handleNumberPadConfirm}
+            value={tempInputValue}
+            onValueChange={(value) => {
+              setTempInputValue(value);
+              // Actualizar en tiempo real
+              if (activeInputType === 'number') {
+                setSearchNumber(value);
+              } else if (activeInputType === 'value') {
+                setSearchValue(value);
+              }
+            }}
+            onClose={(finalValue) => {
+              // Los valores ya se han actualizado en tiempo real
+              setShowNumberPad(false);
+              setActiveInputType(null);
+              setTempInputValue('');
+              setOriginalInputValue('');
+            }}
+            title={activeInputType === 'number' ? 'Search by Number' : 'Search by Value'}
+            allowDecimal={activeInputType === 'value'}
+            maxLength={activeInputType === 'number' ? 3 : 4}
           />
         )}
       </SafeAreaView>

@@ -1483,7 +1483,10 @@ const generateChecksum = async (data: string): Promise<string> => {
 };
 
 // Export folder data with all related information
-export const exportFolderData = async (folderId: number): Promise<string | null> => {
+export const exportFolderData = async (
+  folderId: number, 
+  progressCallback?: (message: string, progress: number) => void
+): Promise<string | null> => {
   try {
     console.log("exportFolderData: Starting export for folderId:", folderId);
 
@@ -1494,19 +1497,36 @@ export const exportFolderData = async (folderId: number): Promise<string | null>
       return null;
     }
     
+    progressCallback?.("Extrayendo información de carpeta...", 5);
     console.log("exportFolderData: Found folder:", folder.name);
 
     // Get competences for this folder
     const competences = await getCompetencesByFolderId(folderId);
     console.log("exportFolderData: Found competences:", competences.length);
     
+    progressCallback?.("Calculando total de gimnastas...", 10);
+    
+    // Calculate total gymnasts
+    let totalGymnasts = 0;
+    for (const competence of competences) {
+      const mainTables = await getMainTablesByCompetenceId(competence.id);
+      totalGymnasts += mainTables.length;
+    }
+    
+    progressCallback?.(`Exportando ${totalGymnasts} gimnastas...`, 15);
+    
     // Get main tables and rate tables for each competence
     const competenceData = [];
+    let processedGymnasts = 0;
+    
     for (const competence of competences) {
       const mainTables = await getMainTablesByCompetenceId(competence.id);
       const tablesWithRates = [];
       
       for (const table of mainTables) {
+        const progress = 15 + Math.floor((processedGymnasts / totalGymnasts) * 60); // 15% to 75%
+        progressCallback?.(`Exportando gimnasta ${processedGymnasts + 1} de ${totalGymnasts}...`, progress);
+        
         const rateGeneral = await getRateGeneralByTableId(table.id);
         const rateJump = await getRateJumpByTableId(table.id);
         
@@ -1515,6 +1535,8 @@ export const exportFolderData = async (folderId: number): Promise<string | null>
           rateGeneral,
           rateJump
         });
+        
+        processedGymnasts++;
       }
       
       competenceData.push({
@@ -1523,6 +1545,7 @@ export const exportFolderData = async (folderId: number): Promise<string | null>
       });
     }
 
+    progressCallback?.("Generando archivo de exportación...", 80);
     console.log("exportFolderData: Collected all data, creating export object");
 
     // Create export object
@@ -1537,11 +1560,13 @@ export const exportFolderData = async (folderId: number): Promise<string | null>
     const jsonData = JSON.stringify(exportData);
     console.log("exportFolderData: JSON data created, length:", jsonData.length);
     
+    progressCallback?.("Generando checksum de seguridad...", 85);
     // Generate checksum
     console.log("exportFolderData: Generating checksum...");
     const checksum = await generateChecksum(jsonData);
     console.log("exportFolderData: Checksum generated:", checksum);
     
+    progressCallback?.("Finalizando exportación...", 95);
     // Create final export object with security
     console.log("exportFolderData: Creating secure export data with btoa...");
     const secureExportData = {
@@ -1563,7 +1588,11 @@ export const exportFolderData = async (folderId: number): Promise<string | null>
 };
 
 // Import folder data and recreate all related information
-export const importFolderData = async (importDataString: string, targetUserId: number): Promise<boolean> => {
+export const importFolderData = async (
+  importDataString: string, 
+  targetUserId: number, 
+  progressCallback?: (message: string, progress: number) => void
+): Promise<boolean> => {
   try {
     // Parse import data
     const secureImportData = JSON.parse(importDataString);
@@ -1571,6 +1600,8 @@ export const importFolderData = async (importDataString: string, targetUserId: n
     if (!secureImportData.data || !secureImportData.checksum) {
       throw new Error("Invalid import file format");
     }
+
+    progressCallback?.("Validando archivo...", 5);
 
     // Decode data
     const jsonData = decodeURIComponent(escape(atob(secureImportData.data)));
@@ -1581,12 +1612,22 @@ export const importFolderData = async (importDataString: string, targetUserId: n
       throw new Error("Data integrity check failed - file may be corrupted");
     }
 
+    progressCallback?.("Procesando datos...", 15);
+
     // Parse the actual data
     const importData = JSON.parse(jsonData);
     
     if (!importData.folder || !importData.competences) {
       throw new Error("Invalid data structure in import file");
     }
+
+    // Calculate total gymnasts for progress tracking
+    let totalGymnasts = 0;
+    for (const competenceData of importData.competences) {
+      totalGymnasts += competenceData.tables ? competenceData.tables.length : 0;
+    }
+
+    progressCallback?.(`Preparando importación de ${totalGymnasts} gimnastas...`, 20);
 
     // Map to store old ID -> new ID mappings
     const idMappings = {
@@ -1602,11 +1643,14 @@ export const importFolderData = async (importDataString: string, targetUserId: n
     };
     delete newFolderData.id; // Remove old ID
 
+    progressCallback?.("Creando carpeta...", 25);
     const newFolderId = await insertFolder(newFolderData);
     if (!newFolderId) {
       throw new Error("Failed to create folder");
     }
     idMappings.folders.set(importData.folder.id, newFolderId);
+
+    let processedGymnasts = 0;
 
     // Import competences
     for (const competenceData of importData.competences) {
@@ -1625,6 +1669,9 @@ export const importFolderData = async (importDataString: string, targetUserId: n
 
       // Import main tables and rate tables
       for (const tableData of competenceData.tables) {
+        const progress = 25 + Math.floor((processedGymnasts / totalGymnasts) * 65); // 25% to 90%
+        progressCallback?.(`Importando gimnasta ${processedGymnasts + 1} de ${totalGymnasts}...`, progress);
+
         const newMainTableData = {
           ...tableData.mainTable,
           competenceId: newCompetenceId
@@ -1656,9 +1703,12 @@ export const importFolderData = async (importDataString: string, targetUserId: n
           delete newRateJumpData.id; // Remove old ID
           await insertRateJump(newRateJumpData);
         }
+
+        processedGymnasts++;
       }
     }
 
+    progressCallback?.("Finalizando importación...", 95);
     console.log("Import completed successfully", idMappings);
     return true;
   } catch (error) {

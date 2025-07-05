@@ -568,23 +568,50 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
     return 0; // Out of range
   }
 
-  const percentageTable = [
+  // Percentage table for discipline = true (current implementation)
+  const percentageTableDisciplineTrue = [
     // 0.000 0.100 0.200 0.300 0.400 0.500 0.600 0.700 0.800 0.900 1.000 1.100 1.200 1.300 1.400 1.500 1.600
-    [100, 75, 65, 55, 45, 35, 25, 15, 5, 0, 0, 0, 0, 0, 0, 0, 0], // 1
-    [100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0, 0, 0], // 2
-    [100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0, 0], // 3
-    [100, 100, 94, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0], // 4
-    [100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0], // 5
-    [100, 100, 100, 96, 88, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0], // 6
-    [100, 100, 100, 100, 93, 87, 80, 70, 60, 50, 40, 30, 20, 0, 0, 0, 0], // 7
-  ];
-  const deltSteps = [
-    0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4,
-    1.5, 1.6,
+    [100, 75, 65, 55, 45, 35, 25, 15, 5, 0, 0, 0, 0, 0, 0, 0, 0], // 1: 0 - 0.40
+    [100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0, 0, 0], // 2: > 0.40 - 0.60
+    [100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0, 0], // 3: > 0.60 - 1.00
+    [100, 100, 94, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0], // 4: > 1.00 - 1.50
+    [100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0], // 5: > 1.50 - 2.00
+    [100, 100, 100, 96, 88, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0], // 6: > 2.00 - 2.50
+    [100, 100, 100, 100, 93, 87, 80, 70, 60, 50, 40, 30, 20, 0, 0, 0, 0], // 7: > 2.50
   ];
 
+  // Percentage table for discipline = false (new implementation based on image)
+  const percentageTableDisciplineFalse = [
+    // 0.000 0.100 0.200 0.300 0.400 0.500 0.600 0.700 0.800 0.900 1.000 1.100 1.200 1.300 1.400 >1.400
+    [100, 100, 75, 65, 55, 45, 35, 25, 15, 5, 0, 0, 0, 0, 0, 0], // 1: 0 - 0.40
+    [100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0], // 2: > 0.40 - 0.60
+    [100, 100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0], // 3: > 0.60 - 1.00
+    [100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0], // 4: > 1.00 - 1.50
+    [100, 100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0], // 5: > 1.50 - 2.00
+    [100, 100, 100, 100, 95, 85, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0], // 6: > 2.00 - 2.50
+    [100, 100, 100, 100, 100, 95, 85, 80, 70, 60, 50, 40, 30, 20, 10, 0], // 7: > 2.50
+  ];
+
+  const deltSteps = [
+    0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5,
+  ];
+
+  /**
+   * Calculate percentage from examination table based on discipline type
+   * @param dedInterval - Deduction interval (1-7)
+   * @param delt - Delta value (difference from expert deductions)
+   * @returns Percentage value based on the appropriate table
+   * 
+   * When discipline = true: Uses the original percentage table
+   * When discipline = false: Uses the new percentage table with different ranges
+   */
   function getPercentageFromTable(dedInterval: number, delt: number): number {
-    if (delt >= 1.4) return 0;
+    // Choose the appropriate table based on discipline
+    const percentageTable = discipline 
+      ? percentageTableDisciplineTrue 
+      : percentageTableDisciplineFalse;
+
+    if (delt > 1.4) return 0;
     if (dedInterval < 1 || dedInterval > 7) return 0;
 
     // Find the closest delt step index (without exceeding delt)
@@ -1738,7 +1765,7 @@ setScore(finalScore);
                   isTinyDevice ? styles.startValueValueTextTiny : null,
                 ]}
               >
-                {startValue}
+                {startValue.toFixed(1)}
               </Text>
             </View>
             <View style={styles.descriptionValueCell}>
@@ -1814,7 +1841,7 @@ setScore(finalScore);
                   isTinyDevice ? styles.neutralTextTiny : null,
                 ]}
               >
-                {gymnastBib}
+                {gymnastEvent}
               </Text>
             </View>
             <View style={styles.neutralTotalCell}>

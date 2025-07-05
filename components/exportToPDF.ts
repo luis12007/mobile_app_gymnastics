@@ -11,7 +11,7 @@ interface MainTable {
   name: string;
   event: string;
   noc: string;
-  bib: number;
+  bib: string;
   j: number;
   i: number;
   h: number;
@@ -78,7 +78,7 @@ interface FinalTableData {
     name: string;
     noc: string;
     event: string;
-    bib: number;
+    bib: string;
     elements: {
       j: number; i: number; h: number; g: number; f: number;
       e: number; d: number; c: number; b: number; a: number;
@@ -666,13 +666,14 @@ export const generateComprehensivePDF = async (
         const svgWidth = 1300;
         const svgHeight = 780;
         
-        // Calculate centering offsets
+        // Calculate centering offsets with additional right shift
         const centerX = svgWidth / 2;
         const centerY = svgHeight / 2;
         const pathCenterX = minX + pathWidth / 2;
         const pathCenterY = minY + pathHeight / 2;
         
-        const offsetX = centerX - pathCenterX;
+        const rightShift = 150; // Move paths 100 units to the right
+        const offsetX = centerX - pathCenterX + rightShift;
         const offsetY = centerY - pathCenterY;
         
         transformGroup = `<g transform="translate(${offsetX}, ${offsetY})">`;
@@ -766,16 +767,17 @@ export const generateComprehensivePDF = async (
             <div class="whiteboard-title">Judge's Whiteboard</div>
             <svg class="whiteboard-canvas" viewBox="0 0 1300 780" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
               <!-- Jump background image -->
+              ${renderWhiteboardPaths(gymnast.rateGeneral?.paths || '')}
+
               ${jumpImageBase64 ? `
                 <image href="${jumpImageBase64}" 
-                       width="1105" height="663" x="125" y="60" opacity="0.6" />
+                       width="1000" height="663" x="97" y="65" opacity="0.6" />
               ` : `
                 <!-- Fallback: Simple vault layout -->
                 <rect x="100" y="300" width="1100" height="180" fill="#f0f0f0" stroke="#ccc" stroke-width="2" rx="10"/>
                 <rect x="600" y="320" width="100" height="140" fill="#e0e0e0" stroke="#999" stroke-width="2" rx="5"/>
                 <rect x="800" y="280" width="400" height="220" fill="#e8f4e8" stroke="#999" stroke-width="2" rx="10"/>
               `}
-              ${renderWhiteboardPaths(gymnast.rateGeneral?.paths || '')}
             </svg>
           </div>
           
@@ -884,11 +886,11 @@ export const generateComprehensivePDF = async (
           </div>
           
           <div class="gymnast-info">
+            <strong>Number:</strong> ${gymnast.number || 0} | 
             <strong>Gymnast:</strong> ${gymnast.name || 'Unknown'} | 
             <strong>NOC:</strong> ${gymnast.noc || 'UNK'} | 
             <strong>Event:</strong> ${gymnast.event || 'FX'} | 
-            <strong>Number:</strong> ${gymnast.number || 0} | 
-            <strong>BIB:</strong> ${gymnast.bib || 0} | 
+            <strong>BIB:</strong> ${gymnast.bib || ""} | 
             <strong>Execution Performance:</strong> ${gymnast.percentage || 0}%
           </div>
           

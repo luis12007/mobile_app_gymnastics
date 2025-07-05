@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import { useFonts } from "expo-font";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from 'expo-sharing';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -12,6 +13,7 @@ import {
   Easing,
   Image,
   Modal,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -32,7 +34,7 @@ import {
   getFoldersByUserId,
   getMainTablesByCompetenceId,
   importFolderData,
-  insertCompetence, insertFolder, insertMainTable, updateFolder
+  insertCompetence, insertFolder, insertMainTable, insertRateGeneral, updateFolder
 } from "../Database/database"; // Adjust the path based on your project structure
 const { width, height } = Dimensions.get("window");
 var isLargeDevice = false;
@@ -278,6 +280,13 @@ const MainMenu: React.FC = () => {
 
   const [folders, setFolders] = useState<Folder[]>([]); // State to store folders
   
+  // Loading states for better UX
+  const [isLoadingAddFolder, setIsLoadingAddFolder] = useState(false);
+  const [isLoadingEditFolder, setIsLoadingEditFolder] = useState(false);
+  const [isLoadingDeleteFolder, setIsLoadingDeleteFolder] = useState(false);
+  const [isLoadingAddCompetition, setIsLoadingAddCompetition] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  
   // For editing functionality
   const [editingFolder, setEditingFolder] = useState<Folder | null>(null);
   const params = useLocalSearchParams();
@@ -314,6 +323,12 @@ const [isExporting, setIsExporting] = useState(false);
 const [isImporting, setIsImporting] = useState(false);
 const [folderSelectionForCompetition, setFolderSelectionForCompetition] = useState(false);
 
+// Estados para la barra de carga unificada
+const [showLoadingModal, setShowLoadingModal] = useState(false);
+const [loadingMessage, setLoadingMessage] = useState("");
+const [loadingProgress, setLoadingProgress] = useState(0);
+const [isLoadingOperation, setIsLoadingOperation] = useState(false);
+
 
 
   // Animation values
@@ -322,6 +337,11 @@ const [folderSelectionForCompetition, setFolderSelectionForCompetition] = useSta
   const buttonAnimOpacity = useRef(new Animated.Value(0)).current;
   const buttonAnimY = useRef(new Animated.Value(50)).current;
   const deleteButtonAnim = useRef(new Animated.Value(0)).current;
+  
+  // Animation values para la barra de carga
+  const loadingSpinAnim = useRef(new Animated.Value(0)).current;
+  const loadingScaleAnim = useRef(new Animated.Value(0.8)).current;
+  const loadingOpacityAnim = useRef(new Animated.Value(0)).current;
 
 
 
@@ -331,6 +351,64 @@ const [folderSelectionForCompetition, setFolderSelectionForCompetition] = useSta
     "Rajdhani-medium": require("../assets/fonts/Rajdhani/Rajdhani-Medium.ttf"),
   });
 
+  // Funciones para controlar la barra de carga unificada
+  const showLoading = (message: string, progress: number = 0) => {
+    setLoadingMessage(message);
+    setLoadingProgress(progress);
+    setIsLoadingOperation(true);
+    setShowLoadingModal(true);
+    
+    // Animar entrada del modal
+    Animated.parallel([
+      Animated.timing(loadingOpacityAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(loadingScaleAnim, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.back(1.2)),
+      }),
+    ]).start();
+    
+    // Animación de rotación continua
+    Animated.loop(
+      Animated.timing(loadingSpinAnim, {
+        toValue: 1,
+        duration: 2000,
+        useNativeDriver: true,
+      })
+    ).start();
+  };
+
+  const updateLoading = (message: string, progress: number) => {
+    setLoadingMessage(message);
+    setLoadingProgress(progress);
+  };
+
+  const hideLoading = () => {
+    // Animar salida del modal
+    Animated.parallel([
+      Animated.timing(loadingOpacityAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(loadingScaleAnim, {
+        toValue: 0.8,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setShowLoadingModal(false);
+      setIsLoadingOperation(false);
+      setLoadingProgress(0);
+      loadingSpinAnim.setValue(0);
+    });
+  };
+
   const fetchFolders = async () => {
     try {
       // Cargar todos los folders disponibles, no filtrar por usuario
@@ -338,6 +416,16 @@ const [folderSelectionForCompetition, setFolderSelectionForCompetition] = useSta
       setFolders(fetchedFolders);
     } catch (error) {
       console.error("Error fetching folders:", error);
+    }
+  };
+
+  // Function to refresh folders list - better UX
+  const refreshFolders = async () => {
+    setIsRefreshing(true);
+    try {
+      await fetchFolders();
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -360,13 +448,30 @@ const [folderSelectionForCompetition, setFolderSelectionForCompetition] = useSta
       return;
     }
     
+    if (isLoadingOperation) return;
+    
     console.log("Starting export with userId:", userId, "and folderId:", selectedFolder.id);
     
-    setIsExporting(true);
+    // Cerrar modal de exportación PRIMERO
+    setShowExportModal(false);
+    
+    // Pequeño delay para asegurar que el modal se cierre completamente
+    setTimeout(() => {
+      // Mostrar barra de carga
+      showLoading("Preparando exportación...", 0);
+      setIsExporting(true);
+      
+      // Ejecutar la exportación asíncrona
+      exportFolderAsync(selectedFolder.id, selectedFolder.name);
+    }, 300);
+  };
+
+  // Nueva función para manejar la exportación asíncrona
+  const exportFolderAsync = async (folderId: number, folderName: string) => {
     try {
-      // Exportar datos del folder
+      // Exportar datos del folder con progreso
       console.log("Calling exportFolderData...");
-      const exportedData = await exportFolderData(selectedFolder.id);
+      const exportedData = await exportFolderData(folderId, updateLoading);
       
       if (!exportedData) {
         throw new Error("No se pudieron exportar los datos del folder");
@@ -374,33 +479,42 @@ const [folderSelectionForCompetition, setFolderSelectionForCompetition] = useSta
 
       console.log("Export successful, data length:", exportedData.length);
 
+      updateLoading("Creando archivo...", 97);
       // Crear archivo temporal
-      const fileName = `folder_${selectedFolder.name}_${new Date().toISOString().split('T')[0]}.json`;
+      const fileName = `folder_${folderName}_${new Date().toISOString().split('T')[0]}.json`;
       const fileUri = FileSystem.documentDirectory + fileName;
       
       await FileSystem.writeAsStringAsync(fileUri, exportedData);
 
+      updateLoading("Preparando compartir...", 99);
       // Compartir archivo
       if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(fileUri, {
-          mimeType: 'application/json',
-          dialogTitle: 'Exportar Folder'
-        });
+        updateLoading("Compartiendo archivo...", 100);
         
-        Alert.alert(
-          "Éxito", 
-          "Folder exportado correctamente. El archivo ha sido compartido.",
-          [{ text: "OK", onPress: () => {
-            setShowExportModal(false);
-            setMenuVisible(false);
-          }}]
-        );
+        setTimeout(async () => {
+          hideLoading();
+          
+          await Sharing.shareAsync(fileUri, {
+            mimeType: 'application/json',
+            dialogTitle: 'Exportar Folder'
+          });
+          
+          Alert.alert(
+            "Éxito", 
+            "Folder exportado correctamente. El archivo ha sido compartido.",
+            [{ text: "OK", onPress: () => {
+              setMenuVisible(false);
+            }}]
+          );
+        }, 500);
       } else {
+        hideLoading();
         Alert.alert("Error", "No se puede compartir archivos en este dispositivo");
       }
 
     } catch (error: any) {
       console.error("Error exporting folder:", error);
+      hideLoading();
       Alert.alert("Error", `No se pudo exportar el folder: ${error.message || error}`);
     } finally {
       setIsExporting(false);
@@ -409,9 +523,10 @@ const [folderSelectionForCompetition, setFolderSelectionForCompetition] = useSta
 
   // Función para importar folder
   const handleImportFolder = async () => {
-    setIsImporting(true);
+    if (isLoadingOperation) return;
+    
     try {
-      // Seleccionar archivo
+      // Seleccionar archivo PRIMERO, sin mostrar barra de carga aún
       const result = await DocumentPicker.getDocumentAsync({
         type: ['application/json', 'text/plain'],
         copyToCacheDirectory: true
@@ -422,28 +537,59 @@ const [folderSelectionForCompetition, setFolderSelectionForCompetition] = useSta
         return;
       }
 
-      // Leer archivo
-      const fileContent = await FileSystem.readAsStringAsync(result.assets[0].uri);
+      // Cerrar modal de importación una vez seleccionado el archivo
+      setShowImportModal(false);
       
-      // Validar y importar
-      const success = await importFolderData(fileContent, userId);
+      // Pequeño delay para asegurar que el modal se cierre completamente
+      setTimeout(() => {
+        // Ahora mostrar barra de carga
+        showLoading("Leyendo archivo...", 5);
+        setIsImporting(true);
+        
+        // Ejecutar la importación asíncrona
+        importFileAsync(result.assets[0].uri);
+      }, 300);
+
+    } catch (error: any) {
+      console.error("Error selecting file:", error);
+      Alert.alert("Error", `Error al seleccionar archivo: ${error.message || error}`);
+    }
+  };
+
+  // Nueva función para manejar la importación asíncrona
+  const importFileAsync = async (fileUri: string) => {
+    try {
+      // Leer archivo
+      const fileContent = await FileSystem.readAsStringAsync(fileUri);
+      
+      // Validar y importar con progreso
+      const success = await importFolderData(fileContent, userId, updateLoading);
       
       if (success) {
-        Alert.alert(
-          "Éxito", 
-          "Folder importado correctamente. Los datos se han agregado a tu cuenta.",
-          [{ text: "OK", onPress: () => {
-            setShowImportModal(false);
-            setMenuVisible(false);
-            fetchFolders(); // Recargar la lista de folders
-          }}]
-        );
+        updateLoading("Actualizando lista...", 98);
+        
+        // Recargar la lista de folders
+        await fetchFolders();
+        
+        updateLoading("Completado", 100);
+        
+        setTimeout(() => {
+          hideLoading();
+          Alert.alert(
+            "Éxito", 
+            "Folder importado correctamente. Los datos se han agregado a tu cuenta.",
+            [{ text: "OK", onPress: () => {
+              setMenuVisible(false);
+            }}]
+          );
+        }, 500);
       } else {
         throw new Error("Error al procesar el archivo de importación");
       }
 
     } catch (error: any) {
       console.error("Error importing folder:", error);
+      hideLoading();
       Alert.alert("Error", `No se pudo importar el folder: ${error.message || error}`);
     } finally {
       setIsImporting(false);
@@ -466,6 +612,14 @@ const [folderSelectionForCompetition, setFolderSelectionForCompetition] = useSta
   useEffect(() => {
     fetchFolders();
   }, [userId]);
+
+  // Refresh folders when screen comes back into focus
+  useFocusEffect(
+    useCallback(() => {
+      // Refresh folders when the screen is focused (user navigates back)
+      refreshFolders();
+    }, [])
+  );
 
   useEffect(() => {
     // Animate header
@@ -570,11 +724,34 @@ const [folderSelectionForCompetition, setFolderSelectionForCompetition] = useSta
 
   // Function to actually delete the selected folders
 const performDelete = async () => {
+  if (isLoadingOperation) return; // Prevent multiple deletions
+  
   try {
-    // Add loading state to prevent multiple clicks
+    // Mostrar barra de carga
+    showLoading("Calculando total de gimnastas...", 0);
+    setIsLoadingDeleteFolder(true);
     setConfirmationModel(false); // Close modal immediately to prevent double-clicks
     
     console.log('Starting deletion process for folders:', selectedFolders);
+    
+    // First, calculate total number of gymnasts across all folders
+    let totalGymnasts = 0;
+    for (const folderId of selectedFolders) {
+      try {
+        const competences = await getCompetencesByFolderId(folderId);
+        for (const competence of competences) {
+          const mainTables = await getMainTablesByCompetenceId(competence.id);
+          totalGymnasts += mainTables.length;
+        }
+      } catch (error) {
+        console.error(`Error calculating gymnasts for folder ${folderId}:`, error);
+      }
+    }
+    
+    console.log(`Total gymnasts to delete: ${totalGymnasts}`);
+    updateLoading(`Eliminando ${totalGymnasts} gimnastas...`, 5);
+    
+    let processedGymnasts = 0;
     
     // Process deletions sequentially to avoid race conditions
     for (const folderId of selectedFolders) {
@@ -596,6 +773,10 @@ const performDelete = async () => {
             // Delete rateGeneral entries associated with the main table
             await deleteRateGeneralByTableId(mainTable.id);
             console.log(`Deleted rate general for main table ${mainTable.id}`);
+            
+            processedGymnasts++;
+            const progress = Math.floor((processedGymnasts / totalGymnasts) * 80);
+            updateLoading(`Eliminando gimnasta ${processedGymnasts} de ${totalGymnasts}...`, progress);
           }
 
           // Delete main tables associated with the competence
@@ -617,13 +798,9 @@ const performDelete = async () => {
       }
     }
 
-    // Update the folders state to remove deleted folders
-    // Use functional update to ensure we have the latest state
-    setFolders(prevFolders => {
-      const newFolders = prevFolders.filter(folder => !selectedFolders.includes(folder.id));
-      console.log(`Updated folders list. Removed ${selectedFolders.length} folders. Remaining: ${newFolders.length}`);
-      return newFolders;
-    });
+    updateLoading("Actualizando lista...", 90);
+    // Refresh the folders list instead of manually updating state
+    await refreshFolders();
 
     // Reset all selection states
     setSelectionMode(false);
@@ -637,16 +814,22 @@ const performDelete = async () => {
       useNativeDriver: true,
     }).start();
 
-    // Show success feedback
-    setFeedbackAcceptModel(true);
+    updateLoading("Completado", 100);
+    
     setTimeout(() => {
-      setFeedbackAcceptModel(false);
-    }, 1500);
+      hideLoading();
+      // Show success feedback
+      setFeedbackAcceptModel(true);
+      setTimeout(() => {
+        setFeedbackAcceptModel(false);
+      }, 1500);
+    }, 500);
     
     console.log('Deletion process completed successfully');
     
   } catch (error) {
     console.error("Error in performDelete:", error);
+    hideLoading();
     Alert.alert("Error", "Failed to delete some folders. Please try again.");
     
     // Reset states even if there's an error
@@ -661,6 +844,8 @@ const performDelete = async () => {
       duration: 300,
       useNativeDriver: true,
     }).start();
+  } finally {
+    setIsLoadingDeleteFolder(false);
   }
 };
 
@@ -680,12 +865,16 @@ const performDelete = async () => {
 
   // Function to save edited folder
   const saveEditedFolder = async () => {
-    if (!editingFolder) return;
+    if (!editingFolder || isLoadingOperation) return;
     
-    if (folderName.trim() === "" || folderDescription.trim() === "") {
+    if (folderName.trim() === "" ) {
       Alert.alert("Error", "Please fill in all fields.");
       return;
     }
+
+    // Mostrar barra de carga
+    showLoading("Actualizando carpeta...", 0);
+    setIsLoadingEditFolder(true);
 
     const updatedFolder = {
       ...editingFolder,
@@ -695,14 +884,15 @@ const performDelete = async () => {
     };
 
     try {
+      updateLoading("Guardando cambios...", 40);
       const result = await updateFolder(editingFolder.id, updatedFolder);
+      
       if (result) {
-        // Update the folders state with the edited folder
-        setFolders(prevFolders => 
-          prevFolders.map(folder => 
-            folder.id === editingFolder.id ? updatedFolder : folder
-          )
-        );
+        updateLoading("Actualizando lista...", 80);
+        // Refresh the folders list to ensure UI is up to date
+        await refreshFolders();
+        
+        updateLoading("Finalizando...", 100);
         
         setEditFolderModalVisible(false);
         setSelectionMode(false);
@@ -710,26 +900,39 @@ const performDelete = async () => {
         setSelectedFolders([]);
         setEditingFolder(null);
         
-        // Show success feedback
-        setFeedbackAcceptModel(true);
         setTimeout(() => {
-          setFeedbackAcceptModel(false);
-        }, 1500);
+          hideLoading();
+          // Show success feedback
+          setFeedbackAcceptModel(true);
+          setTimeout(() => {
+            setFeedbackAcceptModel(false);
+          }, 1500);
+        }, 500);
       } else {
+        hideLoading();
         Alert.alert("Error", "Failed to update folder.");
       }
     } catch (error) {
       console.error("Error updating folder:", error);
+      hideLoading();
       Alert.alert("Error", "Failed to update folder.");
+    } finally {
+      setIsLoadingEditFolder(false);
     }
   };
 
   // Function to add a new folder
   const addNewFolder = async () => {
-    if (folderName.trim() === "" || folderDescription.trim() === "") {
+    if (folderName.trim() === "") {
       Alert.alert("Error", "Please fill in all fields.");
       return;
     }
+
+    if (isLoadingOperation) return; // Prevent multiple submissions
+
+    // Mostrar barra de carga
+    showLoading("Creando carpeta...", 0);
+    setIsLoadingAddFolder(true);
 
     const folderData = {
       userId: userId,
@@ -741,32 +944,39 @@ const performDelete = async () => {
     };
 
     try {
+      updateLoading("Guardando datos...", 30);
       const result = await insertFolder(folderData);
+      
       if (result) {
-        // Add the new folder to state with the returned ID
-        const newFolder = {
-          id: result,
-          ...folderData,
-        };
+        updateLoading("Actualizando lista...", 70);
+        // Refresh the folders list to ensure UI is up to date
+        await refreshFolders();
         
-        setFolders(prevFolders => [...prevFolders, newFolder]);
+        updateLoading("Finalizando...", 100);
         
         // Reset form and close modal
         setFolderName("");
         setFolderDescription("");
         setAddFolderModalVisible(false);
         
-        // Show success feedback
-        setFeedbackAcceptModel(true);
         setTimeout(() => {
-          setFeedbackAcceptModel(false);
-        }, 1500);
+          hideLoading();
+          // Show success feedback
+          setFeedbackAcceptModel(true);
+          setTimeout(() => {
+            setFeedbackAcceptModel(false);
+          }, 1500);
+        }, 500);
       } else {
+        hideLoading();
         Alert.alert("Error", "Failed to insert folder.");
       }
     } catch (error) {
       console.error("Error adding folder:", error);
+      hideLoading();
       Alert.alert("Error", "Failed to add folder.");
+    } finally {
+      setIsLoadingAddFolder(false);
     }
   };
 
@@ -821,7 +1031,7 @@ const performDelete = async () => {
   // Function to add a new competition
   const addNewCompetition = async () => {
     // Validate inputs
-    if (competitionName.trim() === "" || competitionDescription.trim() === "") {
+    if (competitionName.trim() === "" ) {
       Alert.alert("Error", "Please fill in all required fields.");
       return;
     }
@@ -843,74 +1053,106 @@ const performDelete = async () => {
       return;
     }
     
-    // Determine which folder ID to use
-    const targetFolderId = currentFolderId || selectedFolders[0];
-    console.log("Using folder ID:", targetFolderId);
+    if (isLoadingOperation) return; // Prevent multiple submissions
+
+    const numberOfParticipants = parseInt(competitionParticipants);
     
-    const competenceData = {
-      folderId: targetFolderId,
-      name: competitionName,
-      description: competitionDescription,
-      participants: parseInt(competitionParticipants),
-      type: competitionType,
-      date: new Date().toISOString(),
-      gender: discipline
-    };
+    // Cerrar modal de competencia PRIMERO
+    setAddCompetitionModalVisible(false);
     
+    // Pequeño delay para asegurar que el modal se cierre completamente
+    setTimeout(() => {
+      // Mostrar barra de carga
+      showLoading("Creando competencia...", 0);
+      setIsLoadingAddCompetition(true);
+      
+      // Determine which folder ID to use
+      const targetFolderId = currentFolderId || selectedFolders[0];
+      console.log("Using folder ID:", targetFolderId);
+      
+      const competenceData = {
+        folderId: targetFolderId,
+        name: competitionName,
+        description: competitionDescription,
+        numberOfParticipants: numberOfParticipants,
+        type: competitionType,
+        date: new Date().toISOString(),
+        gender: discipline,
+        sessionId: 1, // Default session ID
+        userId: userId, // Use current user ID
+      };
+      
+      // Ejecutar la creación asíncrona
+      createCompetitionAsync(competenceData, numberOfParticipants, targetFolderId);
+    }, 300);
+  };
+
+  // Nueva función para manejar la creación asíncrona
+  const createCompetitionAsync = async (competenceData: any, numberOfParticipants: number, targetFolderId: number) => {
     try {
-      const competitionId = await insertCompetence(competenceData);/* TODO */
+      updateLoading("Guardando competencia...", 20);
+      const competitionId = await insertCompetence(competenceData);
 
       /* change filled in the folder in the db */
+      await updateFolder(targetFolderId, { filled: true }); // Update the folder to mark it as filled
       
-        await updateFolder(targetFolderId, { filled: true }); // Update the folder to mark it as filled
       if (competitionId) {
-            // Create Main Table entries for each participant
-            await createMainTableEntries(competitionId, parseInt(competitionParticipants));
-            
-
-          } else {
-            Alert.alert("Error", "Failed to add competition.");
-          }
-
-      if (competitionId) {
+        updateLoading(`Creando ${numberOfParticipants} gimnastas...`, 40);
+        // Create Main Table entries for each participant with progress tracking
+        await createMainTableEntriesWithProgress(competitionId, numberOfParticipants);
+        
+        updateLoading("Actualizando lista...", 90);
+        // Refresh folders list to reflect changes
+        await refreshFolders();
+        
+        updateLoading("Finalizando...", 100);
+        
         // Reset form and close modal
         setCompetitionName("");
         setCompetitionDescription("");
         setCompetitionParticipants("");
         setCompetitionType("Floor");
-        setAddCompetitionModalVisible(false);
         setFolderSelectionForCompetition(false);
         setSelectionMode(false);
         setSelectedFolders([]);
         setCurrentFolderId(null);
         
-        // Show success feedback
-        setFeedbackAcceptModel(true);
         setTimeout(() => {
-          setFeedbackAcceptModel(false);
-        }, 1500);
-        
+          hideLoading();
+          // Show success feedback
+          setFeedbackAcceptModel(true);
+          setTimeout(() => {
+            setFeedbackAcceptModel(false);
+          }, 1500);
+        }, 500);
       } else {
+        hideLoading();
         Alert.alert("Error", "Failed to add competition.");
       }
     } catch (error) {
       console.error("Error adding competition:", error);
+      hideLoading();
       Alert.alert("Error", "Failed to add competition.");
+    } finally {
+      setIsLoadingAddCompetition(false);
     }
   };
 
-  // Add this new function to create Main Table entries
-  const createMainTableEntries = async (competenceId: number, numberOfParticipants: number) => {
+  // Add this new function to create Main Table entries with progress tracking
+  const createMainTableEntriesWithProgress = async (competenceId: number, numberOfParticipants: number) => {
     try {
-      // Create a main table entry for each participant
-      for (let i = 1; i < numberOfParticipants +1; i++) {
+      // Create a main table entry for each participant with progress tracking
+      for (let i = 1; i <= numberOfParticipants; i++) {
+        const progress = 40 + Math.floor((i / numberOfParticipants) * 45); // 40% to 85%
+        updateLoading(`Creando gimnasta ${i} de ${numberOfParticipants}...`, progress);
+        
         const mainTableData = {
           competenceId: competenceId,
           number: i, // Participant number
           name: "", // Empty initially
           event: "",
           noc: "",
-          bib: 0,
+          bib: "", // String type as per interface
           j: 0,
           i: 0,
           h: 0,
@@ -934,13 +1176,46 @@ const performDelete = async () => {
           percentage: 0
         };
         
-        // Insert the main table entry
-        const result = await insertMainTable(mainTableData);
-        if (!result) {
+        // Insert the main table entry and get the ID of the inserted row
+        const mainTableId = await insertMainTable(mainTableData);
+        if (!mainTableId) {
           console.error(`Failed to create main table entry ${i} for competition ID: ${competenceId}`);
+          continue;
+        }
+
+        // Create the corresponding MainRateGeneral entry
+        const mainRateGeneralData = {
+          tableId: mainTableId, // Use the ID of the inserted MainTable
+          stickBonus: false,
+          numberOfElements: 0,
+          difficultyValues: 0,
+          elementGroups1: 0,
+          elementGroups2: 0,
+          elementGroups3: 0,
+          elementGroups4: 0,
+          elementGroups5: 0,
+          execution: 0,
+          eScore: 0,
+          myScore: 0,
+          compD: 0,
+          compE: 0,
+          compSd: 0,
+          compNd: 0,
+          compScore: 0,
+          comments: "",
+          paths: "",
+          ded: 0,
+          dedexecution: 0,
+          vaultNumber: "",
+          vaultDescription: "",
+        };
+
+        const rateGeneralResult = await insertRateGeneral(mainRateGeneralData);
+        if (!rateGeneralResult) {
+          console.error(`Failed to create MainRateGeneral entry for MainTable ID: ${mainTableId}`);
         }
       }
-      console.log(`Successfully created ${numberOfParticipants} main table entries for competition ID: ${competenceId}`);
+      console.log(`Successfully created ${numberOfParticipants} main table entries and rate general entries for competition ID: ${competenceId}`);
     } catch (error) {
       console.error("Error creating main table entries:", error);
       // We don't show an alert here as the competition was already created successfully
@@ -994,7 +1269,13 @@ const confirmFolderForCompetition = () => {
         </TouchableOpacity>
         
         {selectionMode ? (
-          <TouchableOpacity onPress={cancelSelectionMode}>
+          <TouchableOpacity 
+            onPress={cancelSelectionMode}
+            disabled={isLoadingOperation} // Disable during operations
+            style={[
+              isLoadingOperation && { opacity: 0.5 } // Visual feedback
+            ]}
+          >
             <Text style={[
               isLargeDevice ? styles.cancelSelectionTextLarge : null,
               isMediumLargeDevice ? styles.cancelSelectionTextMediumLarge : null,
@@ -1003,19 +1284,57 @@ const confirmFolderForCompetition = () => {
             ]}>Cancel</Text>
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity onPress={() => setMenuVisible(true)}>
+          <TouchableOpacity 
+            onPress={() => setMenuVisible(true)}
+            disabled={isLoadingOperation} // Disable during operations
+            style={[
+              isLoadingOperation && { opacity: 0.5 } // Visual feedback
+            ]}
+          >
             <Ionicons name="menu" size={28} color="#000" />
           </TouchableOpacity>
         )}
       </Animated.View>
       
       {/* Folders Grid */}
-      <ScrollView style={[
-        isLargeDevice ? styles.scrollViewLarge : null,
-        isMediumLargeDevice ? styles.scrollViewMediumLarge : null,
-        isSmallDevice ? styles.scrollViewSmall : null,
-        isTinyDevice ? styles.scrollViewTiny : null,
-      ]}>
+      <ScrollView 
+        style={[
+          isLargeDevice ? styles.scrollViewLarge : null,
+          isMediumLargeDevice ? styles.scrollViewMediumLarge : null,
+          isSmallDevice ? styles.scrollViewSmall : null,
+          isTinyDevice ? styles.scrollViewTiny : null,
+        ]}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={refreshFolders}
+            tintColor="#007AFF"
+          />
+        }
+      >
+        {/* Loading overlay when performing operations */}
+        {isLoadingOperation && (
+          <View style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.1)',
+            zIndex: 999,
+            justifyContent: 'center',
+            alignItems: 'center'
+          }}>
+            <Text style={{
+              color: '#007AFF',
+              fontSize: 16,
+              fontWeight: 'bold'
+            }}>
+              {loadingMessage}
+            </Text>
+          </View>
+        )}
+        
         <View style={[
           isLargeDevice ? styles.foldersGridLarge : null,
           isMediumLargeDevice ? styles.foldersGridMediumLarge : null,
@@ -1061,8 +1380,10 @@ const confirmFolderForCompetition = () => {
               isMediumLargeDevice ? styles.addButtonMediumLarge : null,
               isSmallDevice ? styles.addButtonSmall : null,
               isTinyDevice ? styles.addButtonTiny : null,
+              (isLoadingOperation || isRefreshing) && { opacity: 0.6 } // Visual feedback when loading
             ]} 
             onPress={() => setAddCompetitionModalVisible(true)}
+            disabled={isLoadingOperation || isRefreshing} // Disable when loading
           >
             <Text style={[
               isLargeDevice ? styles.addButtonTextLarge : null,
@@ -1070,7 +1391,7 @@ const confirmFolderForCompetition = () => {
               isSmallDevice ? styles.addButtonTextSmall : null,
               isTinyDevice ? styles.addButtonTextTiny : null,
             ]}>
-              Add Competition
+              {isRefreshing ? "Refreshing..." : "Add Competition"}
             </Text>
           </TouchableOpacity>
         ) : selectionAction === 'edit' && selectedFolders.length === 1 ? (
@@ -1080,8 +1401,10 @@ const confirmFolderForCompetition = () => {
               isMediumLargeDevice ? styles.editConfirmButtonMediumLarge : null,
               isSmallDevice ? styles.editConfirmButtonSmall : null,
               isTinyDevice ? styles.editConfirmButtonTiny : null,
+              isLoadingOperation && { opacity: 0.6 } // Visual feedback when loading
             ]} 
             onPress={handleEditConfirm}
+            disabled={isLoadingOperation} // Disable when loading
           >
             <Text style={[
               isLargeDevice ? styles.editConfirmButtonTextLarge : null,
@@ -1134,8 +1457,10 @@ const confirmFolderForCompetition = () => {
               isMediumLargeDevice ? styles.deleteButtonMediumLarge : null,
               isSmallDevice ? styles.deleteButtonSmall : null,
               isTinyDevice ? styles.deleteButtonTiny : null,
+              isLoadingOperation && { opacity: 0.6 } // Visual feedback when loading
             ]} 
             onPress={confirmDelete}
+            disabled={isLoadingOperation} // Disable when loading
           >
             <Ionicons name="trash" size={isLargeDevice ? 24 : isMediumLargeDevice ? 22 : isSmallDevice ? 20 : 20} color="#fff" />
           </TouchableOpacity>
@@ -1323,7 +1648,7 @@ const confirmFolderForCompetition = () => {
         animationType="fade"
         transparent={true}
         visible={addFolderModalVisible}
-        onRequestClose={() => setAddFolderModalVisible(false)}
+        onRequestClose={isLoadingOperation ? undefined : () => setAddFolderModalVisible(false)} // Disable modal close during loading
       >
         <View style={[
           isLargeDevice ? styles.addModalOverlayLarge : null,
@@ -1385,15 +1710,17 @@ const confirmFolderForCompetition = () => {
                   isMediumLargeDevice ? styles.confirmButtonMediumLarge : null,
                   isSmallDevice ? styles.confirmButtonSmall : null,
                   isTinyDevice ? styles.confirmButtonTiny : null,
+                  isLoadingAddFolder && { opacity: 0.6 } // Visual feedback when loading
                 ]}
                 onPress={addNewFolder}
+                disabled={isLoadingAddFolder} // Disable when loading
               >
                 <Text style={[
                   isLargeDevice ? styles.confirmButtonTextLarge : null,
                   isMediumLargeDevice ? styles.confirmButtonTextMediumLarge : null,
                   isSmallDevice ? styles.confirmButtonTextSmall : null,
                   isTinyDevice ? styles.confirmButtonTextTiny : null,
-                ]}>Confirm</Text>
+                ]}>{isLoadingAddFolder ? "Adding..." : "Confirm"}</Text>
               </TouchableOpacity>
   
               <TouchableOpacity 
@@ -1404,6 +1731,7 @@ const confirmFolderForCompetition = () => {
                   isTinyDevice ? styles.cancelButtonTiny : null,
                 ]}
                 onPress={() => setAddFolderModalVisible(false)}
+                disabled={isLoadingAddFolder} // Disable cancel button during folder creation
               >
                 <Text style={[
                   isLargeDevice ? styles.cancelButtonTextLarge : null,
@@ -1422,7 +1750,7 @@ const confirmFolderForCompetition = () => {
         animationType="fade"
         transparent={true}
         visible={editFolderModalVisible}
-        onRequestClose={() => setEditFolderModalVisible(false)}
+        onRequestClose={isLoadingOperation ? undefined : () => setEditFolderModalVisible(false)} // Disable modal close during loading
       >
         <View style={[
           isLargeDevice ? styles.addModalOverlayLarge : null,
@@ -1484,15 +1812,17 @@ const confirmFolderForCompetition = () => {
                   isMediumLargeDevice ? styles.confirmButtonMediumLarge : null,
                   isSmallDevice ? styles.confirmButtonSmall : null,
                   isTinyDevice ? styles.confirmButtonTiny : null,
+                  isLoadingEditFolder && { opacity: 0.6 } // Visual feedback when loading
                 ]}
                 onPress={saveEditedFolder}
+                disabled={isLoadingEditFolder} // Disable when loading
               >
                 <Text style={[
                   isLargeDevice ? styles.confirmButtonTextLarge : null,
                   isMediumLargeDevice ? styles.confirmButtonTextMediumLarge : null,
                   isSmallDevice ? styles.confirmButtonTextSmall : null,
                   isTinyDevice ? styles.confirmButtonTextTiny : null,
-                ]}>Save</Text>
+                ]}>{isLoadingEditFolder ? "Saving..." : "Save"}</Text>
               </TouchableOpacity>
   
               <TouchableOpacity 
@@ -1503,6 +1833,7 @@ const confirmFolderForCompetition = () => {
                   isTinyDevice ? styles.cancelButtonTiny : null,
                 ]}
                 onPress={() => setEditFolderModalVisible(false)}
+                disabled={isLoadingEditFolder} // Disable cancel button during folder editing
               >
                 <Text style={[
                   isLargeDevice ? styles.cancelButtonTextLarge : null,
@@ -1521,7 +1852,7 @@ const confirmFolderForCompetition = () => {
         animationType="fade"
         transparent={true}
         visible={confirmationModel}
-        onRequestClose={() => setConfirmationModel(false)}
+        onRequestClose={isLoadingOperation ? undefined : () => setConfirmationModel(false)} // Disable modal close during loading
       >
         <View style={[
           isLargeDevice ? styles.addModalOverlayLarge : null,
@@ -1558,16 +1889,18 @@ const confirmFolderForCompetition = () => {
                   isMediumLargeDevice ? styles.confirmButtonMediumLarge : null,
                   isSmallDevice ? styles.confirmButtonSmall : null,
                   isTinyDevice ? styles.confirmButtonTiny : null,
+                  isLoadingDeleteFolder && { opacity: 0.6 } // Visual feedback when loading
                 ]}
                 onPress={performDelete}
                 activeOpacity={0.7} // Prevent multiple taps
+                disabled={isLoadingDeleteFolder} // Disable when loading
               >
                 <Text style={[
                   isLargeDevice ? styles.confirmButtonTextLarge : null,
                   isMediumLargeDevice ? styles.confirmButtonTextMediumLarge : null,
                   isSmallDevice ? styles.confirmButtonTextSmall : null,
                   isTinyDevice ? styles.confirmButtonTextTiny : null,
-                ]}>Confirm</Text>
+                ]}>{isLoadingDeleteFolder ? "Deleting..." : "Confirm"}</Text>
               </TouchableOpacity>
   
               <TouchableOpacity 
@@ -1579,6 +1912,7 @@ const confirmFolderForCompetition = () => {
                 ]}
                 onPress={() => setConfirmationModel(false)}
                 activeOpacity={0.7}
+                disabled={isLoadingDeleteFolder} // Disable cancel button during folder deletion
               >
                 <Text style={[
                   isLargeDevice ? styles.cancelButtonTextLarge : null,
@@ -1642,7 +1976,7 @@ const confirmFolderForCompetition = () => {
         animationType="fade"
         transparent={true}
         visible={addCompetitionModalVisible}
-        onRequestClose={() => setAddCompetitionModalVisible(false)}
+        onRequestClose={isLoadingOperation ? undefined : () => setAddCompetitionModalVisible(false)} // Disable modal close during loading
       >
         <View style={[
           isLargeDevice ? styles.addModalOverlayLarge : null,
@@ -1717,15 +2051,17 @@ const confirmFolderForCompetition = () => {
                   isMediumLargeDevice ? styles.confirmButtonMediumLarge : null,
                   isSmallDevice ? styles.confirmButtonSmall : null,
                   isTinyDevice ? styles.confirmButtonTiny : null,
+                  isLoadingAddCompetition && { opacity: 0.6 } // Visual feedback when loading
                 ]}
                 onPress={addNewCompetition}
+                disabled={isLoadingAddCompetition} // Disable when loading
               >
                 <Text style={[
                   isLargeDevice ? styles.confirmButtonTextLarge : null,
                   isMediumLargeDevice ? styles.confirmButtonTextMediumLarge : null,
                   isSmallDevice ? styles.confirmButtonTextSmall : null,
                   isTinyDevice ? styles.confirmButtonTextTiny : null,
-                ]}>{ConfirmButtomText}</Text>
+                ]}>{isLoadingAddCompetition ? "Adding..." : ConfirmButtomText}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity 
@@ -1736,6 +2072,7 @@ const confirmFolderForCompetition = () => {
                   isTinyDevice ? styles.cancelButtonTiny : null,
                 ]}
                 onPress={() => setAddCompetitionModalVisible(false)}
+                disabled={isLoadingAddCompetition} // Disable cancel button during competition creation
               >
                 <Text style={[
                   isLargeDevice ? styles.cancelButtonTextLarge : null,
@@ -1908,6 +2245,102 @@ const confirmFolderForCompetition = () => {
         </View>
       </Modal>
 
+      {/* Modal de Carga Unificada */}
+      <Modal
+        animationType="none"
+        transparent={true}
+        visible={showLoadingModal}
+        onRequestClose={() => {}} // No permitir cerrar durante la carga
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0, 0, 0, 0.6)',
+          justifyContent: 'center',
+          alignItems: 'center'
+        }}>
+          <Animated.View style={[
+            {
+              backgroundColor: 'white',
+              borderRadius: isLargeDevice ? 20 : isMediumLargeDevice ? 18 : isSmallDevice ? 16 : 14,
+              padding: isLargeDevice ? 40 : isMediumLargeDevice ? 35 : isSmallDevice ? 30 : 25,
+              width: isLargeDevice ? 380 : isMediumLargeDevice ? 340 : isSmallDevice ? 300 : 280,
+              alignItems: 'center',
+              shadowColor: '#000',
+              shadowOffset: {
+                width: 0,
+                height: 10,
+              },
+              shadowOpacity: 0.25,
+              shadowRadius: 20,
+              elevation: 15,
+            },
+            {
+              opacity: loadingOpacityAnim,
+              transform: [{ scale: loadingScaleAnim }]
+            }
+          ]}>
+            {/* Icono de carga animado */}
+            <Animated.View style={[
+              {
+                width: isLargeDevice ? 80 : isMediumLargeDevice ? 70 : isSmallDevice ? 60 : 50,
+                height: isLargeDevice ? 80 : isMediumLargeDevice ? 70 : isSmallDevice ? 60 : 50,
+                borderRadius: isLargeDevice ? 40 : isMediumLargeDevice ? 35 : isSmallDevice ? 30 : 25,
+                borderWidth: 4,
+                borderColor: '#007AFF',
+                borderTopColor: 'transparent',
+                marginBottom: isLargeDevice ? 30 : isMediumLargeDevice ? 25 : isSmallDevice ? 20 : 18,
+              },
+              {
+                transform: [{
+                  rotate: loadingSpinAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['0deg', '360deg']
+                  })
+                }]
+              }
+            ]} />
+
+            {/* Mensaje de carga */}
+            <Text style={{
+              fontSize: isLargeDevice ? 20 : isMediumLargeDevice ? 18 : isSmallDevice ? 16 : 14,
+              fontFamily: "Rajdhani-Bold",
+              color: '#333',
+              textAlign: 'center',
+              marginBottom: isLargeDevice ? 20 : isMediumLargeDevice ? 18 : isSmallDevice ? 16 : 14,
+            }}>
+              {loadingMessage}
+            </Text>
+
+            {/* Barra de progreso */}
+            <View style={{
+              width: '100%',
+              height: isLargeDevice ? 8 : isMediumLargeDevice ? 7 : isSmallDevice ? 6 : 5,
+              backgroundColor: '#E0E0E0',
+              borderRadius: isLargeDevice ? 4 : isMediumLargeDevice ? 3.5 : isSmallDevice ? 3 : 2.5,
+              overflow: 'hidden',
+              marginBottom: isLargeDevice ? 15 : isMediumLargeDevice ? 12 : isSmallDevice ? 10 : 8,
+            }}>
+              <Animated.View style={{
+                height: '100%',
+                backgroundColor: '#007AFF',
+                width: `${loadingProgress}%`,
+                borderRadius: isLargeDevice ? 4 : isMediumLargeDevice ? 3.5 : isSmallDevice ? 3 : 2.5,
+              }} />
+            </View>
+
+            {/* Porcentaje */}
+            <Text style={{
+              fontSize: isLargeDevice ? 16 : isMediumLargeDevice ? 15 : isSmallDevice ? 14 : 12,
+              fontFamily: "Rajdhani-medium",
+              color: '#666',
+              textAlign: 'center',
+            }}>
+              {Math.round(loadingProgress)}%
+            </Text>
+          </Animated.View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 }
@@ -1924,7 +2357,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#999',
+       backgroundColor: '#999',
     borderRadius: 30,
     margin: 16,
   },
@@ -1978,6 +2411,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   // Back button styles - Tiny Device
+ 
   backButtonTiny: {
     flexDirection: 'row',
     alignItems: 'center',
