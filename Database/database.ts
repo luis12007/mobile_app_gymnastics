@@ -25,6 +25,7 @@ interface Folder {
   type: boolean; // true for training, false for competence
   date: string; // ISO date string
   filled: boolean;
+  position?: number; // Para el orden de las carpetas
 }
 
 interface Session {
@@ -625,6 +626,17 @@ export const getFoldersByUserId = async (userId: number): Promise<Folder[]> => {
   }
 };
 
+// Función para obtener carpetas ordenadas por posición
+export const getFoldersByUserIdSorted = async (userId: number): Promise<Folder[]> => {
+  try {
+    const folders = await getFoldersByUserId(userId);
+    return folders.sort((a, b) => (a.position || 0) - (b.position || 0));
+  } catch (error) {
+    console.error("Error getting sorted folders by user ID:", error);
+    return [];
+  }
+};
+
 export const getFolderById = async (folderId: number): Promise<Folder | null> => {
   try {
     const folders = await getFolders();
@@ -640,7 +652,11 @@ export const insertFolder = async (folderData: Omit<Folder, 'id'>): Promise<numb
   try {
     const folders = await getFolders();
     const id = await getNextId(FOLDERS_KEY);
-    const newFolder: Folder = { id, ...folderData };
+    
+    // Si no se especifica posición, ponerla al final
+    const position = folderData.position !== undefined ? folderData.position : folders.length;
+    
+    const newFolder: Folder = { id, ...folderData, position };
     folders.push(newFolder);
     await saveItems(FOLDERS_KEY, folders);
     console.log("Folder added successfully. ID:", id);
@@ -696,6 +712,60 @@ export const deleteFolder = async (folderId: number): Promise<boolean> => {
     return true;
   } catch (error) {
     console.error("Error deleting folder:", error);
+    return false;
+  }
+};
+
+// Función para reordenar carpetas después de drag & drop
+export const reorderFolders = async (userId: number, fromIndex: number, toIndex: number): Promise<boolean> => {
+  try {
+    const folders = await getFoldersByUserIdSorted(userId);
+    
+    if (fromIndex < 0 || fromIndex >= folders.length || toIndex < 0 || toIndex >= folders.length) {
+      console.error("Invalid indices for reordering");
+      return false;
+    }
+
+    // Mover el elemento
+    const [movedFolder] = folders.splice(fromIndex, 1);
+    folders.splice(toIndex, 0, movedFolder);
+
+    // Actualizar las posiciones
+    const allFolders = await getFolders();
+    folders.forEach((folder, index) => {
+      folder.position = index;
+      const globalIndex = allFolders.findIndex(f => f.id === folder.id);
+      if (globalIndex !== -1) {
+        allFolders[globalIndex] = folder;
+      }
+    });
+
+    await saveItems(FOLDERS_KEY, allFolders);
+    console.log("Folders reordered successfully");
+    return true;
+  } catch (error) {
+    console.error("Error reordering folders:", error);
+    return false;
+  }
+};
+
+// Función para actualizar la posición de una carpeta específica
+export const updateFolderPosition = async (folderId: number, newPosition: number): Promise<boolean> => {
+  try {
+    const folders = await getFolders();
+    const folderIndex = folders.findIndex(f => f.id === folderId);
+    
+    if (folderIndex === -1) {
+      console.error("Folder not found for position update");
+      return false;
+    }
+
+    folders[folderIndex].position = newPosition;
+    await saveItems(FOLDERS_KEY, folders);
+    console.log(`Folder ${folderId} position updated to ${newPosition}`);
+    return true;
+  } catch (error) {
+    console.error("Error updating folder position:", error);
     return false;
   }
 };
@@ -1992,5 +2062,43 @@ export const initializeApp = async (): Promise<void> => {
     }
   } catch (error) {
     console.error("Error initializing app:", error);
+  }
+};
+
+export const updateFolderPositions = async (folderPositions: { id: number; position: number }[]): Promise<boolean> => {
+  try {
+    const folders = await getFolders();
+    
+    // Update positions for each folder
+    folderPositions.forEach(({ id, position }) => {
+      const folderIndex = folders.findIndex(folder => folder.id === id);
+      if (folderIndex !== -1) {
+        folders[folderIndex].position = position;
+      }
+    });
+    
+    await saveItems(FOLDERS_KEY, folders);
+    console.log("Folder positions updated successfully.");
+    return true;
+  } catch (error) {
+    console.error("Error updating folder positions:", error);
+    return false;
+  }
+};
+
+export const getFoldersOrderedByPosition = async (): Promise<Folder[]> => {
+  try {
+    const folders = await getFolders();
+    
+    // Sort by position, folders without position go to the end
+    return folders.sort((a, b) => {
+      if (a.position === undefined && b.position === undefined) return 0;
+      if (a.position === undefined) return 1;
+      if (b.position === undefined) return -1;
+      return a.position - b.position;
+    });
+  } catch (error) {
+    console.error("Error getting ordered folders:", error);
+    return [];
   }
 };
