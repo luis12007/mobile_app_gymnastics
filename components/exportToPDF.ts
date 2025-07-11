@@ -669,12 +669,13 @@ export const generateComprehensivePDF = async (
         // Calculate centering offsets with additional right shift
         const centerX = svgWidth / 2;
         const centerY = svgHeight / 2;
-        const pathCenterX = minX + pathWidth / 2;
-        const pathCenterY = minY + pathHeight / 2;
+        const pathCenterX = (minX + pathWidth / 2);
+        const pathCenterY = (minY + pathHeight / 2);
         
-        const rightShift = 150; // Move paths 100 units to the right
+        const rightShift = 120; // Move paths 100 units to the right
+        const bShift = 60; // Move paths 50 units down
         const offsetX = centerX - pathCenterX + rightShift;
-        const offsetY = centerY - pathCenterY;
+        const offsetY = centerY - pathCenterY + bShift;
         
         transformGroup = `<g transform="translate(${offsetX}, ${offsetY})">`;
       }
@@ -684,8 +685,8 @@ export const generateComprehensivePDF = async (
         
         if (pathData.path) {
           scaledPath = pathData.path.replace(/([ML])\s*([0-9.-]+)\s*([0-9.-]+)/g, (match: string, command: string, x: string, y: string) => {
-            const scaledX = parseFloat(x) * 1;
-            const scaledY = parseFloat(y) * 1;
+            const scaledX = parseFloat(x) * 0.85;
+            const scaledY = parseFloat(y) * 0.85;
             return `${command} ${scaledX} ${scaledY}`;
           });
         }
@@ -906,7 +907,7 @@ export const generateComprehensivePDF = async (
           <div class="tables-section">
             <!-- Code Table Section -->
             <div>
-              <div class="code-table-header">Elements Code Table</div>
+              <div class="code-table-header">Difficulty Values</div>
               <table class="code-table">
                 
                 <tbody>
@@ -1152,7 +1153,7 @@ export const generateComprehensivePDF = async (
   const finalTableHTML = `
     <div class="page final-table-page">
       <div class="header final-table-header">
-        <h1>🏅 ${finalTableData.competition.title}</h1>
+        <h1>🏅 Judging Summary</h1>
         <p>${finalTableData.competition.discipline}</p>
       </div>
       

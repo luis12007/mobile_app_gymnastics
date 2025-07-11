@@ -58,22 +58,20 @@ if (width >= 1368 ) {
 
 // Update this interface to match the props being passed
 interface FolderItemProps {
-  id: number; // Add this
+  id: number;
   title: string;
-  description: string; // Add this
+  description: string;
   date: string;
   selected?: boolean;
   folderType: 1 | 2;
   animationDelay?: number;
-  selectionMode?: boolean; // Add this
+  selectionMode?: boolean;
   discipline: Boolean,
-  empty?: boolean; // Add this
-  onSelect?: (id: number) => void; // Add this
-  isDragging?: boolean; // Nuevo prop para indicar si se está arrastrando
-  isDropTarget?: boolean; // Nuevo prop para indicar si es un drop target válido
-  onLongPress?: () => void; // Para activar el drag
-  onDragMove?: (position: { x: number; y: number }) => void; // Para actualizar drop target durante el movimiento
-  onDragEnd?: (position: { x: number; y: number }) => void; // Para manejar el final del drag
+  empty?: boolean;
+  onSelect?: (id: number) => void;
+  isSelectedForSwap?: boolean; // Para indicar si está seleccionada para swap
+  isSwapping?: boolean; // Para indicar si está en proceso de swap
+  onCardPress?: (id: number) => void; // Para manejar el tap-to-swap
 }
 
 interface Competition {
@@ -121,197 +119,72 @@ const FolderItem: React.FC<FolderItemProps> = ({
   discipline,
   empty,
   onSelect = () => {},
-  isDragging = false,
-  isDropTarget = false,
-  onLongPress,
-  onDragMove,
-  onDragEnd
+  isSelectedForSwap = false,
+  isSwapping = false,
+  onCardPress = () => {}
 }) => {
   const router = useRouter();
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const [folderTypeText, setFolderTypeText] = useState(folderType === 1 ? "Training" : "Competence");
 
-  // Variables para drag & drop - todas con useNativeDriver: false para evitar conflictos
-  const pan = useRef(new Animated.ValueXY()).current;
-  const dragScale = useRef(new Animated.Value(1)).current;
-  const dragOpacity = useRef(new Animated.Value(1)).current;
-  const dropTargetScale = useRef(new Animated.Value(1)).current;
-  const dropTargetGlow = useRef(new Animated.Value(0)).current; // Para efecto de brillo pulsante
-  const dropTargetBounce = useRef(new Animated.Value(0)).current; // Para efecto de rebote identificativo
-  const dropTargetShake = useRef(new Animated.Value(0)).current; // Para efecto de temblor sutil
-  const [isActiveDragging, setIsActiveDragging] = useState(false);
-  const [longPressTimer, setLongPressTimer] = useState<number | null>(null);
+  // Variables para tap-to-swap system
+  const swapHighlightAnim = useRef(new Animated.Value(0)).current;
+  const swapPulseAnim = useRef(new Animated.Value(1)).current;
 
-  // Usar useRef para mantener una referencia actualizada del estado
-  const isDraggingRef = useRef(isActiveDragging);
-  isDraggingRef.current = isActiveDragging;
+  // Estado para manejar long press
+  const [longPressActive, setLongPressActive] = useState(false);
+  const longPressTimer = useRef<number | null>(null);
 
-  // PanResponder para manejar drag & drop
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: (evt, gestureState) => {
-        const shouldSet = isDraggingRef.current && !selectionMode;
-        console.log('onStartShouldSetPanResponder:', shouldSet, 'isActiveDragging:', isDraggingRef.current);
-        return shouldSet;
-      },
-      
-      onMoveShouldSetPanResponder: (evt, gestureState) => {
-        const shouldSet = isDraggingRef.current && !selectionMode;
-        console.log('onMoveShouldSetPanResponder:', shouldSet, 'isActiveDragging:', isDraggingRef.current, 'dx:', gestureState.dx, 'dy:', gestureState.dy);
-        return shouldSet;
-      },
-
-      onStartShouldSetPanResponderCapture: () => false,
-      onMoveShouldSetPanResponderCapture: () => false,
-
-      onPanResponderGrant: (evt, gestureState) => {
-        if (!isDraggingRef.current || selectionMode) return;
-        
-        console.log('PanResponder granted, starting drag');
-        
-        // Resetear la posición inicial
-        pan.setOffset({
-          x: (pan.x as any)._value,
-          y: (pan.y as any)._value,
-        });
-        pan.setValue({ x: 0, y: 0 });
-        
-        // Animación mejorada de inicio de drag
-        Animated.spring(dragScale, {
-          toValue: 1.15, // Más grande para mejor visibilidad
-          tension: 100,
-          friction: 6,
-          useNativeDriver: false,
-        }).start();
-      },
-
-      onPanResponderMove: (evt, gestureState) => {
-        if (!isDraggingRef.current || selectionMode) return;
-        
-        console.log('Moving:', gestureState.dx, gestureState.dy, 'pageY:', evt.nativeEvent.pageY);
-        
-        // Actualizar posición directamente
-        pan.setValue({
-          x: gestureState.dx,
-          y: gestureState.dy,
-        });
-
-        // Notificar el movimiento para actualizar el drop target en tiempo real
-        // Usar pageY para obtener coordenadas absolutas en la pantalla
-        onDragMove?.({
-          x: gestureState.dx,
-          y: gestureState.dy,
-        });
-      },
-
-      onPanResponderRelease: (evt, gestureState) => {
-        if (!isDraggingRef.current || selectionMode) return;
-        
-        console.log('PanResponder released, ending drag with gesture:', gestureState.dx, gestureState.dy);
-        
-        const finalPosition = {
-          x: gestureState.dx,
-          y: gestureState.dy,
-        };
-        
-        setIsActiveDragging(false);
-        pan.flattenOffset();
-        
-        // Animar de vuelta a la posición original con transiciones suaves
-        Animated.parallel([
-          Animated.spring(pan, {
-            toValue: { x: 0, y: 0 },
-            tension: 100,
-            friction: 8,
-            useNativeDriver: false,
-          }),
-          Animated.spring(dragScale, {
-            toValue: 1,
-            tension: 120,
-            friction: 8,
-            useNativeDriver: false,
-          }),
-          Animated.spring(dragOpacity, {
-            toValue: 1,
-            tension: 120,
-            friction: 8,
-            useNativeDriver: false,
-          }),
-        ]).start();
-        
-        onDragEnd?.(finalPosition);
-      },
-
-      onPanResponderTerminationRequest: () => {
-        // No permitir que otros componentes terminen nuestro gesto durante el drag
-        return !isDraggingRef.current;
-      },
-
-      onPanResponderTerminate: (evt, gestureState) => {
-        // Si el gesto es terminado por el sistema, limpiar el estado
-        if (isDraggingRef.current) {
-          console.log('PanResponder terminated, cleaning up');
-          setIsActiveDragging(false);
-          pan.setValue({ x: 0, y: 0 });
-          
-          Animated.parallel([
-            Animated.spring(dragScale, {
-              toValue: 1,
-              tension: 120,
-              friction: 8,
-              useNativeDriver: false,
-            }),
-            Animated.spring(dragOpacity, {
-              toValue: 1,
-              tension: 120,
-              friction: 8,
-              useNativeDriver: false,
-            }),
-          ]).start();
-        }
-      },
-    })
-  ).current;
-
-  const handleLongPress = () => {
-    if (selectionMode) return;
+  // Función para manejar el tap simple en la carta
+  const handleCardTap = () => {
+    if (longPressActive) return; // Evitar tap si hay long press activo
     
-    console.log('Long press detected on folder:', id, 'setting active dragging to true');
-    setIsActiveDragging(true);
-    Vibration.vibrate(50);
-    onLongPress?.();
-    
-    // Animaciones mejoradas para el inicio del drag
-    Animated.parallel([
-      Animated.spring(dragScale, {
-        toValue: 1.1, // Aumentar más el tamaño para mejor visibilidad
-        tension: 120,
-        friction: 7,
-        useNativeDriver: false,
-      }),
-      Animated.spring(dragOpacity, {
-        toValue: 0.85, // Ligeramente más transparente
-        tension: 120,
-        friction: 7,
-        useNativeDriver: false,
-      })
-    ]).start();
+    if (selectionMode) {
+      onSelect(id);
+    } else if (!isSwapping) {
+      // Tap normal - siempre abre carpeta, sin importar estado de swap
+      goIntoFolder(id, discipline);
+    }
   };
 
-  const handlePressIn = () => {
-    if (selectionMode || isActiveDragging) return;
+  // Función para manejar el long press
+  const handleLongPress = () => {
+    if (selectionMode || isSwapping) return;
     
-    console.log('Press in detected, starting long press timer');
-    const timer = setTimeout(handleLongPress, 500) as unknown as number;
-    setLongPressTimer(timer);
+    console.log('Long press detected, activating swap mode for:', id);
+    setLongPressActive(true);
+    Vibration.vibrate(50); // Feedback háptico
+    onCardPress(id); // Activar modo swap
+    
+    // Resetear flag después de más tiempo para evitar conflictos con tap
+    setTimeout(() => {
+      setLongPressActive(false);
+    }, 1000); // Extender a 1 segundo
+  };
+
+  // Funciones para manejar press in/out
+  const handlePressIn = () => {
+    if (selectionMode || isSwapping) return;
+    
+    longPressTimer.current = setTimeout(() => {
+      handleLongPress();
+    }, 500) as unknown as number; // 500ms para long press
   };
 
   const handlePressOut = () => {
-    if (longPressTimer) {
-      console.log('Press out, clearing timer');
-      clearTimeout(longPressTimer as unknown as NodeJS.Timeout);
-      setLongPressTimer(null);
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current as unknown as NodeJS.Timeout);
+      longPressTimer.current = null;
+    }
+    
+    // Si no hay long press activo, ejecutar tap normal después de un pequeño delay
+    if (!longPressActive) {
+      setTimeout(() => {
+        if (!longPressActive) { // Verificar de nuevo después del delay
+          handleCardTap();
+        }
+      }, 50); // Pequeño delay para dar tiempo al long press
     }
   };
 
@@ -323,126 +196,64 @@ const FolderItem: React.FC<FolderItemProps> = ({
         Animated.timing(scaleAnim, {
           toValue: 1,
           duration: 500,
-          useNativeDriver: true,
+          useNativeDriver: false, // Cambiar a false para consistencia
           easing: Easing.out(Easing.back(1.5)),
         }),
         Animated.timing(opacityAnim, {
           toValue: 1,
           duration: 400,
-          useNativeDriver: true,
+          useNativeDriver: false, // Cambiar a false para consistencia
         }),
       ]).start();
     }, animationDelay);
   }, []);
 
-  // Efecto para animar el drop target cuando se activa/desactiva
+  // Efecto para animar el estado de selección para swap
   useEffect(() => {
-    console.log(`FolderItem ${id}: isDropTarget changed to:`, isDropTarget);
-    
-    if (isDropTarget) {
-      console.log(`Starting drop target animations for folder ${id}`);
-      
-      // Animación de identificación inicial - rebote llamativo
-      Animated.sequence([
-        Animated.spring(dropTargetBounce, {
-          toValue: 1,
-          tension: 180,
-          friction: 3, // Muy poco friction para rebote dramático
-          useNativeDriver: false,
-        }),
-        Animated.spring(dropTargetBounce, {
-          toValue: 0,
-          tension: 120,
-          friction: 6,
-          useNativeDriver: false,
-        }),
-      ]).start();
-
-      // Animación de escala continua
-      Animated.spring(dropTargetScale, {
-        toValue: 1.15, // Escala más pronunciada para identificación clara
-        tension: 120,
-        friction: 6,
+    if (isSelectedForSwap) {
+      console.log(`Card ${id} selected for swap, starting highlight animation`);
+      Animated.timing(swapHighlightAnim, {
+        toValue: 1,
+        duration: 300,
         useNativeDriver: false,
       }).start();
-
-      // Animación de brillo pulsante continua
-      const pulseAnimation = Animated.loop(
+      
+      const pulseLoop = Animated.loop(
         Animated.sequence([
-          Animated.timing(dropTargetGlow, {
-            toValue: 1,
-            duration: 600, // Más rápido para mayor atención
+          Animated.timing(swapPulseAnim, {
+            toValue: 1.05, // Escala completa (inicial + pulso)
+            duration: 800,
             useNativeDriver: false,
           }),
-          Animated.timing(dropTargetGlow, {
-            toValue: 0,
-            duration: 600,
+          Animated.timing(swapPulseAnim, {
+            toValue: 1.0, // Volver a escala inicial
+            duration: 800,
             useNativeDriver: false,
           }),
         ])
       );
-      pulseAnimation.start();
-
-      // Animación de temblor sutil para identificación adicional
-      const shakeAnimation = Animated.loop(
-        Animated.sequence([
-          Animated.timing(dropTargetShake, {
-            toValue: 1,
-            duration: 100,
-            useNativeDriver: false,
-          }),
-          Animated.timing(dropTargetShake, {
-            toValue: -1,
-            duration: 100,
-            useNativeDriver: false,
-          }),
-          Animated.timing(dropTargetShake, {
-            toValue: 0,
-            duration: 200,
-            useNativeDriver: false,
-          }),
-          Animated.delay(1000), // Pausa entre temblores
-        ])
-      );
-      shakeAnimation.start();
-
-      // Guardar referencias para poder parar las animaciones
+      pulseLoop.start();
+      
       return () => {
-        pulseAnimation.stop();
-        shakeAnimation.stop();
+        pulseLoop.stop();
       };
     } else {
-      console.log(`Stopping drop target animations for folder ${id}`);
-      
-      // Resetear todas las animaciones al salir
-      dropTargetGlow.stopAnimation();
-      dropTargetShake.stopAnimation();
+      console.log(`Card ${id} deselected for swap, stopping highlight animation`);
+      swapPulseAnim.stopAnimation();
       Animated.parallel([
-        Animated.spring(dropTargetScale, {
-          toValue: 1,
-          tension: 140,
-          friction: 8,
-          useNativeDriver: false,
-        }),
-        Animated.timing(dropTargetGlow, {
+        Animated.timing(swapHighlightAnim, {
           toValue: 0,
           duration: 200,
           useNativeDriver: false,
         }),
-        Animated.spring(dropTargetBounce, {
-          toValue: 0,
-          tension: 140,
-          friction: 8,
-          useNativeDriver: false,
-        }),
-        Animated.timing(dropTargetShake, {
-          toValue: 0,
-          duration: 100,
+        Animated.timing(swapPulseAnim, {
+          toValue: 1,
+          duration: 200,
           useNativeDriver: false,
         }),
       ]).start();
     }
-  }, [isDropTarget]);
+  }, [isSelectedForSwap]);
 
   const goIntoFolder = (folderId: number, discipline: Boolean) => {
     if (selectionMode) {
@@ -454,107 +265,82 @@ const FolderItem: React.FC<FolderItemProps> = ({
 
   
 
+  // Determinar borderRadius según el tamaño del dispositivo para que coincida con el TouchableOpacity
+  const getBorderRadius = () => {
+    if (isLargeDevice) return 10;
+    if (isMediumLargeDevice) return 9;
+    if (isSmallDevice) return 8;
+    if (isTinyDevice) return 8;
+    return 10; // default
+  };
 
   return (
     <Animated.View
       style={[
         { 
           opacity: opacityAnim,
-          transform: [{ scale: scaleAnim }],
+          transform: [
+            { 
+              scale: isSelectedForSwap ? swapPulseAnim : scaleAnim
+            }
+          ],
           flex: 1,
-        }
+        },
+        // Efecto visual para carta seleccionada para swap
+        isSelectedForSwap ? {
+          borderRadius: getBorderRadius(),
+          borderWidth: 1,
+          borderColor: swapHighlightAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: ['transparent', '#00AAFF'],
+          }),
+          // Usar padding en lugar de margin para hacer el highlight más pequeño que el container
+          shadowColor: '#00AAFF',
+          marginRight: 25, // Asegurar que el padding sea consistente
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: swapHighlightAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0, 0.3],
+          }),
+          shadowRadius: 2,
+          elevation: 3,
+          backgroundColor: swapHighlightAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: ['transparent', 'rgba(0, 170, 255, 0.05)'],
+          }),
+        } : null,
       ]}
     >
-      <Animated.View
+      <TouchableOpacity
         style={[
-          {
-            transform: [
-              { translateX: pan.x },
-              { translateY: pan.y },
-              { scale: isDropTarget ? dropTargetScale : dragScale }
-            ],
-            opacity: dragOpacity,
-          }
+          folderType === 1 ? styles.folderType1 : null,
+          folderType === 2 ? styles.folderType2 : null,
+          isLargeDevice ? styles.folderItemLarge : null,
+          isMediumLargeDevice ? styles.folderItemMediumLarge : null,
+          isSmallDevice ? styles.folderItemSmall : null, 
+          isTinyDevice ? styles.folderItemTiny : null,
+          selected ? styles.selectedFolder : null,
         ]}
-        {...panResponder.panHandlers}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        disabled={isSwapping && !isSelectedForSwap}
+        activeOpacity={0.7}
       >
-      <Animated.View
-        style={[
-          // Efecto de brillo dinámico y rebote identificativo para el drop target
-          isDropTarget ? {
-            borderRadius: 10,
-            borderWidth: 4,
-            borderStyle: 'dashed',
-            borderColor: dropTargetGlow.interpolate({
-              inputRange: [0, 1],
-              outputRange: ['#0040A3', '#00CCFF'], // De azul oscuro a azul brillante
-            }),
-            shadowColor: dropTargetGlow.interpolate({
-              inputRange: [0, 1],
-              outputRange: ['#0040A3', '#00CCFF'],
-            }),
-            shadowOffset: { width: 0, height: 6 },
-            shadowOpacity: 0.8,
-            shadowRadius: 12,
-            elevation: 20,
-            // Efecto de rebote identificativo y temblor - hace que la carta sea muy identificable
-            transform: [
-              {
-                translateY: dropTargetBounce.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, -15], // Sube 15 píxeles durante el rebote
-                }),
-              },
-              {
-                translateX: dropTargetShake.interpolate({
-                  inputRange: [-1, 0, 1],
-                  outputRange: [-3, 0, 3], // Temblor horizontal sutil
-                }),
-              },
-              {
-                rotateZ: dropTargetBounce.interpolate({
-                  inputRange: [0, 0.5, 1],
-                  outputRange: ['0deg', '2deg', '0deg'], // Leve rotación durante el rebote
-                }),
-              },
-            ],
-          } : null,
-        ]}
-      >
-        <TouchableOpacity
-          style={[
-            folderType === 1 ? styles.folderType1 : null,
-            folderType === 2 ? styles.folderType2 : null,
-            isLargeDevice ? styles.folderItemLarge : null,
-            isMediumLargeDevice ? styles.folderItemMediumLarge : null,
-            isSmallDevice ? styles.folderItemSmall : null, 
-            isTinyDevice ? styles.folderItemTiny : null,
-            selected ? styles.selectedFolder : null,
-            isDragging || isActiveDragging ? styles.draggingFolder : null,
-            isDropTarget ? styles.dropTargetFolder : null,
-          ]}
-          onPress={() => !isActiveDragging && goIntoFolder(id, discipline)}
-          onPressIn={!isActiveDragging ? handlePressIn : undefined}
-          onPressOut={!isActiveDragging ? handlePressOut : undefined}
-          disabled={isDragging || isActiveDragging}
-          activeOpacity={isActiveDragging ? 1 : 0.7}
-        >
         <View style={styles.folderContent}>
-        <Image
-  source={
-    empty
-      ? require("../assets/images/open-folder.png") // Image for folderType 1
-      : require("../assets/images/folder.png") // Image for folderType 2
-  }
-
-  style={[
-    isLargeDevice ? styles.folderIconLarge : null, 
-    isSmallDevice ? styles.folderIconSmall : null, 
-    isMediumLargeDevice ? styles.folderIconMediumLarge : null,
-    isTinyDevice ? styles.folderIconTiny : null,
-  ]}
-  resizeMode="cover"
-/>
+          <Image
+            source={
+              empty
+                ? require("../assets/images/open-folder.png")
+                : require("../assets/images/folder.png")
+            }
+            style={[
+              isLargeDevice ? styles.folderIconLarge : null, 
+              isSmallDevice ? styles.folderIconSmall : null, 
+              isMediumLargeDevice ? styles.folderIconMediumLarge : null,
+              isTinyDevice ? styles.folderIconTiny : null,
+            ]}
+            resizeMode="cover"
+          />
           
           <View style={[
             isLargeDevice ? styles.folderInfoLarge : null, 
@@ -590,18 +376,6 @@ const FolderItem: React.FC<FolderItemProps> = ({
               isMediumLargeDevice ? styles.folderFooterMediumLarge : null,
               isTinyDevice ? styles.folderFooterTiny : null, 
             ]}>
-{/*               <TouchableOpacity 
-                style={[
-                  isLargeDevice ? styles.entrainementButton : null, 
-                  isSmallDevice ? styles.entrainementButtonSmall : null, 
-                  isTinyDevice ? styles.entrainementButtonTiny : null, 
-                ]}
-              >
-                <Text style={isLargeScreen ? styles.entrainementText : styles.entrainementTextSmall}>
-                  {folderTypeText}
-                </Text>
-              </TouchableOpacity> */}
-              
               <Text 
                 style={[
                   isLargeDevice ? styles.dateTextLarge : null, 
@@ -616,15 +390,12 @@ const FolderItem: React.FC<FolderItemProps> = ({
           </View>
         </View>
         
-        
         {selected && (
           <View style={styles.checkmark}>
             <Ionicons name="checkmark" size={17} color="#000" />
           </View>
         )}
-        </TouchableOpacity>
-      </Animated.View>
-      </Animated.View>
+      </TouchableOpacity>
     </Animated.View>
   );
 };
@@ -700,23 +471,11 @@ const [folderSelectionForCompetition, setFolderSelectionForCompetition] = useSta
 // Referencias
 const scrollViewRef = useRef<ScrollView>(null);
 
-// Estado para drag & drop
-const [draggingFolderId, setDraggingFolderId] = useState<number | null>(null);
-const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
-const [scrollOffset, setScrollOffset] = useState(0); // Para ajustar coordenadas durante el scroll
-// Estados para auto-scroll durante drag
-const [isAutoScrolling, setIsAutoScrolling] = useState(false);
-const autoScrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
-const scrollViewHeightRef = useRef(0);
-const scrollContentHeightRef = useRef(0);
-const [renderKey, setRenderKey] = useState(0); // Para forzar re-renders después del drag
-
-// Estado temporal para testing - forzar que la primera carta sea drop target
-// TODO: Remover esto después del debugging
-// useState(() => {
-//   setTimeout(() => setDropTargetIndex(1), 2000);
-//   return null;
-// });
+// Estado para swap functionality (reemplaza drag & drop)
+const [selectedCardForSwap, setSelectedCardForSwap] = useState<number | null>(null);
+const [isSwapping, setIsSwapping] = useState(false);
+const [renderKey, setRenderKey] = useState(0); // Para forzar re-renders después del swap
+const swapTimeoutRef = useRef<number | null>(null); // Para auto-cancelar selección de swap
 
 // Estados para la barra de carga unificada
 const [showLoadingModal, setShowLoadingModal] = useState(false);
@@ -858,136 +617,116 @@ const [isLoadingOperation, setIsLoadingOperation] = useState(false);
     }
   };
 
-  // Función para calcular sobre qué tarjeta se está soltando basándose en la posición absoluta
-  const calculateDropTarget = (dropPosition: { x: number; y: number }, draggedFolderId: number): number => {
-    // Obtener dimensiones de la pantalla
-    const screenWidth = Dimensions.get('window').width;
-    const COLUMNS = 3;
-    const CONTAINER_PADDING = 20; // padding del contenedor
-    
-    // Calcular el ancho de cada tarjeta (33% del contenedor)
-    const availableWidth = screenWidth - (CONTAINER_PADDING * 2);
-    const cardWidth = availableWidth / COLUMNS;
-    const cardHeight = 180; // altura aproximada de cada tarjeta + margen
-    
-    // Encontrar la tarjeta que está siendo arrastrada para obtener su posición inicial
-    const draggedIndex = folders.findIndex(folder => folder.id === draggedFolderId);
-    if (draggedIndex === -1) return -1;
-    
-    // Calcular posición inicial de la tarjeta arrastrada en el grid
-    const initialRow = Math.floor(draggedIndex / COLUMNS);
-    const initialCol = draggedIndex % COLUMNS;
-    const initialX = initialCol * cardWidth + (cardWidth / 2);
-    // Para la Y inicial, no necesitamos ajustar por scroll offset aquí porque 
-    // dropPosition ya viene ajustado desde el grid rendering
-    const initialY = initialRow * cardHeight + (cardHeight / 2);
-    
-    // Calcular posición final absoluta
-    const finalX = initialX + dropPosition.x;
-    const finalY = initialY + dropPosition.y;
-    
-    // Determinar sobre qué tarjeta se está soltando
-    const targetCol = Math.max(0, Math.min(COLUMNS - 1, Math.floor(finalX / cardWidth)));
-    const targetRow = Math.max(0, Math.floor(finalY / cardHeight));
-    const targetIndex = targetRow * COLUMNS + targetCol;
-    
-    console.log('Drop calculation:', {
-      dropPosition,
-      scrollOffset,
-      draggedIndex,
-      initialGrid: { row: initialRow, col: initialCol },
-      initialPos: { x: initialX, y: initialY },
-      finalPos: { x: finalX, y: finalY },
-      targetGrid: { row: targetRow, col: targetCol },
-      targetIndex,
-      totalFolders: folders.length,
-      isValidTarget: targetIndex >= 0 && targetIndex < folders.length && targetIndex !== draggedIndex
-    });
-    
-    // Verificar que el índice objetivo sea válido, diferente al actual, y dentro del rango
-    if (targetIndex >= 0 && targetIndex < folders.length && targetIndex !== draggedIndex) {
-      console.log('Valid drop target found:', targetIndex);
-      return targetIndex;
+  // Función para cancelar la selección de swap
+  const cancelSwapSelection = () => {
+    if (selectedCardForSwap !== null) {
+      setSelectedCardForSwap(null);
+      console.log('Swap selection cancelled');
     }
-    
-    console.log('No valid drop target found, returning -1');
-    return -1; // No hay intercambio válido
+    // Limpiar timeout si existe
+    if (swapTimeoutRef.current) {
+      clearTimeout(swapTimeoutRef.current);
+      swapTimeoutRef.current = null;
+    }
   };
 
-  // Función mejorada para manejar el intercambio de tarjetas
-  const handleFolderReorder = async (folderId: number, dropPosition: { x: number; y: number }) => {
-    try {
-      console.log('=== STARTING REORDER ===');
-      console.log('Handling reorder for folder:', folderId, 'at position:', dropPosition);
-      console.log('Current folders state:', folders.map(f => ({ id: f.id, name: f.name, position: folders.indexOf(f) })));
+  // Función para manejar la selección de cartas para swap
+  const handleCardSelection = (folderId: number) => {
+    if (selectionMode || isSwapping) return; // No permitir swap durante otros modos
+    
+    if (selectedCardForSwap === null) {
+      // Primera carta seleccionada con long press
+      setSelectedCardForSwap(folderId);
+      console.log('First card selected for swap:', folderId);
+      Vibration.vibrate(50); // Feedback háptico
       
-      // Encontrar el índice actual de la carpeta
-      const currentIndex = folders.findIndex(folder => folder.id === folderId);
-      if (currentIndex === -1) {
-        console.error('Folder not found in current list');
-        return;
+      // Configurar timeout para auto-cancelar después de 10 segundos
+      swapTimeoutRef.current = setTimeout(() => {
+        console.log('Auto-cancelling swap selection after 10 seconds');
+        setSelectedCardForSwap(null);
+        swapTimeoutRef.current = null;
+      }, 10000);
+      
+    } else if (selectedCardForSwap === folderId) {
+      // Misma carta con long press, deseleccionar
+      cancelSwapSelection();
+    } else {
+      // Segunda carta con long press, realizar swap automáticamente
+      console.log('Second card long pressed, performing swap:', selectedCardForSwap, '->', folderId);
+      // Limpiar timeout ya que se va a hacer el swap
+      if (swapTimeoutRef.current) {
+        clearTimeout(swapTimeoutRef.current);
+        swapTimeoutRef.current = null;
       }
+      handleFolderSwap(selectedCardForSwap, folderId);
+    }
+  };
 
-      // Calcular sobre qué tarjeta se está soltando
-      const targetIndex = calculateDropTarget(dropPosition, folderId);
+  // Función para intercambiar dos carpetas con animación
+  const handleFolderSwap = async (firstFolderId: number, secondFolderId: number) => {
+    if (isSwapping) return;
+    
+    try {
+      setIsSwapping(true);
+      console.log('=== STARTING FOLDER SWAP ===');
+      console.log('Swapping folders:', firstFolderId, '<->', secondFolderId);
       
-      if (targetIndex === -1) {
-        console.log('No valid drop target found, keeping current position');
+      // Encontrar los índices de las carpetas
+      const firstIndex = folders.findIndex(folder => folder.id === firstFolderId);
+      const secondIndex = folders.findIndex(folder => folder.id === secondFolderId);
+      
+      if (firstIndex === -1 || secondIndex === -1) {
+        console.error('One or both folders not found');
+        setSelectedCardForSwap(null);
+        setIsSwapping(false);
         return;
       }
       
-      if (currentIndex === targetIndex) {
-        console.log('Same position, no need to reorder');
-        return;
-      }
+      console.log('Swapping folders at indices:', firstIndex, '<->', secondIndex);
       
-      console.log('Swapping folder from index', currentIndex, 'to index', targetIndex);
+      // Crear una copia del array y hacer el intercambio
+      const swappedFolders = [...folders];
+      [swappedFolders[firstIndex], swappedFolders[secondIndex]] = 
+      [swappedFolders[secondIndex], swappedFolders[firstIndex]];
       
-      // Crear una copia del array de carpetas para hacer el intercambio
-      const reorderedFolders = [...folders];
+      // Actualizar estado local inmediatamente para feedback visual
+      setFolders(swappedFolders);
       
-      // Intercambiar las posiciones directamente
-      [reorderedFolders[currentIndex], reorderedFolders[targetIndex]] = 
-      [reorderedFolders[targetIndex], reorderedFolders[currentIndex]];
+      // Limpiar selección
+      setSelectedCardForSwap(null);
       
-      console.log('After swap:', reorderedFolders.map(f => ({ id: f.id, name: f.name, position: reorderedFolders.indexOf(f) })));
-      
-      // Actualizar el estado local inmediatamente para feedback visual
-      setFolders(reorderedFolders);
-      
-      // Crear el array de posiciones para la base de datos
-      const folderPositions = reorderedFolders.map((folder, index) => ({
+      // Crear array de posiciones para la base de datos
+      const folderPositions = swappedFolders.map((folder, index) => ({
         id: folder.id,
         position: index
       }));
       
-      console.log('Updating database with positions:', folderPositions);
+      console.log('Updating database with new positions:', folderPositions);
       
-      try {
-        // Actualizar posiciones en la base de datos
-        await updateFolderPositions(folderPositions);
+      // Actualizar en la base de datos
+      const success = await updateFolderPositions(folderPositions);
+      
+      if (success) {
         console.log('Database update successful');
-        
-        // Haptic feedback para confirmar el cambio
-        Vibration.vibrate(100);
+        Vibration.vibrate([100, 50, 100]); // Patrón de vibración para confirmar
         
         // Recargar desde la base de datos para asegurar consistencia
-        console.log('Refreshing folders from database...');
         await fetchFolders();
         
-        // Forzar re-render completo
+        // Forzar re-render
         setRenderKey(prev => prev + 1);
-        console.log('=== REORDER COMPLETED SUCCESSFULLY ===');
-        
-      } catch (dbError) {
-        console.error('Error updating database, reverting changes:', dbError);
-        // Revertir cambios si falla la actualización de la base de datos
-        setFolders(folders);
+        console.log('=== FOLDER SWAP COMPLETED SUCCESSFULLY ===');
+      } else {
+        console.error('Database update failed, reverting changes');
+        setFolders(folders); // Revertir cambios
         Alert.alert('Error', 'No se pudo guardar el nuevo orden de las carpetas');
       }
     } catch (error) {
-      console.error("Error reordering folder:", error);
-      Alert.alert('Error', 'Error al reordenar las carpetas');
+      console.error("Error swapping folders:", error);
+      setFolders(folders); // Revertir cambios
+      Alert.alert('Error', 'Error al intercambiar las carpetas');
+    } finally {
+      setIsSwapping(false);
     }
   };
 
@@ -1184,12 +923,23 @@ const [isLoadingOperation, setIsLoadingOperation] = useState(false);
       // Usar force refresh para asegurar que se recarguen todos los folders
       forceRefreshFolders();
       
-      // También resetear estados de drag & drop por si acaso
-      setDraggingFolderId(null);
-      setDropTargetIndex(null);
+      // También resetear estados de swap por si acaso
+      setSelectedCardForSwap(null);
+      setIsSwapping(false);
+      
+      // Limpiar timeout de swap si existe
+      if (swapTimeoutRef.current) {
+        clearTimeout(swapTimeoutRef.current);
+        swapTimeoutRef.current = null;
+      }
       
       return () => {
         console.log('Screen unfocused - cleaning up...');
+        // Limpiar timeout cuando se pierde el foco
+        if (swapTimeoutRef.current) {
+          clearTimeout(swapTimeoutRef.current);
+          swapTimeoutRef.current = null;
+        }
       };
     }, []) // Sin dependencias ya que siempre cargamos todos los folders
   );
@@ -1507,17 +1257,49 @@ const performDelete = async () => {
     showLoading("Creando carpeta...", 0);
     setIsLoadingAddFolder(true);
 
-    const folderData = {
-      userId: userId,
-      name: folderName,
-      description: folderDescription,
-      type: folderType,
-      date: new Date().toISOString(),
-      filled: false,
-    };
-
     try {
-      updateLoading("Guardando datos...", 30);
+      updateLoading("Preparando nueva carpeta...", 10);
+      
+      // Obtener todas las carpetas existentes ordenadas por posición
+      const currentFolders = await getFoldersOrderedByPosition();
+      
+      console.log('Current folders count:', currentFolders?.length || 0);
+      console.log('New folder will be inserted at position 0 (first position)');
+
+      // Si hay carpetas existentes, incrementar todas sus posiciones en +1
+      if (currentFolders && currentFolders.length > 0) {
+        updateLoading("Reorganizando carpetas existentes...", 25);
+        
+        // Crear array de nuevas posiciones: cada carpeta aumenta su posición en +1
+        const updatedPositions = currentFolders.map((folder) => ({
+          id: folder.id,
+          position: (folder.position ?? 0) + 1 // Incrementar cada posición existente en 1 (usar 0 si position es undefined)
+        }));
+        
+        console.log('Shifting existing folders positions +1:', updatedPositions);
+        
+        // Actualizar las posiciones en la base de datos
+        const positionsUpdated = await updateFolderPositions(updatedPositions);
+        if (!positionsUpdated) {
+          throw new Error("Failed to update existing folder positions");
+        }
+        
+        console.log('Successfully shifted all existing folders to make room for new folder at position 0');
+      }
+
+      updateLoading("Creando nueva carpeta...", 45);
+
+      const folderData = {
+        userId: userId,
+        name: folderName,
+        description: folderDescription,
+        type: folderType,
+        date: new Date().toISOString(),
+        filled: false,
+        position: 0, // Nueva carpeta siempre en posición 0 (primera)
+      };
+
+      updateLoading("Guardando nueva carpeta...", 60);
       const result = await insertFolder(folderData);
       
       if (result) {
@@ -1894,10 +1676,7 @@ const confirmFolderForCompetition = () => {
         }
         showsVerticalScrollIndicator={true}
         scrollEventThrottle={16}
-        scrollEnabled={draggingFolderId === null} // Deshabilitar scroll durante drag
-        onScroll={(event) => {
-          setScrollOffset(event.nativeEvent.contentOffset.y);
-        }}
+        scrollEnabled={!isSwapping} // Deshabilitar scroll durante swap
       >
         {/* Loading overlay when performing operations */}
         {isLoadingOperation && (
@@ -1922,91 +1701,47 @@ const confirmFolderForCompetition = () => {
           </View>
         )}
         
-        {/* Grid de carpetas con drag & drop habilitado */}
-        {/* Para reordenar: mantén presionada una carpeta por 500ms y luego arrástrala */}
-        <View style={[
-          isLargeDevice ? styles.foldersGridLarge : null,
-          isMediumLargeDevice ? styles.foldersGridMediumLarge : null,
-          isSmallDevice ? styles.foldersGridSmall : null,
-          isTinyDevice ? styles.foldersGridTiny : null,
-        ]}>
-          {folders.map((folder, index) => {
-            // Calcular la posición inicial de la carta en el grid (3 columnas)
-            const row = Math.floor(index / 3);
-            const col = index % 3;
-            const screenWidth = Dimensions.get('window').width;
-            const containerPadding = 20; // padding del contenedor
-            const availableWidth = screenWidth - (containerPadding * 2);
-            const cardWidth = availableWidth / 3; // ancho de cada carta en píxeles
-            const cardHeight = 180; // altura aproximada incluyendo margin
-            
-            // Calcular posición inicial para position absolute AJUSTADA por scroll
-            const initialLeft = col * cardWidth;
-            const initialTop = row * cardHeight - scrollOffset; // Ajustar por scroll offset
-            
-            // Log para debugging de rendering
-            const isCurrentDropTarget = dropTargetIndex === index && draggingFolderId !== null;
-            console.log(`RENDER: Folder ${folder.id} "${folder.name}" at index ${index}: isDragging=${draggingFolderId === folder.id}, isDropTarget=${isCurrentDropTarget}`);
-            
-            return (
-              <View
-                key={`folder-${folder.id}-${index}-${renderKey}`} // Key más específica para forzar re-render
-                style={[
-                  styles.folderItemContainer,
-                  // La carta arrastrada tiene position absolute para salir del flujo normal
-                  draggingFolderId === folder.id ? {
-                    ...styles.draggingCardContainer,
-                    left: initialLeft,
-                    top: initialTop,
-                    width: cardWidth, // ancho calculado en píxeles
-                  } : null,
-                ]}
-              >
-                <FolderItem
-                  id={folder.id}
-                  title={folder.name}
-                  description={folder.description}
-                  date={new Date(folder.date).toLocaleDateString()}
-                  folderType={folder.type ? 1 : 2}
-                  selected={selectedFolders.includes(folder.id)}
-                  animationDelay={index * 100}
-                  selectionMode={selectionMode}
-                  discipline={discipline}
-                  empty={folder.filled}
-                  onSelect={toggleFolderSelection}
-                  isDragging={draggingFolderId === folder.id}
-                  isDropTarget={dropTargetIndex === index && draggingFolderId !== null}
-                  onLongPress={() => {
-                    console.log('Long press on folder:', folder.id);
-                    setDraggingFolderId(folder.id);
-                    console.log('Set draggingFolderId to:', folder.id);
-                  }}
-                  onDragMove={(position: { x: number; y: number }) => {
-                    // La lógica de cálculo debe estar aquí para todas las cartas
-                    // pero solo se ejecuta para la carta que está siendo arrastrada
-                    if (draggingFolderId === folder.id) {
-                      const targetIndex = calculateDropTarget(position, folder.id);
-                      console.log('Calculated drop target index:', targetIndex, 'for position:', position);
-                      console.log('Setting dropTargetIndex to:', targetIndex >= 0 ? targetIndex : null);
-                      setDropTargetIndex(targetIndex >= 0 ? targetIndex : null);
-                    }
-                  }}
-                  onDragEnd={(position: { x: number; y: number }) => {
-                    console.log('=== DRAG END EVENT ===');
-                    console.log('Drag ended for folder:', folder.id, 'at position:', position);
-                    
-                    // Limpiar estados inmediatamente para evitar problemas visuales
-                    setDraggingFolderId(null);
-                    setDropTargetIndex(null);
-                    
-                    // Ejecutar el reorder
-                    handleFolderReorder(folder.id, position);
-                  }}
-                />
-              </View>
-            );
-          })}
-        </View>
+        {/* TouchableOpacity para cancelar selección de swap tocando área vacía */}
+        <TouchableOpacity 
+          style={{ flex: 1, minHeight: '100%' }}
+          activeOpacity={1}
+          onPress={cancelSwapSelection}
+        >
+          {/* Grid de carpetas con sistema hold-to-swap */}
+          {/* Para reordenar: mantén presionada una carpeta por 500ms para seleccionar, mantén presionada otra para intercambiar */}
+          <View style={[
+            isLargeDevice ? styles.foldersGridLarge : null,
+            isMediumLargeDevice ? styles.foldersGridMediumLarge : null,
+            isSmallDevice ? styles.foldersGridSmall : null,
+            isTinyDevice ? styles.foldersGridTiny : null,
+          ]}>
+            {folders.map((folder, index) => {
+              return (
+                <View
+                  key={`folder-${folder.id}-${index}-${renderKey}`}
+                  style={styles.folderItemContainer}
+                >
+                  <FolderItem
+                    id={folder.id}
+                    title={folder.name}
+                    description={folder.description}
+                    date={new Date(folder.date).toLocaleDateString()}
+                    folderType={folder.type ? 1 : 2}
+                    selected={selectedFolders.includes(folder.id)}
+                    animationDelay={index * 100}
+                    selectionMode={selectionMode}
+                    discipline={discipline}
+                    empty={folder.filled}
+                    onSelect={toggleFolderSelection}
+                    isSelectedForSwap={selectedCardForSwap === folder.id}
+                    isSwapping={isSwapping}
+                    onCardPress={handleCardSelection}
+                  />
+                </View>
+              );
+            })}
+          </View>
+        </TouchableOpacity>
       </ScrollView>
       
       {/* Add Competition Button with Animation */}
@@ -3189,15 +2924,7 @@ const styles = StyleSheet.create({
   folderDragContainer: {
     width: '100%',
     height: '100%',
-    // Permite que el contenido se muestre correctamente durante el drag
-  },
-  
-  draggingCardContainer: {
-    position: 'absolute',
-    zIndex: 99999,
-    elevation: 999,
-    // El width se calculará dinámicamente y se aplicará inline
-    marginBottom: 12,
+    // Permite que el contenido se muestre correctamente
   },
   
   // Folder item styles - Large Device
@@ -3247,29 +2974,15 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   
-  draggingFolder: {
-    backgroundColor: '#E8F4FD',
-    borderWidth: 2,
-    borderColor: '#007AFF',
-    shadowColor: '#007AFF',
+  selectedForSwapFolder: {
+    backgroundColor: 'rgba(0, 170, 255, 0.15)',
+    borderWidth: 3,
+    borderColor: '#00AAFF',
+    shadowColor: '#00AAFF',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.6,
     shadowRadius: 8,
-    elevation: 10,
-    opacity: 0.9,
-  },
-  
-  dropTargetFolder: {
-    backgroundColor: '#B3D9FF', // Azul más oscuro y vibrante
-    // El borde se maneja via el Animated.View wrapper para animaciones
-    // borderWidth: 4,
-    // borderColor: manejado por animación
-    // borderStyle: 'dashed',
-    // shadowColor: manejado por animación
-    // shadowOffset: manejado por animación
-    // shadowOpacity: manejado por animación
-    // shadowRadius: manejado por animación
-    // elevation: manejado por animación
+    elevation: 15,
   },
   
   folderContent: {

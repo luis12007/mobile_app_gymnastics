@@ -194,7 +194,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   const router = useRouter();
 
   /* Keyboard usestates - removed because CustomNumberPadOptimized handles everything internally */
-  
+
   // Debug and warning states
   const [showDebugPanel, setShowDebugPanel] = useState(false);
   const [saveWarning, setSaveWarning] = useState("");
@@ -202,8 +202,10 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   const [saveAttempts, setSaveAttempts] = useState(0);
 
   // Debug logs
-  const [logs, setLogs] = useState<Array<{ id: number; timestamp: string; level: string; message: string }>>([]);
-  
+  const [logs, setLogs] = useState<
+    Array<{ id: number; timestamp: string; level: string; message: string }>
+  >([]);
+
   const clearLogs = () => {
     setLogs([]);
   };
@@ -220,7 +222,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
       setLastSaveTime(new Date());
       setSaveWarning("");
     } else {
-      showSaveWarning(`Failed to save ${operation}. Please check your connection.`);
+      showSaveWarning(
+        `Failed to save ${operation}. Please check your connection.`
+      );
     }
   };
 
@@ -261,7 +265,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   const [difficultyValues, setDifficultyValues] = useState(0);
   const [gymnastName, setGymnastName] = useState("");
   const [gymnastNoc, setGymnastNoc] = useState("");
-  const [gymnastBib, setGymnastBib] = useState(0);
+  const [gymnastBib, setGymnastBib] = useState("");
   const [gymnastEvent, setGymnastEvent] = useState("");
   const [elementGroupsTotal, setElementGroupsTotal] = useState(0);
   const [cv, setCv] = useState(0);
@@ -280,7 +284,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   const [percentage, setpercentage] = useState(0);
 
   // Element counts and groups (vault-specific - simplified)
-  const [elementCounts] = useState<{ [key: string]: { value: number; selected: boolean } }>({});
+  const [elementCounts] = useState<{
+    [key: string]: { value: number; selected: boolean };
+  }>({});
   const [elementGroupValues] = useState<{ [key: string]: number }>({});
 
   /* DEFINE MODALS */
@@ -318,7 +324,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
 
           setGymnastName(mainRateGeneral.name);
           setGymnastNoc(mainRateGeneral.noc);
-          setGymnastBib(Number(mainRateGeneral.bib));
+          setGymnastBib(mainRateGeneral.bib);
           setSv(mainRateGeneral.sv);
           setStartValue(mainRateGeneral.e2);
           setNd(mainRateGeneral.nd);
@@ -369,7 +375,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   };
 
   const handlegobacklist = () => {
-    router.replace       (
+    router.replace(
       `/start-gudging?id=${competenceId}&discipline=${discipline}&participants=${participants}&number=${number}&gymnast=${gymnastid}&folderId=${folderId}`
     ); // Pass the value as a query parameter
   };
@@ -465,12 +471,15 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
 
   /* Logic ======================================================== */
   const handleStickBonusChange = async (value: boolean) => {
+    console.log("handleStickBonusChange called with:", value);
+    console.log("Current values - eScore:", eScore, "sv:", sv, "nd:", nd);
     setStickBonus(value);
-    const newmyscore = eScore + sv + (value ? 0.1 : 0.0) - nd;
-
-    const truncated = Math.floor(newmyscore * 100) / 100;
-    const truncatedStr = truncated.toFixed(2);
-    const finalScore = parseFloat(truncatedStr + truncatedStr.charAt(truncatedStr.length - 1));
+    
+    // Usar operación más robusta para evitar errores de punto flotante
+    const newmyscore = Math.round((eScore + sv + (value ? 0.1 : 0.0) - nd) * 1000) / 1000;
+    console.log("handleStickBonusChange calculation:", eScore, "+", sv, "+", (value ? 0.1 : 0.0), "-", nd, "=", newmyscore);
+    const finalScore = newmyscore;
+    console.log("Final Score (handleStickBonusChange):", finalScore);
 
     setMyScore(finalScore);
 
@@ -517,37 +526,40 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
 
     setVaultDescription(value.description);
 
-
     updateRateGeneral(rateid, {
       vaultNumber: value.number,
       vaultDescription: value.description,
-    }).then((success) => {
-      if (success) {
-        console.log("Vault number and description updated successfully.");
-        trackSaveAttempt(true, "vault info");
-      } else {
-        console.error("Failed to update vault number and description.");
+    })
+      .then((success) => {
+        if (success) {
+          console.log("Vault number and description updated successfully.");
+          trackSaveAttempt(true, "vault info");
+        } else {
+          console.error("Failed to update vault number and description.");
+          trackSaveAttempt(false, "vault info");
+        }
+      })
+      .catch((error) => {
+        console.error("Error updating vault info:", error);
         trackSaveAttempt(false, "vault info");
-      }
-    }).catch((error) => {
-      console.error("Error updating vault info:", error);
-      trackSaveAttempt(false, "vault info");
-    });
+      });
 
     updateMainTable(gymnastid, {
       e2: value.value,
-    }).then((success) => {
-      if (success) {
-        console.log("Vault E2 updated successfully.");
-        trackSaveAttempt(true, "vault E2");
-      } else {
-        console.error("Failed to update vault E2.");
+    })
+      .then((success) => {
+        if (success) {
+          console.log("Vault E2 updated successfully.");
+          trackSaveAttempt(true, "vault E2");
+        } else {
+          console.error("Failed to update vault E2.");
+          trackSaveAttempt(false, "vault E2");
+        }
+      })
+      .catch((error) => {
+        console.error("Error updating vault E2:", error);
         trackSaveAttempt(false, "vault E2");
-      }
-    }).catch((error) => {
-      console.error("Error updating vault E2:", error);
-      trackSaveAttempt(false, "vault E2");
-    });
+      });
   };
 
   /* Helpers ============================================== */
@@ -593,7 +605,8 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   ];
 
   const deltSteps = [
-    0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5,
+    0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4,
+    1.5,
   ];
 
   /**
@@ -601,14 +614,14 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
    * @param dedInterval - Deduction interval (1-7)
    * @param delt - Delta value (difference from expert deductions)
    * @returns Percentage value based on the appropriate table
-   * 
+   *
    * When discipline = true: Uses the original percentage table
    * When discipline = false: Uses the new percentage table with different ranges
    */
   function getPercentageFromTable(dedInterval: number, delt: number): number {
     // Choose the appropriate table based on discipline
-    const percentageTable = discipline 
-      ? percentageTableDisciplineTrue 
+    const percentageTable = discipline
+      ? percentageTableDisciplineTrue
       : percentageTableDisciplineFalse;
 
     if (delt > 1.4) return 0;
@@ -636,7 +649,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
           <Text style={styles.warningText}>⚠️ {saveWarning}</Text>
         </View>
       ) : null}
-      
+
       {showNdCompModal && (
         <CustomNumberPadOptimized
           visible={showNdCompModal}
@@ -671,11 +684,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               setndcomp(rounded);
 
               const compscorecalc = d + e + (sb ? 0.1 : 0.0) - rounded;
-              const truncated = Math.floor(compscorecalc * 100) / 100;
-              const truncatedStr = truncated.toFixed(2);
-              const finalScore = parseFloat(
-                truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
-              );
+              const finalScore = Math.round(compscorecalc * 1000) / 1000;
 
               setScore(finalScore);
               updateRateGeneral(rateid, {
@@ -689,9 +698,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                     );
                     trackSaveAttempt(true, "comp ND score");
                   } else {
-                    console.error(
-                      `Failed to save ndcomp in MainRateGeneral.`
-                    );
+                    console.error(`Failed to save ndcomp in MainRateGeneral.`);
                     trackSaveAttempt(false, "comp ND score");
                   }
                 })
@@ -703,11 +710,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                   trackSaveAttempt(false, "comp ND score");
                 });
             } else {
-              Alert.alert(
-                "Invalid Input",
-                "Please enter a valid ND value.",
-                [{ text: "OK" }]
-              );
+              Alert.alert("Invalid Input", "Please enter a valid ND value.", [
+                { text: "OK" },
+              ]);
               return;
             }
             setShowNdCompModal(false);
@@ -718,8 +723,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         />
       )}
 
-
-{showSvModal && (
+      {showSvModal && (
         <CustomNumberPadOptimized
           visible={showSvModal}
           value={svInput}
@@ -751,13 +755,17 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               const rounded = Math.round(num * 10) / 10;
               setSv(rounded);
               setStartValue(rounded);
-              const newmyscore = eScore + rounded + (stickbonus ? 0.1 : 0.0) - nd;
-              const truncated = Math.floor(newmyscore * 100) / 100;
-              const truncatedStr = truncated.toFixed(2);
-              const finalScore = parseFloat(
-                truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
-              );
+              console.log("Rounded SV:", rounded);
+              console.log("eScore:", eScore);
+              console.log("nd:", nd);
+              console.log("stickbonus:", stickbonus);
+              
+              // Usar operación más robusta para evitar errores de punto flotante
+              const newmyscore = Math.round((eScore + rounded + (stickbonus ? 0.1 : 0.0) - nd) * 1000) / 1000;
+              console.log("Calculation: ", eScore, "+", rounded, "+", (stickbonus ? 0.1 : 0.0), "-", nd, "=", newmyscore);
+              const finalScore = newmyscore;
 
+              console.log("Final Score (SV Modal):", finalScore);
               setMyScore(finalScore);
 
               // Update database
@@ -784,11 +792,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                   trackSaveAttempt(false, "SV value");
                 });
             } else {
-              Alert.alert(
-                "Invalid Input",
-                "Please enter a valid SV value.",
-                [{ text: "OK" }]
-              );
+              Alert.alert("Invalid Input", "Please enter a valid SV value.", [
+                { text: "OK" },
+              ]);
               return;
             }
             setShowSvModal(false);
@@ -832,16 +838,14 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               setE(rounded);
               // Save to database
               const compscorecalc = d + rounded + (sb ? 0.1 : 0.0) - ndcomp;
-              const truncated = Math.floor(compscorecalc * 100) / 100;
-              const truncatedStr = truncated.toFixed(2);
-              const finalScore = parseFloat(
-                truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
-              );
+              const finalScore = Math.round(compscorecalc * 1000) / 1000;
 
               setScore(finalScore);
 
               /* ============================================================== */
-              const newdelt = Math.abs(Math.round((eScore - rounded) * 10) / 10);
+              const newdelt = Math.abs(
+                Math.round((eScore - rounded) * 10) / 10
+              );
               setDelt(newdelt);
 
               const newded = 10 - rounded;
@@ -880,11 +884,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                   trackSaveAttempt(false, "comp E score");
                 });
             } else {
-              Alert.alert(
-                "Invalid Input",
-                "Please enter a valid E value.",
-                [{ text: "OK" }]
-              );
+              Alert.alert("Invalid Input", "Please enter a valid E value.", [
+                { text: "OK" },
+              ]);
               return;
             }
             setShowEModal(false);
@@ -928,11 +930,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               setD(rounded);
 
               const compscorecalc = rounded + e + (sb ? 0.1 : 0.0) - ndcomp;
-              const truncated = Math.floor(compscorecalc * 100) / 100;
-              const truncatedStr = truncated.toFixed(2);
-              const finalScore = parseFloat(
-                truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
-              );
+              const finalScore = Math.round(compscorecalc * 1000) / 1000;
 
               setScore(finalScore);
               updateRateGeneral(rateid, {
@@ -947,11 +945,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                   trackSaveAttempt(false, "comp D score");
                 });
             } else {
-              Alert.alert(
-                "Invalid Input",
-                "Please enter a valid D value.",
-                [{ text: "OK" }]
-              );
+              Alert.alert("Invalid Input", "Please enter a valid D value.", [
+                { text: "OK" },
+              ]);
               return;
             }
             setShowDModal(false);
@@ -962,8 +958,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         />
       )}
 
-
-{showExecutionModal && (
+      {showExecutionModal && (
         <CustomNumberPadOptimized
           visible={showExecutionModal}
           value={executionInput}
@@ -996,11 +991,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               setExecution(rounded);
               const eScore = Number((10 - rounded).toFixed(3));
               const newmyscore = eScore + sv + (stickbonus ? 0.1 : 0.0) - nd;
-              const truncated = Math.floor(newmyscore * 100) / 100;
-              const truncatedStr = truncated.toFixed(2);
-              const finalScore = parseFloat(
-                truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
-              );
+              const finalScore = Math.round(newmyscore * 1000) / 1000;
 
               setMyScore(finalScore);
 
@@ -1159,7 +1150,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         </View>
       )}
 
-{showNdModal && (
+      {showNdModal && (
         <CustomNumberPadOptimized
           visible={showNdModal}
           value={ndInput}
@@ -1190,12 +1181,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             if (!isNaN(num)) {
               const rounded = Math.round(num * 10) / 10;
               setNd(rounded);
-              const newmyscore = eScore + sv + (stickbonus ? 0.1 : 0.0) - rounded;
-              const truncated = Math.floor(newmyscore * 100) / 100;
-              const truncatedStr = truncated.toFixed(2);
-              const finalScore = parseFloat(
-                truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
-              );
+              const newmyscore =
+                eScore + sv + (stickbonus ? 0.1 : 0.0) - rounded;
+              const finalScore = Math.round(newmyscore * 1000) / 1000;
 
               setMyScore(finalScore);
               updateRateGeneral(rateid, { myScore: finalScore })
@@ -1223,11 +1211,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                   trackSaveAttempt(false, "ND value");
                 });
             } else {
-              Alert.alert(
-                "Invalid Input",
-                "Please enter a valid ND value.",
-                [{ text: "OK" }]
-              );
+              Alert.alert("Invalid Input", "Please enter a valid ND value.", [
+                { text: "OK" },
+              ]);
               return;
             }
             setShowNdModal(false);
@@ -1314,7 +1300,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                 <Text
                   style={[
                     isLargeDevice ? styles.cellHeaderTextLarge : null,
-                    isMediumLargeDevice ? styles.cellHeaderTextMediumLarge : null,
+                    isMediumLargeDevice
+                      ? styles.cellHeaderTextMediumLarge
+                      : null,
                     isSmallDevice ? styles.cellHeaderTextSmall : null,
                     isTinyDevice ? styles.cellHeaderTextTiny : null,
                   ]}
@@ -1364,53 +1352,54 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               </Text>
             </View>
             <TouchableOpacity
-  style={[
-    styles.emptyBlueCell,
-    {
-      width: isLargeDevice
-        ? 210
-        : isMediumLargeDevice
-        ? 180
-        : isSmallDevice
-        ? 160
-        : 110,
-      justifyContent: "center",
-      alignItems: "center",
-    },
-  ]}
-  onPress={() => {
-    setSvInput(sv.toFixed(1)); // Set current value before opening modal
-    setShowSvModal(true);
-  }}
->
-  <Text
-    style={[
-      isLargeDevice ? styles.svValueTextLarge : null,
-      isMediumLargeDevice ? styles.svValueTextMediumLarge : null,
-      isSmallDevice ? styles.svValueTextSmall : null,
-      isTinyDevice ? styles.svValueTextTiny : null,
-    ]}
-  >
-    {sv.toFixed(1)}
-  </Text>
-</TouchableOpacity>
+              style={[
+                styles.emptyBlueCell,
+                {
+                  width: isLargeDevice
+                    ? 210
+                    : isMediumLargeDevice
+                    ? 180
+                    : isSmallDevice
+                    ? 160
+                    : 110,
+                  justifyContent: "center",
+                  alignItems: "center",
+                },
+              ]}
+              onPress={() => {
+                setSvInput(sv.toFixed(1)); // Set current value before opening modal
+                setShowSvModal(true);
+              }}
+            >
+              <Text
+                style={[
+                  isLargeDevice ? styles.svValueTextLarge : null,
+                  isMediumLargeDevice ? styles.svValueTextMediumLarge : null,
+                  isSmallDevice ? styles.svValueTextSmall : null,
+                  isTinyDevice ? styles.svValueTextTiny : null,
+                ]}
+              >
+                {sv.toFixed(1)}
+              </Text>
+            </TouchableOpacity>
             <TouchableOpacity
-  style={styles.ndValueCell}
-  onPress={() => {
-    setNdInput(nd.toFixed(1)); // Set current value before opening modal
-    setShowNdModal(true);
-  }}
->
-  <Text
-    style={[
-      isLargeDevice ? styles.valueTextLarge : null,
-      isMediumLargeDevice ? styles.valueTextMediumLarge : null,
-      isSmallDevice ? styles.valueTextSmall : null,
-      isTinyDevice ? styles.valueTextTiny : null,
-    ]}
-  >
-    {nd.toFixed(1)}
-  </Text>            </TouchableOpacity>
+              style={styles.ndValueCell}
+              onPress={() => {
+                setNdInput(nd.toFixed(1)); // Set current value before opening modal
+                setShowNdModal(true);
+              }}
+            >
+              <Text
+                style={[
+                  isLargeDevice ? styles.valueTextLarge : null,
+                  isMediumLargeDevice ? styles.valueTextMediumLarge : null,
+                  isSmallDevice ? styles.valueTextSmall : null,
+                  isTinyDevice ? styles.valueTextTiny : null,
+                ]}
+              >
+                {nd.toFixed(1)}
+              </Text>{" "}
+            </TouchableOpacity>
             {discipline && (
               <View style={styles.sbValueCell}>
                 <Text
@@ -1436,15 +1425,15 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                   ]}
                 >
                   <TouchableOpacity
-  onPress={() => {
-    setExecutionInput(execution.toFixed(1)); // Set current value before opening modal
-    setShowExecutionModal(true);
-  }}
->
-  <Text style={styles.infoValueText}>
-    {execution.toFixed(1)}
-  </Text>
-</TouchableOpacity>
+                    onPress={() => {
+                      setExecutionInput(execution.toFixed(1)); // Set current value before opening modal
+                      setShowExecutionModal(true);
+                    }}
+                  >
+                    <Text style={styles.infoValueText}>
+                      {execution.toFixed(1)}
+                    </Text>
+                  </TouchableOpacity>
                 </Text>
               </View>
               <View style={styles.executionValueCell}>
@@ -1560,22 +1549,22 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                 ]}
               >
                 <TouchableOpacity
-  onPress={() => {
-    setDInput(d.toFixed(1)); // Set current value before opening modal
-    setShowDModal(true);
-  }}
->
-  <Text
-    style={[
-      isLargeDevice ? styles.dValueTextLarge : null,
-      isMediumLargeDevice ? styles.dValueTextMediumLarge : null,
-      isSmallDevice ? styles.dValueTextSmall : null,
-      isTinyDevice ? styles.dValueTextTiny : null,
-    ]}
-  >
-    {d.toFixed(1)}
-  </Text>
-</TouchableOpacity>
+                  onPress={() => {
+                    setDInput(d.toFixed(1)); // Set current value before opening modal
+                    setShowDModal(true);
+                  }}
+                >
+                  <Text
+                    style={[
+                      isLargeDevice ? styles.dValueTextLarge : null,
+                      isMediumLargeDevice ? styles.dValueTextMediumLarge : null,
+                      isSmallDevice ? styles.dValueTextSmall : null,
+                      isTinyDevice ? styles.dValueTextTiny : null,
+                    ]}
+                  >
+                    {d.toFixed(1)}
+                  </Text>
+                </TouchableOpacity>
               </Text>
             </View>
             <View style={styles.eCell}>
@@ -1600,22 +1589,22 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                 ]}
               >
                 <TouchableOpacity
-  onPress={() => {
-    setEInput(e.toFixed(3)); // Set current value before opening modal
-    setShowEModal(true);
-  }}
->
-  <Text
-    style={[
-      isLargeDevice ? styles.eValueTextLarge : null,
-      isMediumLargeDevice ? styles.eValueTextMediumLarge : null,
-      isSmallDevice ? styles.eValueTextSmall : null,
-      isTinyDevice ? styles.eValueTextTiny : null,
-    ]}
-  >
-    {e.toFixed(3)}
-  </Text>
-</TouchableOpacity>
+                  onPress={() => {
+                    setEInput(e.toFixed(3)); // Set current value before opening modal
+                    setShowEModal(true);
+                  }}
+                >
+                  <Text
+                    style={[
+                      isLargeDevice ? styles.eValueTextLarge : null,
+                      isMediumLargeDevice ? styles.eValueTextMediumLarge : null,
+                      isSmallDevice ? styles.eValueTextSmall : null,
+                      isTinyDevice ? styles.eValueTextTiny : null,
+                    ]}
+                  >
+                    {e.toFixed(3)}
+                  </Text>
+                </TouchableOpacity>
               </Text>
             </View>
             {discipline && (
@@ -1624,7 +1613,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                   <Text
                     style={[
                       isLargeDevice ? styles.smallCellTextLarge : null,
-                      isMediumLargeDevice ? styles.smallCellTextMediumLarge : null,
+                      isMediumLargeDevice
+                        ? styles.smallCellTextMediumLarge
+                        : null,
                       isSmallDevice ? styles.smallCellTextSmall : null,
                       isTinyDevice ? styles.smallCellTextTiny : null,
                     ]}
@@ -1636,7 +1627,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                   <Text
                     style={[
                       isLargeDevice ? styles.smallValueTextLarge : null,
-                      isMediumLargeDevice ? styles.smallValueTextMediumLarge : null,
+                      isMediumLargeDevice
+                        ? styles.smallValueTextMediumLarge
+                        : null,
                       isSmallDevice ? styles.smallValueTextSmall : null,
                       isTinyDevice ? styles.smallValueTextTiny : null,
                     ]}
@@ -1647,11 +1640,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                         setSb(newValue);
                         const compscorecalc =
                           d + e + (newValue ? 0.1 : 0.0) - ndcomp;
-                        const truncated = Math.floor(compscorecalc * 100) / 100;
-const truncatedStr = truncated.toFixed(2);
-const finalScore = parseFloat(truncatedStr + truncatedStr.charAt(truncatedStr.length - 1));
+                        const finalScore = Math.round(compscorecalc * 1000) / 1000;
 
-setScore(finalScore);
+                        setScore(finalScore);
                         updateRateGeneral(rateid, {
                           compSd: newValue ? 0.1 : 0.0,
                           compScore: finalScore,
@@ -1704,24 +1695,24 @@ setScore(finalScore);
                 ]}
               >
                 <TouchableOpacity
-  onPress={() => {
-    setNdInputcomp(ndcomp.toFixed(1)); // Set current value before opening modal
-    setShowNdCompModal(true);
-  }}
->
-  <Text
-    style={[
-      isLargeDevice ? styles.ndValueTextLarge : null,
-      isMediumLargeDevice
-        ? styles.ndValueTextMediumLarge
-        : null,
-      isSmallDevice ? styles.ndValueTextSmall : null,
-      isTinyDevice ? styles.ndValueTextTiny : null,
-    ]}
-  >
-    {ndcomp.toFixed(1)}
-  </Text>
-</TouchableOpacity>
+                  onPress={() => {
+                    setNdInputcomp(ndcomp.toFixed(1)); // Set current value before opening modal
+                    setShowNdCompModal(true);
+                  }}
+                >
+                  <Text
+                    style={[
+                      isLargeDevice ? styles.ndValueTextLarge : null,
+                      isMediumLargeDevice
+                        ? styles.ndValueTextMediumLarge
+                        : null,
+                      isSmallDevice ? styles.ndValueTextSmall : null,
+                      isTinyDevice ? styles.ndValueTextTiny : null,
+                    ]}
+                  >
+                    {ndcomp.toFixed(1)}
+                  </Text>
+                </TouchableOpacity>
               </Text>
             </View>
             <View style={styles.scoreHeaderCell}>
@@ -1841,6 +1832,18 @@ setScore(finalScore);
                   isTinyDevice ? styles.neutralTextTiny : null,
                 ]}
               >
+                {gymnastBib}
+              </Text>
+            </View>
+            <View style={styles.neutralValueCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.neutralTextLarge : null,
+                  isMediumLargeDevice ? styles.neutralTextMediumLarge : null,
+                  isSmallDevice ? styles.neutralTextSmall : null,
+                  isTinyDevice ? styles.neutralTextTiny : null,
+                ]}
+              >
                 {gymnastEvent}
               </Text>
             </View>
@@ -1913,7 +1916,7 @@ setScore(finalScore);
         </View>
 
         {/* Debug Panel */}
-        <DebugPanel
+        {/* <DebugPanel
           showDebugPanel={showDebugPanel}
           setShowDebugPanel={setShowDebugPanel}
           currentPath="/main-jump"
@@ -1969,7 +1972,7 @@ setScore(finalScore);
           comments={comments}
           logs={logs}
           clearLogs={clearLogs}
-        />
+        /> */}
       </ScrollView>
     </SafeAreaView>
   );
@@ -2369,7 +2372,7 @@ const styles = StyleSheet.create({
   },
 
   neutralTotalCell: {
-    flex: 0.5,
+    flex: 0.4,
     backgroundColor: "rgb(150, 150, 150)",
     justifyContent: "center",
     alignItems: "center",

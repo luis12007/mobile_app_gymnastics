@@ -369,18 +369,11 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     let rawScore = eScore + sv + (value ? 0.1 : 0.0) - nd;
     console.log("Raw myScore calculation:", eScore, "+", sv, "+", (value ? 0.1 : 0.0), "-", nd, "=", rawScore);
     
-    // Apply the 99 adjustment
-    let adjustedScore = adjustScoreFor99(rawScore);
-    console.log("After 99 adjustment:", adjustedScore);
 
-    // Improved truncate process to ensure proper 3-decimal format
-    const truncated = Math.floor(adjustedScore * 100) / 100;
-    const truncatedStr = truncated.toFixed(2);
+
+    const finalScore = Math.round(rawScore * 1000) / 1000;
     
-    // Ensure we have exactly 3 decimals by duplicating last digit
-    const finalScore = parseFloat(truncatedStr + truncatedStr.charAt(truncatedStr.length - 1));
-    
-    console.log("Truncated:", truncated, "Truncated string:", truncatedStr, "Final myScore:", finalScore);
+    console.log("Final myScore:", finalScore);
     setMyScore(finalScore);
 
     try {
@@ -495,9 +488,13 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
               IV: rateTable.elementGroups4 || 0.0,
             };
 
-            const allAreZero = Object.values(loadedValues).every(
+            /* const allAreZero = Object.values(loadedValues).every(
               (value) => value === 0.0
             ) && rateTable.execution === 0 && rateTable.eScore === 0 && 
+            rateTable.compD === 0 && rateTable.compE === 0 && 
+            rateTable.compNd === 0 && rateTable.compScore === 0 && 
+            mainTable.cv === 0 && mainTable.nd === 0; */
+            const allAreZero = rateTable.execution === 0 && rateTable.eScore === 0 && 
             rateTable.compD === 0 && rateTable.compE === 0 && 
             rateTable.compNd === 0 && rateTable.compScore === 0 && 
             mainTable.cv === 0 && mainTable.nd === 0;
@@ -538,11 +535,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                     newSv +
                     (rateTable.stickBonus ? 0.1 : 0.0) -
                     mainTable.nd;
-                  const truncated = Math.floor(newmyscore * 100) / 100;
-                  const truncatedStr = truncated.toFixed(2);
-                  const finalScore = parseFloat(
-                    truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
-                  );
+                  const finalScore = Math.round(newmyscore * 1000) / 1000;
                   setMyScore(finalScore);
 
                   // Update MainTable with new SV
@@ -744,14 +737,9 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       let rawScore = eScore + (total + difficultyValues + cv) + (stickbonus ? 0.1 : 0.0) - nd;
       console.log("Raw myScore calculation (element groups):", eScore, "+", newsv, "+", (stickbonus ? 0.1 : 0.0), "-", nd, "=", rawScore);
       
-      // Apply the 99 adjustment
-      let adjustedScore = adjustScoreFor99(rawScore);
-      console.log("After 99 adjustment (element groups):", adjustedScore);
+
       
-      // Improved truncate process
-      const truncated = Math.floor(adjustedScore * 100) / 100;
-      const truncatedStr = truncated.toFixed(2);
-      const finalScore = parseFloat(truncatedStr + truncatedStr.charAt(truncatedStr.length - 1));
+      const finalScore = Math.round(rawScore * 1000) / 1000;
 
       console.log("Final myScore (element groups):", finalScore);
       setMyScore(finalScore);
@@ -849,10 +837,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         let adjustedScore = adjustScoreFor99(rawScore);
         console.log("After 99 adjustment (difficulty):", adjustedScore);
 
-        // Improved truncate process
-        const truncated = Math.floor(adjustedScore * 100) / 100;
-        const truncatedStr = truncated.toFixed(2);
-        const finalScore = parseFloat(truncatedStr + truncatedStr.charAt(truncatedStr.length - 1));
+        const finalScore = Math.round(adjustedScore * 1000) / 1000;
 
         console.log("Final myScore (difficulty):", finalScore);
         setMyScore(finalScore);
@@ -1178,13 +1163,9 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     const newSv = cvValue + difficultyValues + elementGroupsTotal;
     let rawScore = eScore + newSv + (stickbonus ? 0.1 : 0.0) - nd;
     
-    // Apply the 99 adjustment
-    rawScore = adjustScoreFor99(rawScore);
+
     
-    // Optimized truncation
-    const truncated = Math.floor(rawScore * 100) / 100;
-    const truncatedStr = truncated.toFixed(2);
-    const finalScore = parseFloat(truncatedStr + truncatedStr.charAt(truncatedStr.length - 1));
+    const finalScore = Math.round(rawScore * 1000) / 1000;
     
     return { newSv, finalScore };
   }, [difficultyValues, elementGroupsTotal, eScore, stickbonus, nd, adjustScoreFor99]);
@@ -1368,14 +1349,9 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
 
               let compscorecalc = d + e + (sb ? 0.1 : 0.0) - rounded;
 
-              // Apply the 99 adjustment
-              compscorecalc = adjustScoreFor99(compscorecalc);
 
-              const truncated = Math.floor(compscorecalc * 100) / 100;
-              const truncatedStr = truncated.toFixed(2);
-              const finalScore = parseFloat(
-                truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
-              );
+
+              const finalScore = Math.round(compscorecalc * 1000) / 1000;
 
               setScore(finalScore);
 
@@ -1479,13 +1455,8 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
               setE(rounded);
               
               let compscorecalc = d + rounded + (sb ? 0.1 : 0.0) - ndcomp;
-              compscorecalc = adjustScoreFor99(compscorecalc);
 
-              const truncated = Math.floor(compscorecalc * 100) / 100;
-              const truncatedStr = truncated.toFixed(2);
-              const finalScore = parseFloat(
-                truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
-              );
+              const finalScore = Math.round(compscorecalc * 1000) / 1000;
 
               setScore(finalScore);
 
@@ -1683,13 +1654,8 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
               let compscorecalc = rounded + e + (sb ? 0.1 : 0.0) - ndcomp;
 
               // Apply the 99 adjustment
-              compscorecalc = adjustScoreFor99(compscorecalc);
 
-              const truncated = Math.floor(compscorecalc * 100) / 100;
-              const truncatedStr = truncated.toFixed(2);
-              const finalScore = parseFloat(
-                truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
-              );
+              const finalScore = Math.round(compscorecalc * 1000) / 1000;
 
               setScore(finalScore);
 
@@ -1788,14 +1754,9 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
               let newmyscore =
                 eScore + sv + (stickbonus ? 0.1 : 0.0) - rounded;
 
-              // Apply the 99 adjustment
-              newmyscore = adjustScoreFor99(newmyscore);
 
-              const truncated = Math.floor(newmyscore * 100) / 100;
-              const truncatedStr = truncated.toFixed(2);
-              const finalScore = parseFloat(
-                truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
-              );
+
+              const finalScore = Math.round(newmyscore * 1000) / 1000;
 
               setMyScore(finalScore);
               // Save to database
@@ -1870,14 +1831,8 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
               let rawScore = eScore + sv + (stickbonus ? 0.1 : 0.0) - nd;
               console.log("Raw myScore calculation (execution):", eScore, "+", sv, "+", (stickbonus ? 0.1 : 0.0), "-", nd, "=", rawScore);
 
-              // Apply the 99 adjustment
-              let adjustedScore = adjustScoreFor99(rawScore);
-              console.log("After 99 adjustment (execution):", adjustedScore);
 
-              // Improved truncate process
-              const truncated = Math.floor(adjustedScore * 100) / 100;
-              const truncatedStr = truncated.toFixed(2);
-              const finalScore = parseFloat(truncatedStr + truncatedStr.charAt(truncatedStr.length - 1));
+              const finalScore = Math.round(rawScore * 1000) / 1000;
 
               console.log("Final myScore (execution):", finalScore);
               setMyScore(finalScore);
@@ -2360,13 +2315,8 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                             d + e + (newValue ? 0.1 : 0.0) - ndcomp;
 
                           // Apply the 99 adjustment
-                          compscorecalc = adjustScoreFor99(compscorecalc);
 
-                          const truncated = Math.floor(compscorecalc * 100) / 100;
-                          const truncatedStr = truncated.toFixed(2);
-                          const finalScore = parseFloat(
-                            truncatedStr + truncatedStr.charAt(truncatedStr.length - 1)
-                          );
+                          const finalScore = Math.round(compscorecalc * 1000) / 1000;
 
                           setScore(finalScore);
 
@@ -2474,6 +2424,9 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                   <Text style={styles.lineValueText}>{gymnastNoc}</Text>
                 </View>
                 <View style={styles.otherCell}>
+                  <Text style={styles.lineValueText}>{gymnastBib}</Text>
+                </View>
+                <View style={styles.otherCell}>
                   <Text style={styles.otherValueText}>{gymnastEvent}</Text>
                 </View>
                 <View style={styles.neutralTotalCell}>
@@ -2533,7 +2486,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
           </TouchableOpacity>
         </View>
 
-        <DebugPanel
+        {/* <DebugPanel
           showDebugPanel={showDebugPanel}
           setShowDebugPanel={setShowDebugPanel}
           currentPath="/main-floor"
@@ -2582,7 +2535,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
           comments={comments}
           logs={logs}
           clearLogs={clearLogs}
-        />
+        /> */}
       </ScrollView>
     </SafeAreaView>
   );
@@ -3355,7 +3308,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   lineCell: {
-    flex: 0.7,
+    flex: 0.4,
     backgroundColor: "#D9D9D9",
 
     justifyContent: "center",
@@ -3383,7 +3336,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   neutralTotalCell: {
-    flex: 0.5,
+    flex: 0.4,
     backgroundColor: "rgb(150, 150, 150)",
 
     justifyContent: "center",

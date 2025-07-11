@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState, useEffect } from 'react';
 import { Dimensions, Modal, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import CustomNumberPad from './CustomNumberPad';
+import CustomNumberPadOptimized from './CustomNumberPadOptimized';
 
 // Vault data structure
 interface VaultOption {
@@ -182,7 +182,8 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
         { id: "518", number: "518", value: 3.4, description: "Round Off 1/2 turn, handspring salto forward straight" },
         { id: "519", number: "519", value: 4.8, description: "Yurchenko double salto backward tucked (Melissanidis)" },
         { id: "520", number: "520", value: 5.2, description: "Melissanidis piked (Yang Wei)" },
-        { id: "521", number: "521", value: 5.0, description: "Round Off 1/2 turn, handspring double salto tucked" }
+        { id: "521", number: "521", value: 5.0, description: "Round Off 1/2 turn, handspring double salto tucked" },
+        { id: "522", number: "522", value: 5.6, description: "Yurchencko double salto backward tucked 1/1 turn (Olfati)" }
       ]
     }
   ];
@@ -202,51 +203,6 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
     setOriginalInputValue(currentValue);
     setTempInputValue(currentValue);
     setShowNumberPad(true);
-  };
-
-  const handleNumberPadPress = (number: string) => {
-    const newValue = tempInputValue + number;
-    setTempInputValue(newValue);
-    
-    // Actualizar en tiempo real
-    if (activeInputType === 'number') {
-      setSearchNumber(newValue);
-    } else if (activeInputType === 'value') {
-      setSearchValue(newValue);
-    }
-  };
-
-  const handleNumberPadBackspace = () => {
-    const newValue = tempInputValue.slice(0, -1);
-    setTempInputValue(newValue);
-    
-    // Actualizar en tiempo real
-    if (activeInputType === 'number') {
-      setSearchNumber(newValue);
-    } else if (activeInputType === 'value') {
-      setSearchValue(newValue);
-    }
-  };
-
-  const handleNumberPadConfirm = () => {
-    // Los valores ya se han actualizado en tiempo real
-    setShowNumberPad(false);
-    setActiveInputType(null);
-    setTempInputValue('');
-    setOriginalInputValue('');
-  };
-
-  const handleNumberPadClose = () => {
-    // Restaurar valores originales si se cancela
-    if (activeInputType === 'number') {
-      setSearchNumber(originalInputValue);
-    } else if (activeInputType === 'value') {
-      setSearchValue(originalInputValue);
-    }
-    setShowNumberPad(false);
-    setActiveInputType(null);
-    setTempInputValue('');
-    setOriginalInputValue('');
   };
 
   return (
@@ -364,13 +320,28 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
           </View>
         </View>
         {showNumberPad && (
-          <CustomNumberPad
+          <CustomNumberPadOptimized
             visible={showNumberPad}
-            currentValue={tempInputValue}
-            onClose={handleNumberPadClose}
-            onNumberPress={handleNumberPadPress}
-            onBackspace={handleNumberPadBackspace}
-            onConfirm={handleNumberPadConfirm}
+            value={tempInputValue}
+            onValueChange={(value) => {
+              setTempInputValue(value);
+              // Actualizar en tiempo real
+              if (activeInputType === 'number') {
+                setSearchNumber(value);
+              } else if (activeInputType === 'value') {
+                setSearchValue(value);
+              }
+            }}
+            onClose={(finalValue) => {
+              // Los valores ya se han actualizado en tiempo real
+              setShowNumberPad(false);
+              setActiveInputType(null);
+              setTempInputValue('');
+              setOriginalInputValue('');
+            }}
+            title={activeInputType === 'number' ? 'Search by Number' : 'Search by Value'}
+            allowDecimal={activeInputType === 'value'}
+            maxLength={activeInputType === 'number' ? 3 : 4}
           />
         )}
       </SafeAreaView>
