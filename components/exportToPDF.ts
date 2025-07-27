@@ -2,6 +2,26 @@ import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
 import * as Print from 'expo-print';
 import { shareAsync } from 'expo-sharing';
+import { Dimensions } from "react-native";
+
+
+const { width, height } = Dimensions.get("window");
+
+// Variables para determinar el tamaño del dispositivo (como en el original)
+var isLargeDevice = false;
+var isMediumLargeDevice = false;
+var isSmallDevice = false;
+var isTinyDevice = false;
+
+if (width >= 1368) {
+  isLargeDevice = true;
+} else if (width >= 1200 && width < 1368) {
+  isMediumLargeDevice = true;
+} else if (width >= 945 && width < 1200) {
+  isSmallDevice = true;
+} else if (width < 945) {
+  isTinyDevice = true;
+}
 
 // Interface for main floor data
 interface MainTable {
@@ -672,11 +692,16 @@ export const generateComprehensivePDF = async (
         const pathCenterX = (minX + pathWidth / 2);
         const pathCenterY = (minY + pathHeight / 2);
         
-        const rightShift = 120; // Move paths 100 units to the right
-        const bShift = 60; // Move paths 50 units down
+        // Ajustar shift según tamaño de dispositivo
+        let rightShift = 0;
+        let bShift = 0;
+        if (isLargeDevice || isMediumLargeDevice) {
+          rightShift = 120; // Move paths 120 units to the right
+          bShift = 60;      // Move paths 60 units down
+        }
+        // Si es small o tiny, no aplicar shift
         const offsetX = centerX - pathCenterX + rightShift;
         const offsetY = centerY - pathCenterY + bShift;
-        
         transformGroup = `<g transform="translate(${offsetX}, ${offsetY})">`;
       }
       
@@ -786,25 +811,25 @@ export const generateComprehensivePDF = async (
           <div class="tables-section">
             <!-- Vault Information Table -->
             <div>
-              <div class="vault-table-header">Vault Information</div>
+              <div class="vault-table-header">ANNOUNCED VAULT</div>
               <table class="vault-table">
                 <thead>
                   <tr>
-                    <th>Category</th>
-                    <th>Value</th>
+                    <th>CATEGORY</th>
+                    <th>VALUE</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr class="vault-info-row">
-                    <td>Vault Number</td>
+                    <td>VAULT NUMBER</td>
                     <td class="vault-info-value">${gymnast.rateGeneral?.vaultNumber || 'N/A'}</td>
                   </tr>
                   <tr class="vault-info-row">
-                    <td>Start Value</td>
-                    <td class="vault-info-value">${(gymnast.sv || 0).toFixed(1)}</td>
+                    <td>START VALUE</td>
+                    <td class="vault-info-value">${(gymnast.e2 || 0).toFixed(1)}</td>
                   </tr>
                   <tr class="vault-info-row">
-                    <td>Description</td>
+                    <td>DESCRIPTION</td>
                     <td class="vault-info-value">${gymnast.rateGeneral?.vaultDescription || 'No description'}</td>
                   </tr>
                 </tbody>
@@ -1410,7 +1435,7 @@ export const generateComprehensivePDF = async (
         .whiteboard-canvas {
           width: 60%;
           height: 180px;
-          background: #e0e0e0;
+          background: #ffffffff;
           border: 1px solid #ccc;
           border-radius: 4px;
           margin: 0 auto;

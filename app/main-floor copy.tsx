@@ -622,7 +622,18 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       };
       console.log("updateData:", updateData);
       console.log("rateid:", rateid);
-      
+      if (rateid) {
+        updateRateGeneral(rateid, updateData).then((success) => {
+          trackSaveAttempt(success, "stick bonus");
+          if (success) {
+            console.log(`Saved stickBonus in MainRateGeneral.`);
+          } else {
+            console.error(`Failed to save stickBonus in MainRateGeneral.`);
+          }
+        });
+      } else {
+        showSaveWarning("No rate ID available. Cannot save stick bonus.");
+      }
     } catch (error) {
       console.error("Error saving stickBonus to MainRateGeneral:", error);
     }
@@ -954,6 +965,8 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         }`]: value,
       };
 
+      const success = await updateRateGeneral(rateid, updateData);
+      trackSaveAttempt(success, `element group ${group}`);
 
       setElementGroupsTotal(total);
       setSv(total + difficultyValues + cv);
@@ -970,10 +983,38 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       console.log("Final myScore (element groups):", finalScore);
       setMyScore(finalScore);
 
+      const updateData2: Partial<MainRateGeneral> = {
+        elementGroups5: total,
+        myScore: finalScore,
+      };
 
-      
+      const successmaintable = await updateMainTable(gymnastid, { sv: newsv });
 
+      if (successmaintable) {
+        console.log(`Saved sv in MainTable.`);
+      } else {
+        console.error(`Failed to save sv in MainTable.`);
+      }
 
+      const success2 = await updateRateGeneral(rateid, updateData2);
+      trackSaveAttempt(success2, "my score and element groups total");
+      if (success2) {
+        console.log(`Saved element groups total in MainRateGeneral.`);
+      } else {
+        console.error(
+          `Failed to save element groups total in MainRateGeneral.`
+        );
+      }
+
+      if (success) {
+        console.log(
+          `Saved element group ${group} = ${value} in MainRateGeneral.`
+        );
+      } else {
+        console.error(
+          `Failed to save element group ${group} in MainRateGeneral.`
+        );
+      }
     } catch (error) {
       console.error(
         `Error saving element group ${group} to MainRateGeneral:`,
@@ -1029,7 +1070,24 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
           difficultyValues: difficulty,
           myScore: finalScore,
         };
+        try {
+          const success = await updateMainTable(gymnastid, updateData);
+          const successratetable = await updateRateGeneral(rateid, updateratetable);
+          if (successratetable) {
+            console.log(`Saved ${sum} and difficulty ${difficulty} in RateTable.`);
+          } else {
+            console.error(`Failed to save ${sum} or difficulty in RateTable.`);
+          }
+          if (success) {
+            console.log(`Saved ${newCounts[row].value} for row ${row} in MainTable.`);
+          } else {
+            console.error(`Failed to save ${newCounts[row].value} for row ${row} in MainTable.`);
+          }
+        } catch (error) {
+          console.error("Error saving to MainTable:", error);
+        } finally {
           setIsSavingElement(false);
+        }
       })();
       return newCounts;
     });
@@ -1118,103 +1176,13 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     );
   };
 
-  const handleSelect = async () => {
-    const mainTableUpdate = {
-        // Elementos
-        j: elementCounts.J.value,
-        i: elementCounts.I.value,
-        h: elementCounts.H.value,
-        g: elementCounts.G.value,
-        f: elementCounts.F.value,
-        e: elementCounts.E.value,
-        d: elementCounts.D.value,
-        c: elementCounts.C.value,
-        b: elementCounts.B.value,
-        a: elementCounts.A.value,
-        // Dificultad y totales
-        nd: nd,
-        cv: cv,
-        sv: sv,
-        delt: delt,
-        percentage: percentage,
-      };
-      await updateMainTable(gymnastid, mainTableUpdate);
-
-      // 2. Guardar RateGeneral (todos los valores relevantes)
-      const rateGeneralUpdate = {
-        stickBonus: stickbonus,
-        numberOfElements: totalElements,
-        difficultyValues: difficultyValues,
-        elementGroups1: elementGroupValues.I,
-        elementGroups2: elementGroupValues.II,
-        elementGroups3: elementGroupValues.III,
-        elementGroups4: elementGroupValues.IV,
-        elementGroups5: elementGroupsTotal,
-        execution: execution,
-        eScore: eScore,
-        myScore: myScore,
-        compD: d,
-        compE: e,
-        compSd: sb ? 0.1 : 0.0,
-        compNd: ndcomp,
-        compScore: score,
-        comments: comments,
-      ded: ded,
-      };
-      await updateRateGeneral(rateid, rateGeneralUpdate);
-
+  const handleSelect = () => {
     router.replace(
       `/final-table?competenceId=${competenceId}&gymnastId=${discipline}&event=${event}&discipline=${discipline}&gymnast=${gymnastid}&number=${number}&participants=${participants}&folderId=${folderId}`
     );
   };
 
-  const handlegobacklist = async () => {
-
-    const mainTableUpdate = {
-        // Elementos
-        j: elementCounts.J.value,
-        i: elementCounts.I.value,
-        h: elementCounts.H.value,
-        g: elementCounts.G.value,
-        f: elementCounts.F.value,
-        e: elementCounts.E.value,
-        d: elementCounts.D.value,
-        c: elementCounts.C.value,
-        b: elementCounts.B.value,
-        a: elementCounts.A.value,
-        // Dificultad y totales
-        nd: nd,
-        cv: cv,
-        sv: sv,
-        delt: delt,
-        percentage: percentage,
-      };
-      await updateMainTable(gymnastid, mainTableUpdate);
-
-      // 2. Guardar RateGeneral (todos los valores relevantes)
-      const rateGeneralUpdate = {
-        stickBonus: stickbonus,
-        numberOfElements: totalElements,
-        difficultyValues: difficultyValues,
-        elementGroups1: elementGroupValues.I,
-        elementGroups2: elementGroupValues.II,
-        elementGroups3: elementGroupValues.III,
-        elementGroups4: elementGroupValues.IV,
-        elementGroups5: elementGroupsTotal,
-        execution: execution,
-        eScore: eScore,
-        myScore: myScore,
-        compD: d,
-        compE: e,
-        compSd: sb ? 0.1 : 0.0,
-        compNd: ndcomp,
-        compScore: score,
-        comments: comments,
-      ded: ded,
-      };
-      await updateRateGeneral(rateid, rateGeneralUpdate);
-
-
+  const handlegobacklist = () => {
     router.replace(
       `/start-gudging?id=${competenceId}&discipline=${discipline}&participants=${participants}&number=${number}&gymnast=${gymnastid}&folderId=${folderId}`
     ); // Pass the value as a query parameter
@@ -1223,50 +1191,6 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
   const handleGoForward = async () => {
     try {
       // Fetch all MainTable entries for the current competenceId
-
-      const mainTableUpdate = {
-        // Elementos
-        j: elementCounts.J.value,
-        i: elementCounts.I.value,
-        h: elementCounts.H.value,
-        g: elementCounts.G.value,
-        f: elementCounts.F.value,
-        e: elementCounts.E.value,
-        d: elementCounts.D.value,
-        c: elementCounts.C.value,
-        b: elementCounts.B.value,
-        a: elementCounts.A.value,
-        // Dificultad y totales
-        nd: nd,
-        cv: cv,
-        sv: sv,
-        delt: delt,
-        percentage: percentage,
-      };
-      await updateMainTable(gymnastid, mainTableUpdate);
-
-      // 2. Guardar RateGeneral (todos los valores relevantes)
-      const rateGeneralUpdate = {
-        stickBonus: stickbonus,
-        numberOfElements: totalElements,
-        difficultyValues: difficultyValues,
-        elementGroups1: elementGroupValues.I,
-        elementGroups2: elementGroupValues.II,
-        elementGroups3: elementGroupValues.III,
-        elementGroups4: elementGroupValues.IV,
-        elementGroups5: elementGroupsTotal,
-        execution: execution,
-        eScore: eScore,
-        myScore: myScore,
-        compD: d,
-        compE: e,
-        compSd: sb ? 0.1 : 0.0,
-        compNd: ndcomp,
-        compScore: score,
-        comments: comments,
-      ded: ded,
-      };
-      await updateRateGeneral(rateid, rateGeneralUpdate);
 
       if (number === participants) {
         router.replace(
@@ -1315,52 +1239,6 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
 
   const handleGoBack = async () => {
     try {
-
-      const mainTableUpdate = {
-        // Elementos
-        j: elementCounts.J.value,
-        i: elementCounts.I.value,
-        h: elementCounts.H.value,
-        g: elementCounts.G.value,
-        f: elementCounts.F.value,
-        e: elementCounts.E.value,
-        d: elementCounts.D.value,
-        c: elementCounts.C.value,
-        b: elementCounts.B.value,
-        a: elementCounts.A.value,
-        // Dificultad y totales
-        nd: nd,
-        cv: cv,
-        sv: sv,
-        delt: delt,
-        percentage: percentage,
-      };
-      await updateMainTable(gymnastid, mainTableUpdate);
-
-      // 2. Guardar RateGeneral (todos los valores relevantes)
-      const rateGeneralUpdate = {
-        stickBonus: stickbonus,
-        numberOfElements: totalElements,
-        difficultyValues: difficultyValues,
-        elementGroups1: elementGroupValues.I,
-        elementGroups2: elementGroupValues.II,
-        elementGroups3: elementGroupValues.III,
-        elementGroups4: elementGroupValues.IV,
-        elementGroups5: elementGroupsTotal,
-        execution: execution,
-        eScore: eScore,
-        myScore: myScore,
-        compD: d,
-        compE: e,
-        compSd: sb ? 0.1 : 0.0,
-        compNd: ndcomp,
-        compScore: score,
-        comments: comments,
-      ded: ded,
-      };
-      await updateRateGeneral(rateid, rateGeneralUpdate);
-
-      
       // Fetch all MainTable entries for the current competenceId
       const mainTables = await getMainTablesByCompetenceId(
         Number(competenceId)
@@ -1533,7 +1411,22 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       setSv(newSv);
       setMyScore(finalScore);
 
+      try {
+        // Batch database updates for mejor performance
+        const [mainTableSuccess, rateGeneralSuccess] = await Promise.all([
+          updateMainTable(gymnastid, { cv: rounded, sv: newSv }),
+          updateRateGeneral(rateid, { myScore: finalScore })
+        ]);
 
+        trackSaveAttempt(mainTableSuccess && rateGeneralSuccess, "CV value");
+        if (mainTableSuccess && rateGeneralSuccess) {
+          console.log(`CV saved successfully: ${rounded}`);
+        } else {
+          console.error("Failed to save CV value");
+        }
+      } catch (error) {
+        console.error("Error saving CV to database:", error);
+      }
     }, 0);
   }, [safeStringToNumber, safeRound, calculateCvScore, gymnastid, rateid, trackSaveAttempt]);
 
@@ -1580,179 +1473,91 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       ) : null}
       
       {/* Element Group Modals */}
-{Object.keys(showElementGroupModal).map((group) =>
-  (Platform.OS === 'ios' && !Platform.isPad) || (Platform.OS === 'android' && isTinyDevice) ? (
-    showElementGroupModal[group] && (
-      <View key={group} style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: "rgba(0,0,0,0.5)",
-          justifyContent: "center",
-          alignItems: "center",
-          zIndex: 9999,
-        }}>
-        <View style={styles.modalContainer}>
-          <Text style={styles.modalTitle}>
-            Select Element Group {group}
-          </Text>
-          <ScrollView style={styles.modalScrollView}>
-            {(group === "IV"
-              ? (() => {
-                  if (discipline && gymnastEvent === "FX") {
-                    return [0.0, 0.3, 0.5];
-                  } else if (
-                    !discipline &&
-                    (gymnastEvent === "FX" ||
-                      gymnastEvent === "UB" ||
-                      gymnastEvent === "BB")
-                  ) {
-                    return [0.0, 0.5];
-                  } else if (
-                    discipline &&
-                    (gymnastEvent === "PH" ||
-                      gymnastEvent === "SR" ||
-                      gymnastEvent === "PB" ||
-                      gymnastEvent === "HB")
-                  ) {
-                    return [
-                      0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0,
-                      1.1,
-                    ];
-                  } else {
-                    return [
-                      0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0,
-                      1.1,
-                    ];
-                  }
-                })()
-              : discipline
-              ? [0.0, 0.3, 0.5]
-              : [0.0, 0.5]
-            ).map((value) => (
+      {Object.keys(showElementGroupModal).map((group) => (
+        <Modal
+          key={group}
+          transparent
+          visible={showElementGroupModal[group]}
+          animationType="fade"
+          onRequestClose={() =>
+            setShowElementGroupModal((prev) => ({ ...prev, [group]: false }))
+          }
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContainer}>
+              <Text style={styles.modalTitle}>
+                Select Element Group {group}
+              </Text>
+              <ScrollView style={styles.modalScrollView}>
+                {(group === "IV"
+                  ? (() => {
+                      if (discipline && gymnastEvent === "FX") {
+                        return [0.0, 0.3, 0.5];
+                      } else if (
+                        !discipline &&
+                        (gymnastEvent === "FX" ||
+                          gymnastEvent === "UB" ||
+                          gymnastEvent === "BB")
+                      ) {
+                        return [0.0, 0.5];
+                      } else if (
+                        discipline &&
+                        (gymnastEvent === "PH" ||
+                          gymnastEvent === "SR" ||
+                          gymnastEvent === "PB" ||
+                          gymnastEvent === "HB")
+                      ) {
+                        return [
+                          0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0,
+                          1.1,
+                        ];
+                      } else {
+                        return [
+                          0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0,
+                          1.1,
+                        ];
+                      }
+                    })()
+                  : discipline
+                  ? [0.0, 0.3, 0.5]
+                  : [0.0, 0.5]
+                ).map((value) => (
+                  <TouchableOpacity
+                    key={`${group}-${value}`}
+                    style={[
+                      styles.modalItem,
+                      elementGroupValues[group as keyof typeof elementGroupValues] === value &&
+                        styles.modalItemSelected,
+                    ]}
+                    onPress={() => selectValue(group, value)}
+                  >
+                    <Text
+                      style={[
+                        styles.modalItemText,
+                        elementGroupValues[group as keyof typeof elementGroupValues] === value &&
+                          styles.modalItemTextSelected,
+                      ]}
+                    >
+                      {value.toFixed(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
               <TouchableOpacity
-                key={`${group}-${value}`}
-                style={[
-                  styles.modalItem,
-                  elementGroupValues[group as keyof typeof elementGroupValues] === value &&
-                    styles.modalItemSelected,
-                ]}
-                onPress={() => selectValue(group, value)}
+                style={styles.modalCloseButton}
+                onPress={() =>
+                  setShowElementGroupModal((prev) => ({
+                    ...prev,
+                    [group]: false,
+                  }))
+                }
               >
-                <Text
-                  style={[
-                    styles.modalItemText,
-                    elementGroupValues[group as keyof typeof elementGroupValues] === value &&
-                      styles.modalItemTextSelected,
-                  ]}
-                >
-                  {value.toFixed(1)}
-                </Text>
+                <Text style={styles.modalCloseButtonText}>Close</Text>
               </TouchableOpacity>
-            ))}
-          </ScrollView>
-          <TouchableOpacity
-            style={styles.modalCloseButton}
-            onPress={() =>
-              setShowElementGroupModal((prev) => ({
-                ...prev,
-                [group]: false,
-              }))
-            }
-          >
-            <Text style={styles.modalCloseButtonText}>Close</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    )
-  ) : (
-    <Modal
-      key={group}
-      transparent
-      visible={showElementGroupModal[group]}
-      animationType="fade"
-      onRequestClose={() =>
-        setShowElementGroupModal((prev) => ({ ...prev, [group]: false }))
-      }
-    >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContainer}>
-          <Text style={styles.modalTitle}>
-            Select Element Group {group}
-          </Text>
-          <ScrollView style={styles.modalScrollView}>
-            {(group === "IV"
-              ? (() => {
-                  if (discipline && gymnastEvent === "FX") {
-                    return [0.0, 0.3, 0.5];
-                  } else if (
-                    !discipline &&
-                    (gymnastEvent === "FX" ||
-                      gymnastEvent === "UB" ||
-                      gymnastEvent === "BB")
-                  ) {
-                    return [0.0, 0.5];
-                  } else if (
-                    discipline &&
-                    (gymnastEvent === "PH" ||
-                      gymnastEvent === "SR" ||
-                      gymnastEvent === "PB" ||
-                      gymnastEvent === "HB")
-                  ) {
-                    return [
-                      0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0,
-                      1.1,
-                    ];
-                  } else {
-                    return [
-                      0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0,
-                      1.1,
-                    ];
-                  }
-                })()
-              : discipline
-              ? [0.0, 0.3, 0.5]
-              : [0.0, 0.5]
-            ).map((value) => (
-              <TouchableOpacity
-                key={`${group}-${value}`}
-                style={[
-                  styles.modalItem,
-                  elementGroupValues[group as keyof typeof elementGroupValues] === value &&
-                    styles.modalItemSelected,
-                ]}
-                onPress={() => selectValue(group, value)}
-              >
-                <Text
-                  style={[
-                    styles.modalItemText,
-                    elementGroupValues[group as keyof typeof elementGroupValues] === value &&
-                      styles.modalItemTextSelected,
-                  ]}
-                >
-                  {value.toFixed(1)}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-          <TouchableOpacity
-            style={styles.modalCloseButton}
-            onPress={() =>
-              setShowElementGroupModal((prev) => ({
-                ...prev,
-                [group]: false,
-              }))
-            }
-          >
-            <Text style={styles.modalCloseButtonText}>Close</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
-  )
-)}
+            </View>
+          </View>
+        </Modal>
+      ))}
 
       {showNdCompModal && (
         <CustomNumberPadOptimized
@@ -1790,6 +1595,8 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                 const dedInterval = getDeductionIntervalValue(Number(newded));
                 const percentageValue = getPercentageFromTable(dedInterval, newdelt);
                 setpercentage(percentageValue);
+                updateMainTable(gymnastid, { delt: newdelt, percentage: percentageValue });
+                updateRateGeneral(rateid, { compNd: rounded, compScore: finalScore });
               }
             }, 0);
           }}
@@ -1833,6 +1640,8 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                 const dedInterval = getDeductionIntervalValue(Number(newded));
                 const percentageValue = getPercentageFromTable(dedInterval, newdelt);
                 setpercentage(percentageValue);
+                updateMainTable(gymnastid, { delt: newdelt, percentage: percentageValue });
+                updateRateGeneral(rateid, { compE: rounded, compScore: finalScore, ded: newded });
               }
             }, 0);
           }}
@@ -1907,7 +1716,16 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                 onPress={async () => {
                   setComments(commentsInput);
                   setShowCommentsModal(false);
-                  
+                  try {
+                    await updateRateGeneral(rateid, {
+                      comments: commentsInput,
+                    });
+                  } catch (error) {
+                    console.error(
+                      "Error saving comments to MainRateGeneral:",
+                      error
+                    );
+                  }
                 }}
               >
                 <Text style={{ color: "#fff", fontWeight: "bold" }}>Save</Text>
@@ -1964,6 +1782,8 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                 const dedInterval = getDeductionIntervalValue(Number(newded));
                 const percentageValue = getPercentageFromTable(dedInterval, newdelt);
                 setpercentage(percentageValue);
+                updateMainTable(gymnastid, { delt: newdelt, percentage: percentageValue });
+                updateRateGeneral(rateid, { compD: rounded, compScore: finalScore, ded: newded });
               }
             }, 0);
           }}
@@ -1999,6 +1819,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                 let newmyscore = eScore + sv + (stickbonus ? 0.1 : 0.0) - rounded;
                 const finalScore = Math.round(newmyscore * 1000) / 1000;
                 setMyScore(finalScore);
+                updateMainTable(gymnastid, { nd: rounded });
               }
             }, 0);
           }}
@@ -2043,7 +1864,8 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                 const dedInterval = getDeductionIntervalValue(Number(newded));
                 const percentageValue = getPercentageFromTable(dedInterval, newdelt);
                 setpercentage(percentageValue);
-                
+                updateMainTable(gymnastid, { delt: newdelt, percentage: percentageValue });
+                updateRateGeneral(rateid, { execution: rounded, eScore: eScoreCalc, myScore: finalScore, ded: newded });
               }
             }, 0);
           }}
@@ -2110,7 +1932,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                 <View
                   style={[
                     styles.infoValueCell,
-                    ((discipline ? totalElements >= 6 : totalElements >= 7) && totalElements <= 8)
+                    totalElements >= 6 && totalElements <= 8
                       ? styles.infoValueCellGreen
                       : styles.infoValueCellRed,
                   ]}
@@ -2459,7 +2281,29 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
 
                           setScore(finalScore);
 
-                          
+                          updateRateGeneral(rateid, {
+                            compSd: newValue ? 0.1 : 0.0,
+                            compScore: finalScore,
+                          })
+                            .then((success) => {
+                              if (success) {
+                                console.log(
+                                  `Saved SB = ${
+                                    newValue ? "0.1" : "0.0"
+                                  } in MainRateGeneral.`
+                                );
+                              } else {
+                                console.error(
+                                  `Failed to save SB in MainRateGeneral.`
+                                );
+                              }
+                            })
+                            .catch((error) => {
+                              console.error(
+                                "Error saving SB to MainRateGeneral:",
+                                error
+                              );
+                            });
                         }}
                       >
                         <Text

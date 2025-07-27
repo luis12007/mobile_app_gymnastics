@@ -426,13 +426,13 @@ export default function SelectSex() {
       // Leer archivo
       const fileContent = await FileSystem.readAsStringAsync(result.assets[0].uri);
       
-      // Validar y importar
-      const success = await importFolderData(fileContent, userId);
+      // ✨ ACTUALIZADO: Importar en carpeta raíz (parentId = 0) para nueva estructura de carpetas anidadas
+      const success = await importFolderData(fileContent, 0);
       
       if (success) {
         Alert.alert(
           "Éxito", 
-          "Folder importado correctamente. Los datos se han agregado a tu cuenta.",
+          "Folder importado correctamente. Los datos se han agregado a la carpeta raíz.",
           [{ text: "OK", onPress: () => setShowImportModal(false) }]
         );
       } else {

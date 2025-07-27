@@ -26,6 +26,8 @@ interface Folder {
   date: string; // ISO date string
   filled: boolean;
   position?: number; // Para el orden de las carpetas
+  parentId?: number | null; // ID de la carpeta padre (null para carpetas raíz)
+  level?: number; // Nivel de profundidad (0 para raíz, 1 para subcarpetas, etc.)
 }
 
 interface Session {
@@ -103,6 +105,7 @@ interface MainRateGeneral {
   dedexecution: number;
   vaultNumber: string;
   vaultDescription: string;
+  images?: string; // JSON.stringify de array de URIs de imágenes
 }
 
 interface MainRateJump {
@@ -770,6 +773,204 @@ export const updateFolderPosition = async (folderId: number, newPosition: number
   }
 };
 
+// ============== FUNCIONES PARA CARPETAS ANIDADAS ==============
+
+// Función para obtener carpetas por nivel específico (carpetas de un padre determinado)
+export const getFoldersByUserIdAndParent = async (userId: number, parentId: number | null = null): Promise<Folder[]> => {
+  try {
+    const folders = await getFolders();
+    return folders
+      .filter(folder => folder.userId === userId && folder.parentId === parentId)
+      .sort((a, b) => (a.position || 0) - (b.position || 0));
+  } catch (error) {
+    console.error("Error getting folders by user ID and parent:", error);
+    return [];
+  }
+};
+
+// Función para obtener todas las carpetas raíz de un usuario (sin padre)
+export const getRootFoldersByUserId = async (userId: number): Promise<Folder[]> => {
+  return getFoldersByUserIdAndParent(userId, null);
+};
+
+// Función para obtener subcarpetas de una carpeta específica
+export const getSubfolders = async (parentId: number): Promise<Folder[]> => {
+  try {
+    const folders = await getFolders();
+    return folders
+      .filter(folder => folder.parentId === parentId)
+      .sort((a, b) => (a.position || 0) - (b.position || 0));
+  } catch (error) {
+    console.error("Error getting subfolders:", error);
+    return [];
+  }
+};
+
+// Función para obtener la ruta completa de una carpeta (breadcrumb)
+export const getFolderPath = async (folderId: number): Promise<Folder[]> => {
+  try {
+    const folders = await getFolders();
+    const path: Folder[] = [];
+    
+    let currentFolder: Folder | undefined = folders.find(f => f.id === folderId);
+    
+    while (currentFolder) {
+      path.unshift(currentFolder);
+      if (currentFolder.parentId) {
+        currentFolder = folders.find(f => f.id === currentFolder!.parentId);
+      } else {
+        currentFolder = undefined;
+      }
+    }
+    
+    return path;
+  } catch (error) {
+    console.error("Error getting folder path:", error);
+    return [];
+  }
+};
+
+// Función para verificar si una carpeta puede ser movida a otra (evitar loops)
+export const canMoveFolder = async (folderId: number, targetParentId: number | null): Promise<boolean> => {
+  try {
+    if (folderId === targetParentId) return false; // No puede ser padre de sí mismo
+    
+    if (targetParentId === null) return true; // Siempre se puede mover a raíz
+    
+    // Verificar que el target no sea descendiente del folder a mover
+    const targetPath = await getFolderPath(targetParentId);
+    return !targetPath.some(folder => folder.id === folderId);
+  } catch (error) {
+    console.error("Error checking if folder can be moved:", error);
+    return false;
+  }
+};
+
+// Función para obtener el árbol completo de carpetas de un usuario
+export const getFolderTree = async (userId: number, parentId: number | null = null, level: number = 0): Promise<any[]> => {
+  try {
+    const folders = await getFoldersByUserIdAndParent(userId, parentId);
+    
+    const folderTree = [];
+    for (const folder of folders) {
+      const children = await getFolderTree(userId, folder.id, level + 1);
+      const hasSubfolders = children.length > 0;
+      
+      folderTree.push({
+        ...folder,
+        level,
+        hasSubfolders,
+        children: children
+      });
+    }
+    
+    return folderTree;
+  } catch (error) {
+    console.error("Error getting folder tree:", error);
+    return [];
+  }
+};
+
+// Función para contar subcarpetas de una carpeta
+export const countSubfolders = async (parentId: number): Promise<number> => {
+  try {
+    const subfolders = await getSubfolders(parentId);
+    return subfolders.length;
+  } catch (error) {
+    console.error("Error counting subfolders:", error);
+    return 0;
+  }
+};
+
+// Función para verificar si una carpeta tiene subcarpetas
+export const hasSubfolders = async (folderId: number): Promise<boolean> => {
+  try {
+    const count = await countSubfolders(folderId);
+    return count > 0;
+  } catch (error) {
+    console.error("Error checking if folder has subfolders:", error);
+    return false;
+  }
+};
+
+// Función para obtener el nivel máximo de profundidad de un usuario
+export const getMaxFolderDepth = async (userId: number): Promise<number> => {
+  try {
+    const folders = await getFolders();
+    const userFolders = folders.filter(f => f.userId === userId);
+    
+    let maxDepth = 0;
+    
+    for (const folder of userFolders) {
+      const path = await getFolderPath(folder.id);
+      maxDepth = Math.max(maxDepth, path.length - 1);
+    }
+    
+    return maxDepth;
+  } catch (error) {
+    console.error("Error getting max folder depth:", error);
+    return 0;
+  }
+};
+
+// Función para eliminar una carpeta y todas sus subcarpetas recursivamente
+export const deleteFolderRecursively = async (folderId: number): Promise<boolean> => {
+  try {
+    // Primero obtener todas las subcarpetas
+    const subfolders = await getSubfolders(folderId);
+    
+    // Eliminar recursivamente todas las subcarpetas
+    for (const subfolder of subfolders) {
+      await deleteFolderRecursively(subfolder.id);
+    }
+    
+    // Finalmente eliminar la carpeta actual
+    return await deleteFolder(folderId);
+  } catch (error) {
+    console.error("Error deleting folder recursively:", error);
+    return false;
+  }
+};
+
+// ✨ NUEVO: Funciones para obtener carpetas sin filtro de usuario
+export const getAllFoldersByParent = async (parentId: number | null = null): Promise<Folder[]> => {
+  try {
+    const folders = await getFolders();
+    return folders
+      .filter(folder => folder.parentId === parentId)
+      .sort((a, b) => (a.position || 0) - (b.position || 0));
+  } catch (error) {
+    console.error("Error getting all folders by parent:", error);
+    return [];
+  }
+};
+
+// ✨ NUEVO: Función para obtener todas las carpetas raíz (sin padre y sin filtro de usuario)
+export const getAllRootFolders = async (): Promise<Folder[]> => {
+  return getAllFoldersByParent(null);
+};
+
+// ✨ NUEVO: Función para obtener todas las subcarpetas de una carpeta específica (sin filtro de usuario)
+export const getAllSubfolders = async (parentId: number): Promise<Folder[]> => {
+  return getAllFoldersByParent(parentId);
+};
+
+// ✨ NUEVO: Función para obtener carpetas ordenadas por posición sin filtro de usuario
+export const getAllFoldersOrderedByPosition = async (): Promise<Folder[]> => {
+  try {
+    const folders = await getFolders();
+    return folders.sort((a, b) => (a.position || 0) - (b.position || 0));
+  } catch (error) {
+    console.error("Error getting all folders ordered by position:", error);
+    return [];
+  }
+};
+
+// ✨ NUEVO: Función para obtener todas las competencias sin filtro de usuario ni carpeta
+export const getAllCompetences = async (): Promise<Competence[]> => {
+  return getCompetences();
+};
+
 // SESSION FUNCTIONS
 export const getSessions = async (): Promise<Session[]> => {
   return getItems<Session>(SESSIONS_KEY);
@@ -850,10 +1051,28 @@ export const getCompetences = async (): Promise<Competence[]> => {
 
 export const getCompetencesByFolderId = async (folderId: number): Promise<Competence[]> => {
   try {
-    console.log("Getting competences by folder ID:", folderId);
-    console.log("Competences before filtering:", await getCompetences());
-    const competences = await getCompetences();
-    return competences.filter(competence => competence.folderId === folderId);
+    console.log("=== GETTING COMPETENCES BY FOLDER ID ===");
+    console.log("Requested folder ID:", folderId);
+    const allCompetences = await getCompetences();
+    console.log("Total competences in database:", allCompetences.length);
+    console.log("All competences:", allCompetences.map(c => ({ 
+      id: c.id, 
+      name: c.name, 
+      folderId: c.folderId, 
+      type: c.type 
+    })));
+    
+    const filteredCompetences = allCompetences.filter(competence => competence.folderId === folderId);
+    console.log("Filtered competences for folder", folderId + ":", filteredCompetences.length);
+    console.log("Filtered competences details:", filteredCompetences.map(c => ({ 
+      id: c.id, 
+      name: c.name, 
+      folderId: c.folderId, 
+      type: c.type 
+    })));
+    console.log("=== END GETTING COMPETENCES ===");
+    
+    return filteredCompetences;
   } catch (error) {
     console.error("Error getting competences by folder ID:", error);
     return [];
@@ -1492,6 +1711,10 @@ export const addTestData = async () => {
         compScore: 14.0,
         comments: "Good performance overall",
         paths: "Path A",
+        ded: 1.5,
+        dedexecution: 1.5,
+        vaultNumber: "1",
+        vaultDescription: "Test vault"
       };
       
       const result = await insertRateGeneral(rateGeneralData);
@@ -1554,101 +1777,100 @@ const generateChecksum = async (data: string): Promise<string> => {
 
 // Export folder data with all related information
 export const exportFolderData = async (
-  folderId: number, 
+  folderId: number,
   progressCallback?: (message: string, progress: number) => void
 ): Promise<string | null> => {
   try {
     console.log("exportFolderData: Starting export for folderId:", folderId);
 
-    // Get folder
-    const folder = await getFolderById(folderId);
-    if (!folder) {
+    // Función recursiva para recolectar toda la estructura de carpetas y competencias
+    async function collectFolderTree(folderId: number): Promise<any> {
+      const folder = await getFolderById(folderId);
+      if (!folder) return null;
+
+      // Obtener competencias de la carpeta
+      const competences = await getCompetencesByFolderId(folderId);
+      const competenceData = [];
+      for (const competence of competences) {
+        const tables = await getMainTablesByCompetenceId(competence.id);
+        const tablesWithRates = [];
+        for (const table of tables) {
+          const rateGeneral = await getRateGeneralByTableId(table.id);
+          const rateJump = await getRateJumpByTableId(table.id);
+          tablesWithRates.push({
+            mainTable: table,
+            rateGeneral,
+            rateJump
+          });
+        }
+        competenceData.push({
+          competence,
+          tables: tablesWithRates
+        });
+      }
+
+      // Obtener subcarpetas recursivamente
+      const subfolders = await getSubfolders(folderId);
+      const subfoldersData = [];
+      for (const subfolder of subfolders) {
+        const subfolderTree = await collectFolderTree(subfolder.id);
+        if (subfolderTree) subfoldersData.push(subfolderTree);
+      }
+
+      return {
+        folder,
+        competences: competenceData,
+        subfolders: subfoldersData
+      };
+    }
+
+    progressCallback?.("Extrayendo información de carpeta y subcarpetas...", 5);
+    const folderTree = await collectFolderTree(folderId);
+    if (!folderTree) {
       console.error("Folder not found");
       return null;
     }
-    
-    progressCallback?.("Extrayendo información de carpeta...", 5);
-    console.log("exportFolderData: Found folder:", folder.name);
 
-    // Get competences for this folder
-    const competences = await getCompetencesByFolderId(folderId);
-    console.log("exportFolderData: Found competences:", competences.length);
-    
-    progressCallback?.("Calculando total de gimnastas...", 10);
-    
-    // Calculate total gymnasts
-    let totalGymnasts = 0;
-    for (const competence of competences) {
-      const mainTables = await getMainTablesByCompetenceId(competence.id);
-      totalGymnasts += mainTables.length;
-    }
-    
-    progressCallback?.(`Exportando ${totalGymnasts} gimnastas...`, 15);
-    
-    // Get main tables and rate tables for each competence
-    const competenceData = [];
-    let processedGymnasts = 0;
-    
-    for (const competence of competences) {
-      const mainTables = await getMainTablesByCompetenceId(competence.id);
-      const tablesWithRates = [];
-      
-      for (const table of mainTables) {
-        const progress = 15 + Math.floor((processedGymnasts / totalGymnasts) * 60); // 15% to 75%
-        progressCallback?.(`Exportando gimnasta ${processedGymnasts + 1} de ${totalGymnasts}...`, progress);
-        
-        const rateGeneral = await getRateGeneralByTableId(table.id);
-        const rateJump = await getRateJumpByTableId(table.id);
-        
-        tablesWithRates.push({
-          mainTable: table,
-          rateGeneral,
-          rateJump
-        });
-        
-        processedGymnasts++;
+    // Contar total de gimnastas para progreso
+    function countGymnasts(folderNode: any): number {
+      let count = 0;
+      if (folderNode.competences) {
+        for (const comp of folderNode.competences) {
+          count += comp.tables ? comp.tables.length : 0;
+        }
       }
-      
-      competenceData.push({
-        competence,
-        tables: tablesWithRates
-      });
+      if (folderNode.subfolders) {
+        for (const sub of folderNode.subfolders) {
+          count += countGymnasts(sub);
+        }
+      }
+      return count;
     }
+    const totalGymnasts = countGymnasts(folderTree);
+    progressCallback?.(`Calculando total de gimnastas: ${totalGymnasts}`, 10);
 
     progressCallback?.("Generando archivo de exportación...", 80);
-    console.log("exportFolderData: Collected all data, creating export object");
-
-    // Create export object
+    // Crear objeto de exportación anidado
     const exportData = {
-      version: "1.0",
+      version: "2.0",
       exportDate: new Date().toISOString(),
-      folder,
-      competences: competenceData
+      ...folderTree
     };
 
-    // Convert to JSON string
+    // Convertir a JSON
     const jsonData = JSON.stringify(exportData);
-    console.log("exportFolderData: JSON data created, length:", jsonData.length);
-    
     progressCallback?.("Generando checksum de seguridad...", 85);
-    // Generate checksum
-    console.log("exportFolderData: Generating checksum...");
     const checksum = await generateChecksum(jsonData);
-    console.log("exportFolderData: Checksum generated:", checksum);
-    
     progressCallback?.("Finalizando exportación...", 95);
-    // Create final export object with security
-    console.log("exportFolderData: Creating secure export data with btoa...");
     const secureExportData = {
       data: btoa(unescape(encodeURIComponent(jsonData))),
       checksum,
       metadata: {
-        version: "1.0",
+        version: "2.0",
         exportDate: exportData.exportDate,
-        folderName: folder.name
+        folderName: folderTree.folder.name
       }
     };
-
     console.log("exportFolderData: Export completed successfully");
     return JSON.stringify(secureExportData);
   } catch (error) {
@@ -1659,124 +1881,133 @@ export const exportFolderData = async (
 
 // Import folder data and recreate all related information
 export const importFolderData = async (
-  importDataString: string, 
-  targetUserId: number, 
+  importDataString: string,
+  targetParentId: number,
   progressCallback?: (message: string, progress: number) => void
 ): Promise<boolean> => {
   try {
     // Parse import data
     const secureImportData = JSON.parse(importDataString);
-    
     if (!secureImportData.data || !secureImportData.checksum) {
       throw new Error("Invalid import file format");
     }
-
     progressCallback?.("Validando archivo...", 5);
-
     // Decode data
     const jsonData = decodeURIComponent(escape(atob(secureImportData.data)));
-    
     // Verify checksum
     const calculatedChecksum = await generateChecksum(jsonData);
     if (calculatedChecksum !== secureImportData.checksum) {
       throw new Error("Data integrity check failed - file may be corrupted");
     }
-
     progressCallback?.("Procesando datos...", 15);
-
     // Parse the actual data
     const importData = JSON.parse(jsonData);
-    
-    if (!importData.folder || !importData.competences) {
+    if (!importData.folder) {
       throw new Error("Invalid data structure in import file");
     }
 
-    // Calculate total gymnasts for progress tracking
+    // Recopilar todas las carpetas y competiciones para el progreso
     let totalGymnasts = 0;
-    for (const competenceData of importData.competences) {
-      totalGymnasts += competenceData.tables ? competenceData.tables.length : 0;
+    function countGymnasts(folderNode: any): number {
+      let count = 0;
+      if (folderNode.competences) {
+        for (const comp of folderNode.competences) {
+          count += comp.tables ? comp.tables.length : 0;
+        }
+      }
+      if (folderNode.subfolders) {
+        for (const sub of folderNode.subfolders) {
+          count += countGymnasts(sub);
+        }
+      }
+      return count;
     }
-
+    totalGymnasts = countGymnasts(importData);
     progressCallback?.(`Preparando importación de ${totalGymnasts} gimnastas...`, 20);
 
-    // Map to store old ID -> new ID mappings
+    // Map para IDs antiguos -> nuevos
     const idMappings = {
       folders: new Map<number, number>(),
       competences: new Map<number, number>(),
       mainTables: new Map<number, number>()
     };
-
-    // Import folder (assign to target user)
-    const newFolderData = {
-      ...importData.folder,
-      userId: targetUserId
-    };
-    delete newFolderData.id; // Remove old ID
-
-    progressCallback?.("Creando carpeta...", 25);
-    const newFolderId = await insertFolder(newFolderData);
-    if (!newFolderId) {
-      throw new Error("Failed to create folder");
-    }
-    idMappings.folders.set(importData.folder.id, newFolderId);
-
     let processedGymnasts = 0;
 
-    // Import competences
-    for (const competenceData of importData.competences) {
-      const newCompetenceData = {
-        ...competenceData.competence,
-        folderId: newFolderId,
-        userId: targetUserId
+    // Función recursiva para importar carpetas, subcarpetas y competiciones
+    async function importFolderRecursively(folderNode: any, parentId: number) {
+      const newFolderData = {
+        ...folderNode.folder,
+        parentId: parentId,
+        userId: 0
       };
-      delete newCompetenceData.id; // Remove old ID
-
-      const newCompetenceId = await insertCompetence(newCompetenceData);
-      if (!newCompetenceId) {
-        throw new Error("Failed to create competence");
+      delete newFolderData.id;
+      const newFolderId = await insertFolder(newFolderData);
+      if (!newFolderId) {
+        throw new Error("Failed to create folder");
       }
-      idMappings.competences.set(competenceData.competence.id, newCompetenceId);
+      idMappings.folders.set(folderNode.folder.id, newFolderId);
 
-      // Import main tables and rate tables
-      for (const tableData of competenceData.tables) {
-        const progress = 25 + Math.floor((processedGymnasts / totalGymnasts) * 65); // 25% to 90%
-        progressCallback?.(`Importando gimnasta ${processedGymnasts + 1} de ${totalGymnasts}...`, progress);
-
-        const newMainTableData = {
-          ...tableData.mainTable,
-          competenceId: newCompetenceId
-        };
-        delete newMainTableData.id; // Remove old ID
-
-        const newMainTableId = await insertMainTable(newMainTableData);
-        if (!newMainTableId) {
-          throw new Error("Failed to create main table");
-        }
-        idMappings.mainTables.set(tableData.mainTable.id, newMainTableId);
-
-        // Import rate general if exists
-        if (tableData.rateGeneral) {
-          const newRateGeneralData = {
-            ...tableData.rateGeneral,
-            tableId: newMainTableId
+      // Importar competiciones de esta carpeta
+      if (folderNode.competences) {
+        for (const competenceData of folderNode.competences) {
+          const newCompetenceData = {
+            ...competenceData.competence,
+            folderId: newFolderId,
+            userId: 0
           };
-          delete newRateGeneralData.id; // Remove old ID
-          await insertRateGeneral(newRateGeneralData);
-        }
+          delete newCompetenceData.id;
+          const newCompetenceId = await insertCompetence(newCompetenceData);
+          if (!newCompetenceId) {
+            throw new Error("Failed to create competence");
+          }
+          idMappings.competences.set(competenceData.competence.id, newCompetenceId);
 
-        // Import rate jump if exists
-        if (tableData.rateJump) {
-          const newRateJumpData = {
-            ...tableData.rateJump,
-            tableId: newMainTableId
-          };
-          delete newRateJumpData.id; // Remove old ID
-          await insertRateJump(newRateJumpData);
+          // Importar tablas principales y rates
+          for (const tableData of competenceData.tables) {
+            const progress = 25 + Math.floor((processedGymnasts / totalGymnasts) * 65);
+            progressCallback?.(`Importando gimnasta ${processedGymnasts + 1} de ${totalGymnasts}...`, progress);
+            const newMainTableData = {
+              ...tableData.mainTable,
+              competenceId: newCompetenceId
+            };
+            delete newMainTableData.id;
+            const newMainTableId = await insertMainTable(newMainTableData);
+            if (!newMainTableId) {
+              throw new Error("Failed to create main table");
+            }
+            idMappings.mainTables.set(tableData.mainTable.id, newMainTableId);
+            // Importar rate general si existe
+            if (tableData.rateGeneral) {
+              const newRateGeneralData = {
+                ...tableData.rateGeneral,
+                tableId: newMainTableId
+              };
+              delete newRateGeneralData.id;
+              await insertRateGeneral(newRateGeneralData);
+            }
+            // Importar rate jump si existe
+            if (tableData.rateJump) {
+              const newRateJumpData = {
+                ...tableData.rateJump,
+                tableId: newMainTableId
+              };
+              delete newRateJumpData.id;
+              await insertRateJump(newRateJumpData);
+            }
+            processedGymnasts++;
+          }
         }
-
-        processedGymnasts++;
+      }
+      // Importar subcarpetas recursivamente
+      if (folderNode.subfolders) {
+        for (const subfolder of folderNode.subfolders) {
+          await importFolderRecursively(subfolder, newFolderId);
+        }
       }
     }
+
+    // Iniciar importación recursiva desde la raíz
+    await importFolderRecursively(importData, targetParentId);
 
     progressCallback?.("Finalizando importación...", 95);
     console.log("Import completed successfully", idMappings);
@@ -2035,7 +2266,7 @@ const countByProperty = <T>(items: T[], property: keyof T): Record<string, numbe
 
 // Demo or initialization function
 export const initializeApp = async (): Promise<void> => {
-  try {
+   try {
     // Run cleanup to ensure data integrity
     await cleanupData();
     

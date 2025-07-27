@@ -31,6 +31,7 @@ import {
 import ModalvaultMag from "../components/ModalVaultMag";
 import ModalvaultWag from "../components/ModalVaultWag";
 import WhiteboardScreen from "../components/WhiteboardScreen_jump";
+import { ActivityIndicator } from "react-native";
 
 const { width, height } = Dimensions.get("window");
 const isLargeScreen = width >= 1000 && height >= 700;
@@ -237,8 +238,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   const [commentsInput, setCommentsInput] = useState("");
   const commentsInputRef = useRef<any>(null);
 
-  const backButtonOpacity = useRef(new Animated.Value(0)).current;
-  const backButtonTranslateX = useRef(new Animated.Value(50)).current;
+  // Eliminar animaciones: dejar los valores finales directamente
+  const backButtonOpacity = { setValue: () => {}, _value: 1 };
+  const backButtonTranslateX = { setValue: () => {}, _value: 0 };
 
   const [showExecutionModal, setShowExecutionModal] = useState(false);
   const [execution, setExecution] = useState(0);
@@ -295,40 +297,37 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   const [vaultnumber, setVaultNumber] = useState("0");
   const [startValue, setStartValue] = useState(0);
   const [vaultDescription, setVaultDescription] = useState("No Vault Assigned");
+
   const [gender, setGender] = useState(false);
+  // Estado de carga para mostrar el modal hasta que todo esté listo
+  const [isLoading, setIsLoading] = useState(true);
+
+
 
   /* Useffect */
   useEffect(() => {
     const fetchMainRateGeneral = async () => {
       try {
         const mainRateGeneral = await getMainTableById(gymnastid); // Fetch data by gymnastid
-        console.log("MainGeneral data:", mainRateGeneral); // Debugging line
-        /* getting rate table with the mainrategeneral id */
-
+        // ...resto del código igual...
         const competence = await getCompetenceById(Number(competenceId));
-        console.log("Competence data:", competence); // Debugging line
-
         if (competence) {
           setGender(competence.gender);
         }
         if (mainRateGeneral) {
           const mainRateGeneralId = mainRateGeneral.id;
           const rateTable = await getRateGeneralByTableId(mainRateGeneralId);
-          console.log("Rate Table data:", rateTable); // Debugging line
-
           setGymnastEvent(mainRateGeneral.event);
           setCv(mainRateGeneral.cv);
           setNd(mainRateGeneral.nd);
           setDelt(mainRateGeneral.delt);
           setpercentage(mainRateGeneral.percentage);
-
           setGymnastName(mainRateGeneral.name);
           setGymnastNoc(mainRateGeneral.noc);
           setGymnastBib(mainRateGeneral.bib);
           setSv(mainRateGeneral.sv);
           setStartValue(mainRateGeneral.e2);
           setNd(mainRateGeneral.nd);
-
           if (rateTable) {
             setVaultNumber(rateTable.vaultNumber);
             setVaultDescription(rateTable.vaultDescription);
@@ -345,36 +344,94 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             setSb(rateTable.compSd === 0.1);
             setndcomp(rateTable.compNd);
             setSetded(rateTable.ded);
-
-            /* setTotalElements(rateTable.numberOfElements);
-            setDifficultyValues(rateTable.difficultyValues);
-            setElementGroupsTotal(rateTable.elementGroups5);
-            
-            setElementGroupValues({
-              I: rateTable.elementGroups1 || 0.0,
-              II: rateTable.elementGroups2 || 0.0,
-              III: rateTable.elementGroups3 || 0.0,
-              IV: rateTable.elementGroups4 || 0.0,
-            }); */
           }
         }
       } catch (error) {
         console.error("Error fetching MainRateGeneral data:", error);
+      } finally {
+        setIsLoading(false);
       }
     };
-
     fetchMainRateGeneral();
-  }, [gymnastid]); // Re-fetch data when gymnastid changes
+  }, [gymnastid]);
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#0052b4" />
+        <Text style={styles.loadingText}>Loading data...</Text>
+      </SafeAreaView>
+    );
+  }
 
   /* Buttons un the bottom */
 
-  const handleSelect = () => {
+  const handleSelect = async () => {
+
+    const mainTableUpdate = {
+        sv: sv,
+        nd: nd,
+        delt: delt,
+        percentage: percentage,
+        cv: cv,
+        e2: startValue,
+      };
+      await updateMainTable(gymnastid, mainTableUpdate);
+
+      // 2. Guardar RateGeneral (todos los valores relevantes)
+      const rateGeneralUpdate = {
+        stickBonus: stickbonus,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+        compSd: sb ? 0.1 : 0.0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+        ded: ded,
+        vaultNumber: vaultnumber,
+        vaultDescription: vaultDescription,
+      };
+      await updateRateGeneral(rateid, rateGeneralUpdate);
+
+
     router.replace(
       `/final-table?competenceId=${competenceId}&gymnastId=${discipline}&event=${event}&discipline=${discipline}&gymnast=${gymnastid}&number=${number}&participants=${participants}&folderId=${folderId}`
     );
   };
 
-  const handlegobacklist = () => {
+  const handlegobacklist = async () => {
+
+    const mainTableUpdate = {
+        sv: sv,
+        nd: nd,
+        delt: delt,
+        percentage: percentage,
+        cv: cv,
+        e2: startValue,
+      };
+      await updateMainTable(gymnastid, mainTableUpdate);
+
+      // 2. Guardar RateGeneral (todos los valores relevantes)
+      const rateGeneralUpdate = {
+        stickBonus: stickbonus,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+        compSd: sb ? 0.1 : 0.0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+        ded: ded,
+        vaultNumber: vaultnumber,
+        vaultDescription: vaultDescription,
+      };
+      await updateRateGeneral(rateid, rateGeneralUpdate);
+
+
     router.replace(
       `/start-gudging?id=${competenceId}&discipline=${discipline}&participants=${participants}&number=${number}&gymnast=${gymnastid}&folderId=${folderId}`
     ); // Pass the value as a query parameter
@@ -382,8 +439,37 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
 
   const handleGoForward = async () => {
     try {
-      // Fetch all MainTable entries for the current competenceId
+      // Guardar todos los datos relevantes en la base de datos antes de avanzar
+      // 1. Guardar MainTable (SV, ND, delt, porcentaje, e2, etc.)
+      const mainTableUpdate = {
+        sv: sv,
+        nd: nd,
+        delt: delt,
+        percentage: percentage,
+        cv: cv,
+        e2: startValue,
+      };
+      await updateMainTable(gymnastid, mainTableUpdate);
 
+      // 2. Guardar RateGeneral (todos los valores relevantes)
+      const rateGeneralUpdate = {
+        stickBonus: stickbonus,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+        compSd: sb ? 0.1 : 0.0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+        ded: ded,
+        vaultNumber: vaultnumber,
+        vaultDescription: vaultDescription,
+      };
+      await updateRateGeneral(rateid, rateGeneralUpdate);
+
+      // Navegación igual que antes
       if (number === participants) {
         router.replace(
           `/final-table?competenceId=${competenceId}&gymnastId=${discipline}&event=${event}&discipline=${discipline}&gymnast=${gymnastid}&number=${number}&participants=${participants}&folderId=${folderId}`
@@ -393,15 +479,11 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
       const mainTables = await getMainTablesByCompetenceId(
         Number(competenceId)
       );
-      console.log("Main Tables:", mainTables); // Debugging line
-
       // Sort the main tables by number to ensure proper order
       const sortedTables = mainTables.sort((a, b) => a.number - b.number);
-
       // Start searching for the next valid gymnast
       let nextNumber = Number(number) + 1;
       let nextTable = null;
-
       while (
         !nextTable &&
         nextNumber <= sortedTables[sortedTables.length - 1]?.number
@@ -409,7 +491,6 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         nextTable = sortedTables.find((table) => table.number === nextNumber);
         if (!nextTable) nextNumber++; // Increment if not found
       }
-
       if (nextTable) {
         if (nextTable?.event === "VT") {
           router.replace(
@@ -425,13 +506,43 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         alert("No next gymnast found.");
       }
     } catch (error) {
-      console.error("Error navigating to the next gymnast:", error);
+      console.error("Error navegando o guardando datos:", error);
     }
   };
 
   const handleGoBack = async () => {
     try {
       // Fetch all MainTable entries for the current competenceId
+
+      const mainTableUpdate = {
+        sv: sv,
+        nd: nd,
+        delt: delt,
+        percentage: percentage,
+        cv: cv,
+        e2: startValue,
+      };
+      await updateMainTable(gymnastid, mainTableUpdate);
+
+      // 2. Guardar RateGeneral (todos los valores relevantes)
+      const rateGeneralUpdate = {
+        stickBonus: stickbonus,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+        compSd: sb ? 0.1 : 0.0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+        ded: ded,
+        vaultNumber: vaultnumber,
+        vaultDescription: vaultDescription,
+      };
+      await updateRateGeneral(rateid, rateGeneralUpdate);
+
+      
       const mainTables = await getMainTablesByCompetenceId(
         Number(competenceId)
       );
@@ -491,15 +602,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
       };
       console.log("Update Data:", updateData); // Debugging line
       console.log("Rate ID:", rateid); // Debugging line
-      const success = await updateRateGeneral(rateid, updateData);
-
-      if (success) {
-        console.log(`Saved stickBonus = ${value} in MainRateGeneral.`);
-        trackSaveAttempt(true, "stick bonus");
-      } else {
-        console.error(`Failed to save stickBonus in MainRateGeneral.`);
-        trackSaveAttempt(false, "stick bonus");
-      }
+      
     } catch (error) {
       console.error("Error saving stickBonus to MainRateGeneral:", error);
       trackSaveAttempt(false, "stick bonus");
@@ -526,40 +629,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
 
     setVaultDescription(value.description);
 
-    updateRateGeneral(rateid, {
-      vaultNumber: value.number,
-      vaultDescription: value.description,
-    })
-      .then((success) => {
-        if (success) {
-          console.log("Vault number and description updated successfully.");
-          trackSaveAttempt(true, "vault info");
-        } else {
-          console.error("Failed to update vault number and description.");
-          trackSaveAttempt(false, "vault info");
-        }
-      })
-      .catch((error) => {
-        console.error("Error updating vault info:", error);
-        trackSaveAttempt(false, "vault info");
-      });
+    
 
-    updateMainTable(gymnastid, {
-      e2: value.value,
-    })
-      .then((success) => {
-        if (success) {
-          console.log("Vault E2 updated successfully.");
-          trackSaveAttempt(true, "vault E2");
-        } else {
-          console.error("Failed to update vault E2.");
-          trackSaveAttempt(false, "vault E2");
-        }
-      })
-      .catch((error) => {
-        console.error("Error updating vault E2:", error);
-        trackSaveAttempt(false, "vault E2");
-      });
+    
   };
 
   /* Helpers ============================================== */
@@ -687,28 +759,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               const finalScore = Math.round(compscorecalc * 1000) / 1000;
 
               setScore(finalScore);
-              updateRateGeneral(rateid, {
-                compNd: rounded,
-                compScore: finalScore,
-              })
-                .then((success) => {
-                  if (success) {
-                    console.log(
-                      `Saved ndcomp = ${rounded} in MainRateGeneral.`
-                    );
-                    trackSaveAttempt(true, "comp ND score");
-                  } else {
-                    console.error(`Failed to save ndcomp in MainRateGeneral.`);
-                    trackSaveAttempt(false, "comp ND score");
-                  }
-                })
-                .catch((error) => {
-                  console.error(
-                    "Error saving ndcomp to MainRateGeneral:",
-                    error
-                  );
-                  trackSaveAttempt(false, "comp ND score");
-                });
+              
             } else {
               Alert.alert("Invalid Input", "Please enter a valid ND value.", [
                 { text: "OK" },
@@ -754,7 +805,6 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             if (!isNaN(num)) {
               const rounded = Math.round(num * 10) / 10;
               setSv(rounded);
-              setStartValue(rounded);
               console.log("Rounded SV:", rounded);
               console.log("eScore:", eScore);
               console.log("nd:", nd);
@@ -768,29 +818,8 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               console.log("Final Score (SV Modal):", finalScore);
               setMyScore(finalScore);
 
-              // Update database
-              updateRateGeneral(rateid, { myScore: finalScore })
-                .then((success) => {
-                  trackSaveAttempt(success, "my score (SV)");
-                })
-                .catch((error) => {
-                  console.error("Error saving my score:", error);
-                  trackSaveAttempt(false, "my score (SV)");
-                });
-              updateMainTable(gymnastid, { sv: rounded })
-                .then((success) => {
-                  if (success) {
-                    console.log(`Saved sv = ${rounded} in MainTable.`);
-                    trackSaveAttempt(true, "SV value");
-                  } else {
-                    console.error(`Failed to save sv in MainTable.`);
-                    trackSaveAttempt(false, "SV value");
-                  }
-                })
-                .catch((error) => {
-                  console.error("Error saving sv to MainTable:", error);
-                  trackSaveAttempt(false, "SV value");
-                });
+              
+              
             } else {
               Alert.alert("Invalid Input", "Please enter a valid SV value.", [
                 { text: "OK" },
@@ -858,31 +887,10 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               );
               setpercentage(percentageValue);
 
-              updateMainTable(gymnastid, {
-                delt: newdelt,
-                percentage: percentageValue,
-              })
-                .then((success) => {
-                  trackSaveAttempt(success, "E score calculations");
-                })
-                .catch((error) => {
-                  console.error("Error saving E score calculations:", error);
-                  trackSaveAttempt(false, "E score calculations");
-                });
+              
 
               /* ============================================================== */
-              updateRateGeneral(rateid, {
-                compE: rounded,
-                compScore: finalScore,
-                ded: newded,
-              })
-                .then((success) => {
-                  trackSaveAttempt(success, "comp E score");
-                })
-                .catch((error) => {
-                  console.error("Error saving comp E score:", error);
-                  trackSaveAttempt(false, "comp E score");
-                });
+              
             } else {
               Alert.alert("Invalid Input", "Please enter a valid E value.", [
                 { text: "OK" },
@@ -933,17 +941,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               const finalScore = Math.round(compscorecalc * 1000) / 1000;
 
               setScore(finalScore);
-              updateRateGeneral(rateid, {
-                compD: rounded,
-                compScore: finalScore,
-              })
-                .then((success) => {
-                  trackSaveAttempt(success, "comp D score");
-                })
-                .catch((error) => {
-                  console.error("Error saving comp D score:", error);
-                  trackSaveAttempt(false, "comp D score");
-                });
+              
             } else {
               Alert.alert("Invalid Input", "Please enter a valid D value.", [
                 { text: "OK" },
@@ -1009,31 +1007,10 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               );
               setpercentage(percentageValue);
 
-              updateMainTable(gymnastid, {
-                delt: newdelt,
-                percentage: percentageValue,
-              })
-                .then((success) => {
-                  trackSaveAttempt(success, "execution calculations");
-                })
-                .catch((error) => {
-                  console.error("Error saving execution calculations:", error);
-                  trackSaveAttempt(false, "execution calculations");
-                });
+              
 
               setEScore(eScore);
-              updateRateGeneral(rateid, {
-                execution: rounded,
-                eScore,
-                myScore: finalScore,
-              })
-                .then((success) => {
-                  trackSaveAttempt(success, "execution score");
-                })
-                .catch((error) => {
-                  console.error("Error saving execution score:", error);
-                  trackSaveAttempt(false, "execution score");
-                });
+              
             } else {
               Alert.alert(
                 "Invalid Input",
@@ -1115,18 +1092,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                 onPress={async () => {
                   setComments(commentsInput);
                   setShowCommentsModal(false);
-                  try {
-                    const success = await updateRateGeneral(rateid, {
-                      comments: commentsInput,
-                    });
-                    trackSaveAttempt(success, "comments");
-                  } catch (error) {
-                    console.error(
-                      "Error saving comments to MainRateGeneral:",
-                      error
-                    );
-                    trackSaveAttempt(false, "comments");
-                  }
+                  
                 }}
               >
                 <Text style={{ color: "#fff", fontWeight: "bold" }}>Save</Text>
@@ -1186,30 +1152,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               const finalScore = Math.round(newmyscore * 1000) / 1000;
 
               setMyScore(finalScore);
-              updateRateGeneral(rateid, { myScore: finalScore })
-                .then((success) => {
-                  trackSaveAttempt(success, "my score (ND)");
-                })
-                .catch((error) => {
-                  console.error("Error saving my score:", error);
-                  trackSaveAttempt(false, "my score (ND)");
-                });
+              
 
-              // Save to database
-              updateMainTable(gymnastid, { nd: rounded })
-                .then((success) => {
-                  if (success) {
-                    console.log(`Saved nd = ${rounded} in MainTable.`);
-                    trackSaveAttempt(true, "ND value");
-                  } else {
-                    console.error(`Failed to save nd in MainTable.`);
-                    trackSaveAttempt(false, "ND value");
-                  }
-                })
-                .catch((error) => {
-                  console.error("Error saving nd to MainTable:", error);
-                  trackSaveAttempt(false, "ND value");
-                });
+              
             } else {
               Alert.alert("Invalid Input", "Please enter a valid ND value.", [
                 { text: "OK" },
@@ -1268,7 +1213,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                   isTinyDevice ? styles.cellHeaderTextTiny : null,
                 ]}
               >
-                VAULT NUMBERS
+                ANNOUNCED VAULT
               </Text>
             </View>
             <View style={styles.svValueCell}>
@@ -1643,17 +1588,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                         const finalScore = Math.round(compscorecalc * 1000) / 1000;
 
                         setScore(finalScore);
-                        updateRateGeneral(rateid, {
-                          compSd: newValue ? 0.1 : 0.0,
-                          compScore: finalScore,
-                        })
-                          .then((success) => {
-                            trackSaveAttempt(success, "stick bonus");
-                          })
-                          .catch((error) => {
-                            console.error("Error saving stick bonus:", error);
-                            trackSaveAttempt(false, "stick bonus");
-                          });
+                        
                       }}
                     >
                       <Text
@@ -1916,7 +1851,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         </View>
 
         {/* Debug Panel */}
-        {/* <DebugPanel
+        <DebugPanel
           showDebugPanel={showDebugPanel}
           setShowDebugPanel={setShowDebugPanel}
           currentPath="/main-jump"
@@ -1972,7 +1907,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
           comments={comments}
           logs={logs}
           clearLogs={clearLogs}
-        /> */}
+        />
       </ScrollView>
     </SafeAreaView>
   );
@@ -2094,7 +2029,7 @@ const styles = StyleSheet.create({
       ? 600
       : isSmallDevice
       ? 500
-      : 300,
+      : 400,
     backgroundColor: "#f5f5f5",
     justifyContent: "center",
     alignItems: "center",
@@ -2918,6 +2853,19 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     textAlign: "center",
   },
+    loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 18,
+    color: '#0052b4',
+    fontWeight: 'bold',
+  },
+
 });
 
 export default VaultScoreDisplay;

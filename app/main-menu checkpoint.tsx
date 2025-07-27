@@ -1,8 +1,24 @@
+
+
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import { useFonts } from "expo-font";
+import { getAllFoldersByParent, updateFolder } from "../Database/database";
+import { getFolderById } from '../Database/database';
+
+// Normaliza las posiciones de las carpetas hijas de un parentId
+const normalizeFolderPositions = async (parentId: number | null) => {
+  const folders = await getAllFoldersByParent(parentId);
+  // Ordenar por posición actual para mantener el orden
+  folders.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  for (let i = 0; i < folders.length; i++) {
+    if (folders[i].position !== i) {
+      await updateFolder(folders[i].id, { position: i });
+    }
+  }
+};
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from 'expo-sharing';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -23,7 +39,8 @@ import {
   TextInput,
   TouchableOpacity,
   Vibration,
-  View
+  View,
+  Platform
 } from 'react-native';
 import {
   deleteCompetencesByFolderId,
@@ -37,7 +54,18 @@ import {
   getFoldersOrderedByPosition,
   getMainTablesByCompetenceId,
   importFolderData,
-  insertCompetence, insertFolder, insertMainTable, insertRateGeneral, updateFolder, updateFolderPositions
+  insertCompetence, insertFolder, insertMainTable, insertRateGeneral, updateFolderPositions,
+  deleteCompetence, updateCompetence,
+  getRootFoldersByUserId,
+  getFoldersByUserIdAndParent,
+  getSubfolders,
+  getAllRootFolders,
+  getAllSubfolders,
+  getFolderPath,
+  canMoveFolder,
+  hasSubfolders,
+  countSubfolders,
+  deleteFolderRecursively
 } from "../Database/database"; // Adjust the path based on your project structure
 import { GridDraggableItem } from "../components/GridDraggableItem";
 const { width, height } = Dimensions.get("window");
@@ -72,6 +100,10 @@ interface FolderItemProps {
   isSelectedForSwap?: boolean; // Para indicar si está seleccionada para swap
   isSwapping?: boolean; // Para indicar si está en proceso de swap
   onCardPress?: (id: number) => void; // Para manejar el tap-to-swap
+  onNavigateToFolder?: (folderId: number) => void; // ✨ NUEVO: Para navegar a subcarpetas
+  hasSubfolders?: boolean; // ✨ NUEVO: Indica si tiene subcarpetas
+  moveCompetitionMode?: boolean;
+  handleSelectFolderForCompetitionMove?: (folderId: number) => void;
 }
 
 interface Competition {
@@ -103,6 +135,29 @@ interface Folder {
   type: boolean; // true for training, false for competence
   date: string; // ISO date string
   filled: boolean;
+  position?: number;
+  parentId?: number | null; // ID de la carpeta padre (null para carpetas raíz)
+  level?: number; // Nivel de profundidad (0 para raíz, 1 para subcarpetas, etc.)
+  hasSubfolders?: boolean; // Indica si tiene subcarpetas
+}
+
+interface CompetitionItemProps {
+  id: number;
+  title: string;
+  description: string;
+  date: string;
+  type: string;
+  participants: number;
+  selected?: boolean;
+  folderType: 1 | 2;
+  animationDelay?: number;
+  selectionMode?: boolean;
+  folderId: number;
+  gender: boolean; // mag and wag
+  onCardHold?: (id: number) => void; // Para manejar el tap-to-swap
+  onSelect?: (id: number) => void;
+  moveCompetitionMode?: boolean;
+  setCompetitionToMove?: (competition: any) => void;
 }
 
 
@@ -121,7 +176,11 @@ const FolderItem: React.FC<FolderItemProps> = ({
   onSelect = () => {},
   isSelectedForSwap = false,
   isSwapping = false,
-  onCardPress = () => {}
+  onCardPress = () => {},
+  onNavigateToFolder = () => {}, // ✨ NUEVO: Función para navegar a subcarpetas
+  hasSubfolders = false, // ✨ NUEVO: Indica si tiene subcarpetas
+  moveCompetitionMode = false,
+  handleSelectFolderForCompetitionMove,
 }) => {
   const router = useRouter();
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
@@ -139,7 +198,11 @@ const FolderItem: React.FC<FolderItemProps> = ({
   // Función para manejar el tap simple en la carta
   const handleCardTap = () => {
     if (longPressActive) return; // Evitar tap si hay long press activo
-    
+    // Si está activo el modo mover competencia, mover la competencia aquí
+    if (moveCompetitionMode && typeof handleSelectFolderForCompetitionMove === 'function') {
+      handleSelectFolderForCompetitionMove(id);
+      return;
+    }
     if (selectionMode) {
       onSelect(id);
     } else if (!isSwapping) {
@@ -151,26 +214,27 @@ const FolderItem: React.FC<FolderItemProps> = ({
   // Función para manejar el long press
   const handleLongPress = () => {
     if (selectionMode || isSwapping) return;
-    
-    console.log('Long press detected, activating swap mode for:', id);
+    // Ahora el long press abre el modal de opciones de carpeta
     setLongPressActive(true);
     Vibration.vibrate(50); // Feedback háptico
-    onCardPress(id); // Activar modo swap
-    
+    onCardPress(id); // Abrir modal de opciones
     // Resetear flag después de más tiempo para evitar conflictos con tap
     setTimeout(() => {
       setLongPressActive(false);
-    }, 1000); // Extender a 1 segundo
+    }, 1000);
   };
 
   // Funciones para manejar press in/out
   const handlePressIn = () => {
     if (selectionMode || isSwapping) return;
-    
+    // Ahora el long press es de 1 segundo para abrir el modal de opciones
     longPressTimer.current = setTimeout(() => {
       handleLongPress();
-    }, 500) as unknown as number; // 500ms para long press
+    }, 1000) as unknown as number; // 1000ms para long press (abrir modal de opciones)
   };
+
+  
+  
 
   const handlePressOut = () => {
     if (longPressTimer.current) {
@@ -259,7 +323,9 @@ const FolderItem: React.FC<FolderItemProps> = ({
     if (selectionMode) {
       onSelect(folderId);
     } else {
-      router.replace(`/folder?id=${folderId}&discipline=${discipline}`);
+      // ✨ CAMBIO: Navegar un nivel más profundo usando la prop
+      console.log('Navigating into folder:', folderId);
+      onNavigateToFolder(folderId);
     }
   };
 
@@ -357,6 +423,16 @@ const FolderItem: React.FC<FolderItemProps> = ({
               ]}
             >
               {title}
+              {/* ✨ NUEVO: Indicador visual para carpetas con subcarpetas */}
+              {hasSubfolders && (
+                <Text style={{
+                  fontSize: isLargeDevice ? 14 : isMediumLargeDevice ? 13 : isSmallDevice ? 12 : 11,
+                  color: '#007AFF',
+                  marginLeft: 5
+                }}>
+                  📁
+                </Text>
+              )}
             </Text>
             
             <Text 
@@ -400,8 +476,242 @@ const FolderItem: React.FC<FolderItemProps> = ({
   );
 };
 
+const CompetitionItem: React.FC<CompetitionItemProps> = ({
+  id,
+  title,
+  description,
+  date,
+  type,
+  participants,
+  selected = false,
+  folderType,
+  gender,
+  animationDelay = 0,
+  selectionMode = false,
+  folderId,
+  onCardHold = () => {},
+  onSelect = () => {},
+  moveCompetitionMode = false,
+  setCompetitionToMove,
+}) => {
+  const router = useRouter();
+  const scaleAnim = useRef(new Animated.Value(0.85)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+  const [longPressActive, setLongPressActive] = useState(false);
+  const longPressTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(opacityAnim, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.ease),
+        }),
+        Animated.timing(scaleAnim, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.back(1.5)),
+        }),
+      ]).start();
+    }, animationDelay);
+  }, []);
+
+  // Modificado: Soporte para modo mover competencia
+  const handleCardTap = () => {
+    if (longPressActive) return;
+    if (moveCompetitionMode && setCompetitionToMove) {
+      // Imprimir info de la competencia
+      console.log('Competencia seleccionada para mover:', { id, title, description, date, type, participants, folderId, gender });
+      setCompetitionToMove({ id, title, description, date, type, participants, folderId, gender });
+      return;
+    }
+    if (selectionMode) {
+      onSelect(id);
+    } else {
+      router.replace(`/start-gudging?id=${id}&discipline=${gender}&participants=${participants}&number=0&folderId=${folderId}`);
+    }
+  };
+
+  const handleLongPress = () => {
+    if (selectionMode) return;
+    setLongPressActive(true);
+    Vibration.vibrate(50);
+    onCardHold(id);
+    setTimeout(() => {
+      setLongPressActive(false);
+    }, 1000);
+  };
+
+  const handlePressIn = () => {
+    if (selectionMode) return;
+    longPressTimer.current = setTimeout(() => {
+      handleLongPress();
+    }, 1000) as unknown as number;
+  };
+
+  const handlePressOut = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current as unknown as NodeJS.Timeout);
+      longPressTimer.current = null;
+    }
+    if (!longPressActive) {
+      setTimeout(() => {
+        if (!longPressActive) {
+          handleCardTap();
+        }
+      }, 50);
+    }
+  };
+
+  return (
+    <Animated.View
+      style={[
+        {
+          opacity: opacityAnim,
+          transform: [{ scale: scaleAnim }],
+        },
+        { width: '100%' },
+      ]}
+    >
+      <TouchableOpacity
+        style={[
+          folderType === 1 ? styles.folderType1 : null,
+          folderType === 2 ? styles.folderType2 : null,
+          isLargeDevice ? styles.folderItemLarge : null,
+          isMediumLargeDevice ? styles.folderItemMediumLarge : null,
+          isSmallDevice ? styles.folderItemSmall : null,
+          isTinyDevice ? styles.folderItemTiny : null,
+          selected ? styles.selectedFolder : null,
+        ]}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        activeOpacity={0.7}
+      >
+        <View style={[
+          isLargeDevice ? styles.folderContentLarge : null,
+          isMediumLargeDevice ? styles.folderContentMediumLarge : null,
+          isSmallDevice ? styles.folderContentSmall : null,
+          isTinyDevice ? styles.folderContentTiny : null,
+        ]}>
+          {gender ? (
+            <Image
+              source={require("../assets/images/gymnast 1.png")}
+              style={[
+                isLargeDevice ? styles.folderIconLarge : null,
+                isMediumLargeDevice ? styles.folderIconMediumLarge : null,
+                isSmallDevice ? styles.folderIconSmall : null,
+                isTinyDevice ? styles.folderIconTiny : null,
+              ]}
+              resizeMode="cover"
+            />
+          ) : (
+            <Image
+              source={require("../assets/images/gymnast 2.png")}
+              style={[
+                isLargeDevice ? styles.folderIconLarge : null,
+                isMediumLargeDevice ? styles.folderIconMediumLarge : null,
+                isSmallDevice ? styles.folderIconSmall : null,
+                isTinyDevice ? styles.folderIconTiny : null,
+              ]}
+              resizeMode="cover"
+            />
+          )}
+          <View style={[
+            isLargeDevice ? styles.folderInfoLarge : null,
+            isMediumLargeDevice ? styles.folderInfoMediumLarge : null,
+            isSmallDevice ? styles.folderInfoSmall : null,
+            isTinyDevice ? styles.folderInfoTiny : null,
+          ]}>
+            <Text style={[
+              isLargeDevice ? styles.folderTitleLarge : null,
+              isMediumLargeDevice ? styles.folderTitleMediumLarge : null,
+              isSmallDevice ? styles.folderTitleSmall : null,
+              isTinyDevice ? styles.folderTitleTiny : null,
+            ]}>{title}</Text>
+            <Text 
+              style={[
+                isLargeDevice ? styles.folderDescriptionLarge : null,
+                isMediumLargeDevice ? styles.folderDescriptionMediumLarge : null,
+                isSmallDevice ? styles.folderDescriptionSmall : null,
+                isTinyDevice ? styles.folderDescriptionTiny : null,
+              ]}
+            >
+              {description}
+            </Text>
+            <View style={[
+              isLargeDevice ? styles.lineLarge : null,
+              isMediumLargeDevice ? styles.lineMediumLarge : null,
+              isSmallDevice ? styles.lineSmall : null,
+              isTinyDevice ? styles.lineTiny : null,
+            ]} />
+            <View style={[
+              isLargeDevice ? styles.folderFooterLarge : null,
+              isMediumLargeDevice ? styles.folderFooterMediumLarge : null,
+              isSmallDevice ? styles.folderFooterSmall : null,
+              isTinyDevice ? styles.folderFooterTiny : null,
+            ]}>
+              <TouchableOpacity style={[
+                isLargeDevice ? styles.entrainementButtonLarge : null,
+                isMediumLargeDevice ? styles.entrainementButtonMediumLarge : null,
+                isSmallDevice ? styles.entrainementButtonSmall : null,
+                isTinyDevice ? styles.entrainementButtonTiny : null,
+              ]}>
+                <Text style={[
+                  isLargeDevice ? styles.entrainementTextLarge : null,
+                  isMediumLargeDevice ? styles.entrainementTextMediumLarge : null,
+                  isSmallDevice ? styles.entrainementTextSmall : null,
+                  isTinyDevice ? styles.entrainementTextTiny : null,
+                ]}>{participants} Gymnasts</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[
+                isLargeDevice ? styles.entrainementButtonLarge : null,
+                isMediumLargeDevice ? styles.entrainementButtonMediumLarge : null,
+                isSmallDevice ? styles.entrainementButtonSmall : null,
+                isTinyDevice ? styles.entrainementButtonTiny : null,
+              ]}>
+                <Text style={[
+                  isLargeDevice ? styles.entrainementTextLarge : null,
+                  isMediumLargeDevice ? styles.entrainementTextMediumLarge : null,
+                  isSmallDevice ? styles.entrainementTextSmall : null,
+                  isTinyDevice ? styles.entrainementTextTiny : null,
+                ]}>
+                {gender ? "MAG" : "WAG"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+        {/* ✨ Fecha movida al final para ir hasta abajo */}
+        <Text style={[
+          isLargeDevice ? styles.dateTextLargecompe : null,
+          isMediumLargeDevice ? styles.dateTextMediumLargecompe : null,
+          isSmallDevice ? styles.dateTextSmallcompe : null,
+          isTinyDevice ? styles.dateTextTinycompe : null,
+        ]}>{new Date(date).toLocaleDateString()}</Text>
+        {selected && (
+          <View style={[
+            isLargeDevice ? styles.checkmarkLarge : null,
+            isMediumLargeDevice ? styles.checkmarkMediumLarge : null,
+            isSmallDevice ? styles.checkmarkSmall : null,
+            isTinyDevice ? styles.checkmarkTiny : null,
+          ]}>
+            <Ionicons name="checkmark" size={20} color="#000" />
+          </View>
+        )}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};
+
 
 const MainMenu: React.FC = () => {
+  // Estados para mover competencia
+  const [showMoveCompetitionModal, setShowMoveCompetitionModal] = useState(false);
+  const [competitionToMove, setCompetitionToMove] = useState<any>(null);
+  const [selectedCompetitionDestination, setSelectedCompetitionDestination] = useState<number | null>(null);
   const [menuVisible, setMenuVisible] = useState(false);
   const [addFolderModalVisible, setAddFolderModalVisible] = useState(false);
   const [addCompetitionModalVisible, setAddCompetitionModalVisible] = useState(false);
@@ -410,12 +720,16 @@ const MainMenu: React.FC = () => {
   const [confirmationModel, setConfirmationModel] = useState(false);
   const [editFolderModalVisible, setEditFolderModalVisible] = useState(false);
   const router = useRouter();
-  const [ConfirmButtomText, setConfirmButtonText] = useState("Select Folder");
+  const [ConfirmButtomText, setConfirmButtonText] = useState("Add Competition");
+
+  // Estado para rastrear si es el primer render
+  const [isFirstRender, setIsFirstRender] = useState(true);
 
   /* Selection Mode State */
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedFolders, setSelectedFolders] = useState<number[]>([]);
-  const [selectionAction, setSelectionAction] = useState<'select' | 'edit' | 'delete' | null>(null);
+  const [selectedCompetitions, setSelectedCompetitions] = useState<number[]>([]);
+  const [selectionAction, setSelectionAction] = useState<'select' | 'edit' | 'delete' | 'move' | null>(null);
 
   /* page logic */
   const [folderName, setFolderName] = useState("");
@@ -424,6 +738,7 @@ const MainMenu: React.FC = () => {
   const [folderDate, setFolderDate] = useState(new Date().toLocaleDateString());
 
   const [folders, setFolders] = useState<Folder[]>([]); // State to store folders
+  const [competitions, setCompetitions] = useState<any[]>([]); // State to store competitions
   
   // Loading states for better UX
   const [isLoadingAddFolder, setIsLoadingAddFolder] = useState(false);
@@ -434,6 +749,8 @@ const MainMenu: React.FC = () => {
   
   // For editing functionality
   const [editingFolder, setEditingFolder] = useState<Folder | null>(null);
+  const [editingCompetition, setEditingCompetition] = useState<any>(null);
+  const [editCompetitionModalVisible, setEditCompetitionModalVisible] = useState(false);
   const params = useLocalSearchParams();
   const discipline = params.discipline === "true";
   const userIdparams = params.userId;
@@ -456,7 +773,7 @@ const [competitionDescription, setCompetitionDescription] = useState("");
 const [competitionParticipants, setCompetitionParticipants] = useState("");
 const [competitionType, setCompetitionType] = useState("Floor");
 const [currentFolderId, setCurrentFolderId] = useState<number | null>(
-  params.id ? parseInt(params.id as string) : null
+  params.folderId ? parseInt(params.folderId as string) : null
 );
 
 // Estados para importar/exportar
@@ -468,6 +785,11 @@ const [isExporting, setIsExporting] = useState(false);
 const [isImporting, setIsImporting] = useState(false);
 const [folderSelectionForCompetition, setFolderSelectionForCompetition] = useState(false);
 
+// Estados para navegación anidada
+const [currentParentId, setCurrentParentId] = useState<number | null>(null);
+const [folderPath, setFolderPath] = useState<Folder[]>([]);
+const [currentLevel, setCurrentLevel] = useState(0);
+
 // Referencias
 const scrollViewRef = useRef<ScrollView>(null);
 
@@ -477,13 +799,55 @@ const [isSwapping, setIsSwapping] = useState(false);
 const [renderKey, setRenderKey] = useState(0); // Para forzar re-renders después del swap
 const swapTimeoutRef = useRef<number | null>(null); // Para auto-cancelar selección de swap
 
+// Estados para el modal de opciones de carpeta
+const [showFolderOptionsModal, setShowFolderOptionsModal] = useState(false);
+const [selectedFolderForOptions, setSelectedFolderForOptions] = useState<Folder | null>(null);
+const [showMoveToFolderModal, setShowMoveToFolderModal] = useState(false);
+const [showChangePositionModal, setShowChangePositionModal] = useState(false);
+const [availableFoldersForMove, setAvailableFoldersForMove] = useState<Folder[]>([]);
+// Estados para el modal de opciones de competencia
+const [showCompetitionOptionsModal, setShowCompetitionOptionsModal] = useState(false);
+const [selectedCompetitionForOptions, setSelectedCompetitionForOptions] = useState<any>(null);
+
 // Estados para la barra de carga unificada
 const [showLoadingModal, setShowLoadingModal] = useState(false);
 const [loadingMessage, setLoadingMessage] = useState("");
 const [loadingProgress, setLoadingProgress] = useState(0);
 const [isLoadingOperation, setIsLoadingOperation] = useState(false);
 
+// --- NUEVA LÓGICA PARA MOVER COMPETENCIA ---
+const [moveCompetitionMode, setMoveCompetitionMode] = useState(false);
 
+
+
+// Al seleccionar 'Move to another folder' en el modal de opciones
+const handleMoveCompetitionOption = () => {
+  if (!selectedCompetitionForOptions) {
+    Alert.alert('Error', 'No hay competencia seleccionada.');
+    return;
+  }
+  setShowCompetitionOptionsModal(false);
+  setMoveCompetitionMode(true);
+  setCompetitionToMove(selectedCompetitionForOptions);
+};
+
+// Al hacer click en un folder cuando está activo el modo de mover competencia
+const handleSelectFolderForCompetitionMove = async (folderId: number) => {
+  if (!moveCompetitionMode || !competitionToMove) return;
+  try {
+    showLoading('Moviendo competencia...', 0);
+    await updateCompetence(competitionToMove.id, { folderId });
+    setMoveCompetitionMode(false);
+    setCompetitionToMove(null);
+    await fetchFolders();
+    setFeedbackAcceptModel(true);
+    setTimeout(() => setFeedbackAcceptModel(false), 1200);
+    hideLoading();
+  } catch (error) {
+    hideLoading();
+    Alert.alert('Error', 'No se pudo mover la competencia.');
+  }
+};
 
   // Animation values
   const headerAnimOpacity = useRef(new Animated.Value(0)).current;
@@ -565,18 +929,90 @@ const [isLoadingOperation, setIsLoadingOperation] = useState(false);
 
   const fetchFolders = async () => {
     try {
-      console.log('=== FETCHING FOLDERS ===');
-      console.log('Fetching ALL folders ordered by position (not filtered by userId)');
-      // Cargar TODOS los folders ordenados por posición, sin filtrar por userId
-      const fetchedFolders = await getFoldersOrderedByPosition();
-      console.log('Fetched folders count:', fetchedFolders?.length || 0);
-      console.log('Fetched folders ordered:', fetchedFolders?.map(f => ({ id: f.id, name: f.name, position: f.position })));
-      setFolders(fetchedFolders || []);
-      console.log('Folders state updated');
+      console.log('=== FETCHING NESTED FOLDERS AND COMPETITIONS ===');
+      console.log('Current parent ID:', currentParentId);
+      console.log('Current level:', currentLevel);
+      
+      // ✨ OBTENER CARPETAS DEL NIVEL ACTUAL (SIN FILTRO DE USUARIO)
+      let fetchedFolders = [];
+      if (currentParentId === null) {
+        // Si estamos en el nivel raíz, obtener todas las carpetas raíz
+        fetchedFolders = await getAllRootFolders();
+      } else {
+        // Si estamos en un nivel más profundo, obtener subcarpetas
+        fetchedFolders = await getAllSubfolders(currentParentId);
+      }
+      
+      // Agregar información sobre subcarpetas
+      const foldersWithSubfolders = await Promise.all(
+        fetchedFolders.map(async (folder) => {
+          const hasSubfoldersCount = await countSubfolders(folder.id);
+          return {
+            ...folder,
+            hasSubfolders: hasSubfoldersCount > 0,
+            level: currentLevel
+          };
+        })
+      );
+      
+      // ✨ OBTENER COMPETENCIAS
+      let allCompetitions: any[] = [];
+      
+      if (currentParentId !== null) {
+        // Solo mostrar competencias cuando estamos DENTRO de una carpeta específica
+        console.log('Fetching competitions for current folder:', currentParentId);
+        try {
+          const folderCompetitions = await getCompetencesByFolderId(currentParentId);
+          allCompetitions = folderCompetitions.map(comp => ({
+            ...comp,
+            folderId: currentParentId,
+            folderName: 'Current Folder' // Podríamos obtener el nombre real si es necesario
+          }));
+          console.log('Found competitions for current folder:', allCompetitions.length);
+        } catch (error) {
+          console.error(`Error fetching competitions for current folder ${currentParentId}:`, error);
+        }
+      } else {
+        // En el nivel raíz, no mostrar competencias (solo carpetas)
+        console.log('At root level - not showing competitions');
+      }
+      
+      console.log('Fetched folders count:', foldersWithSubfolders?.length || 0);
+      console.log('Fetched competitions count:', allCompetitions?.length || 0);
+      console.log('Fetched folders for level:', foldersWithSubfolders?.map(f => ({ 
+        id: f.id, 
+        name: f.name, 
+        parentId: f.parentId, 
+        level: f.level,
+        hasSubfolders: f.hasSubfolders,
+        position: f.position
+      })));
+      console.log('Fetched competitions:', allCompetitions?.map(c => ({ 
+        id: c.id, 
+        name: c.name, 
+        type: c.type,
+        participants: c.numberOfParticipants 
+      })));
+      
+      // Ordenar carpetas por posición antes de renderizar
+      const orderedFolders = (foldersWithSubfolders || []).slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+      setFolders(orderedFolders);
+      setCompetitions(allCompetitions || []);
+      
+      // Actualizar la ruta de navegación si estamos en una subcarpeta
+      if (currentParentId !== null) {
+        const path = await getFolderPath(currentParentId);
+        setFolderPath(path);
+      } else {
+        setFolderPath([]);
+      }
+      
+      console.log('Folders and competitions state updated');
       console.log('=== FETCH COMPLETE ===');
     } catch (error) {
-      console.error("Error fetching folders:", error);
+      console.error("Error fetching folders and competitions:", error);
       setFolders([]);
+      setCompetitions([]);
     }
   };
 
@@ -601,6 +1037,146 @@ const [isLoadingOperation, setIsLoadingOperation] = useState(false);
     setFolders([]); // Limpiar estado primero
     await refreshFolders();
   };
+
+  // ============== FUNCIONES PARA NAVEGACIÓN ANIDADA ==============
+
+  // Función para navegar hacia una subcarpeta
+  const navigateToFolder = async (folderId: number) => {
+    try {
+      console.log('Navigating to folder:', folderId);
+      setCurrentParentId(folderId);
+      setCurrentLevel(currentLevel + 1);
+      // ✨ CAMBIO: El useEffect se encargará de fetchFolders automáticamente
+    } catch (error) {
+      console.error('Error navigating to folder:', error);
+    }
+  };
+
+  // Función para navegar hacia atrás (al padre)
+  const navigateToParent = async () => {
+    try {
+      console.log('Navigating to parent from level:', currentLevel);
+      
+      if (currentLevel <= 0) {
+        // Ya estamos en el nivel raíz, no podemos ir más atrás
+        return;
+      }
+      
+      if (currentLevel === 1) {
+        // Vamos de nivel 1 a nivel 0 (raíz)
+        setCurrentParentId(null);
+        setCurrentLevel(0);
+        setFolderPath([]);
+      } else {
+        // Vamos a un nivel superior usando el folderPath
+        const newLevel = currentLevel - 1;
+        if (folderPath.length >= newLevel && newLevel > 0) {
+          const parentFolder = folderPath[newLevel - 1];
+          setCurrentParentId(parentFolder.id);
+        } else {
+          setCurrentParentId(null);
+        }
+        setCurrentLevel(newLevel);
+      }
+      
+      // ✨ CAMBIO: El useEffect se encargará de fetchFolders automáticamente
+    } catch (error) {
+      console.error('Error navigating to parent:', error);
+    }
+  };
+
+  // Efecto para cargar todos los folders al montar el componente
+  useEffect(() => {
+    // Si hay folderId en los params, abrir ese folder al montar
+    const folderIdParam = params.folderId;
+    let parsedId: number | undefined = undefined;
+    if (folderIdParam) {
+      if (typeof folderIdParam === 'string') {
+        const n = parseInt(folderIdParam, 10);
+        if (!isNaN(n)) parsedId = n;
+      } else if (Array.isArray(folderIdParam)) {
+        const n = parseInt(folderIdParam[0], 10);
+        if (!isNaN(n)) parsedId = n;
+      }
+    }
+    if (parsedId !== undefined) {
+      setCurrentParentId(parsedId);
+      // Buscar el folder y usar su nivel real
+      (async () => {
+        try {
+          // IMPORTANTE: Asegúrate de importar getFolderById desde tu base de datos
+          const folder = await getFolderById(parsedId);
+          if (folder && typeof folder.level === 'number') {
+            setCurrentLevel(folder.level);
+          } else {
+            setCurrentLevel(1); // fallback
+          }
+        } catch (e) {
+          setCurrentLevel(1); // fallback
+        }
+      })();
+    }
+    fetchFolders();
+    setIsFirstRender(false); // Marcar que ya no es el primer render
+  }, []); // Solo se ejecuta al montar
+  
+  // Función para navegar directamente a la raíz
+  const navigateToRoot = async () => {
+    try {
+      console.log('Navigating to root');
+      setCurrentParentId(null);
+      setCurrentLevel(0);
+      setFolderPath([]);
+      // ✨ CAMBIO: El useEffect se encargará de fetchFolders automáticamente
+    } catch (error) {
+      console.error('Error navigating to root:', error);
+    }
+  };
+
+
+
+  const handleConfirmMoveCompetition = async () => {
+  if (!competitionToMove || selectedCompetitionDestination == null) return;
+  showLoading('Moviendo competencia...', 0);
+  try {
+    await updateCompetence(competitionToMove.id, { folderId: selectedCompetitionDestination });
+    setShowMoveCompetitionModal(false);
+    setSelectionMode(false);
+    setSelectionAction(null);
+    setCompetitionToMove(null);
+    setSelectedCompetitionDestination(null);
+    await fetchFolders();
+    setFeedbackAcceptModel(true);
+    setTimeout(() => setFeedbackAcceptModel(false), 1200);
+  } catch (error) {
+    hideLoading();
+    Alert.alert('Error', 'No se pudo mover la competencia.');
+  }
+};
+
+  // Función para navegar usando el breadcrumb
+  const navigateFromBreadcrumb = async (folderId: number | null) => {
+    try {
+      console.log('Navigating from breadcrumb to:', folderId);
+      
+      if (folderId === null) {
+        await navigateToRoot();
+      } else {
+        // Encontrar el nivel del folder en el path
+        const folderInPath = folderPath.find(f => f.id === folderId);
+        if (folderInPath) {
+          const newLevel = folderPath.indexOf(folderInPath);
+          setCurrentParentId(folderId);
+          setCurrentLevel(newLevel + 1);
+          // ✨ CAMBIO: El useEffect se encargará de fetchFolders automáticamente
+        }
+      }
+    } catch (error) {
+      console.error('Error navigating from breadcrumb:', error);
+    }
+  };
+
+  // ============== FIN FUNCIONES NAVEGACIÓN ANIDADA ==============
 
   // Función para manejar el cambio de posiciones de las carpetas
   const handleFolderPositionChange = async (newPositions: { id: number; position: number }[]) => {
@@ -630,37 +1206,220 @@ const [isLoadingOperation, setIsLoadingOperation] = useState(false);
     }
   };
 
-  // Función para manejar la selección de cartas para swap
-  const handleCardSelection = (folderId: number) => {
-    if (selectionMode || isSwapping) return; // No permitir swap durante otros modos
-    
-    if (selectedCardForSwap === null) {
-      // Primera carta seleccionada con long press
-      setSelectedCardForSwap(folderId);
-      console.log('First card selected for swap:', folderId);
-      Vibration.vibrate(50); // Feedback háptico
-      
-      // Configurar timeout para auto-cancelar después de 10 segundos
-      swapTimeoutRef.current = setTimeout(() => {
-        console.log('Auto-cancelling swap selection after 10 seconds');
-        setSelectedCardForSwap(null);
-        swapTimeoutRef.current = null;
-      }, 10000);
-      
-    } else if (selectedCardForSwap === folderId) {
-      // Misma carta con long press, deseleccionar
-      cancelSwapSelection();
-    } else {
-      // Segunda carta con long press, realizar swap automáticamente
-      console.log('Second card long pressed, performing swap:', selectedCardForSwap, '->', folderId);
-      // Limpiar timeout ya que se va a hacer el swap
-      if (swapTimeoutRef.current) {
-        clearTimeout(swapTimeoutRef.current);
-        swapTimeoutRef.current = null;
-      }
-      handleFolderSwap(selectedCardForSwap, folderId);
-    }
+  // Nueva función para manejar el hold y abrir el modal de opciones
+  const handleCardHold = (folderId: number) => {
+    if (selectionMode || isSwapping) return;
+    setSelectedFolderForOptions(folders.find(f => f.id === folderId) || null);
+    setShowFolderOptionsModal(true);
   };
+
+  // Nueva función para manejar el hold en competencia
+  const handleCompetitionHold = (competitionId: number) => {
+    if (selectionMode) return;
+    setSelectedCompetitionForOptions(competitions.find(c => c.id === competitionId) || null);
+    setShowCompetitionOptionsModal(true);
+  };
+  // Estado para el modal de mover carpeta/competencia
+  // (ya existen showFolderOptionsModal y selectedFolderForOptions)
+
+  // Función para mover a otra carpeta del mismo nivel
+  const handleMoveToFolder = async () => {
+    if (!selectedFolderForOptions) return;
+    // Cargar carpetas del mismo nivel (excluyendo la actual)
+    let sameLevelFolders = folders.filter(f => f.parentId === selectedFolderForOptions.parentId && f.id !== selectedFolderForOptions.id);
+    setAvailableFoldersForMove(sameLevelFolders);
+    setShowMoveToFolderModal(true);
+  };
+
+  // Función para sacar de la carpeta actual
+  const handleRemoveFromFolder = async () => {
+    if (!selectedFolderForOptions) {
+      Alert.alert("Error", "No folder selected.");
+      return;
+    }
+    if (selectedFolderForOptions.parentId === null) {
+      Alert.alert("Not allowed", "This folder is already at the root level.");
+      return;
+    }
+    // Buscar el padre actual en folderPath
+    const parentIndex = folderPath.findIndex(f => f.id === selectedFolderForOptions.parentId);
+    let newParentId = null;
+    let newLevel = 0;
+    if (parentIndex > 0) {
+      // Hay un padre del padre
+      newParentId = folderPath[parentIndex - 1]?.id ?? null;
+      newLevel = folderPath[parentIndex - 1]?.level ?? 0;
+    }
+    // Si parentIndex === 0, el nuevo padre es root (null)
+    await updateFolder(selectedFolderForOptions.id, {
+      parentId: newParentId,
+      level: newLevel
+    });
+    setShowFolderOptionsModal(false);
+    await fetchFolders();
+    setRenderKey(prev => prev + 1); // Forzar re-render visual
+    setFeedbackAcceptModel(true);
+    setTimeout(() => setFeedbackAcceptModel(false), 1200);
+  };
+
+  // Nuevo: Cambiar posición usando selección
+  const handleChangePosition = () => {
+    console.log('Entering move selection mode');
+    setSelectionMode(true);
+    setSelectionAction('move');
+    setSelectedFolders([]);
+    setShowFolderOptionsModal(false);
+  };
+
+  // Nuevo: Cuando se selecciona una carpeta y se pulsa 'Move', abrir modal para elegir carpeta destino
+  // El flujo de mover carpeta ahora es solo por tap directo en toggleFolderSelection
+  // Función para confirmar mover a otra carpeta
+  const confirmMoveToFolder = async (targetFolderId: number) => {
+    console.log('[MOVE] confirmMoveToFolder called');
+    if (!selectedFolderForOptions) {
+      console.log('[MOVE] No selectedFolderForOptions, aborting');
+      return;
+    }
+    console.log('[MOVE] Moving folder:', selectedFolderForOptions);
+    console.log('[MOVE] Target folderId:', targetFolderId);
+    // Buscar la carpeta destino para calcular el nuevo nivel
+    const destinationFolder = folders.find(f => f.id === targetFolderId);
+    console.log('[MOVE] Destination folder:', destinationFolder);
+    let newLevel = 0;
+    if (destinationFolder) {
+      newLevel = (destinationFolder.level ?? 0) + 1;
+    }
+    console.log('[MOVE] New parentId:', targetFolderId, 'New level:', newLevel);
+    await updateFolder(selectedFolderForOptions.id, {
+      parentId: targetFolderId,
+      level: newLevel
+    });
+    console.log('[MOVE] updateFolder completed');
+    setShowMoveToFolderModal(false);
+    setShowFolderOptionsModal(false);
+    setSelectionMode(false);
+    setSelectionAction(null);
+    setSelectedFolders([]);
+    console.log('[MOVE] UI state reset, fetching folders...');
+    await fetchFolders();
+    console.log('[MOVE] fetchFolders completed, showing feedback');
+    setFeedbackAcceptModel(true);
+    setTimeout(() => setFeedbackAcceptModel(false), 1200);
+  };
+
+  // Función para confirmar cambio de posición
+  const confirmChangePosition = async (newIndex: number) => {
+    if (!selectedFolderForOptions) return;
+    console.log('--- CHANGE POSITION ---');
+    console.log('Selected folder for options:', selectedFolderForOptions);
+    // Obtener carpetas del mismo nivel
+    let sameLevelFolders = folders.filter(f => f.parentId === selectedFolderForOptions.parentId);
+    // Ordenar por posición
+    sameLevelFolders.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+    console.log('Same level folders before:', sameLevelFolders.map(f => ({ id: f.id, name: f.name, position: f.position })));
+    // Remover la carpeta seleccionada
+    const filtered = sameLevelFolders.filter(f => f.id !== selectedFolderForOptions.id);
+    console.log('Filtered folders (without selected):', filtered.map(f => ({ id: f.id, name: f.name })));
+    // Insertar la carpeta seleccionada en la nueva posición
+    console.log('Inserting folder at new index:', newIndex);
+    filtered.splice(newIndex, 0, selectedFolderForOptions);
+    // Actualizar posiciones (incluyendo la carpeta movida)
+    const newPositions = filtered.map((f, idx) => ({ id: f.id, position: idx }));
+    // Si la carpeta movida no está en la lista (caso borde), la agregamos
+    if (!newPositions.some(p => p.id === selectedFolderForOptions.id)) {
+      newPositions.splice(newIndex, 0, { id: selectedFolderForOptions.id, position: newIndex });
+    }
+    console.log('New positions array:', newPositions);
+    console.log('Updating folder positions in DB...');
+    await updateFolderPositions(newPositions);
+    setShowChangePositionModal(false);
+    console.log('Positions updated, fetching folders...');
+    await fetchFolders();
+    setRenderKey(prev => prev + 1); // Forzar re-render visual
+    console.log('RenderKey incremented, UI should update');
+    setFeedbackAcceptModel(true);
+    setTimeout(() => setFeedbackAcceptModel(false), 1200);
+  };
+  // ...existing code...
+  // ...existing code...
+
+
+
+  {/* Cambio de posición: View flotante en Android, Modal en otras plataformas */}
+  {Platform.OS === 'android' && showChangePositionModal ? (
+    <View style={{ position:'absolute', top:0, left:0, right:0, bottom:0, zIndex:9999, justifyContent:'center', alignItems:'center', backgroundColor:'rgba(0,0,0,0.3)' }}>
+      <View style={{ backgroundColor:'#fff', borderRadius:12, padding:24, minWidth:280 }}>
+        <Text style={{ fontWeight:'bold', fontSize:18, marginBottom:16 }}>Change Position</Text>
+        {availableFoldersForMove.length === 0 ? (
+          <Text>No folders at this level.</Text>
+        ) : (
+          availableFoldersForMove.map((folder, idx) => (
+            <TouchableOpacity
+              key={folder.id}
+              onPress={() => confirmChangePosition(idx)}
+              style={{
+                marginBottom: 10,
+                padding: 10,
+                borderRadius: 8,
+                backgroundColor: folder.id === selectedFolderForOptions?.id ? '#d1e7dd' : '#f0f0f0',
+                borderWidth: folder.id === selectedFolderForOptions?.id ? 2 : 1,
+                borderColor: folder.id === selectedFolderForOptions?.id ? '#198754' : '#ccc',
+              }}
+            >
+              <Text style={{ fontSize: 16, color: folder.id === selectedFolderForOptions?.id ? '#198754' : '#333' }}>
+                {idx + 1}. {folder.name}{folder.id === selectedFolderForOptions?.id ? ' (Current)' : ''}
+              </Text>
+            </TouchableOpacity>
+          ))
+        )}
+        <TouchableOpacity onPress={() => setShowChangePositionModal(false)}>
+          <Text style={{ color:'red', marginTop:8 }}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  ) : null}
+
+  {Platform.OS !== 'android' && (
+    <Modal
+      visible={showChangePositionModal}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setShowChangePositionModal(false)}
+    >
+      <View style={{ flex:1, justifyContent:'center', alignItems:'center', backgroundColor:'rgba(0,0,0,0.3)' }}>
+        <View style={{ backgroundColor:'#fff', borderRadius:12, padding:24, minWidth:280 }}>
+          <Text style={{ fontWeight:'bold', fontSize:18, marginBottom:16 }}>Change Position</Text>
+          {availableFoldersForMove.length === 0 ? (
+            <Text>No folders at this level.</Text>
+          ) : (
+            availableFoldersForMove.map((folder, idx) => (
+              <TouchableOpacity
+                key={folder.id}
+                onPress={() => confirmChangePosition(idx)}
+                style={{
+                  marginBottom: 10,
+                  padding: 10,
+                  borderRadius: 8,
+                  backgroundColor: folder.id === selectedFolderForOptions?.id ? '#d1e7dd' : '#f0f0f0',
+                  borderWidth: folder.id === selectedFolderForOptions?.id ? 2 : 1,
+                  borderColor: folder.id === selectedFolderForOptions?.id ? '#198754' : '#ccc',
+                }}
+              >
+                <Text style={{ fontSize: 16, color: folder.id === selectedFolderForOptions?.id ? '#198754' : '#333' }}>
+                  {idx + 1}. {folder.name}{folder.id === selectedFolderForOptions?.id ? ' (Current)' : ''}
+                </Text>
+              </TouchableOpacity>
+            ))
+          )}
+          <TouchableOpacity onPress={() => setShowChangePositionModal(false)}>
+            <Text style={{ color:'red', marginTop:8 }}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  )}
+
+
 
   // Función para intercambiar dos carpetas con animación
   const handleFolderSwap = async (firstFolderId: number, secondFolderId: number) => {
@@ -719,25 +1478,36 @@ const [isLoadingOperation, setIsLoadingOperation] = useState(false);
       } else {
         console.error('Database update failed, reverting changes');
         setFolders(folders); // Revertir cambios
-        Alert.alert('Error', 'No se pudo guardar el nuevo orden de las carpetas');
+        Alert.alert('Error', 'Error updating folder positions: Please try again.');
       }
     } catch (error) {
       console.error("Error swapping folders:", error);
       setFolders(folders); // Revertir cambios
-      Alert.alert('Error', 'Error al intercambiar las carpetas');
+      Alert.alert('Error', 'Error swapping folders: ');
     } finally {
       setIsSwapping(false);
     }
   };
 
-  // Función para cargar folders del usuario
+  // Función para cargar folders del nivel actual para exportar
   const loadUserFolders = async () => {
     try {
-      // Cargar todos los folders disponibles, no filtrar por usuario
-      const folders = await getFolders();
-      setUserFolders(folders || []);
+      // ✨ ACTUALIZADO: Solo cargar carpetas del nivel actual donde está navegando
+      let foldersToExport = [];
+      
+      if (currentParentId === null) {
+        // Si estamos en el nivel raíz, obtener todas las carpetas raíz
+        foldersToExport = await getAllRootFolders();
+        console.log('Loading root folders for export:', foldersToExport.length);
+      } else {
+        // Si estamos en un nivel más profundo, obtener subcarpetas del nivel actual
+        foldersToExport = await getAllSubfolders(currentParentId);
+        console.log('Loading subfolders for export from parent:', currentParentId, 'count:', foldersToExport.length);
+      }
+      
+      setUserFolders(foldersToExport || []);
     } catch (error) {
-      console.error("Error loading user folders:", error);
+      console.error("Error loading user folders for export:", error);
       setUserFolders([]);
     }
   };
@@ -745,7 +1515,7 @@ const [isLoadingOperation, setIsLoadingOperation] = useState(false);
   // Función para exportar folder
   const handleExportFolder = async () => {
     if (!selectedFolder) {
-      Alert.alert("Error", "Por favor selecciona un folder para exportar");
+      Alert.alert("Error", "Please select a folder to export");
       return;
     }
     
@@ -759,7 +1529,7 @@ const [isLoadingOperation, setIsLoadingOperation] = useState(false);
     // Pequeño delay para asegurar que el modal se cierre completamente
     setTimeout(() => {
       // Mostrar barra de carga
-      showLoading("Preparando exportación...", 0);
+      showLoading("Preparing export...", 0);
       setIsExporting(true);
       
       // Ejecutar la exportación asíncrona
@@ -773,50 +1543,43 @@ const [isLoadingOperation, setIsLoadingOperation] = useState(false);
       // Exportar datos del folder con progreso
       console.log("Calling exportFolderData...");
       const exportedData = await exportFolderData(folderId, updateLoading);
-      
       if (!exportedData) {
-        throw new Error("No se pudieron exportar los datos del folder");
+        throw new Error("No data exported");
       }
-
       console.log("Export successful, data length:", exportedData.length);
-
-      updateLoading("Creando archivo...", 97);
+      updateLoading("Creating file...", 97);
       // Crear archivo temporal
       const fileName = `folder_${folderName}_${new Date().toISOString().split('T')[0]}.json`;
       const fileUri = FileSystem.documentDirectory + fileName;
-      
       await FileSystem.writeAsStringAsync(fileUri, exportedData);
-
-      updateLoading("Preparando compartir...", 99);
-      // Compartir archivo
+      updateLoading("Preparing to share...", 99);
+      // Share file
       if (await Sharing.isAvailableAsync()) {
-        updateLoading("Compartiendo archivo...", 100);
-        
-        setTimeout(async () => {
-          hideLoading();
-          
+        updateLoading("Sharing file...", 100);
+        try {
           await Sharing.shareAsync(fileUri, {
             mimeType: 'application/json',
             dialogTitle: 'Exportar Folder'
           });
-          
-          Alert.alert(
-            "Éxito", 
-            "Folder exportado correctamente. El archivo ha sido compartido.",
-            [{ text: "OK", onPress: () => {
-              setMenuVisible(false);
-            }}]
-          );
-        }, 500);
+        } catch (shareError) {
+          console.warn("Sharing cancelled or failed:", shareError);
+        }
+        hideLoading();
+        Alert.alert(
+          "Success", 
+          "Folder exported successfully. The file has been shared.",
+          [{ text: "OK", onPress: () => {
+            setMenuVisible(false);
+          }}]
+        );
       } else {
         hideLoading();
-        Alert.alert("Error", "No se puede compartir archivos en este dispositivo");
+        Alert.alert("Error", "Sharing is not available on this device.");
       }
-
     } catch (error: any) {
       console.error("Error exporting folder:", error);
       hideLoading();
-      Alert.alert("Error", `No se pudo exportar el folder: ${error.message || error}`);
+      Alert.alert("Error", `Error exporting folder: ${error.message || error}`);
     } finally {
       setIsExporting(false);
     }
@@ -825,7 +1588,6 @@ const [isLoadingOperation, setIsLoadingOperation] = useState(false);
   // Función para importar folder
   const handleImportFolder = async () => {
     if (isLoadingOperation) return;
-    
     try {
       // Seleccionar archivo PRIMERO, sin mostrar barra de carga aún
       const result = await DocumentPicker.getDocumentAsync({
@@ -835,25 +1597,25 @@ const [isLoadingOperation, setIsLoadingOperation] = useState(false);
 
       if (result.canceled) {
         setIsImporting(false);
+        // No cerrar el modal, el usuario puede intentar de nuevo
         return;
       }
 
-      // Cerrar modal de importación una vez seleccionado el archivo
+      // Solo cerrar el modal si el usuario seleccionó un archivo
       setShowImportModal(false);
-      
+
       // Pequeño delay para asegurar que el modal se cierre completamente
       setTimeout(() => {
         // Ahora mostrar barra de carga
-        showLoading("Leyendo archivo...", 5);
+        showLoading("Reading file...", 5);
         setIsImporting(true);
-        
         // Ejecutar la importación asíncrona
         importFileAsync(result.assets[0].uri);
       }, 300);
 
     } catch (error: any) {
       console.error("Error selecting file:", error);
-      Alert.alert("Error", `Error al seleccionar archivo: ${error.message || error}`);
+      Alert.alert("Error", `Error selecting file: ${error.message || error}`);
     }
   };
 
@@ -863,35 +1625,36 @@ const [isLoadingOperation, setIsLoadingOperation] = useState(false);
       // Leer archivo
       const fileContent = await FileSystem.readAsStringAsync(fileUri);
       
-      // Validar y importar con progreso
-      const success = await importFolderData(fileContent, userId, updateLoading);
+      // ✨ ACTUALIZADO: Usar currentParentId en lugar de userId para importar en la carpeta actual
+      const targetFolderId = currentParentId || 0; // 0 para carpetas raíz
+      const success = await importFolderData(fileContent, targetFolderId, updateLoading);
       
       if (success) {
-        updateLoading("Actualizando lista...", 98);
-        
-        // Recargar la lista de folders
+        updateLoading("Updating list...", 98);
+
+        // ✨ ACTUALIZADO: Recargar carpetas y competencias del nivel actual
         await fetchFolders();
-        
-        updateLoading("Completado", 100);
-        
+
+        updateLoading("Completed", 100);
+
         setTimeout(() => {
           hideLoading();
           Alert.alert(
-            "Éxito", 
-            "Folder importado correctamente. Los datos se han agregado a tu cuenta.",
+            "Success", 
+            "Folder imported successfully. The data has been added to your account.",
             [{ text: "OK", onPress: () => {
               setMenuVisible(false);
             }}]
           );
         }, 500);
       } else {
-        throw new Error("Error al procesar el archivo de importación");
+        throw new Error("Error processing import file");
       }
 
     } catch (error: any) {
       console.error("Error importing folder:", error);
       hideLoading();
-      Alert.alert("Error", `No se pudo importar el folder: ${error.message || error}`);
+      Alert.alert("Error", `Error importing folder: ${error.message || error}`);
     } finally {
       setIsImporting(false);
     }
@@ -914,7 +1677,17 @@ const [isLoadingOperation, setIsLoadingOperation] = useState(false);
   useEffect(() => {
     console.log('Component mounted, fetching all folders');
     fetchFolders();
+    setIsFirstRender(false); // Marcar que ya no es el primer render
   }, []); // Solo se ejecuta al montar
+
+  // ✨ NUEVO: Efecto para re-fetchear carpetas cuando cambia la navegación
+  useEffect(() => {
+    // Solo evitar ejecutar en el primer render
+    if (!isFirstRender) {
+      console.log('Navigation changed - refetching folders for level:', currentLevel, 'parent:', currentParentId);
+      fetchFolders();
+    }
+  }, [currentParentId, currentLevel, isFirstRender]); // Se ejecuta cuando cambia la navegación
 
   // Refresh folders when screen comes back into focus
   useFocusEffect(
@@ -978,17 +1751,70 @@ const [isLoadingOperation, setIsLoadingOperation] = useState(false);
   }, []);
 
   // Function to toggle folder selection
-  const toggleFolderSelection = (id: number) => {
+  const toggleFolderSelection = async (id: number) => {
+    // Si estamos en modo mover y ya hay una carpeta seleccionada, moverla dentro de la tocada
+    if (selectionAction === 'move' && selectedFolders.length === 1 && !selectedFolders.includes(id)) {
+      const folderToMove = folders.find(f => f.id === selectedFolders[0]);
+      const destinationFolder = folders.find(f => f.id === id);
+      if (!folderToMove || !destinationFolder) return;
+      // Evitar mover dentro de sí misma o de un descendiente
+      const getDescendantIds = (folderId: number, allFolders: Folder[]): number[] => {
+        let descendants: number[] = [];
+        const directChildren = allFolders.filter(f => f.parentId === folderId);
+        for (const child of directChildren) {
+          descendants.push(child.id);
+          descendants = descendants.concat(getDescendantIds(child.id, allFolders));
+        }
+        return descendants;
+      };
+      const forbiddenIds = [folderToMove.id, ...getDescendantIds(folderToMove.id, folders)];
+      if (forbiddenIds.includes(destinationFolder.id)) {
+        Alert.alert('Invalid move', 'Cannot move a folder into itself or its descendant.');
+        return;
+      }
+      // Mover carpeta
+      let newLevel = (destinationFolder.level ?? 0) + 1;
+      await updateFolder(folderToMove.id, {
+        parentId: destinationFolder.id,
+        level: newLevel
+      });
+      setSelectionMode(false);
+      setSelectionAction(null);
+      setSelectedFolders([]);
+      await fetchFolders();
+      setFeedbackAcceptModel(true);
+      setTimeout(() => setFeedbackAcceptModel(false), 1200);
+      return;
+    }
+    // Comportamiento normal
     setSelectedFolders(prev => {
       if (prev.includes(id)) {
         return prev.filter(folderId => folderId !== id);
       } else {
-        // For edit mode, only allow selecting one folder
+        // For edit mode, only allow selecting one item (clear competitions if selecting folder)
         if (selectionAction === 'edit') {
+          setSelectedCompetitions([]);
           return [id];
         }
         // For competition folder selection, only allow one folder
         if (folderSelectionForCompetition || selectionAction === 'select') {
+          return [id];
+        }
+        // For delete mode, allow multiple selections
+        return [...prev, id];
+      }
+    });
+  };
+
+  // Function to toggle competition selection
+  const toggleCompetitionSelection = (id: number) => {
+    setSelectedCompetitions(prev => {
+      if (prev.includes(id)) {
+        return prev.filter(competitionId => competitionId !== id);
+      } else {
+        // For edit mode, only allow selecting one item (clear folders if selecting competition)
+        if (selectionAction === 'edit') {
+          setSelectedFolders([]);
           return [id];
         }
         // For delete mode, allow multiple selections
@@ -1009,6 +1835,7 @@ const [isLoadingOperation, setIsLoadingOperation] = useState(false);
     setSelectionMode(true);
     setSelectionAction('edit');
     setSelectedFolders([]);
+    setSelectedCompetitions([]);
   };
 
   // Function to handle the Delete option from menu
@@ -1017,6 +1844,7 @@ const [isLoadingOperation, setIsLoadingOperation] = useState(false);
     setSelectionMode(true);
     setSelectionAction('delete');
     setSelectedFolders([]);
+    setSelectedCompetitions([]);
     
     // Animate the delete confirmation button
     Animated.timing(deleteButtonAnim, {
@@ -1031,6 +1859,7 @@ const [isLoadingOperation, setIsLoadingOperation] = useState(false);
     setSelectionMode(false);
     setSelectionAction(null);
     setSelectedFolders([]);
+    setSelectedCompetitions([]);
     
     // Hide the delete confirmation button
     Animated.timing(deleteButtonAnim, {
@@ -1045,20 +1874,23 @@ const [isLoadingOperation, setIsLoadingOperation] = useState(false);
     setConfirmationModel(true);
   };
 
-  // Function to actually delete the selected folders
+  // Function to actually delete the selected folders and competitions
 const performDelete = async () => {
   if (isLoadingOperation) return; // Prevent multiple deletions
   
   try {
     // Mostrar barra de carga
-    showLoading("Calculando total de gimnastas...", 0);
+    showLoading("Calculando total de elementos...", 0);
     setIsLoadingDeleteFolder(true);
     setConfirmationModel(false); // Close modal immediately to prevent double-clicks
     
     console.log('Starting deletion process for folders:', selectedFolders);
+    console.log('Starting deletion process for competitions:', selectedCompetitions);
     
-    // First, calculate total number of gymnasts across all folders
+    // First, calculate total number of gymnasts across all folders and competitions
     let totalGymnasts = 0;
+    
+    // Calculate gymnasts from selected folders
     for (const folderId of selectedFolders) {
       try {
         const competences = await getCompetencesByFolderId(folderId);
@@ -1071,12 +1903,22 @@ const performDelete = async () => {
       }
     }
     
-    console.log(`Total gymnasts to delete: ${totalGymnasts}`);
-    updateLoading(`Eliminando ${totalGymnasts} gimnastas...`, 5);
+    // Calculate gymnasts from selected competitions
+    for (const competitionId of selectedCompetitions) {
+      try {
+        const mainTables = await getMainTablesByCompetenceId(competitionId);
+        totalGymnasts += mainTables.length;
+      } catch (error) {
+        console.error(`Error calculating gymnasts for competition ${competitionId}:`, error);
+      }
+    }
     
+    console.log(`Total gymnasts to delete: ${totalGymnasts}`);
+    updateLoading(`Deleting ${totalGymnasts} gymnasts...`, 5);
+
     let processedGymnasts = 0;
     
-    // Process deletions sequentially to avoid race conditions
+    // Process folder deletions sequentially
     for (const folderId of selectedFolders) {
       console.log(`Deleting folder ${folderId}...`);
       
@@ -1098,8 +1940,8 @@ const performDelete = async () => {
             console.log(`Deleted rate general for main table ${mainTable.id}`);
             
             processedGymnasts++;
-            const progress = Math.floor((processedGymnasts / totalGymnasts) * 80);
-            updateLoading(`Eliminando gimnasta ${processedGymnasts} de ${totalGymnasts}...`, progress);
+            const progress = Math.floor((processedGymnasts / totalGymnasts) * 70);
+            updateLoading(`Deleting gymnast ${processedGymnasts} of ${totalGymnasts}...`, progress);
           }
 
           // Delete main tables associated with the competence
@@ -1120,8 +1962,41 @@ const performDelete = async () => {
         // Continue with other deletions even if one fails
       }
     }
+    
+    // Process competition deletions sequentially
+    for (const competitionId of selectedCompetitions) {
+      console.log(`Deleting competition ${competitionId}...`);
+      
+      try {
+        // Fetch main tables associated with the competition
+        const mainTables = await getMainTablesByCompetenceId(competitionId);
+        console.log(`Found ${mainTables.length} main tables for competition ${competitionId}`);
 
-    updateLoading("Actualizando lista...", 90);
+        for (const mainTable of mainTables) {
+          // Delete rateGeneral entries associated with the main table
+          await deleteRateGeneralByTableId(mainTable.id);
+          console.log(`Deleted rate general for main table ${mainTable.id}`);
+          
+          processedGymnasts++;
+          const progress = Math.floor((processedGymnasts / totalGymnasts) * 70);
+          updateLoading(`Deleting Gymnast ${processedGymnasts} of ${totalGymnasts}...`, progress);
+        }
+
+        // Delete main tables associated with the competition
+        await deleteMainTableByCompetenceId(competitionId);
+        console.log(`Deleted main tables for competition ${competitionId}`);
+        
+        // Delete the competition itself
+        await deleteCompetence(competitionId);
+        console.log(`Deleted competition ${competitionId}`);
+        
+      } catch (error) {
+        console.error(`Error deleting competition ${competitionId}:`, error);
+        // Continue with other deletions even if one fails
+      }
+    }
+
+    updateLoading("Updating list...", 90);
     // Refresh the folders list instead of manually updating state
     await refreshFolders();
 
@@ -1129,6 +2004,7 @@ const performDelete = async () => {
     setSelectionMode(false);
     setSelectionAction(null);
     setSelectedFolders([]);
+    setSelectedCompetitions([]);
 
     // Hide the delete confirmation button
     Animated.timing(deleteButtonAnim, {
@@ -1137,8 +2013,8 @@ const performDelete = async () => {
       useNativeDriver: true,
     }).start();
 
-    updateLoading("Completado", 100);
-    
+    updateLoading("Completed", 100);
+
     setTimeout(() => {
       hideLoading();
       // Show success feedback
@@ -1153,13 +2029,14 @@ const performDelete = async () => {
   } catch (error) {
     console.error("Error in performDelete:", error);
     hideLoading();
-    Alert.alert("Error", "Failed to delete some folders. Please try again.");
+    Alert.alert("Error", "Failed to delete some items. Please try again.");
     
     // Reset states even if there's an error
     setConfirmationModel(false);
     setSelectionMode(false);
     setSelectionAction(null);
     setSelectedFolders([]);
+    setSelectedCompetitions([]);
     
     // Hide the delete confirmation button
     Animated.timing(deleteButtonAnim, {
@@ -1183,6 +2060,16 @@ const performDelete = async () => {
         setFolderType(folderToEdit.type);
         setEditFolderModalVisible(true);
       }
+    } else if (selectedCompetitions.length === 1) {
+      const competitionToEdit = competitions.find(competition => competition.id === selectedCompetitions[0]);
+      if (competitionToEdit) {
+        setEditingCompetition(competitionToEdit);
+        setCompetitionName(competitionToEdit.name);
+        setCompetitionDescription(competitionToEdit.description);
+        setCompetitionParticipants(competitionToEdit.numberOfParticipants.toString());
+        setCompetitionType(competitionToEdit.type);
+        setEditCompetitionModalVisible(true);
+      }
     }
   };
 
@@ -1196,7 +2083,7 @@ const performDelete = async () => {
     }
 
     // Mostrar barra de carga
-    showLoading("Actualizando carpeta...", 0);
+    showLoading("Updating folder...", 0);
     setIsLoadingEditFolder(true);
 
     const updatedFolder = {
@@ -1207,16 +2094,16 @@ const performDelete = async () => {
     };
 
     try {
-      updateLoading("Guardando cambios...", 40);
+      updateLoading("Saving changes...", 40);
       const result = await updateFolder(editingFolder.id, updatedFolder);
       
       if (result) {
-        updateLoading("Actualizando lista...", 80);
+        updateLoading("Updating list...", 80);
         // Refresh the folders list to ensure UI is up to date
         await refreshFolders();
-        
-        updateLoading("Finalizando...", 100);
-        
+
+        updateLoading("Finalizing...", 100);
+
         setEditFolderModalVisible(false);
         setSelectionMode(false);
         setSelectionAction(null);
@@ -1245,6 +2132,7 @@ const performDelete = async () => {
   };
 
   // Function to add a new folder
+  // Function to add a new folder (actualizada para carpetas anidadas)
   const addNewFolder = async () => {
     if (folderName.trim() === "") {
       Alert.alert("Error", "Please fill in all fields.");
@@ -1254,40 +2142,21 @@ const performDelete = async () => {
     if (isLoadingOperation) return; // Prevent multiple submissions
 
     // Mostrar barra de carga
-    showLoading("Creando carpeta...", 0);
+    showLoading("Creating folder...", 0);
     setIsLoadingAddFolder(true);
 
     try {
-      updateLoading("Preparando nueva carpeta...", 10);
-      
-      // Obtener todas las carpetas existentes ordenadas por posición
-      const currentFolders = await getFoldersOrderedByPosition();
-      
-      console.log('Current folders count:', currentFolders?.length || 0);
-      console.log('New folder will be inserted at position 0 (first position)');
+      updateLoading("Preparing new folder...", 10);
 
-      // Si hay carpetas existentes, incrementar todas sus posiciones en +1
-      if (currentFolders && currentFolders.length > 0) {
-        updateLoading("Reorganizando carpetas existentes...", 25);
-        
-        // Crear array de nuevas posiciones: cada carpeta aumenta su posición en +1
-        const updatedPositions = currentFolders.map((folder) => ({
-          id: folder.id,
-          position: (folder.position ?? 0) + 1 // Incrementar cada posición existente en 1 (usar 0 si position es undefined)
-        }));
-        
-        console.log('Shifting existing folders positions +1:', updatedPositions);
-        
-        // Actualizar las posiciones en la base de datos
-        const positionsUpdated = await updateFolderPositions(updatedPositions);
-        if (!positionsUpdated) {
-          throw new Error("Failed to update existing folder positions");
-        }
-        
-        console.log('Successfully shifted all existing folders to make room for new folder at position 0');
-      }
+      console.log('Creating folder in current parent:', currentParentId, 'at level:', currentLevel);
 
-      updateLoading("Creando nueva carpeta...", 45);
+      // Obtener carpetas del nivel actual para calcular la posición
+      const currentLevelFolders = await getAllFoldersByParent(currentParentId);
+      const newPosition = currentLevelFolders && currentLevelFolders.length > 0
+        ? Math.max(...currentLevelFolders.map(f => f.position ?? 0)) + 1
+        : 0;
+
+      updateLoading("Creating new folder...", 45);
 
       const folderData = {
         userId: userId,
@@ -1296,31 +2165,30 @@ const performDelete = async () => {
         type: folderType,
         date: new Date().toISOString(),
         filled: false,
-        position: 0, // Nueva carpeta siempre en posición 0 (primera)
+        position: newPosition, // Nueva carpeta al final
+        parentId: currentParentId, // ✨ NUEVO: Asignar el padre actual
+        level: currentLevel, // ✨ NUEVO: Asignar el nivel actual
       };
 
-      updateLoading("Guardando nueva carpeta...", 60);
+      updateLoading("Saving new folder...", 60);
       const result = await insertFolder(folderData);
-      
+
       if (result) {
-        updateLoading("Actualizando lista...", 70);
+        // Normalizar posiciones después de insertar
+        await normalizeFolderPositions(currentParentId);
+        updateLoading("Updating list...", 70);
         // Refresh the folders list to ensure UI is up to date
         await refreshFolders();
-        
-        updateLoading("Finalizando...", 100);
-        
+
+        updateLoading("Finalizing...", 100);
+
         // Reset form and close modal
         setFolderName("");
         setFolderDescription("");
         setAddFolderModalVisible(false);
-        
+
         setTimeout(() => {
           hideLoading();
-          // Show success feedback
-          setFeedbackAcceptModel(true);
-          setTimeout(() => {
-            setFeedbackAcceptModel(false);
-          }, 1500);
         }, 500);
       } else {
         hideLoading();
@@ -1372,7 +2240,6 @@ const performDelete = async () => {
     ]).start();
   }, []);
 
-  // Function to add a new competition
   const addNewCompetition = async () => {
     // Validate inputs
     if (competitionName.trim() === "" ) {
@@ -1385,19 +2252,53 @@ const performDelete = async () => {
       return;
     }
     
-    // Check if we have a folder ID (either from URL or selection)
-    if (!currentFolderId && selectedFolders.length === 0) {
-      // We need to select a folder first
-      setAddCompetitionModalVisible(false);
-      setFolderSelectionForCompetition(true);
-      setSelectionMode(true);
-      setSelectionAction('select');
-      setConfirmButtonText("Confirm");
-      Alert.alert("Info", "Please select a folder for this competition.");
-      return;
-    }
-    
     if (isLoadingOperation) return; // Prevent multiple submissions
+
+    // ✨ LÓGICA CORREGIDA: Crear competencia EN la carpeta actual donde está navegando
+    let targetFolderId: number;
+
+    if (currentParentId !== null) {
+      // Si estamos dentro de una carpeta, crear la competencia EN esa carpeta
+      targetFolderId = currentParentId;
+      console.log("Creating competition IN current folder:", targetFolderId);
+    } else {
+      // Si estamos en el nivel raíz, necesitamos seleccionar una carpeta
+      if (folders.length === 0) {
+        Alert.alert("Info", "No folders found at this level. Create a folder first.");
+        return;
+      }
+      
+      if (folders.length === 1) {
+        // Si solo hay una carpeta en el nivel raíz, usarla automáticamente
+        targetFolderId = folders[0].id;
+        console.log("Auto-selecting single root folder:", targetFolderId);
+      } else if (selectedFolders.length === 1) {
+        // Si el usuario ha seleccionado una carpeta específica en el nivel raíz, usarla
+        targetFolderId = selectedFolders[0];
+        console.log("Using user-selected root folder:", targetFolderId);
+      } else {
+        // Si hay múltiples carpetas y ninguna seleccionada, pedir selección
+        Alert.alert(
+          "Select Folder", 
+          `There are ${folders.length} folders available. Please select a folder to create the competition.`,
+          [
+            { text: "Cancel", style: "cancel" },
+            { 
+              text: "Select", 
+              onPress: () => {
+                setFolderSelectionForCompetition(true);
+                setSelectionMode(true);
+                setSelectionAction('select');
+                setSelectedFolders([]);
+                /* hide modal create */
+                setAddCompetitionModalVisible(false); 
+              }
+            }
+          ]
+        );
+        return;
+      }
+    }
 
     const numberOfParticipants = parseInt(competitionParticipants);
     
@@ -1407,12 +2308,10 @@ const performDelete = async () => {
     // Pequeño delay para asegurar que el modal se cierre completamente
     setTimeout(() => {
       // Mostrar barra de carga
-      showLoading("Creando competencia...", 0);
+      showLoading("Creating competition...", 0);
       setIsLoadingAddCompetition(true);
       
-      // Determine which folder ID to use
-      const targetFolderId = currentFolderId || selectedFolders[0];
-      console.log("Using folder ID:", targetFolderId);
+      console.log("Creating competition in folder ID:", targetFolderId, "at navigation level:", currentLevel);
       
       const competenceData = {
         folderId: targetFolderId,
@@ -1434,22 +2333,43 @@ const performDelete = async () => {
   // Nueva función para manejar la creación asíncrona
   const createCompetitionAsync = async (competenceData: any, numberOfParticipants: number, targetFolderId: number) => {
     try {
-      updateLoading("Guardando competencia...", 20);
+      updateLoading("Saving competition...", 20);
+      console.log("=== CREATING COMPETITION ===");
+      console.log("Competition data:", competenceData);
+      console.log("Target folder ID:", targetFolderId);
+      console.log("Current parent ID:", currentParentId);
+      
       const competitionId = await insertCompetence(competenceData);
+      console.log("Competition created with ID:", competitionId);
 
       /* change filled in the folder in the db */
       await updateFolder(targetFolderId, { filled: true }); // Update the folder to mark it as filled
       
       if (competitionId) {
-        updateLoading(`Creando ${numberOfParticipants} gimnastas...`, 40);
+        updateLoading(`Creating ${numberOfParticipants} gymnasts...`, 40);
         // Create Main Table entries for each participant with progress tracking
         await createMainTableEntriesWithProgress(competitionId, numberOfParticipants);
+
+        updateLoading("Updating list...", 90);
+        console.log("=== BEFORE REFRESH ===");
+        console.log("Current navigation state - Parent ID:", currentParentId, "Level:", currentLevel);
         
-        updateLoading("Actualizando lista...", 90);
         // Refresh folders list to reflect changes
         await refreshFolders();
         
-        updateLoading("Finalizando...", 100);
+        // Verificar las competencias después del refresh
+        console.log("=== AFTER REFRESH ===");
+        console.log("Competitions in state:", competitions.length);
+        if (currentParentId !== null) {
+          try {
+            const testCompetitions = await getCompetencesByFolderId(currentParentId);
+            console.log("Direct DB query for competitions in current folder:", testCompetitions);
+          } catch (error) {
+            console.error("Error in direct DB query:", error);
+          }
+        }
+        
+        updateLoading("Finalizing...", 100);
         
         // Reset form and close modal
         setCompetitionName("");
@@ -1482,14 +2402,150 @@ const performDelete = async () => {
     }
   };
 
+    const saveEditedCompetition = async (id: number) => {
+      if (!editingCompetition || isLoadingOperation) return;
+      
+      if (competitionName.trim() === "") {
+        Alert.alert("Error", "Please fill in all required fields.");
+        return;
+      }
+      
+      if (!competitionParticipants || isNaN(parseInt(competitionParticipants))) {
+        Alert.alert("Error", "Please enter a valid number of participants.");
+        return;
+      }
+
+      // Close modal and show loading after a short delay
+      setEditCompetitionModalVisible(false);
+      setTimeout(() => {
+        showLoading("Updating competition...", 10);
+      }, 300);
+      
+      const updatedCompetition = {
+        ...editingCompetition,
+        name: competitionName,
+        description: competitionDescription,
+        numberOfParticipants: parseInt(competitionParticipants),
+        type: competitionType,
+      };
+  
+      try {
+        updateLoading("Saving changes...", 50);
+
+        const result = await updateCompetence(id, updatedCompetition);
+  
+        /* count number of main table related to that competition an if th participants are less delete main table 
+        with the competence id from 1 increasing up to the number of participants TODO */
+        if (result) {
+          updateLoading("Updating competition list...", 80);
+
+          // Refresh folders and competitions to reflect changes
+          await refreshFolders();
+
+          updateLoading("Clearing selection...", 95);
+
+          setSelectionMode(false);
+          setSelectionAction(null);
+          setSelectedCompetitions([]);
+          setEditingCompetition(null);
+
+          updateLoading("Update complete!", 100);
+
+          // Wait a moment to show 100% before hiding
+          setTimeout(() => {
+            hideLoading();
+            
+            // Show success feedback
+            setFeedbackAcceptModel(true);
+            setTimeout(() => {
+              setFeedbackAcceptModel(false);
+            }, 1500);
+          }, 500);
+          
+        } else {
+          hideLoading();
+          Alert.alert("Error", "Failed to update competition.");
+        }
+      } catch (error) {
+        console.error("Error updating competition:", error);
+        hideLoading();
+        Alert.alert("Error", "Failed to update competition.");
+      }
+    };
+
+    
+
+
+// --- LÓGICA DE FOLDERS ---
+
+
+// --- LÓGICA DE COMPETENCIAS ---
+const handleMoveCompetition = () => {
+
+};
+
+const handleRemoveCompetition = async () => {
+  if (!selectedCompetitionForOptions) {
+    console.log('[REMOVE_COMP] No competition selected');
+    Alert.alert("Error", "No competition selected.");
+    return;
+  }
+  // Buscar la carpeta actual de la competencia en folderPath o folders
+  let currentFolderId = selectedCompetitionForOptions.folderId;
+  let currentFolder = null;
+  if (currentFolderId != null) {
+    currentFolder = folderPath.find(f => f.id === currentFolderId) || folders.find(f => f.id === currentFolderId);
+  } else {
+    // Si folderId es nulo, usar el último folder del path (donde está navegando el usuario)
+    if (folderPath.length > 0) {
+      currentFolder = folderPath[folderPath.length - 1];
+      currentFolderId = currentFolder.id;
+    }
+  }
+  console.log('[REMOVE_COMP] currentFolderId:', currentFolderId);
+  console.log('[REMOVE_COMP] currentFolder:', currentFolder);
+  if (!currentFolder) {
+    console.log('[REMOVE_COMP] No se encontró la carpeta de la competencia');
+    Alert.alert("Error", "No competition folder found.");
+    return;
+  }
+  // Si el padre de la carpeta actual es null, ya está en root, no permitir
+  console.log('[REMOVE_COMP] currentFolder.parentId:', currentFolder.parentId);
+  if (currentFolder.parentId === null) {
+    console.log('[REMOVE_COMP] La competencia ya está en root, no se puede subir más');
+    Alert.alert("Not allowed", "Cannot move competition up, it is already at the root level.");
+    return;
+  }
+  // Subir solo un nivel: el nuevo folderId será el parentId del folder actual
+  const newParentId = currentFolder.parentId;
+  console.log('[REMOVE_COMP] Subiendo solo un nivel, newParentId:', newParentId);
+  try {
+    showLoading("Moving competition up one level...");
+    await updateCompetence(selectedCompetitionForOptions.id, { folderId: newParentId });
+    setShowCompetitionOptionsModal(false);
+    await fetchFolders();
+    // Navigate to the parent folder after moving the competition
+    await navigateFromBreadcrumb(newParentId);
+    setFeedbackAcceptModel(true);
+    setTimeout(() => {
+      setFeedbackAcceptModel(false);
+      hideLoading();
+    }, 1200);
+  } catch (error) {
+    console.log('[REMOVE_COMP] ERROR:', error);
+    hideLoading();
+    Alert.alert("Error", "Failed to move competition.");
+  }
+};
+
   // Add this new function to create Main Table entries with progress tracking
   const createMainTableEntriesWithProgress = async (competenceId: number, numberOfParticipants: number) => {
     try {
       // Create a main table entry for each participant with progress tracking
       for (let i = 1; i <= numberOfParticipants; i++) {
         const progress = 40 + Math.floor((i / numberOfParticipants) * 45); // 40% to 85%
-        updateLoading(`Creando gimnasta ${i} de ${numberOfParticipants}...`, progress);
-        
+        updateLoading(`Creating gymnast ${i} of ${numberOfParticipants}...`, progress);
+
         const mainTableData = {
           competenceId: competenceId,
           number: i, // Participant number
@@ -1598,7 +2654,7 @@ const confirmFolderForCompetition = () => {
           isMediumLargeDevice ? styles.backButtonMediumLarge : null,
           isSmallDevice ? styles.backButtonSmall : null,
           isTinyDevice ? styles.backButtonTiny : null,
-        ]} onPress={goBack}>
+        ]} onPress={currentLevel > 0 ? () => navigateToParent() : goBack}>
           <Ionicons name="arrow-back" size={24} color="#000" />
           <Text 
             style={[
@@ -1608,9 +2664,51 @@ const confirmFolderForCompetition = () => {
               isTinyDevice ? styles.headerTitleTiny : null,
             ]}
           >
-            Select Discipline
+            {currentLevel > 0 ? "Back" : "Select Discipline"}
           </Text>
         </TouchableOpacity>
+        
+        {/* ✨ NUEVO: Breadcrumb para navegación anidada */}
+        {currentLevel > 0 && folderPath.length > 0 && (
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            marginLeft: 10,
+            flex: 1,
+            flexWrap: 'wrap'
+          }}>
+            <TouchableOpacity onPress={navigateToRoot}>
+              <Text style={{
+                fontSize: isLargeDevice ? 14 : isMediumLargeDevice ? 13 : isSmallDevice ? 12 : 11,
+                color: '#007AFF',
+                fontFamily: "Rajdhani-medium"
+              }}>
+                Home
+              </Text>
+            </TouchableOpacity>
+            {folderPath.map((folder, index) => (
+              <View key={folder.id} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={{
+                  fontSize: isLargeDevice ? 14 : isMediumLargeDevice ? 13 : isSmallDevice ? 12 : 11,
+                  color: '#666',
+                  marginHorizontal: 5
+                }}>
+                  /
+                </Text>
+                <TouchableOpacity onPress={() => navigateFromBreadcrumb(folder.id)}>
+                  <Text style={{
+                    fontSize: isLargeDevice ? 14 : isMediumLargeDevice ? 13 : isSmallDevice ? 12 : 11,
+                    color: index === folderPath.length - 1 ? '#333' : '#007AFF',
+                    fontFamily: "Rajdhani-medium",
+                    maxWidth: 120
+                  }} numberOfLines={1}>
+                    {folder.name}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
         
         {selectionMode ? (
           <TouchableOpacity 
@@ -1715,7 +2813,12 @@ const confirmFolderForCompetition = () => {
             isSmallDevice ? styles.foldersGridSmall : null,
             isTinyDevice ? styles.foldersGridTiny : null,
           ]}>
+            {/* Renderizar carpetas */}
             {folders.map((folder, index) => {
+              // Si está activo el modo de mover competencia, al hacer click en un folder se mueve la competencia
+              const handleFolderClick = moveCompetitionMode && competitionToMove
+                ? () => handleSelectFolderForCompetitionMove(folder.id)
+                : () => toggleFolderSelection(folder.id);
               return (
                 <View
                   key={`folder-${folder.id}-${index}-${renderKey}`}
@@ -1732,18 +2835,51 @@ const confirmFolderForCompetition = () => {
                     selectionMode={selectionMode}
                     discipline={discipline}
                     empty={folder.filled}
-                    onSelect={toggleFolderSelection}
+                    onSelect={handleFolderClick}
                     isSelectedForSwap={selectedCardForSwap === folder.id}
                     isSwapping={isSwapping}
-                    onCardPress={handleCardSelection}
+                    onCardPress={handleCardHold}
+                    onNavigateToFolder={!moveCompetitionMode ? (id) => navigateToFolder(id) : undefined}
+                    hasSubfolders={folder.hasSubfolders}
+                    moveCompetitionMode={moveCompetitionMode}
+                    handleSelectFolderForCompetitionMove={handleSelectFolderForCompetitionMove}
                   />
+                </View>
+              );
+            })}
+            
+            {/* ✨ NUEVO: Renderizar competencias */}
+            {competitions.map((competition, index) => {
+              return (
+                <View
+                  key={`competition-${competition.id}-${index}-${renderKey}`}
+                  style={styles.folderItemContainer}
+                >
+            <CompetitionItem
+              id={competition.id}
+              title={competition.name}
+              description={competition.description}
+              date={competition.date}
+              type={competition.type}
+              participants={competition.numberOfParticipants}
+              selected={selectedCompetitions.includes(competition.id)}
+              folderType={competition.gender ? 1 : 2}
+              animationDelay={(folders.length + index) * 100}
+              selectionMode={selectionMode}
+              folderId={competition.folderId}
+              gender={competition.gender}
+              onSelect={toggleCompetitionSelection}
+              onCardHold={handleCompetitionHold}
+              moveCompetitionMode={moveCompetitionMode}
+              setCompetitionToMove={setCompetitionToMove}
+            />
                 </View>
               );
             })}
           </View>
         </TouchableOpacity>
       </ScrollView>
-      
+
       {/* Add Competition Button with Animation */}
       <Animated.View 
         style={[
@@ -1778,7 +2914,7 @@ const confirmFolderForCompetition = () => {
               {isRefreshing ? "Refreshing..." : "Add Competition"}
             </Text>
           </TouchableOpacity>
-        ) : selectionAction === 'edit' && selectedFolders.length === 1 ? (
+        ) : selectionAction === 'edit' && (selectedFolders.length === 1 || selectedCompetitions.length === 1) ? (
           <TouchableOpacity 
             style={[
               isLargeDevice ? styles.editConfirmButtonLarge : null,
@@ -1822,7 +2958,9 @@ const confirmFolderForCompetition = () => {
       </Animated.View>
   
       {/* Delete Confirmation Button (appears when in delete mode) */}
-      {selectionMode && selectionAction === 'delete' && selectedFolders.length > 0 && (
+      {/* Botón Move oculto: la acción de mover carpeta es directa con tap-to-move */}
+      
+      {selectionMode && selectionAction === 'delete' && (selectedFolders.length > 0 || selectedCompetitions.length > 0) && (
         <Animated.View 
           style={[
             isLargeDevice ? styles.deleteButtonContainerLarge : null,
@@ -1851,181 +2989,535 @@ const confirmFolderForCompetition = () => {
         </Animated.View>
       )}
   
-      {/* Menu Modal */}
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={menuVisible}
-        onRequestClose={() => setMenuVisible(false)}
-      >
-        <TouchableOpacity 
-          style={[
-            isLargeDevice ? styles.modalOverlayLarge : null,
-            isMediumLargeDevice ? styles.modalOverlayMediumLarge : null,
-            isSmallDevice ? styles.modalOverlaySmall : null,
-            isTinyDevice ? styles.modalOverlayTiny : null,
-          ]} 
-          activeOpacity={1} 
-          onPress={() => setMenuVisible(false)}
-        >
-          <View 
-            style={[
-              isLargeDevice ? styles.menuModalLarge : null,
-              isMediumLargeDevice ? styles.menuModalMediumLarge : null,
-              isSmallDevice ? styles.menuModalSmall : null,
-              isTinyDevice ? styles.menuModalTiny : null,
-            ]}
-          >
-            <TouchableOpacity style={[
-              isLargeDevice ? styles.menuItemLarge : null,
-              isMediumLargeDevice ? styles.menuItemMediumLarge : null,
-              isSmallDevice ? styles.menuItemSmall : null,
-              isTinyDevice ? styles.menuItemTiny : null,
-            ]} onPress={handleAddOption}>
-              <Image
-                source={require("../assets/images/add.png")}
+      {/* Menu Modal: View en iOS (iPhone), Modal en otras plataformas */}
+      {(Platform.OS === 'android') ? (
+        menuVisible && (
+          <View style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 9999,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}>
+            <TouchableOpacity
+              style={[
+                isLargeDevice ? styles.modalOverlayLarge : null,
+                isMediumLargeDevice ? styles.modalOverlayMediumLarge : null,
+                isSmallDevice ? styles.modalOverlaySmall : null,
+                isTinyDevice ? styles.modalOverlayTiny : null,
+              ]}
+              activeOpacity={1}
+              onPress={() => setMenuVisible(false)}
+            >
+              <View
                 style={[
-                  isLargeDevice ? styles.menuIconPlaceholderLarge : null,
-                  isMediumLargeDevice ? styles.menuIconPlaceholderMediumLarge : null,
-                  isSmallDevice ? styles.menuIconPlaceholderSmall : null,
-                  isTinyDevice ? styles.menuIconPlaceholderTiny : null,
+                  isLargeDevice ? styles.menuModalLarge : null,
+                  isMediumLargeDevice ? styles.menuModalMediumLarge : null,
+                  isSmallDevice ? styles.menuModalSmall : null,
+                  isTinyDevice ? styles.menuModalTiny : null,
                 ]}
-                resizeMode="cover"
-              />
-              <Text style={[
-                isLargeDevice ? styles.menuTextLarge : null,
-                isMediumLargeDevice ? styles.menuTextMediumLarge : null,
-                isSmallDevice ? styles.menuTextSmall : null,
-                isTinyDevice ? styles.menuTextTiny : null,
-              ]}>Add</Text>
-            </TouchableOpacity>
-            
-            <View style={[
-              isLargeDevice ? styles.menuDividerLarge : null,
-              isMediumLargeDevice ? styles.menuDividerMediumLarge : null,
-              isSmallDevice ? styles.menuDividerSmall : null,
-              isTinyDevice ? styles.menuDividerTiny : null,
-            ]} />
-            
-            <TouchableOpacity style={[
-              isLargeDevice ? styles.menuItemLarge : null,
-              isMediumLargeDevice ? styles.menuItemMediumLarge : null,
-              isSmallDevice ? styles.menuItemSmall : null,
-              isTinyDevice ? styles.menuItemTiny : null,
-            ]} onPress={handleEditOption}>
-              <Image
-                source={require("../assets/images/edit.png")}
-                style={[
-                  isLargeDevice ? styles.menuIconPlaceholderLarge : null,
-                  isMediumLargeDevice ? styles.menuIconPlaceholderMediumLarge : null,
-                  isSmallDevice ? styles.menuIconPlaceholderSmall : null,
-                  isTinyDevice ? styles.menuIconPlaceholderTiny : null,
-                ]}
-                resizeMode="cover"
-              />
-              <Text style={[
-                isLargeDevice ? styles.menuTextLarge : null,
-                isMediumLargeDevice ? styles.menuTextMediumLarge : null,
-                isSmallDevice ? styles.menuTextSmall : null,
-                isTinyDevice ? styles.menuTextTiny : null,
-              ]}>Edit</Text>
-            </TouchableOpacity>
-            
-            <View style={[
-              isLargeDevice ? styles.menuDividerLarge : null,
-              isMediumLargeDevice ? styles.menuDividerMediumLarge : null,
-              isSmallDevice ? styles.menuDividerSmall : null,
-              isTinyDevice ? styles.menuDividerTiny : null,
-            ]} />
-            
-            <TouchableOpacity style={[
-              isLargeDevice ? styles.menuItemLarge : null,
-              isMediumLargeDevice ? styles.menuItemMediumLarge : null,
-              isSmallDevice ? styles.menuItemSmall : null,
-              isTinyDevice ? styles.menuItemTiny : null,
-            ]} onPress={handleDeleteOption}>
-              <Image
-                source={require("../assets/images/delete.png")}
-                style={[
-                  isLargeDevice ? styles.menuIconPlaceholderLarge : null,
-                  isMediumLargeDevice ? styles.menuIconPlaceholderMediumLarge : null,
-                  isSmallDevice ? styles.menuIconPlaceholderSmall : null,
-                  isTinyDevice ? styles.menuIconPlaceholderTiny : null,
-                ]}
-                resizeMode="cover"
-              />
-              <Text style={[
-                isLargeDevice ? styles.menuTextLarge : null,
-                isMediumLargeDevice ? styles.menuTextMediumLarge : null,
-                isSmallDevice ? styles.menuTextSmall : null,
-                isTinyDevice ? styles.menuTextTiny : null,
-              ]}>Delete</Text>
-            </TouchableOpacity>
-
-            <View style={[
-              isLargeDevice ? styles.menuDividerLarge : null,
-              isMediumLargeDevice ? styles.menuDividerMediumLarge : null,
-              isSmallDevice ? styles.menuDividerSmall : null,
-              isTinyDevice ? styles.menuDividerTiny : null,
-            ]} />
-
-            <TouchableOpacity style={[
-              isLargeDevice ? styles.menuItemLarge : null,
-              isMediumLargeDevice ? styles.menuItemMediumLarge : null,
-              isSmallDevice ? styles.menuItemSmall : null,
-              isTinyDevice ? styles.menuItemTiny : null,
-            ]} onPress={openExportModal}>
-              <Image
-                source={require("../assets/images/export.png")}
-                style={[
-                  isLargeDevice ? styles.menuIconPlaceholderLarge : null,
-                  isMediumLargeDevice ? styles.menuIconPlaceholderMediumLarge : null,
-                  isSmallDevice ? styles.menuIconPlaceholderSmall : null,
-                  isTinyDevice ? styles.menuIconPlaceholderTiny : null,
-                ]}
-                resizeMode="cover"
-              />
-              <Text style={[
-                isLargeDevice ? styles.menuTextLarge : null,
-                isMediumLargeDevice ? styles.menuTextMediumLarge : null,
-                isSmallDevice ? styles.menuTextSmall : null,
-                isTinyDevice ? styles.menuTextTiny : null,
-              ]}>Export</Text>
-            </TouchableOpacity>
-
-            <View style={[
-              isLargeDevice ? styles.menuDividerLarge : null,
-              isMediumLargeDevice ? styles.menuDividerMediumLarge : null,
-              isSmallDevice ? styles.menuDividerSmall : null,
-              isTinyDevice ? styles.menuDividerTiny : null,
-            ]} />
-
-            <TouchableOpacity style={[
-              isLargeDevice ? styles.menuItemLarge : null,
-              isMediumLargeDevice ? styles.menuItemMediumLarge : null,
-              isSmallDevice ? styles.menuItemSmall : null,
-              isTinyDevice ? styles.menuItemTiny : null,
-            ]} onPress={openImportModal}>
-              <Image
-                source={require("../assets/images/import.png")}
-                style={[
-                  isLargeDevice ? styles.menuIconPlaceholderLarge : null,
-                  isMediumLargeDevice ? styles.menuIconPlaceholderMediumLarge : null,
-                  isSmallDevice ? styles.menuIconPlaceholderSmall : null,
-                  isTinyDevice ? styles.menuIconPlaceholderTiny : null,
-                ]}
-                resizeMode="cover"
-              />
-              <Text style={[
-                isLargeDevice ? styles.menuTextLarge : null,
-                isMediumLargeDevice ? styles.menuTextMediumLarge : null,
-                isSmallDevice ? styles.menuTextSmall : null,
-                isTinyDevice ? styles.menuTextTiny : null,
-              ]}>Import</Text>
+              >
+                {/* ...contenido del menú igual que antes... */}
+                <TouchableOpacity style={[
+                  isLargeDevice ? styles.menuItemLarge : null,
+                  isMediumLargeDevice ? styles.menuItemMediumLarge : null,
+                  isSmallDevice ? styles.menuItemSmall : null,
+                  isTinyDevice ? styles.menuItemTiny : null,
+                ]} onPress={handleAddOption}>
+                  <Image
+                    source={require("../assets/images/add.png")}
+                    style={[
+                      isLargeDevice ? styles.menuIconPlaceholderLarge : null,
+                      isMediumLargeDevice ? styles.menuIconPlaceholderMediumLarge : null,
+                      isSmallDevice ? styles.menuIconPlaceholderSmall : null,
+                      isTinyDevice ? styles.menuIconPlaceholderTiny : null,
+                    ]}
+                    resizeMode="cover"
+                  />
+                  <Text style={[
+                    isLargeDevice ? styles.menuTextLarge : null,
+                    isMediumLargeDevice ? styles.menuTextMediumLarge : null,
+                    isSmallDevice ? styles.menuTextSmall : null,
+                    isTinyDevice ? styles.menuTextTiny : null,
+                  ]}>Add</Text>
+                </TouchableOpacity>
+                <View style={[
+                  isLargeDevice ? styles.menuDividerLarge : null,
+                  isMediumLargeDevice ? styles.menuDividerMediumLarge : null,
+                  isSmallDevice ? styles.menuDividerSmall : null,
+                  isTinyDevice ? styles.menuDividerTiny : null,
+                ]} />
+                <TouchableOpacity style={[
+                  isLargeDevice ? styles.menuItemLarge : null,
+                  isMediumLargeDevice ? styles.menuItemMediumLarge : null,
+                  isSmallDevice ? styles.menuItemSmall : null,
+                  isTinyDevice ? styles.menuItemTiny : null,
+                ]} onPress={handleEditOption}>
+                  <Image
+                    source={require("../assets/images/edit.png")}
+                    style={[
+                      isLargeDevice ? styles.menuIconPlaceholderLarge : null,
+                      isMediumLargeDevice ? styles.menuIconPlaceholderMediumLarge : null,
+                      isSmallDevice ? styles.menuIconPlaceholderSmall : null,
+                      isTinyDevice ? styles.menuIconPlaceholderTiny : null,
+                    ]}
+                    resizeMode="cover"
+                  />
+                  <Text style={[
+                    isLargeDevice ? styles.menuTextLarge : null,
+                    isMediumLargeDevice ? styles.menuTextMediumLarge : null,
+                    isSmallDevice ? styles.menuTextSmall : null,
+                    isTinyDevice ? styles.menuTextTiny : null,
+                  ]}>Edit</Text>
+                </TouchableOpacity>
+                <View style={[
+                  isLargeDevice ? styles.menuDividerLarge : null,
+                  isMediumLargeDevice ? styles.menuDividerMediumLarge : null,
+                  isSmallDevice ? styles.menuDividerSmall : null,
+                  isTinyDevice ? styles.menuDividerTiny : null,
+                ]} />
+                <TouchableOpacity style={[
+                  isLargeDevice ? styles.menuItemLarge : null,
+                  isMediumLargeDevice ? styles.menuItemMediumLarge : null,
+                  isSmallDevice ? styles.menuItemSmall : null,
+                  isTinyDevice ? styles.menuItemTiny : null,
+                ]} onPress={handleDeleteOption}>
+                  <Image
+                    source={require("../assets/images/delete.png")}
+                    style={[
+                      isLargeDevice ? styles.menuIconPlaceholderLarge : null,
+                      isMediumLargeDevice ? styles.menuIconPlaceholderMediumLarge : null,
+                      isSmallDevice ? styles.menuIconPlaceholderSmall : null,
+                      isTinyDevice ? styles.menuIconPlaceholderTiny : null,
+                    ]}
+                    resizeMode="cover"
+                  />
+                  <Text style={[
+                    isLargeDevice ? styles.menuTextLarge : null,
+                    isMediumLargeDevice ? styles.menuTextMediumLarge : null,
+                    isSmallDevice ? styles.menuTextSmall : null,
+                    isTinyDevice ? styles.menuTextTiny : null,
+                  ]}>Delete</Text>
+                </TouchableOpacity>
+                <View style={[
+                  isLargeDevice ? styles.menuDividerLarge : null,
+                  isMediumLargeDevice ? styles.menuDividerMediumLarge : null,
+                  isSmallDevice ? styles.menuDividerSmall : null,
+                  isTinyDevice ? styles.menuDividerTiny : null,
+                ]} />
+                <TouchableOpacity style={[
+                  isLargeDevice ? styles.menuItemLarge : null,
+                  isMediumLargeDevice ? styles.menuItemMediumLarge : null,
+                  isSmallDevice ? styles.menuItemSmall : null,
+                  isTinyDevice ? styles.menuItemTiny : null,
+                ]} onPress={openExportModal}>
+                  <Image
+                    source={require("../assets/images/export.png")}
+                    style={[
+                      isLargeDevice ? styles.menuIconPlaceholderLarge : null,
+                      isMediumLargeDevice ? styles.menuIconPlaceholderMediumLarge : null,
+                      isSmallDevice ? styles.menuIconPlaceholderSmall : null,
+                      isTinyDevice ? styles.menuIconPlaceholderTiny : null,
+                    ]}
+                    resizeMode="cover"
+                  />
+                  <Text style={[
+                    isLargeDevice ? styles.menuTextLarge : null,
+                    isMediumLargeDevice ? styles.menuTextMediumLarge : null,
+                    isSmallDevice ? styles.menuTextSmall : null,
+                    isTinyDevice ? styles.menuTextTiny : null,
+                  ]}>Export</Text>
+                </TouchableOpacity>
+                <View style={[
+                  isLargeDevice ? styles.menuDividerLarge : null,
+                  isMediumLargeDevice ? styles.menuDividerMediumLarge : null,
+                  isSmallDevice ? styles.menuDividerSmall : null,
+                  isTinyDevice ? styles.menuDividerTiny : null,
+                ]} />
+                <TouchableOpacity style={[
+                  isLargeDevice ? styles.menuItemLarge : null,
+                  isMediumLargeDevice ? styles.menuItemMediumLarge : null,
+                  isSmallDevice ? styles.menuItemSmall : null,
+                  isTinyDevice ? styles.menuItemTiny : null,
+                ]} onPress={() => {
+                  if (currentLevel === 0) {
+                    alert('Importing at the root level is not allowed. Please enter a folder and try again.');
+                    return;
+                  }
+                  openImportModal();
+                }}>
+                  <Image
+                    source={require("../assets/images/import.png")}
+                    style={[
+                      isLargeDevice ? styles.menuIconPlaceholderLarge : null,
+                      isMediumLargeDevice ? styles.menuIconPlaceholderMediumLarge : null,
+                      isSmallDevice ? styles.menuIconPlaceholderSmall : null,
+                      isTinyDevice ? styles.menuIconPlaceholderTiny : null,
+                    ]}
+                    resizeMode="cover"
+                  />
+                  <Text style={[
+                    isLargeDevice ? styles.menuTextLarge : null,
+                    isMediumLargeDevice ? styles.menuTextMediumLarge : null,
+                    isSmallDevice ? styles.menuTextSmall : null,
+                    isTinyDevice ? styles.menuTextTiny : null,
+                  ]}>Import</Text>
+                </TouchableOpacity>
+              </View>
             </TouchableOpacity>
           </View>
-        </TouchableOpacity>
-      </Modal>
+        )
+      ) : (
+        <Modal
+          animationType="fade"
+          transparent={true}
+          visible={menuVisible}
+          onRequestClose={() => setMenuVisible(false)}
+        >
+          <TouchableOpacity
+            style={[
+              isLargeDevice ? styles.modalOverlayLarge : null,
+              isMediumLargeDevice ? styles.modalOverlayMediumLarge : null,
+              isSmallDevice ? styles.modalOverlaySmall : null,
+              isTinyDevice ? styles.modalOverlayTiny : null,
+            ]}
+            activeOpacity={1}
+            onPress={() => setMenuVisible(false)}
+          >
+            <View
+              style={[
+                isLargeDevice ? styles.menuModalLarge : null,
+                isMediumLargeDevice ? styles.menuModalMediumLarge : null,
+                isSmallDevice ? styles.menuModalSmall : null,
+                isTinyDevice ? styles.menuModalTiny : null,
+              ]}
+            >
+              {/* ...contenido del menú igual que antes... */}
+              <TouchableOpacity style={[
+                isLargeDevice ? styles.menuItemLarge : null,
+                isMediumLargeDevice ? styles.menuItemMediumLarge : null,
+                isSmallDevice ? styles.menuItemSmall : null,
+                isTinyDevice ? styles.menuItemTiny : null,
+              ]} onPress={handleAddOption}>
+                <Image
+                  source={require("../assets/images/add.png")}
+                  style={[
+                    isLargeDevice ? styles.menuIconPlaceholderLarge : null,
+                    isMediumLargeDevice ? styles.menuIconPlaceholderMediumLarge : null,
+                    isSmallDevice ? styles.menuIconPlaceholderSmall : null,
+                    isTinyDevice ? styles.menuIconPlaceholderTiny : null,
+                  ]}
+                  resizeMode="cover"
+                />
+                <Text style={[
+                  isLargeDevice ? styles.menuTextLarge : null,
+                  isMediumLargeDevice ? styles.menuTextMediumLarge : null,
+                  isSmallDevice ? styles.menuTextSmall : null,
+                  isTinyDevice ? styles.menuTextTiny : null,
+                ]}>Add</Text>
+              </TouchableOpacity>
+              <View style={[
+                isLargeDevice ? styles.menuDividerLarge : null,
+                isMediumLargeDevice ? styles.menuDividerMediumLarge : null,
+                isSmallDevice ? styles.menuDividerSmall : null,
+                isTinyDevice ? styles.menuDividerTiny : null,
+              ]} />
+              <TouchableOpacity style={[
+                isLargeDevice ? styles.menuItemLarge : null,
+                isMediumLargeDevice ? styles.menuItemMediumLarge : null,
+                isSmallDevice ? styles.menuItemSmall : null,
+                isTinyDevice ? styles.menuItemTiny : null,
+              ]} onPress={handleEditOption}>
+                <Image
+                  source={require("../assets/images/edit.png")}
+                  style={[
+                    isLargeDevice ? styles.menuIconPlaceholderLarge : null,
+                    isMediumLargeDevice ? styles.menuIconPlaceholderMediumLarge : null,
+                    isSmallDevice ? styles.menuIconPlaceholderSmall : null,
+                    isTinyDevice ? styles.menuIconPlaceholderTiny : null,
+                  ]}
+                  resizeMode="cover"
+                />
+                <Text style={[
+                  isLargeDevice ? styles.menuTextLarge : null,
+                  isMediumLargeDevice ? styles.menuTextMediumLarge : null,
+                  isSmallDevice ? styles.menuTextSmall : null,
+                  isTinyDevice ? styles.menuTextTiny : null,
+                ]}>Edit</Text>
+              </TouchableOpacity>
+              <View style={[
+                isLargeDevice ? styles.menuDividerLarge : null,
+                isMediumLargeDevice ? styles.menuDividerMediumLarge : null,
+                isSmallDevice ? styles.menuDividerSmall : null,
+                isTinyDevice ? styles.menuDividerTiny : null,
+              ]} />
+              <TouchableOpacity style={[
+                isLargeDevice ? styles.menuItemLarge : null,
+                isMediumLargeDevice ? styles.menuItemMediumLarge : null,
+                isSmallDevice ? styles.menuItemSmall : null,
+                isTinyDevice ? styles.menuItemTiny : null,
+              ]} onPress={handleDeleteOption}>
+                <Image
+                  source={require("../assets/images/delete.png")}
+                  style={[
+                    isLargeDevice ? styles.menuIconPlaceholderLarge : null,
+                    isMediumLargeDevice ? styles.menuIconPlaceholderMediumLarge : null,
+                    isSmallDevice ? styles.menuIconPlaceholderSmall : null,
+                    isTinyDevice ? styles.menuIconPlaceholderTiny : null,
+                  ]}
+                  resizeMode="cover"
+                />
+                <Text style={[
+                  isLargeDevice ? styles.menuTextLarge : null,
+                  isMediumLargeDevice ? styles.menuTextMediumLarge : null,
+                  isSmallDevice ? styles.menuTextSmall : null,
+                  isTinyDevice ? styles.menuTextTiny : null,
+                ]}>Delete</Text>
+              </TouchableOpacity>
+              <View style={[
+                isLargeDevice ? styles.menuDividerLarge : null,
+                isMediumLargeDevice ? styles.menuDividerMediumLarge : null,
+                isSmallDevice ? styles.menuDividerSmall : null,
+                isTinyDevice ? styles.menuDividerTiny : null,
+              ]} />
+              <TouchableOpacity style={[
+                isLargeDevice ? styles.menuItemLarge : null,
+                isMediumLargeDevice ? styles.menuItemMediumLarge : null,
+                isSmallDevice ? styles.menuItemSmall : null,
+                isTinyDevice ? styles.menuItemTiny : null,
+              ]} onPress={openExportModal}>
+                <Image
+                  source={require("../assets/images/export.png")}
+                  style={[
+                    isLargeDevice ? styles.menuIconPlaceholderLarge : null,
+                    isMediumLargeDevice ? styles.menuIconPlaceholderMediumLarge : null,
+                    isSmallDevice ? styles.menuIconPlaceholderSmall : null,
+                    isTinyDevice ? styles.menuIconPlaceholderTiny : null,
+                  ]}
+                  resizeMode="cover"
+                />
+                <Text style={[
+                  isLargeDevice ? styles.menuTextLarge : null,
+                  isMediumLargeDevice ? styles.menuTextMediumLarge : null,
+                  isSmallDevice ? styles.menuTextSmall : null,
+                  isTinyDevice ? styles.menuTextTiny : null,
+                ]}>Export</Text>
+              </TouchableOpacity>
+              <View style={[
+                isLargeDevice ? styles.menuDividerLarge : null,
+                isMediumLargeDevice ? styles.menuDividerMediumLarge : null,
+                isSmallDevice ? styles.menuDividerSmall : null,
+                isTinyDevice ? styles.menuDividerTiny : null,
+              ]} />
+              <TouchableOpacity style={[
+                isLargeDevice ? styles.menuItemLarge : null,
+                isMediumLargeDevice ? styles.menuItemMediumLarge : null,
+                isSmallDevice ? styles.menuItemSmall : null,
+                isTinyDevice ? styles.menuItemTiny : null,
+              ]} onPress={() => {
+                if (currentLevel === 0) {
+                  alert('Importing at the root level is not allowed. Please enter a folder and try again.');
+                  return;
+                }
+                openImportModal();
+              }}>
+                <Image
+                  source={require("../assets/images/import.png")}
+                  style={[
+                    isLargeDevice ? styles.menuIconPlaceholderLarge : null,
+                    isMediumLargeDevice ? styles.menuIconPlaceholderMediumLarge : null,
+                    isSmallDevice ? styles.menuIconPlaceholderSmall : null,
+                    isTinyDevice ? styles.menuIconPlaceholderTiny : null,
+                  ]}
+                  resizeMode="cover"
+                />
+                <Text style={[
+                  isLargeDevice ? styles.menuTextLarge : null,
+                  isMediumLargeDevice ? styles.menuTextMediumLarge : null,
+                  isSmallDevice ? styles.menuTextSmall : null,
+                  isTinyDevice ? styles.menuTextTiny : null,
+                ]}>Import</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      )}
+
+{/* Import Folder Modal - Styled */}
+{Platform.OS === 'android' ? (
+  showImportModal && (
+    <View style={[
+      isLargeDevice ? styles.addModalOverlayLarge : null,
+      isMediumLargeDevice ? styles.addModalOverlayMediumLarge : null,
+      isSmallDevice ? styles.addModalOverlaySmall : null,
+      isTinyDevice ? styles.addModalOverlayTiny : null,
+      { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999 }
+    ]}>
+      <View
+        style={[
+          isLargeDevice ? styles.addFolderModalLarge : null,
+          isMediumLargeDevice ? styles.addFolderModalMediumLarge : null,
+          isSmallDevice ? styles.addFolderModalSmall : null,
+          isTinyDevice ? styles.addFolderModalTiny : null,
+          { alignItems: 'center' }
+        ]}
+      >
+        <Text style={[
+          isLargeDevice ? styles.addFolderTitleLarge : null,
+          isMediumLargeDevice ? styles.addFolderTitleMediumLarge : null,
+          isSmallDevice ? styles.addFolderTitleSmall : null,
+          isTinyDevice ? styles.addFolderTitleTiny : null,
+          { color: '#007AFF', fontFamily: 'Rajdhani-Bold', marginBottom: 12 }
+        ]}>
+          Import Folder
+        </Text>
+        <Text style={[
+          isLargeDevice ? styles.modalLabelLarge : null,
+          isMediumLargeDevice ? styles.modalLabelMediumLarge : null,
+          isSmallDevice ? styles.modalLabelSmall : null,
+          isTinyDevice ? styles.modalLabelTiny : null,
+          { color: '#333', textAlign: 'center', marginBottom: 18 }
+        ]}>
+          Select a previously exported .json file to import its data into the current folder.
+        </Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: 370, marginTop: 8 }}>
+          <TouchableOpacity
+            onPress={handleImportFolder}
+            style={[
+              isLargeDevice ? styles.confirmButtonLarge : null,
+              isMediumLargeDevice ? styles.confirmButtonMediumLarge : null,
+              isSmallDevice ? styles.confirmButtonSmall : null,
+              isTinyDevice ? styles.confirmButtonTiny : null,
+              { backgroundColor: isImporting ? '#A0CFFF' : '#007AFF', width: 170, marginRight: 10 }
+            ]}
+            disabled={isImporting}
+          >
+            <Text style={[
+              isLargeDevice ? styles.confirmButtonTextLarge : null,
+              isMediumLargeDevice ? styles.confirmButtonTextMediumLarge : null,
+              isSmallDevice ? styles.confirmButtonTextSmall : null,
+              isTinyDevice ? styles.confirmButtonTextTiny : null,
+              { color: '#fff', fontWeight: 'bold', textAlign: 'center' }
+            ]}>
+              {isImporting ? 'Importing...' : 'Select File'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setShowImportModal(false)}
+            style={[
+              isLargeDevice ? styles.cancelButtonLarge : null,
+              isMediumLargeDevice ? styles.cancelButtonMediumLarge : null,
+              isSmallDevice ? styles.cancelButtonSmall : null,
+              isTinyDevice ? styles.cancelButtonTiny : null,
+              { backgroundColor: '#fff', borderWidth: 1, borderColor: '#FF3B30', width: 170, marginLeft: 10 }
+            ]}
+            disabled={isImporting}
+          >
+            <Text style={[
+              isLargeDevice ? styles.cancelButtonTextLarge : null,
+              isMediumLargeDevice ? styles.cancelButtonTextMediumLarge : null,
+              isSmallDevice ? styles.cancelButtonTextSmall : null,
+              isTinyDevice ? styles.cancelButtonTextTiny : null,
+              { color: '#FF3B30', fontWeight: 'bold', textAlign: 'center' }
+            ]}>
+              Cancel
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  )
+) : (
+  <Modal
+    visible={showImportModal}
+    transparent
+    animationType="fade"
+    onRequestClose={() => setShowImportModal(false)}
+  >
+    <View style={[
+      isLargeDevice ? styles.addModalOverlayLarge : null,
+      isMediumLargeDevice ? styles.addModalOverlayMediumLarge : null,
+      isSmallDevice ? styles.addModalOverlaySmall : null,
+      isTinyDevice ? styles.addModalOverlayTiny : null,
+    ]}>
+      <View
+        style={[
+          isLargeDevice ? styles.addFolderModalLarge : null,
+          isMediumLargeDevice ? styles.addFolderModalMediumLarge : null,
+          isSmallDevice ? styles.addFolderModalSmall : null,
+          isTinyDevice ? styles.addFolderModalTiny : null,
+          { alignItems: 'center' }
+        ]}
+      >
+        <Text style={[
+          isLargeDevice ? styles.addFolderTitleLarge : null,
+          isMediumLargeDevice ? styles.addFolderTitleMediumLarge : null,
+          isSmallDevice ? styles.addFolderTitleSmall : null,
+          isTinyDevice ? styles.addFolderTitleTiny : null,
+          { color: '#007AFF', fontFamily: 'Rajdhani-Bold', marginBottom: 12 }
+        ]}>
+          Import Folder
+        </Text>
+        <Text style={[
+          isLargeDevice ? styles.modalLabelLarge : null,
+          isMediumLargeDevice ? styles.modalLabelMediumLarge : null,
+          isSmallDevice ? styles.modalLabelSmall : null,
+          isTinyDevice ? styles.modalLabelTiny : null,
+          { color: '#333', textAlign: 'center', marginBottom: 18 }
+        ]}>
+          Select a previously exported .json file to import its data into the current folder.
+        </Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: 370, marginTop: 8 }}>
+          <TouchableOpacity
+            onPress={handleImportFolder}
+            style={[
+              isLargeDevice ? styles.confirmButtonLarge : null,
+              isMediumLargeDevice ? styles.confirmButtonMediumLarge : null,
+              isSmallDevice ? styles.confirmButtonSmall : null,
+              isTinyDevice ? styles.confirmButtonTiny : null,
+              { backgroundColor: isImporting ? '#A0CFFF' : '#007AFF', width: 170, marginRight: 10 }
+            ]}
+            disabled={isImporting}
+          >
+            <Text style={[
+              isLargeDevice ? styles.confirmButtonTextLarge : null,
+              isMediumLargeDevice ? styles.confirmButtonTextMediumLarge : null,
+              isSmallDevice ? styles.confirmButtonTextSmall : null,
+              isTinyDevice ? styles.confirmButtonTextTiny : null,
+              { color: '#fff', fontWeight: 'bold', textAlign: 'center' }
+            ]}>
+              {isImporting ? 'Importing...' : 'Select File'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setShowImportModal(false)}
+            style={[
+              isLargeDevice ? styles.cancelButtonLarge : null,
+              isMediumLargeDevice ? styles.cancelButtonMediumLarge : null,
+              isSmallDevice ? styles.cancelButtonSmall : null,
+              isTinyDevice ? styles.cancelButtonTiny : null,
+              { backgroundColor: '#fff', borderWidth: 1, borderColor: '#FF3B30', width: 170, marginLeft: 10 }
+            ]}
+            disabled={isImporting}
+          >
+            <Text style={[
+              isLargeDevice ? styles.cancelButtonTextLarge : null,
+              isMediumLargeDevice ? styles.cancelButtonTextMediumLarge : null,
+              isSmallDevice ? styles.cancelButtonTextSmall : null,
+              isTinyDevice ? styles.cancelButtonTextTiny : null,
+              { color: '#FF3B30', fontWeight: 'bold', textAlign: 'center' }
+            ]}>
+              Cancel
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  </Modal>
+)}
   
       {/* Add Folder Modal */}
       <Modal
@@ -2560,70 +4052,67 @@ const confirmFolderForCompetition = () => {
         </View>
       </Modal>
 
-      {/* Modal para importar folders */}
+      {/* Modal de opciones de competencia */}
       <Modal
-        animationType="slide"
-        transparent={true}
-        visible={showImportModal}
-        onRequestClose={() => setShowImportModal(false)}
+        visible={showCompetitionOptionsModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCompetitionOptionsModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[
-            isLargeDevice ? styles.modalContainerLarge : null,
-            isMediumLargeDevice ? styles.modalContainerMediumLarge : null,
-            isSmallDevice ? styles.modalContainerSmall : null,
-            isTinyDevice ? styles.modalContainerTiny : null,
-          ]}>
-            <Text style={[
-              isLargeDevice ? styles.modalTitleLarge : null,
-              isMediumLargeDevice ? styles.modalTitleMediumLarge : null,
-              isSmallDevice ? styles.modalTitleSmall : null,
-              isTinyDevice ? styles.modalTitleTiny : null,
-            ]}>Importar Folder</Text>
-            
-            <Text style={[
-              isLargeDevice ? styles.modalLabelLarge : null,
-              isMediumLargeDevice ? styles.modalLabelMediumLarge : null,
-              isSmallDevice ? styles.modalLabelSmall : null,
-              isTinyDevice ? styles.modalLabelTiny : null,
-            ]}>Selecciona el archivo del folder que deseas importar:</Text>
-            
-            <TouchableOpacity 
-              style={[
-                isLargeDevice ? styles.generateButtonLarge : null,
-                isMediumLargeDevice ? styles.generateButtonMediumLarge : null,
-                isSmallDevice ? styles.generateButtonSmall : null,
-                isTinyDevice ? styles.generateButtonTiny : null,
-                isImporting && styles.loadingButton
-              ]}
-              onPress={handleImportFolder}
-              disabled={isImporting}
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(30,30,30,0.18)' }}>
+          <View style={{
+            width: isLargeDevice ? 420 : isMediumLargeDevice ? 350 : isSmallDevice ? 300 : 260,
+            borderRadius: 18,
+            backgroundColor: 'rgba(255,255,255,0.97)',
+            paddingVertical: isLargeDevice ? 38 : isMediumLargeDevice ? 32 : 24,
+            paddingHorizontal: isLargeDevice ? 38 : isMediumLargeDevice ? 32 : 20,
+            shadowColor: '#000',
+            shadowOpacity: 0.10,
+            shadowRadius: 16,
+            shadowOffset: { width: 0, height: 4 },
+            elevation: 8,
+            alignItems: 'center',
+          }}>
+            <Text style={{
+              fontFamily: 'Rajdhani-Bold',
+              fontSize: isLargeDevice ? 26 : isMediumLargeDevice ? 22 : 18,
+              color: '#222',
+              marginBottom: isLargeDevice ? 18 : 12,
+              letterSpacing: 0.5,
+            }}>
+              Competition Options
+            </Text>
+            <View style={{ width: '100%', gap: isLargeDevice ? 18 : 12 }}>
+              <TouchableOpacity
+                style={{
+                  backgroundColor: '#F7F7F7',
+                  borderRadius: 12,
+                  paddingVertical: isLargeDevice ? 16 : 12,
+                  alignItems: 'center',
+                  marginBottom: 6,
+                }}
+                onPress={handleMoveCompetitionOption}
+              >
+                <Text style={{ fontSize: isLargeDevice ? 18 : 15, color: '#222', fontFamily: 'Rajdhani-medium' }}>Move to another folder</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{
+                  backgroundColor: '#F7F7F7',
+                  borderRadius: 12,
+                  paddingVertical: isLargeDevice ? 16 : 12,
+                  alignItems: 'center',
+                  marginBottom: 6,
+                }}
+                onPress={handleRemoveCompetition}
+              >
+                <Text style={{ fontSize: isLargeDevice ? 18 : 15, color: '#222', fontFamily: 'Rajdhani-medium' }}>Remove from current folder</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity
+              style={{ marginTop: isLargeDevice ? 24 : 16 }}
+              onPress={() => setShowCompetitionOptionsModal(false)}
             >
-              <Text style={[
-                isLargeDevice ? styles.buttonTextLarge : null,
-                isMediumLargeDevice ? styles.buttonTextMediumLarge : null,
-                isSmallDevice ? styles.buttonTextSmall : null,
-                isTinyDevice ? styles.buttonTextTiny : null,
-              ]}>
-                {isImporting ? 'Importando...' : 'Importar Folder'}
-              </Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[
-                isLargeDevice ? styles.closeButtonLarge : null,
-                isMediumLargeDevice ? styles.closeButtonMediumLarge : null,
-                isSmallDevice ? styles.closeButtonSmall : null,
-                isTinyDevice ? styles.closeButtonTiny : null,
-              ]}
-              onPress={() => setShowImportModal(false)}
-            >
-              <Text style={[
-                isLargeDevice ? styles.closeButtonTextLarge : null,
-                isMediumLargeDevice ? styles.closeButtonTextMediumLarge : null,
-                isSmallDevice ? styles.closeButtonTextSmall : null,
-                isTinyDevice ? styles.closeButtonTextTiny : null,
-              ]}>Cerrar</Text>
+              <Text style={{ color: '#888', fontSize: isLargeDevice ? 16 : 13, fontFamily: 'Rajdhani-medium' }}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -2722,6 +4211,364 @@ const confirmFolderForCompetition = () => {
               {Math.round(loadingProgress)}%
             </Text>
           </Animated.View>
+        </View>
+      </Modal>
+
+   <Modal
+      animationType="fade"
+      transparent={true}
+      visible={editCompetitionModalVisible}
+      onRequestClose={() => !isLoadingOperation && setEditCompetitionModalVisible(false)}
+    >
+      <View style={[
+        isLargeDevice ? styles.addModalOverlayLarge : null,
+        isMediumLargeDevice ? styles.addModalOverlayMediumLarge : null,
+        isSmallDevice ? styles.addModalOverlaySmall : null,
+        isTinyDevice ? styles.addModalOverlayTiny : null,
+      ]}>
+        <View 
+          style={[
+            isLargeDevice ? styles.addFolderModal2Large : null,
+            isMediumLargeDevice ? styles.addFolderModal2MediumLarge : null,
+            isSmallDevice ? styles.addFolderModal2Small : null,
+            isTinyDevice ? styles.addFolderModal2Tiny : null,
+          ]}
+        >
+          <Text style={[
+            isLargeDevice ? styles.addFolderTitleLarge : null,
+            isMediumLargeDevice ? styles.addFolderTitleMediumLarge : null,
+            isSmallDevice ? styles.addFolderTitleSmall : null,
+            isTinyDevice ? styles.addFolderTitleTiny : null,
+          ]}>
+            Edit Competition
+          </Text>
+
+          <TextInput
+            style={[
+              isLargeDevice ? styles.folderInputLarge : null,
+              isMediumLargeDevice ? styles.folderInputMediumLarge : null,
+              isSmallDevice ? styles.folderInputSmall : null,
+              isTinyDevice ? styles.folderInputTiny : null,
+            ]}
+            placeholder="Competition name"
+            placeholderTextColor="#888"
+            value={competitionName}
+            onChange={(e) => setCompetitionName(e.nativeEvent.text)}
+          />
+
+          <TextInput
+            style={[
+              isLargeDevice ? styles.folderInputLarge : null,
+              isMediumLargeDevice ? styles.folderInputMediumLarge : null,
+              isSmallDevice ? styles.folderInputSmall : null,
+              isTinyDevice ? styles.folderInputTiny : null,
+            ]}
+            placeholder="Competition description"
+            placeholderTextColor="#888"
+            multiline
+            value={competitionDescription}
+            onChange={(e) => setCompetitionDescription(e.nativeEvent.text)}
+          />
+
+          <TextInput
+            style={[
+              isLargeDevice ? styles.folderInputLarge : null,
+              isMediumLargeDevice ? styles.folderInputMediumLarge : null,
+              isSmallDevice ? styles.folderInputSmall : null,
+              isTinyDevice ? styles.folderInputTiny : null,
+            ]}
+            placeholder="Number of participants"
+            placeholderTextColor="#888"
+            keyboardType="numeric"
+            value={competitionParticipants}
+            onChange={(e) => setCompetitionParticipants(e.nativeEvent.text)}
+          />
+
+          <View style={[
+            isLargeDevice ? styles.buttonsContainerLarge : null,
+            isMediumLargeDevice ? styles.buttonsContainerMediumLarge : null,
+            isSmallDevice ? styles.buttonsContainerSmall : null,
+            isTinyDevice ? styles.buttonsContainerTiny : null,
+          ]}>
+            <TouchableOpacity 
+              style={[
+                isLargeDevice ? styles.confirmButtonLarge : null,
+                isMediumLargeDevice ? styles.confirmButtonMediumLarge : null,
+                isSmallDevice ? styles.confirmButtonSmall : null,
+                isTinyDevice ? styles.confirmButtonTiny : null,
+                isLoadingOperation && { opacity: 0.6 } // Visual feedback when loading
+              ]}
+              onPress={() => editingCompetition?.id && saveEditedCompetition(editingCompetition.id)} // Validate id exists
+              disabled={isLoadingOperation} // Disable when loading
+            >
+              <Text style={[
+                isLargeDevice ? styles.confirmButtonTextLarge : null,
+                isMediumLargeDevice ? styles.confirmButtonTextMediumLarge : null,
+                isSmallDevice ? styles.confirmButtonTextSmall : null,
+                isTinyDevice ? styles.confirmButtonTextTiny : null,
+              ]}>
+                Save
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[
+                isLargeDevice ? styles.cancelButtonLarge : null,
+                isMediumLargeDevice ? styles.cancelButtonMediumLarge : null,
+                isSmallDevice ? styles.cancelButtonSmall : null,
+                isTinyDevice ? styles.cancelButtonTiny : null,
+                isLoadingOperation && { opacity: 0.5 }
+              ]}
+              onPress={() => setEditCompetitionModalVisible(false)}
+              disabled={isLoadingOperation}
+            >
+              <Text style={[
+                isLargeDevice ? styles.cancelButtonTextLarge : null,
+                isMediumLargeDevice ? styles.cancelButtonTextMediumLarge : null,
+                isSmallDevice ? styles.cancelButtonTextSmall : null,
+                isTinyDevice ? styles.cancelButtonTextTiny : null,
+              ]}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+
+      {/* Modal de opciones de carpeta */}
+      <Modal
+        visible={showFolderOptionsModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowFolderOptionsModal(false)}
+      >
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(30,30,30,0.18)' }}>
+          <View style={{
+            width: isLargeDevice ? 420 : isMediumLargeDevice ? 350 : isSmallDevice ? 300 : 260,
+            borderRadius: 18,
+            backgroundColor: 'rgba(255,255,255,0.97)',
+            paddingVertical: isLargeDevice ? 38 : isMediumLargeDevice ? 32 : 24,
+            paddingHorizontal: isLargeDevice ? 38 : isMediumLargeDevice ? 32 : 20,
+            shadowColor: '#000',
+            shadowOpacity: 0.10,
+            shadowRadius: 16,
+            shadowOffset: { width: 0, height: 4 },
+            elevation: 8,
+            alignItems: 'center',
+          }}>
+            <Text style={{
+              fontFamily: 'Rajdhani-Bold',
+              fontSize: isLargeDevice ? 26 : isMediumLargeDevice ? 22 : 18,
+              color: '#222',
+              marginBottom: isLargeDevice ? 18 : 12,
+              letterSpacing: 0.5,
+            }}>
+              Folder Options
+            </Text>
+            <View style={{ width: '100%', gap: isLargeDevice ? 18 : 12 }}>
+              <TouchableOpacity
+                style={{
+                  backgroundColor: '#F7F7F7',
+                  borderRadius: 12,
+                  paddingVertical: isLargeDevice ? 16 : 12,
+                  alignItems: 'center',
+                  marginBottom: 6,
+                }}
+                onPress={() => {
+                  // Activar modo selección para mover
+                  setSelectionMode(true);
+                  setSelectionAction('move');
+                  setSelectedFolders([selectedFolderForOptions?.id]);
+                  setShowFolderOptionsModal(false);
+                  setAvailableFoldersForMove(folders.filter(f => f.id !== selectedFolderForOptions?.id));
+
+      {/* Modal para seleccionar carpeta destino y mover */}
+      {selectionMode && selectionAction === 'move' && selectedFolders.length === 1 && (
+        <Modal
+          visible={true}
+          transparent
+          animationType="fade"
+          onRequestClose={() => {
+            setSelectionMode(false);
+            setSelectionAction(null);
+            setSelectedFolders([]);
+          }}
+        >
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(30,30,30,0.18)' }}>
+            <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 28, minWidth: 320, alignItems: 'center' }}>
+              <Text style={{ fontWeight: 'bold', fontSize: 20, marginBottom: 18 }}>Select destination folder</Text>
+              <ScrollView style={{ maxHeight: 220, width: '100%' }}>
+                {folders.filter(f => f.id !== selectedFolders[0]).map(folder => (
+                  <TouchableOpacity
+                    key={folder.id}
+                    style={{
+                      padding: 12,
+                      borderRadius: 8,
+                      backgroundColor: folder.id === (window.__selectedDestinationFolderId || null) ? '#007AFF' : '#F2F2F2',
+                      marginBottom: 10
+                    }}
+                    onPress={() => {
+                      window.__selectedDestinationFolderId = folder.id;
+                      setRenderKey(prev => prev + 1);
+                    }}
+                  >
+                    <Text style={{ color: folder.id === (window.__selectedDestinationFolderId || null) ? 'white' : '#333', fontWeight: 'bold' }}>{folder.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <TouchableOpacity
+                style={{ width: '100%', backgroundColor: '#007AFF', borderRadius: 8, paddingVertical: 12, marginTop: 10, opacity: window.__selectedDestinationFolderId ? 1 : 0.5 }}
+                disabled={!window.__selectedDestinationFolderId}
+                onPress={async () => {
+                  const folderToMove = folders.find(f => f.id === selectedFolders[0]);
+                  const destinationFolder = folders.find(f => f.id === window.__selectedDestinationFolderId);
+                  if (!folderToMove || !destinationFolder) return;
+                  let newLevel = (destinationFolder.level ?? 0) + 1;
+                  await updateFolder(folderToMove.id, {
+                    parentId: destinationFolder.id,
+                    level: newLevel
+                  });
+                  setSelectionMode(false);
+                  setSelectionAction(null);
+                  setSelectedFolders([]);
+                  window.__selectedDestinationFolderId = null;
+                  await fetchFolders();
+                  setFeedbackAcceptModel(true);
+                  setTimeout(() => setFeedbackAcceptModel(false), 1200);
+                }}
+              >
+                <Text style={{ color: 'white', textAlign: 'center', fontWeight: 'bold' }}>Move</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ width: '100%', marginTop: 10 }}
+                onPress={() => {
+                  setSelectionMode(false);
+                  setSelectionAction(null);
+                  setSelectedFolders([]);
+                  window.__selectedDestinationFolderId = null;
+                }}
+              >
+                <Text style={{ color: '#007AFF', textAlign: 'center', fontWeight: 'bold' }}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
+                }}
+              >
+                <Text style={{ fontSize: isLargeDevice ? 18 : 15, color: '#222', fontFamily: 'Rajdhani-medium' }}>Move to another folder</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{
+                  backgroundColor: '#F7F7F7',
+                  borderRadius: 12,
+                  paddingVertical: isLargeDevice ? 16 : 12,
+                  alignItems: 'center',
+                  marginBottom: 6,
+                }}
+                onPress={handleRemoveFromFolder}
+              >
+                <Text style={{ fontSize: isLargeDevice ? 18 : 15, color: '#222', fontFamily: 'Rajdhani-medium' }}>Remove from current folder</Text>
+              </TouchableOpacity>
+              {/* <TouchableOpacity
+                style={{
+                  backgroundColor: '#F7F7F7',
+                  borderRadius: 12,
+                  paddingVertical: isLargeDevice ? 16 : 12,
+                  alignItems: 'center',
+                }}
+                onPress={handleChangePosition}
+              >
+                <Text style={{ fontSize: isLargeDevice ? 18 : 15, color: '#222', fontFamily: 'Rajdhani-medium' }}>Change position</Text>
+              </TouchableOpacity> */}
+            </View>
+            <TouchableOpacity
+              style={{ marginTop: isLargeDevice ? 24 : 16 }}
+              onPress={() => setShowFolderOptionsModal(false)}
+            >
+              <Text style={{ color: '#888', fontSize: isLargeDevice ? 16 : 13, fontFamily: 'Rajdhani-medium' }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal de opciones de competencia */}
+      <Modal
+        visible={showCompetitionOptionsModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCompetitionOptionsModal(false)}
+      >
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(30,30,30,0.18)' }}>
+          <View style={{
+            width: isLargeDevice ? 420 : isMediumLargeDevice ? 350 : isSmallDevice ? 300 : 260,
+            borderRadius: 18,
+            backgroundColor: 'rgba(255,255,255,0.97)',
+            paddingVertical: isLargeDevice ? 38 : isMediumLargeDevice ? 32 : 24,
+            paddingHorizontal: isLargeDevice ? 38 : isMediumLargeDevice ? 32 : 20,
+            shadowColor: '#000',
+            shadowOpacity: 0.10,
+            shadowRadius: 16,
+            shadowOffset: { width: 0, height: 4 },
+            elevation: 8,
+            alignItems: 'center',
+          }}>
+            <Text style={{
+              fontFamily: 'Rajdhani-Bold',
+              fontSize: isLargeDevice ? 26 : isMediumLargeDevice ? 22 : 18,
+              color: '#222',
+              marginBottom: isLargeDevice ? 18 : 12,
+              letterSpacing: 0.5,
+            }}>
+              Competition Options
+            </Text>
+            <View style={{ width: '100%', gap: isLargeDevice ? 18 : 12 }}>
+              <TouchableOpacity
+                style={{
+                  backgroundColor: '#F7F7F7',
+                  borderRadius: 12,
+                  paddingVertical: isLargeDevice ? 16 : 12,
+                  alignItems: 'center',
+                  marginBottom: 6,
+                }}
+                onPress={handleMoveCompetition}
+              >
+                <Text style={{ fontSize: isLargeDevice ? 18 : 15, color: '#222', fontFamily: 'Rajdhani-medium' }}>Move to another folder</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{
+                  backgroundColor: '#F7F7F7',
+                  borderRadius: 12,
+                  paddingVertical: isLargeDevice ? 16 : 12,
+                  alignItems: 'center',
+                  marginBottom: 6,
+                }}
+                onPress={handleRemoveCompetition}
+              >
+                <Text style={{ fontSize: isLargeDevice ? 18 : 15, color: (() => {
+                  return '#222';
+                })(), fontFamily: 'Rajdhani-medium' }}>Remove from current folder</Text>
+              </TouchableOpacity>
+              {/* <TouchableOpacity
+                style={{
+                  backgroundColor: '#F7F7F7',
+                  borderRadius: 12,
+                  paddingVertical: isLargeDevice ? 16 : 12,
+                  alignItems: 'center',
+                }}
+                onPress={handleChangeCompetitionPosition}
+              >
+                <Text style={{ fontSize: isLargeDevice ? 18 : 15, color: '#222', fontFamily: 'Rajdhani-medium' }}>Change position</Text>
+              </TouchableOpacity> */}
+            </View>
+            <TouchableOpacity
+              style={{ marginTop: isLargeDevice ? 24 : 16 }}
+              onPress={() => setShowCompetitionOptionsModal(false)}
+            >
+              <Text style={{ color: '#888', fontSize: isLargeDevice ? 16 : 13, fontFamily: 'Rajdhani-medium' }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
 
@@ -2939,7 +4786,7 @@ const styles = StyleSheet.create({
   // Folder item styles - Medium Large Device
   folderItemMediumLarge: {
     height: 150,
-    width: '96%',
+    width: '98%',
     backgroundColor: '#F1F3F5',
     borderRadius: 9,
     padding: 7,
@@ -2948,7 +4795,7 @@ const styles = StyleSheet.create({
   // Folder item styles - Small Device
   folderItemSmall: {
     height: 140,
-    width: '96%',
+    width: '98%',
     backgroundColor: '#F1F3F5',
     borderRadius: 8,
     padding: 6,
@@ -2957,6 +4804,7 @@ const styles = StyleSheet.create({
   // Folder item styles - Tiny Device
   folderItemTiny: {
     height: 125,
+    width: '98%',
     backgroundColor: '#F1F3F5',
     borderRadius: 8,
     padding: 6,
@@ -2991,8 +4839,8 @@ const styles = StyleSheet.create({
   
   // Folder icon styles - Large Device
   folderIconLarge: {
-    width: 90,
-    height: 95,
+    width: 100,
+    height: 105,
     borderRadius: 5,
     marginBottom: 6,
     position: 'absolute',
@@ -3001,8 +4849,8 @@ const styles = StyleSheet.create({
   },
   // Folder icon styles - Medium Large Device
   folderIconMediumLarge: {
-    width: 85,
-    height: 90,
+    width: 95,
+    height: 100,
     borderRadius: 5,
     marginBottom: 5,
     position: 'absolute',
@@ -3011,8 +4859,8 @@ const styles = StyleSheet.create({
   },
   // Folder icon styles - Small Device
   folderIconSmall: {
-    width: 75,
-    height: 80,
+    width: 85,
+    height: 90,
     borderRadius: 5,
     marginBottom: 4,
     position: 'absolute',
@@ -3021,8 +4869,8 @@ const styles = StyleSheet.create({
   },
   // Folder icon styles - Tiny Device
   folderIconTiny: {
-    width: 50,
-    height: 55,
+    width: 80,
+    height: 90,
     borderRadius: 5,
     marginBottom: 4,
     position: 'absolute',
@@ -3030,8 +4878,14 @@ const styles = StyleSheet.create({
     left: 5,
   },
   
-  folderType1: {},
-  folderType2: {},
+  folderType1: {
+    height: 50,
+    borderRadius: 5,
+  },
+  folderType2: {
+    height: 50,
+    borderRadius: 5,
+  },
   
   // Folder info styles - Large Device
   folderInfoLarge: {
@@ -3064,25 +4918,25 @@ const styles = StyleSheet.create({
   
   // Folder title styles - Large Device
   folderTitleLarge: {
-    fontSize: 40,
+    fontSize: 20,
     textAlign: 'center',
     fontFamily: 'Rajdhani-medium',
   },
   // Folder title styles - Medium Large Device
   folderTitleMediumLarge: {
-    fontSize: 17,
+    fontSize: 13,
     textAlign: 'center',
     fontFamily: 'Rajdhani-medium',
   },
   // Folder title styles - Small Device
   folderTitleSmall: {
-    fontSize: 32,
+    fontSize: 20,
     textAlign: 'center',
     fontFamily: 'Rajdhani-medium',
   },
   // Folder title styles - Tiny Device
   folderTitleTiny: {
-    fontSize: 24,
+    fontSize: 12,
     textAlign: 'center',
     fontFamily: 'Rajdhani-medium',
   },
@@ -3096,14 +4950,14 @@ const styles = StyleSheet.create({
   },
   // Folder description styles - Medium Large Device
   folderDescriptionMediumLarge: {
-    fontSize: 10,
+    fontSize: 8,
     textAlign: 'center',
     fontFamily: 'Rajdhani-medium',
     marginVertical: 2,
   },
   // Folder description styles - Small Device
   folderDescriptionSmall: {
-    fontSize: 16,
+    fontSize: 14,
     textAlign: 'center',
     fontFamily: 'Rajdhani-medium',
     marginVertical: 3,
@@ -3142,14 +4996,14 @@ const styles = StyleSheet.create({
   },
   // Folder footer styles - Tiny Device
   folderFooterTiny: {
+    flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
     flex: 1,
   },
   
   // Date text styles - Large Device
   dateTextLarge: {
-    fontSize: 25,
+    fontSize: 18,
     color: '#333',
     fontFamily: 'Rajdhani-medium',
     position: 'absolute',
@@ -3160,7 +5014,7 @@ const styles = StyleSheet.create({
   },
   // Date text styles - Medium Large Device
   dateTextMediumLarge: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#333',
     fontFamily: 'Rajdhani-medium',
     position: 'absolute',
@@ -3171,7 +5025,7 @@ const styles = StyleSheet.create({
   },
   // Date text styles - Small Device
   dateTextSmall: {
-    fontSize: 19,
+    fontSize: 15,
     color: '#333',
     fontFamily: 'Rajdhani-medium',
     position: 'absolute', 
@@ -3182,7 +5036,7 @@ const styles = StyleSheet.create({
   },
   // Date text styles - Tiny Device
   dateTextTiny: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#333',
     fontFamily: 'Rajdhani-medium',
     position: 'absolute', 
@@ -3190,6 +5044,59 @@ const styles = StyleSheet.create({
     width: '100%',
     textAlign: 'center', 
     bottom: 1,
+  },
+
+  // Date text styles - Large Device
+  dateTextLargecompe: {
+    fontSize: 18,
+    color: '#333',
+    fontFamily: 'Rajdhani-medium',
+    position: 'absolute',
+    alignSelf: 'center',
+    width: '74%',
+    textAlign: 'center', 
+    bottom: 5,
+    right: 0,
+
+  },
+  // Date text styles - Medium Large Device
+  dateTextMediumLargecompe: {
+    fontSize: 12,
+    color: '#333',
+    fontFamily: 'Rajdhani-medium',
+    position: 'absolute',
+    alignSelf: 'center',
+    width: '73%',
+    textAlign: 'center', 
+    bottom: 2,
+    right: 0,
+
+  },
+  // Date text styles - Small Device
+  dateTextSmallcompe: {
+    fontSize: 15,
+    color: '#333',
+    fontFamily: 'Rajdhani-medium',
+    position: 'absolute', 
+    alignSelf: 'center',
+    width: '73%',
+    textAlign: 'center', 
+    bottom: 5,
+    right: 0,
+
+  },
+
+  // Date text styles - Tiny Device
+  dateTextTinycompe: {
+    fontSize: 12,
+    color: '#333',
+    fontFamily: 'Rajdhani-medium',
+    position: 'absolute', 
+    alignSelf: 'center',
+    width: '74%',
+    textAlign: 'center', 
+    bottom: 1,
+    right: 0,
   },
   
   checkmark: {
@@ -3467,6 +5374,7 @@ const styles = StyleSheet.create({
   // Modal overlay styles - Tiny Device
   modalOverlayTiny: {
     flex: 1,
+    width: '100%',
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-start',
     alignItems: 'flex-end',
@@ -3935,21 +5843,21 @@ const styles = StyleSheet.create({
 
   // Add folder title styles - Large Device
   addFolderTitleLarge: {
-    fontSize: 40,
+    fontSize: 18,
     textAlign: 'center',
     marginBottom: 20,
     fontFamily: 'Rajdhani-medium',
   },
   // Add folder title styles - Medium Large Device
   addFolderTitleMediumLarge: {
-    fontSize: 36,
+    fontSize: 17,
     textAlign: 'center',
     marginBottom: 18,
     fontFamily: 'Rajdhani-medium',
   },
   // Add folder title styles - Small Device
   addFolderTitleSmall: {
-    fontSize: 32,
+    fontSize: 30,
     textAlign: 'center',
     marginBottom: 16,
     fontFamily: 'Rajdhani-medium',
@@ -4471,7 +6379,190 @@ const styles = StyleSheet.create({
   },
   loadingButton: {
     backgroundColor: '#999999',
-  }
+  },
+
+  // ✨ ESTILOS PARA COMPETENCIAS (copiados de folder.tsx)
+  
+  // Folder content styles - Large Device
+  folderContentLarge: {
+    alignItems: 'center',
+  },
+  // Folder content styles - Medium Large Device
+  folderContentMediumLarge: {
+    alignItems: 'center',
+  },
+  // Folder content styles - Small Device
+  folderContentSmall: {
+    alignItems: 'center',
+  },
+  // Folder content styles - Tiny Device
+  folderContentTiny: {
+    alignItems: 'center',
+  },
+
+  // Line styles - Large Device
+  lineLarge: {
+    height: 1,
+    backgroundColor: "#333",
+    width: "90%",
+    marginBottom: 10,
+    alignSelf: "center",
+  },
+  // Line styles - Medium Large Device
+  lineMediumLarge: {
+    height: 1,
+    backgroundColor: "#333",
+    width: "88%",
+    marginBottom: 9,
+    alignSelf: "center",
+  },
+  // Line styles - Small Device
+  lineSmall: {
+    height: 1,
+    backgroundColor: "#333",
+    width: "85%",
+    marginBottom: 8,
+    alignSelf: "center",
+  },
+  // Line styles - Tiny Device
+  lineTiny: {
+    height: 1,
+    backgroundColor: "#333",
+    width: "90%",
+    marginBottom: 10,
+    alignSelf: "center",
+  },
+
+  // Entrainement button styles - Large Device
+  entrainementButtonLarge: {
+    backgroundColor: '#DADADA',
+    borderRadius: 12,
+    paddingHorizontal: 4,
+    borderBlockColor: '#999',
+    borderWidth: 2,
+    borderColor: '#999',
+    width: 130,
+    height: 30,
+    paddingVertical: 2,
+  },
+  // Entrainement button styles - Medium Large Device
+  entrainementButtonMediumLarge: {
+    backgroundColor: '#DADADA',
+    borderRadius: 11,
+    paddingHorizontal: 4,
+    borderBlockColor: '#999',
+    borderWidth: 2,
+    borderColor: '#999',
+    width: 100,
+    height: 28,
+    paddingVertical: 2,
+  },
+  // Entrainement button styles - Small Device
+  entrainementButtonSmall: {
+    backgroundColor: '#DADADA',
+    borderRadius: 10,
+    paddingHorizontal: 4,
+    borderBlockColor: '#999',
+    borderWidth: 2,
+    borderColor: '#999',
+    width: 100,
+    height: 26,
+    paddingVertical: 2,
+  },
+  // Entrainement button styles - Tiny Device
+  entrainementButtonTiny: {
+    backgroundColor: '#DADADA',
+    borderRadius: 12,
+    paddingHorizontal: 4,
+    borderBlockColor: '#999',
+    borderWidth: 2,
+    borderColor: '#999',
+    width: 70,
+    height: 24,
+    paddingVertical: 2,
+  },
+
+  // Entrainement text styles - Large Device
+  entrainementTextLarge: {
+    fontSize: 18,
+    bottom: 2,
+    position: 'relative',
+    alignSelf: 'center',
+    color: '#333',
+  },
+  // Entrainement text styles - Medium Large Device
+  entrainementTextMediumLarge: {
+    fontSize: 9,
+    bottom: 2,
+    position: 'relative',
+    alignSelf: 'center',
+    color: '#333',
+  },
+  // Entrainement text styles - Small Device
+  entrainementTextSmall: {
+    fontSize: 14,
+    bottom: 1,
+    position: 'relative',
+    alignSelf: 'center',
+    color: '#333',
+  },
+  // Entrainement text styles - Tiny Device
+  entrainementTextTiny: {
+    fontSize: 13,
+    bottom: 2,
+    position: 'relative',
+    alignSelf: 'center',
+    color: '#333',
+  },
+
+  // Checkmark styles - Large Device (para competencias seleccionadas)
+  checkmarkLarge: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Checkmark styles - Medium Large Device
+  checkmarkMediumLarge: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    backgroundColor: '#fff',
+    borderRadius: 9,
+    width: 19,
+    height: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Checkmark styles - Small Device
+  checkmarkSmall: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    width: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Checkmark styles - Tiny Device
+  checkmarkTiny: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 });
 
 export default MainMenu;

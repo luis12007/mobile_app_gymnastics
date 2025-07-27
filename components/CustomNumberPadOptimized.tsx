@@ -32,14 +32,33 @@ const SCREEN_DIMENSIONS = Object.freeze({
   height: Dimensions.get('window').height,
 });
 
+const { width, height } = Dimensions.get("window");
+var isLargeDevice = false;
+var isMediumLargeDevice = false;
+var isSmallDevice = false;
+var isTinyDevice = false;
+
+if (width >= 1368 ) {
+  isLargeDevice = true;
+} else if (width >= 1200 && width < 1368) {
+  isMediumLargeDevice = true;
+} else if (width >= 945 && width < 1200) {
+  isSmallDevice = true;
+} else if (width < 945) {
+  isTinyDevice = true;
+}
+
+
+
+// Animación desactivada: el modal aparece instantáneamente
 const ANIMATION_CONFIG = Object.freeze({
   spring: {
-    damping: 20,     // Increased for faster settling
-    stiffness: 200,  // Increased for snappier response
-    mass: 0.8,       // Reduced for less inertia
+    damping: 1,
+    stiffness: 1,
+    mass: 1,
   },
   timing: {
-    duration: 100,   // Reduced from 150ms for faster response
+    duration: 0,
   },
 });
 
@@ -52,13 +71,19 @@ const LAYOUT_CONSTANTS = Object.freeze({
 });
 
 // Button data structure - Unified layout with single larger buttons for repeated elements
-const BUTTON_DATA = Object.freeze([
-  Object.freeze(['C', '', '⌫']), 
-  Object.freeze(['1', '2', '3']),
-  Object.freeze(['4', '5', '6']),
-  Object.freeze(['7', '8', '9']),
-  Object.freeze(['0', ".",'✓']),
-]);
+const BUTTON_DATA = isTinyDevice
+  ? Object.freeze([
+      Object.freeze(['C',  '.','', '✓', '⌫']),
+      Object.freeze(['1', '2', '3', '4', '5']),
+      Object.freeze(['6', '7', '8', '9', '0']),
+    ])
+  : Object.freeze([
+      Object.freeze(['C', '', '⌫']),
+      Object.freeze(['1', '2', '3']),
+      Object.freeze(['4', '5', '6']),
+      Object.freeze(['7', '8', '9']),
+      Object.freeze(['0', '.', '✓']),
+    ]);
 
 // Pre-calculated styles for maximum performance
 const createOptimizedStyles = () => {
@@ -373,13 +398,12 @@ const CustomNumberPadOptimized: React.FC<CustomNumberPadOptimizedProps> = React.
   
   React.useEffect(() => {
     if (visible) {
-      modalScale.value = withSpring(1, ANIMATION_CONFIG.spring);
-      modalOpacity.value = withTiming(1, ANIMATION_CONFIG.timing);
-      // Reset editing state when modal opens - user is NOT editing yet
+      modalScale.value = 1;
+      modalOpacity.value = 1;
       isEditingRef.current = false;
     } else {
-      modalScale.value = withSpring(0.8, ANIMATION_CONFIG.spring);
-      modalOpacity.value = withTiming(0, ANIMATION_CONFIG.timing);
+      modalScale.value = 0.8;
+      modalOpacity.value = 0;
     }
   }, [visible, modalScale, modalOpacity]);
   
@@ -464,93 +488,219 @@ const CustomNumberPadOptimized: React.FC<CustomNumberPadOptimizedProps> = React.
         break;
     }
   }, [onValueChange, maxLength, allowDecimal, onClose]);
-  
-  const renderRow = useCallback((rowData: readonly string[], rowIndex: number) => (
-    <View key={rowIndex} style={STYLES.row}>
-      {rowData.map((buttonText, index) => {
-        // Skip empty buttons - render invisible spacer for empty strings
-        if (!buttonText || buttonText.trim() === '') {
-          return <View key={`${rowIndex}-${index}`} style={{ flex: 1 }} />;
-        }
 
-        // Handle wide buttons (buttons that span multiple columns)
-        const isWideButton = buttonText.includes('-wide');
-        const displayText = buttonText.replace('-wide', '');
-        
-        // Define button categories for styling
-        const isNumber = /^\d$/.test(displayText); // 0-9
-        const isOperator = ['÷', '×', '-', '+'].includes(displayText);
-        const isAction = ['C', '⌫', '±'].includes(displayText);
-        const isSpecial = ['✓', '.', '⌨'].includes(displayText);
-        
-        return (
-          <View 
-            key={`${rowIndex}-${index}`} 
-            style={isWideButton ? [{ flex: 1 }, STYLES.wideButton] : { flex: 1 }}
-          >
-            <OptimizedButton
-              text={displayText}
-              onPress={() => handleButtonPress(displayText)}
-              isNumber={isNumber}
-              isOperator={isOperator}
-              isAction={isAction}
-              isSpecial={isSpecial}
-            />
-          </View>
-        );
-      })}
-    </View>
-  ), [handleButtonPress]);
-  
-  return (
-    <Modal
-      visible={visible}
-      transparent={true}
-      animationType="fade"
-      onRequestClose={handleModalRequestClose}
-      statusBarTranslucent={true}
+const renderRow = useCallback((rowData: readonly string[], rowIndex: number) => (
+  <View key={rowIndex} style={STYLES.row}>
+    {rowData.map((buttonText, index) => {
+      // Skip empty buttons - render invisible spacer for empty strings
+      if (!buttonText || buttonText.trim() === '') {
+        return <View key={`${rowIndex}-${index}`} style={{ flex: 1 }} />;
+      }
+
+      // Handle wide buttons (buttons that span multiple columns)
+      const isWideButton = buttonText.includes('-wide');
+      const displayText = buttonText.replace('-wide', '');
+
+      // Define button categories for styling
+      const isNumber = /^\d$/.test(displayText); // 0-9
+      const isOperator = ['÷', '×', '-', '+'].includes(displayText);
+      const isAction = ['C', '⌫', '±'].includes(displayText);
+      const isSpecial = ['✓', '.', '⌨'].includes(displayText);
+
+      // --- Cambia aquí el estilo del botón según isTinyDevice ---
+      const buttonContainerStyle = [
+        { flex: 1 },
+        isWideButton && STYLES.wideButton,
+        isTinyDevice && {
+          minHeight: 50,
+          maxHeight: 20,
+          minWidth: 0,
+          marginHorizontal: 1,
+        }
+      ];
+
+      return (
+        <View
+          key={`${rowIndex}-${index}`}
+          style={buttonContainerStyle}
+        >
+          <OptimizedButton
+            text={displayText}
+            onPress={() => handleButtonPress(displayText)}
+            isNumber={isNumber}
+            isOperator={isOperator}
+            isAction={isAction}
+            isSpecial={isSpecial}
+          />
+        </View>
+      );
+    })}
+  </View>
+), [handleButtonPress]);
+
+  return ((Platform.OS === 'ios' && !Platform.isPad) || (Platform.OS === 'android' && isTinyDevice)? (
+  visible && (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        position: 'absolute',
+        top: 0, left: 0, right: 0, bottom: 0,
+        zIndex: 9999,
+      }}
     >
       <StatusBar backgroundColor="rgba(0, 0, 0, 0.5)" barStyle="light-content" />
-      <SafeAreaView style={STYLES.modalOverlay}>
-        <TouchableOpacity 
-          style={StyleSheet.absoluteFill} 
-          activeOpacity={1} 
+      <TouchableOpacity
+        style={StyleSheet.absoluteFill}
+        activeOpacity={1}
+        onPress={handleClose}
+      />
+      <Animated.View
+        style={[
+          {
+            backgroundColor: '#fff',
+            borderRadius: 16,
+            padding: 18,
+            width: '100%',
+            maxWidth: 400,
+            minWidth: 260,
+            maxHeight: '95%',
+            elevation: 20,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.3,
+            shadowRadius: 12,
+            borderWidth: 1,
+            borderColor: 'rgba(0,0,0,0.05)',
+            alignItems: 'center',
+          },
+          modalAnimatedStyle,
+        ]}
+      >
+        {/* Close Button */}
+        <TouchableOpacity
+          style={{
+            position: 'absolute',
+            top: 10,
+            right: 10,
+            width: 36,
+            height: 36,
+            borderRadius: 18,
+            backgroundColor: 'rgba(0, 0, 0, 0.08)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            elevation: 2,
+          }}
           onPress={handleClose}
-        />
-        
-        <Animated.View style={[STYLES.modalContainer, modalAnimatedStyle]}>
-          {/* Close Button */}
-          <TouchableOpacity style={STYLES.closeButton} onPress={handleClose}>
-            <Text style={STYLES.closeButtonText}>×</Text>
-          </TouchableOpacity>
-          
-          {/* Header */}
-          <View style={STYLES.header}>
-            <Text style={STYLES.title}>{title}</Text>
-            
-            {/* Value Input Display */}
-            <View style={STYLES.inputContainer}>
-              <TextInput
-                style={STYLES.input}
-                value={value || ''}
-                placeholder={placeholder}
-                placeholderTextColor="#999"
-                editable={false}
-                selectTextOnFocus={false}
-              />
-            </View>
+        >
+          <Text style={{ fontSize: 20, fontWeight: '700', color: '#666' }}>×</Text>
+        </TouchableOpacity>
+
+        {/* Header */}
+        <View style={{ marginBottom: 14, alignItems: 'center', width: '100%' }}>
+          <Text
+            style={{
+              fontSize: 18,
+              fontWeight: '700',
+              color: '#1a1a1a',
+              marginBottom: 5,
+              textAlign: 'center',
+              letterSpacing: 0.5,
+            }}
+          >
+            {title}
+          </Text>
+          {/* Value Input Display */}
+          <View
+            style={{
+              backgroundColor: '#f8f9fb',
+              borderRadius: 12,
+              borderWidth: 2,
+              borderColor: '#e1e5e9',
+              marginBottom: 5,
+              width: '50%',
+              alignItems: 'center',
+            }}
+          >
+            <TextInput
+              style={{
+                fontSize: 26,
+                fontWeight: '700',
+                color: '#1a1a1a',
+                textAlign: 'center',
+                paddingVertical: 14,
+                paddingHorizontal: 18,
+                minHeight: 54,
+                letterSpacing: 1,
+                width: '100%',
+              }}
+              value={value || ''}
+              placeholder={placeholder}
+              placeholderTextColor="#999"
+              editable={false}
+              selectTextOnFocus={false}
+            />
           </View>
-          
-          {/* Number Pad */}
-          <View style={STYLES.container}>
-            <View style={STYLES.grid}>
-              {BUTTON_DATA.map(renderRow)}
-            </View>
+        </View>
+
+        {/* Number Pad */}
+        <View style={{ width: '100%' }}>
+          <View style={{ flexDirection: 'column', alignItems: 'stretch', width: '100%',  }}>
+            {BUTTON_DATA.map(renderRow)}
           </View>
-        </Animated.View>
-      </SafeAreaView>
-    </Modal>
-  );
+        </View>
+      </Animated.View>
+    </View>
+  )
+) : (
+  <Modal
+    visible={visible}
+    transparent={true}
+    animationType="fade"
+    onRequestClose={handleModalRequestClose}
+    statusBarTranslucent={true}
+  >
+    <StatusBar backgroundColor="rgba(0, 0, 0, 0.5)" barStyle="light-content" />
+    <SafeAreaView style={STYLES.modalOverlay}>
+      <TouchableOpacity
+        style={StyleSheet.absoluteFill}
+        activeOpacity={1}
+        onPress={handleClose}
+      />
+      <Animated.View style={[STYLES.modalContainer, modalAnimatedStyle]}>
+        {/* Close Button */}
+        <TouchableOpacity style={STYLES.closeButton} onPress={handleClose}>
+          <Text style={STYLES.closeButtonText}>×</Text>
+        </TouchableOpacity>
+
+        {/* Header */}
+        <View style={STYLES.header}>
+          <Text style={STYLES.title}>{title}</Text>
+          {/* Value Input Display */}
+          <View style={STYLES.inputContainer}>
+            <TextInput
+              style={STYLES.input}
+              value={value || ''}
+              placeholder={placeholder}
+              placeholderTextColor="#999"
+              editable={false}
+              selectTextOnFocus={false}
+            />
+          </View>
+        </View>
+
+        {/* Number Pad */}
+        <View style={STYLES.container}>
+          <View style={STYLES.grid}>
+            {BUTTON_DATA.map(renderRow)}
+          </View>
+        </View>
+      </Animated.View>
+    </SafeAreaView>
+  </Modal>
+));
 }, (prevProps, nextProps) => {
   // More comprehensive comparison for React.memo
   return (

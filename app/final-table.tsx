@@ -5,6 +5,7 @@ import {
   Alert,
   Dimensions,
   Modal,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -413,7 +414,7 @@ const handleDownloadPDF = async () => {
       [{ text: "OK" }]
     );
     
-    router.replace(`/main-menu?discipline=${discipline}`);
+    router.replace(`/main-menu?folderId=${folderId}&discipline=${discipline}`);
     
   } catch (err) {
     setPdfExporting(false);
@@ -430,7 +431,7 @@ const handleDownloadPDF = async () => {
 
   const handleExit = () => {
     setModalVisible(false);
-    router.replace(`/main-menu?discipline=${discipline}`);
+    router.replace(`/main-menu?folderId=${folderId}&discipline=${discipline}`);
   };
 
   return (
@@ -470,7 +471,7 @@ const handleDownloadPDF = async () => {
               isSmallDevice ? styles.loadingTextSmall : null,
               isTinyDevice ? styles.loadingTextTiny : null,
             ]}>
-              Cargando Gimnastas
+              Loading Gymnasts
             </Text>
             <Text style={[
               isLargeDevice ? styles.loadingSubtextLarge : null,
@@ -478,7 +479,7 @@ const handleDownloadPDF = async () => {
               isSmallDevice ? styles.loadingSubtextSmall : null,
               isTinyDevice ? styles.loadingSubtextTiny : null,
             ]}>
-              Por favor espera mientras cargamos los datos...
+              Please wait while we load the data...
             </Text>
           </View>
         </View>
@@ -510,7 +511,7 @@ const handleDownloadPDF = async () => {
               isSmallDevice ? styles.errorTitleSmall : null,
               isTinyDevice ? styles.errorTitleTiny : null,
             ]}>
-              Error al cargar datos
+              Error loading data
             </Text>
             <Text style={[
               isLargeDevice ? styles.errorMessageLarge : null,
@@ -592,7 +593,7 @@ const handleDownloadPDF = async () => {
                 isSmallDevice ? styles.retryButtonTextSmall : null,
                 isTinyDevice ? styles.retryButtonTextTiny : null,
               ]}>
-                Reintentar
+                Retry
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -602,7 +603,7 @@ const handleDownloadPDF = async () => {
                 isSmallDevice ? styles.backButtonSmall : null,
                 isTinyDevice ? styles.backButtonTiny : null,
               ]}
-              onPress={() => router.replace(`/main-menu?discipline=${discipline}`)}
+              onPress={() => router.replace(`/main-menu?folderId=${folderId}&discipline=${discipline}`)}
             >
               <Text style={[
                 isLargeDevice ? styles.backButtonTextLarge : null,
@@ -610,7 +611,7 @@ const handleDownloadPDF = async () => {
                 isSmallDevice ? styles.backButtonTextSmall : null,
                 isTinyDevice ? styles.backButtonTextTiny : null,
               ]}>
-                Volver al menú
+                Back to Menu
               </Text>
             </TouchableOpacity>
           </View>
@@ -1154,98 +1155,210 @@ const handleDownloadPDF = async () => {
         </TouchableOpacity>
       </View>
 
-      {/* Finish Modal */}
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
+{(Platform.OS === 'ios' && !Platform.isPad) ? (
+  modalVisible && (
+    <View
+      style={{
+        position: "absolute",
+        top: 0, left: 0, right: 0, bottom: 0,
+        backgroundColor: "rgba(0,0,0,0.5)",
+        justifyContent: "center",
+        alignItems: "center",
+        zIndex: 9999,
+      }}
+    >
+      <View
+        style={{
+          backgroundColor: "#fff",
+          borderRadius: 12,
+          padding: 24,
+          minWidth: 280,
+          maxWidth: 400,
+          width: "90%",
+          elevation: 10,
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.25,
+          shadowRadius: 8,
+          alignItems: "center",
+        }}
       >
-        <View style={[
-          isLargeDevice ? styles.modalOverlayLarge : null,
-          isMediumLargeDevice ? styles.modalOverlayMediumLarge : null,
-          isSmallDevice ? styles.modalOverlaySmall : null,
-          isTinyDevice ? styles.modalOverlayTiny : null,
-        ]}>
-          <View style={[
-            isLargeDevice ? styles.modalContainerLarge : null,
-            isMediumLargeDevice ? styles.modalContainerMediumLarge : null,
-            isSmallDevice ? styles.modalContainerSmall : null,
-            isTinyDevice ? styles.modalContainerTiny : null,
-          ]}>
-            <View style={[
-              isLargeDevice ? styles.modalHeaderLarge : null,
-              isMediumLargeDevice ? styles.modalHeaderMediumLarge : null,
-              isSmallDevice ? styles.modalHeaderSmall : null,
-              isTinyDevice ? styles.modalHeaderTiny : null,
-            ]}>
-              <Text style={[
-                isLargeDevice ? styles.modalHeaderTextLarge : null,
-                isMediumLargeDevice ? styles.modalHeaderTextMediumLarge : null,
-                isSmallDevice ? styles.modalHeaderTextSmall : null,
-                isTinyDevice ? styles.modalHeaderTextTiny : null,
-              ]}>Finish Judging</Text>
-            </View>
-            
-            <View style={[
-              isLargeDevice ? styles.modalBodyLarge : null,
-              isMediumLargeDevice ? styles.modalBodyMediumLarge : null,
-              isSmallDevice ? styles.modalBodySmall : null,
-              isTinyDevice ? styles.modalBodyTiny : null,
-            ]}>
-              <Text style={[
-                isLargeDevice ? styles.modalTextLarge : null,
-                isMediumLargeDevice ? styles.modalTextMediumLarge : null,
-                isSmallDevice ? styles.modalTextSmall : null,
-                isTinyDevice ? styles.modalTextTiny : null,
-              ]}>Do you want to download the scoring data as PDF before exiting?</Text>
-            </View>
-            
-            <View style={[
-              isLargeDevice ? styles.modalButtonContainerLarge : null,
-              isMediumLargeDevice ? styles.modalButtonContainerMediumLarge : null,
-              isSmallDevice ? styles.modalButtonContainerSmall : null,
-              isTinyDevice ? styles.modalButtonContainerTiny : null,
-            ]}>
-              <TouchableOpacity 
-                style={[
-                  isLargeDevice ? styles.modalDownloadButtonLarge : null,
-                  isMediumLargeDevice ? styles.modalDownloadButtonMediumLarge : null,
-                  isSmallDevice ? styles.modalDownloadButtonSmall : null,
-                  isTinyDevice ? styles.modalDownloadButtonTiny : null,
-                ]} 
-                onPress={handleDownloadPDF}
-                disabled={pdfExporting}
-              >
-                <Text style={[
-                  isLargeDevice ? styles.buttonTextLarge : null,
-                  isMediumLargeDevice ? styles.buttonTextMediumLarge : null,
-                  isSmallDevice ? styles.buttonTextSmall : null,
-                  isTinyDevice ? styles.buttonTextTiny : null,
-                ]}>
-                  {pdfExporting ? "DOWNLOADING..." : "DOWNLOAD PDF"}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[
-                  isLargeDevice ? styles.modalExitButtonLarge : null,
-                  isMediumLargeDevice ? styles.modalExitButtonMediumLarge : null,
-                  isSmallDevice ? styles.modalExitButtonSmall : null,
-                  isTinyDevice ? styles.modalExitButtonTiny : null,
-                ]} 
-                onPress={handleExit}
-              >
-                <Text style={[
-                  isLargeDevice ? styles.buttonTextLarge : null,
-                  isMediumLargeDevice ? styles.buttonTextMediumLarge : null,
-                  isSmallDevice ? styles.buttonTextSmall : null,
-                  isTinyDevice ? styles.buttonTextTiny : null,
-                ]}>EXIT</Text>
-              </TouchableOpacity>
-          </View>
-          </View>
+        <View style={{
+          backgroundColor: '#0052b4',
+          paddingVertical: 15,
+          paddingHorizontal: 20,
+          borderTopLeftRadius: 12,
+          borderTopRightRadius: 12,
+          width: '100%',
+          alignItems: 'center',
+        }}>
+          <Text style={{
+            color: 'white',
+            fontSize: 18,
+            fontWeight: 'bold',
+            textAlign: 'center',
+          }}>
+            Finish Judging
+          </Text>
         </View>
-      </Modal>
+        <View style={{
+          padding: 20,
+          alignItems: 'center',
+        }}>
+          <Text style={{
+            fontSize: 16,
+            color: '#333',
+            textAlign: 'center',
+            marginBottom: 20,
+          }}>
+            Do you want to download the scoring data as PDF before exiting?
+          </Text>
+        </View>
+        <View style={{
+          flexDirection: 'row',
+          justifyContent: 'space-around',
+          paddingBottom: 20,
+          paddingHorizontal: 20,
+          width: '100%',
+        }}>
+          <TouchableOpacity
+            style={{
+              flex: 1,
+              backgroundColor: '#4CAF50',
+              paddingVertical: 12,
+              paddingHorizontal: 16,
+              borderRadius: 4,
+              marginRight: 8,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            onPress={handleDownloadPDF}
+            disabled={pdfExporting}
+          >
+            <Text style={{
+              color: 'white',
+              fontWeight: 'bold',
+              fontSize: 16,
+            }}>
+              {pdfExporting ? "DOWNLOADING..." : "DOWNLOAD PDF"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={{
+              flex: 1,
+              backgroundColor: '#d32f2f',
+              paddingVertical: 12,
+              paddingHorizontal: 16,
+              borderRadius: 4,
+              marginLeft: 8,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            onPress={handleExit}
+          >
+            <Text style={{
+              color: 'white',
+              fontWeight: 'bold',
+              fontSize: 16,
+            }}>
+              EXIT
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  )
+) : (
+  <Modal
+    animationType="fade"
+    transparent={true}
+    visible={modalVisible}
+    onRequestClose={() => setModalVisible(false)}
+  >
+    <View style={[
+      isLargeDevice ? styles.modalOverlayLarge : null,
+      isMediumLargeDevice ? styles.modalOverlayMediumLarge : null,
+      isSmallDevice ? styles.modalOverlaySmall : null,
+      isTinyDevice ? styles.modalOverlayTiny : null,
+    ]}>
+      <View style={[
+        isLargeDevice ? styles.modalContainerLarge : null,
+        isMediumLargeDevice ? styles.modalContainerMediumLarge : null,
+        isSmallDevice ? styles.modalContainerSmall : null,
+        isTinyDevice ? styles.modalContainerTiny : null,
+      ]}>
+        <View style={[
+          isLargeDevice ? styles.modalHeaderLarge : null,
+          isMediumLargeDevice ? styles.modalHeaderMediumLarge : null,
+          isSmallDevice ? styles.modalHeaderSmall : null,
+          isTinyDevice ? styles.modalHeaderTiny : null,
+        ]}>
+          <Text style={[
+            isLargeDevice ? styles.modalHeaderTextLarge : null,
+            isMediumLargeDevice ? styles.modalHeaderTextMediumLarge : null,
+            isSmallDevice ? styles.modalHeaderTextSmall : null,
+            isTinyDevice ? styles.modalHeaderTextTiny : null,
+          ]}>Finish Judging</Text>
+        </View>
+        <View style={[
+          isLargeDevice ? styles.modalBodyLarge : null,
+          isMediumLargeDevice ? styles.modalBodyMediumLarge : null,
+          isSmallDevice ? styles.modalBodySmall : null,
+          isTinyDevice ? styles.modalBodyTiny : null,
+        ]}>
+          <Text style={[
+            isLargeDevice ? styles.modalTextLarge : null,
+            isMediumLargeDevice ? styles.modalTextMediumLarge : null,
+            isSmallDevice ? styles.modalTextSmall : null,
+            isTinyDevice ? styles.modalTextTiny : null,
+          ]}>Do you want to download the scoring data as PDF before exiting?</Text>
+        </View>
+        <View style={[
+          isLargeDevice ? styles.modalButtonContainerLarge : null,
+          isMediumLargeDevice ? styles.modalButtonContainerMediumLarge : null,
+          isSmallDevice ? styles.modalButtonContainerSmall : null,
+          isTinyDevice ? styles.modalButtonContainerTiny : null,
+        ]}>
+          <TouchableOpacity
+            style={[
+              isLargeDevice ? styles.modalDownloadButtonLarge : null,
+              isMediumLargeDevice ? styles.modalDownloadButtonMediumLarge : null,
+              isSmallDevice ? styles.modalDownloadButtonSmall : null,
+              isTinyDevice ? styles.modalDownloadButtonTiny : null,
+            ]}
+            onPress={handleDownloadPDF}
+            disabled={pdfExporting}
+          >
+            <Text style={[
+              isLargeDevice ? styles.buttonTextLarge : null,
+              isMediumLargeDevice ? styles.buttonTextMediumLarge : null,
+              isSmallDevice ? styles.buttonTextSmall : null,
+              isTinyDevice ? styles.buttonTextTiny : null,
+            ]}>
+              {pdfExporting ? "DOWNLOADING..." : "DOWNLOAD PDF"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              isLargeDevice ? styles.modalExitButtonLarge : null,
+              isMediumLargeDevice ? styles.modalExitButtonMediumLarge : null,
+              isSmallDevice ? styles.modalExitButtonSmall : null,
+              isTinyDevice ? styles.modalExitButtonTiny : null,
+            ]}
+            onPress={handleExit}
+          >
+            <Text style={[
+              isLargeDevice ? styles.buttonTextLarge : null,
+              isMediumLargeDevice ? styles.buttonTextMediumLarge : null,
+              isSmallDevice ? styles.buttonTextSmall : null,
+              isTinyDevice ? styles.buttonTextTiny : null,
+            ]}>EXIT</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  </Modal>
+)}
     </SafeAreaView>
   );
 };

@@ -96,6 +96,7 @@ interface WhiteboardProps {
   percentage?: number;
   oncodetable?: () => void; // Función para abrir vault table
   discipline?: boolean; // Prop to control stick bonus visibility
+  onLoaded?: () => void; // Callback para indicar que todo está listo
 }
 
 // Calcular altura del canvas basado en el tamaño del dispositivo (como en jump original)
@@ -126,7 +127,8 @@ const DrawingCanvas = ({
   setStickBonus = () => {}, 
   percentage = 0,
   oncodetable,
-  discipline = false
+  discipline = false,
+  onLoaded
 }: WhiteboardProps) => {
   // Cargar imagen de fondo usando Skia
   const backgroundImage = useImage(require('../assets/images/Jump.png'));
@@ -158,99 +160,57 @@ const DrawingCanvas = ({
   const MAX_UNDO_STACK = 20; // Limitar a 50 acciones de undo
   const MAX_PATHS_MEMORY = 500; // Limitar paths en memoria
   
-  // Animaciones para los botones (usando posiciones como en el original)
-  const menuButtonAnim = useRef(new Animated.Value(-60)).current;
-  const undoButtonAnim = useRef(new Animated.Value(-60)).current;
-  const redoButtonAnim = useRef(new Animated.Value(-60)).current;
-  const eraserButtonAnim = useRef(new Animated.Value(-60)).current;
-  const penButtonAnim = useRef(new Animated.Value(-60)).current;
-  const redPenButtonAnim = useRef(new Animated.Value(-60)).current;
-  const bluePenButtonAnim = useRef(new Animated.Value(-60)).current;
-  const strokeBarAnim = useRef(new Animated.Value(-60)).current;
-  const stickButtonAnim = useRef(new Animated.Value(60)).current;
-  const vaultButtonAnim = useRef(new Animated.Value(60)).current; // Nuevo botón vault
+    const getButtonOffset = (index: number) => {
+    if (isTinyDevice) {
+      // Ejemplo: primer botón *1.2, segundo *1.4, tercero *1.6, etc.
+      const factors = [1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6];
+      return BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * factors[index];
+    }
+    return BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * index;
+  };
+  
+    const menuButtonAnim = useRef(new Animated.Value(10)).current;
+  const undoButtonAnim = useRef(new Animated.Value(getButtonOffset(1))).current;
+  const redoButtonAnim = useRef(new Animated.Value(getButtonOffset(2))).current;
+  const eraserButtonAnim = useRef(new Animated.Value(getButtonOffset(3))).current;
+  const penButtonAnim = useRef(new Animated.Value(getButtonOffset(4))).current;
+  const redPenButtonAnim = useRef(new Animated.Value(getButtonOffset(5))).current;
+  const bluePenButtonAnim = useRef(new Animated.Value(getButtonOffset(6))).current;
+  const strokeBarAnim = useRef(new Animated.Value(getButtonOffset(7))).current;
+  const stickButtonAnim = useRef(new Animated.Value(10)).current;
+  const vaultButtonAnim = useRef(new Animated.Value(10)).current; // Nuevo botón vault
 
   // Cargar paths guardados al montar el componente
   useEffect(() => {
+    let didCancel = false;
     const initializeComponent = async () => {
       // Cargar configuración global del pen
       const config = await loadGlobalPenConfig();
-      
-      // Actualizar estados con la configuración cargada
       setCurrentColor(config.color);
       setCurrentStrokeWidth(config.strokeWidth);
       setSelectedPen(config.penType);
       setNormalPenColor(config.color);
       setPreviousStrokeWidth(config.strokeWidth);
-      
       // Cargar paths guardados
-      loadSavedPaths();
+      await loadSavedPaths();
+      // Esperar 1.5s y llamar onLoaded si está definido
+      if (onLoaded && !didCancel) {
+        setTimeout(() => {
+          if (onLoaded && !didCancel) onLoaded();
+        }, 1500);
+      }
     };
-    
     initializeComponent();
-    
-    // Animaciones de entrada para los botones (posiciones corregidas)
-    Animated.parallel([
-      Animated.timing(menuButtonAnim, {
-        toValue: 10,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(undoButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 1, // Coincide con el estilo
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(redoButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 2, // Coincide con el estilo
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(eraserButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 3, // Coincide con el estilo
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(penButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 4, // Coincide con el estilo
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(redPenButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 5, // Botón rojo
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(bluePenButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 6, // Botón azul
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(strokeBarAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 7, // Barra de stroke
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(stickButtonAnim, {
-        toValue: 10, // Desde abajo hacia arriba
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(vaultButtonAnim, {
-        toValue: 10, // Vault button también desde abajo
-        duration: 300,
-        useNativeDriver: true,
-      })
-    ]).start();
-    
+    // Asignar directamente los valores finales de toValue a cada Animated.Value (sin animación)
     return () => {
+      didCancel = true;
       // Cleanup: cancelar timers y limpiar memoria
       if (saveTimeoutRef.current) {
         window.clearTimeout(saveTimeoutRef.current);
       }
       cleanup();
     };
-  }, [tableId]);
+  }, [tableId, onLoaded]);
 
   // Función para limpiar memoria mejorada
   const cleanup = useCallback(() => {
@@ -703,9 +663,13 @@ const DrawingCanvas = ({
         const { x, y } = event;
         // Solo permitir dibujo con stylus/pen, no con dedo
         // pointerType: 0 = touch/finger, 1 = pen/stylus, 2 = mouse
-        if (event.pointerType !== undefined && event.pointerType === 0) {
-          return; // Ignorar toques con dedo
-        }
+if (
+  event.pointerType !== undefined &&
+  event.pointerType === 0 &&
+  !isTinyDevice
+) {
+  return; // Ignorar toques con dedo, excepto si es tiny device
+}
         
         isDrawingRef.current = true;
         currentPath.current = Skia.Path.Make();
@@ -716,9 +680,13 @@ const DrawingCanvas = ({
       .onUpdate((event) => {
         const { x, y } = event;
         // Solo continuar si no es un dedo
-        if (event.pointerType !== undefined && event.pointerType === 0) {
-          return;
-        }
+        if (
+  event.pointerType !== undefined &&
+  event.pointerType === 0 &&
+  !isTinyDevice
+) {
+  return; // Ignorar toques con dedo, excepto si es tiny device
+}
         
         if (currentPath.current && isDrawingRef.current) {
           addSmoothPoint(currentPath.current, x, y);
@@ -727,9 +695,13 @@ const DrawingCanvas = ({
       })
       .onEnd((event) => {
         // Solo terminar si no es un dedo
-        if (event.pointerType !== undefined && event.pointerType === 0) {
-          return;
-        }
+        if (
+  event.pointerType !== undefined &&
+  event.pointerType === 0 &&
+  !isTinyDevice
+) {
+  return; // Ignorar toques con dedo, excepto si es tiny device
+}
         
         if (currentPath.current && isDrawingRef.current) {
           runOnJS(updatePaths)(currentPath.current.copy());
@@ -958,11 +930,11 @@ const DrawingCanvas = ({
       {/* Menu desplegable responsivo */}
       {menuOpen && (
         <View style={styles.menuDropdown}>
-          <Text style={styles.menuTitle}>Herramientas de Dibujo</Text>
+          <Text style={styles.menuTitle}>Drawing Tools</Text>
           
           {/* Selector de color */}
           <View style={styles.menuSection}>
-            <Text style={styles.menuSectionTitle}>Color:</Text>
+            <Text style={styles.menuSectionTitle}>Colors:</Text>
             <View style={styles.colorRow}>
               {['black', 'red', 'blue', 'green', 'orange'].map((color) => (
                 <TouchableOpacity
@@ -980,7 +952,7 @@ const DrawingCanvas = ({
 
           {/* Selector de grosor */}
           <View style={styles.menuSection}>
-            <Text style={styles.menuSectionTitle}>Grosor: {currentStrokeWidth}px</Text>
+            <Text style={styles.menuSectionTitle}>Stroke: {currentStrokeWidth}px</Text>
             <View style={styles.strokeRow}>
               {[2, 5, 10, 15].map((width) => (
                 <TouchableOpacity
@@ -1006,7 +978,7 @@ const DrawingCanvas = ({
 
           {/* Selector de tipo de pen */}
           <View style={styles.menuSection}>
-            <Text style={styles.menuSectionTitle}>Tipo de Pen:</Text>
+            <Text style={styles.menuSectionTitle}>Pen Type:</Text>
             <View style={styles.penTypeRow}>
               <TouchableOpacity
                 style={[
@@ -1048,7 +1020,7 @@ const DrawingCanvas = ({
             style={styles.closeMenuButton}
             onPress={toggleMenu}
           >
-            <Text style={styles.closeMenuText}>Cerrar</Text>
+            <Text style={styles.closeMenuText}>Close</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -1480,7 +1452,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   penTypeLabel: {
-    fontSize: 10,
+    fontSize: 8,
     fontWeight: '600',
     color: '#333',
     textAlign: 'center',

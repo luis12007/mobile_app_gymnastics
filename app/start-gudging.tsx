@@ -404,7 +404,7 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
           
           // Validar que no hay duplicados
           if (!validateNoDuplicateNumbers(correlativeGymnasts)) {
-            console.warn("Números duplicados detectados al cargar. Corrigiendo...");
+            console.warn("Duplicate numbers found in gymnasts data");
             // Si hay duplicados, forzar corrección
             const correctedGymnasts = await ensureCorrelativeNumbering(correlativeGymnasts);
             setGymnasts(correctedGymnasts);
@@ -495,7 +495,7 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
           }));
 
           setGymnasts(formattedGymnasts);
-          console.log("Filtered gymnasts:", formattedGymnasts);
+          //console.log("Filtered gymnasts:", formattedGymnasts);
           if (!nameSearch && !typeSearch && !bibSearch) {
             setIsSearching(false);
           }
@@ -534,14 +534,14 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
             const screenHeight = Dimensions.get("window").height;
 
             // Check if there's enough space below the button
-            const spaceBelow = screenHeight - (pageY + height);
+            const spaceBelow = screenHeight - (pageY + height)  - 100;
             const spaceAbove = pageY;
 
             let dropdownTop;
             if (spaceBelow >= dropdownHeight) {
               // Show below (normal behavior)
               dropdownTop = pageY + height;
-            } else if (spaceAbove >= dropdownHeight) {
+            } else if (spaceAbove >= dropdownHeight ) {
               // Show above with some padding from the top
               dropdownTop = pageY - dropdownHeight - 10; // Added 10px padding
             } else {
@@ -631,7 +631,7 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
       const gymnast = gymnasts.find((g) => g.id === gymnastId);
       if (gymnast) {
         await updateMainTable(gymnastId, gymnast);
-        console.log(`Field updated for gymnast ${gymnastId}`);
+        //console.log(`Field updated for gymnast ${gymnastId}`);
       }
     } catch (error) {
       console.error("Error saving field:", error);
@@ -749,8 +749,8 @@ const performDelete = async () => {
 
     // Validar que no hay duplicados
     if (!validateNoDuplicateNumbers(reorganizedGymnasts)) {
-      console.error("Error: Números duplicados detectados después de eliminar");
-      Alert.alert("Error", "Error en la numeración. Por favor contacte soporte.");
+      console.error("Error: Duplicate numbers detected after deletion");
+      Alert.alert("Error", "Numbering error. Please contact support.");
       return;
     }
 
@@ -783,7 +783,7 @@ const performDelete = async () => {
     try {
       // Validar que no excedamos el límite de participantes
       if (gymnasts.length >= participants) {
-        Alert.alert("Límite Alcanzado", `No se pueden agregar más de ${participants} participantes`);
+        Alert.alert("Limit Reached", `Cannot add more than ${participants} participants`);
         return;
       }
 
@@ -891,8 +891,8 @@ const performDelete = async () => {
         
         // Validar que no hay duplicados
         if (!validateNoDuplicateNumbers(correlativeGymnasts)) {
-          console.error("Error: Números duplicados detectados después de agregar");
-          Alert.alert("Error", "Error en la numeración. Por favor contacte soporte.");
+          console.error("Error: Duplicate numbers detected after adding");
+          Alert.alert("Error", "Numbering error. Please contact support.");
           return;
         }
 
@@ -958,27 +958,22 @@ const performDelete = async () => {
     setShowAddGymnastModal(true);
   };
 
-  // Función para abrir el NumberPad
-  const openNumberPad = () => {
-    console.log("Opening NumberPad...", { insertPosition, showNumberPad });
+  // Función optimizada para abrir el NumberPad
+  const openNumberPad = React.useCallback(() => {
     setNumberPadValue(insertPosition);
-    setHideMainModal(true); // Ocultar el modal principal
-    console.log("Main modal hidden, showing NumberPad...");
+    setHideMainModal(true);
     setShowNumberPad(true);
-    console.log("NumberPad should be visible now");
-  };
+  }, [insertPosition]);
 
-  // Función para manejar el cierre del NumberPad
-  const handleNumberPadClose = (finalValue?: string) => {
-    console.log("Closing NumberPad with value:", finalValue);
+  // Función optimizada para manejar el cierre del NumberPad
+  const handleNumberPadClose = React.useCallback((finalValue?: string) => {
     setShowNumberPad(false);
-    setHideMainModal(false); // Volver a mostrar el modal principal
-    console.log("Main modal restored, NumberPad hidden");
+    setHideMainModal(false);
     if (finalValue !== undefined) {
       setInsertPosition(finalValue);
       setInsertPositionError("");
     }
-  };
+  }, []);
 
   // Function to validate insertion position
   const validateInsertPosition = (position: string): boolean => {
@@ -1035,8 +1030,8 @@ const performDelete = async () => {
 
       // Validar que no hay duplicados
       if (!validateNoDuplicateNumbers(correlativeGymnasts)) {
-        console.error("Error: Números duplicados detectados durante reordenamiento");
-        Alert.alert("Error", "Error en la numeración durante reordenamiento.");
+        console.error("Error: Duplicate numbers detected during reordering");
+        Alert.alert("Error", "Numbering error during reordering.");
         return;
       }
 
@@ -1344,7 +1339,7 @@ const performDelete = async () => {
             try {
               await updateMainTable(targetGymnast.id, { sv: 2.0 });
             } catch (updateError) {
-              console.log("MainTable record doesn't exist, creating new one...");
+              //console.log("MainTable record doesn't exist, creating new one...");
               const newMainTableRecord = {
                 id: targetGymnast.id,
                 competenceId: competenceId,
@@ -1590,8 +1585,8 @@ const handleUndo = async () => {
 
     // Validar que no hay duplicados
     if (!validateNoDuplicateNumbers(correlativeGymnasts)) {
-      console.error("Error: Números duplicados detectados después de deshacer");
-      Alert.alert("Error", "Error en la numeración después de deshacer.");
+      console.error("Error: Duplicate numbers detected after undoing");
+      Alert.alert("Error", "Numbering error after undoing.");
       return;
     }
 
@@ -1611,7 +1606,7 @@ const handleUndo = async () => {
 
 const handleImportPress = async () => {
   try {
-    console.log("🚀 Iniciando proceso de importación...");
+    //console.log("🚀 Starting import process...");
     setIsSaving(true);
 
     // Paso 1: Selección de archivo
@@ -1629,27 +1624,27 @@ const handleImportPress = async () => {
     });
 
     if (result.canceled || !result.assets || result.assets.length === 0) {
-      console.log("❌ Selección de archivo cancelada");
+      //console.log("❌ File selection canceled");
       setIsSaving(false);
       return;
     }
 
     const selectedFile = result.assets[0];
     const fileExtension = selectedFile.name.split('.').pop()?.toLowerCase() || '';
-    
-    console.log("📄 Archivo seleccionado:", {
+
+    /* console.log("📄 Selected file:", {
       name: selectedFile.name,
       size: selectedFile.size,
       type: selectedFile.mimeType,
       extension: fileExtension
-    });
+    }); */
 
     // Paso 2: Validaciones iniciales
     const allowedExtensions = ['xlsx', 'xls', 'csv', 'numbers'];
     if (!allowedExtensions.includes(fileExtension)) {
       Alert.alert(
-        "Tipo de Archivo No Soportado",
-        `El archivo .${fileExtension} no es compatible. Tipos permitidos: ${allowedExtensions.join(', ')}`
+        "Unsupported File Type",
+        `The .${fileExtension} file is not supported. Allowed types: ${allowedExtensions.join(', ')}`
       );
       setIsSaving(false);
       return;
@@ -1658,8 +1653,8 @@ const handleImportPress = async () => {
     // Validar tamaño del archivo (max 25MB)
     if (selectedFile.size && selectedFile.size > 25 * 1024 * 1024) {
       Alert.alert(
-        "Archivo Muy Grande",
-        "El archivo supera los 25MB. Por favor usa un archivo más pequeño."
+        "File Too Large",
+        "The file exceeds 25MB. Please use a smaller file."
       );
       setIsSaving(false);
       return;
@@ -1669,32 +1664,32 @@ const handleImportPress = async () => {
     const processedData = await processFileWithXLSX(selectedFile, fileExtension);
     
     if (!processedData || processedData.length === 0) {
-      Alert.alert("Sin Datos", "No se encontraron datos válidos en el archivo");
+      Alert.alert("No Data", "No valid data found in the file");
       setIsSaving(false);
       return;
     }
 
-    console.log(`✅ Datos procesados exitosamente: ${processedData.length} filas`);
+    //console.log(`✅ Data processed successfully: ${processedData.length} rows`);
 
     // Paso 4: Procesar e insertar datos
     await processAndInsertData(processedData);
 
   } catch (error: any) {
-    console.error("❌ Error en importación:", error);
-    
-    let errorMessage = "Ocurrió un error inesperado durante la importación.";
+    console.error("❌ Error:", error);
+
+    let errorMessage = "An error occurred during import.";
     
     if (error.message?.includes("Unsupported file")) {
-      errorMessage = "El formato del archivo no es compatible.";
+      errorMessage = "The file format is not supported.";
     } else if (error.message?.includes("corrupted")) {
-      errorMessage = "El archivo parece estar corrupto.";
+      errorMessage = "The file appears to be corrupted.";
     } else if (error.message?.includes("Empty")) {
-      errorMessage = "El archivo está vacío o no contiene datos válidos.";
+      errorMessage = "The file is empty or does not contain valid data.";
     } else if (error.message) {
       errorMessage = error.message;
     }
-    
-    Alert.alert("Error de Importación", errorMessage);
+
+    Alert.alert("Import Error", errorMessage);
   } finally {
     setIsSaving(false);
   }
@@ -1702,8 +1697,8 @@ const handleImportPress = async () => {
 
 // Función principal para procesar archivos usando XLSX
 const processFileWithXLSX = async (selectedFile: any, fileExtension: string): Promise<any[]> => {
-  console.log(`📊 Procesando archivo ${fileExtension.toUpperCase()}...`);
-  
+  //console.log(`📊 processing ${fileExtension.toUpperCase()}...`);
+
   try {
     let workbook: any;
     
@@ -1716,17 +1711,17 @@ const processFileWithXLSX = async (selectedFile: any, fileExtension: string): Pr
 
     // Verificar que tenemos un workbook válido
     if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) {
-      throw new Error("No se encontraron hojas en el archivo");
+      throw new Error("the file does not contain any valid sheets or is corrupted");
     }
 
-    console.log(`📋 Hojas encontradas: ${workbook.SheetNames.join(', ')}`);
+    //console.log(`📋 Sheets found: ${workbook.SheetNames.join(', ')}`);
 
     // Tomar la primera hoja
     const firstSheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[firstSheetName];
     
     if (!worksheet) {
-      throw new Error("La primera hoja está vacía o corrupta");
+      throw new Error("The first sheet is empty or corrupted");
     }
 
     // Convertir hoja a JSON con opciones específicas
@@ -1737,29 +1732,29 @@ const processFileWithXLSX = async (selectedFile: any, fileExtension: string): Pr
       dateNF: 'YYYY-MM-DD' // Formato de fecha estándar
     });
 
-    console.log(`📏 Filas brutas extraídas: ${rawData.length}`);
+    //console.log(`📏 Rows extracted: ${rawData.length}`);
 
     if (!rawData || rawData.length < 2) {
-      throw new Error("El archivo debe contener al menos una fila de encabezado y una fila de datos");
+      throw new Error("The file must contain at least one header row and one data row");
     }
 
     // Procesar y limpiar datos
     const processedData = cleanAndValidateData(rawData);
-    
-    console.log(`🧹 Datos limpiados: ${processedData.length} filas válidas`);
-    
+
+    //console.log(`🧹 Data cleaned: ${processedData.length} valid rows`);
+
     return processedData;
 
   } catch (error: any) {
-    console.error(`❌ Error procesando ${fileExtension}:`, error);
-    throw new Error(`No se pudo procesar el archivo ${fileExtension.toUpperCase()}: ${error.message}`);
+    console.error(`❌ Error processing ${fileExtension}:`, error);
+    throw new Error(`Could not process file ${fileExtension.toUpperCase()}: ${error.message}`);
   }
 };
 
 // Función para procesar archivos CSV con XLSX
 const processCSVWithXLSX = async (selectedFile: any): Promise<any> => {
-  console.log("📄 Procesando CSV...");
-  
+  //console.log("📄 processing CSV...");
+
   try {
     // Leer como texto UTF-8
     const csvContent = await FileSystem.readAsStringAsync(selectedFile.uri, {
@@ -1767,10 +1762,10 @@ const processCSVWithXLSX = async (selectedFile: any): Promise<any> => {
     });
 
     if (!csvContent || csvContent.trim().length === 0) {
-      throw new Error("El archivo CSV está vacío");
+      throw new Error("The CSV file is empty");
     }
 
-    console.log(`📝 Contenido CSV leído: ${csvContent.length} caracteres`);
+    //console.log(`📝 CSV content read: ${csvContent.length} characters`);
 
     // Usar XLSX para parsear CSV
     const workbook = read(csvContent, {
@@ -1782,12 +1777,12 @@ const processCSVWithXLSX = async (selectedFile: any): Promise<any> => {
     return workbook;
 
   } catch (error: any) {
-    console.error("❌ Error procesando CSV:", error);
-    
+    console.error("❌ Error processing CSV:", error);
+
     // Fallback: parsing manual del CSV
     try {
-      console.log("🔄 Intentando parsing manual del CSV...");
-      
+      //console.log("🔄 Trying manual CSV parsing...");
+
       const csvContent = await FileSystem.readAsStringAsync(selectedFile.uri, {
         encoding: FileSystem.EncodingType.UTF8,
       });
@@ -1795,7 +1790,7 @@ const processCSVWithXLSX = async (selectedFile: any): Promise<any> => {
       const lines = csvContent.split('\n').filter(line => line.trim() !== '');
       
       if (lines.length < 2) {
-        throw new Error("CSV debe tener al menos 2 líneas");
+        throw new Error("CSV must have at least 2 lines");
       }
       
       const data = lines.map(line => {
@@ -1825,20 +1820,20 @@ const processCSVWithXLSX = async (selectedFile: any): Promise<any> => {
       const worksheet = utils.aoa_to_sheet(data);
       const workbook = utils.book_new();
       utils.book_append_sheet(workbook, worksheet, 'Sheet1');
-      
-      console.log("✅ CSV parseado manualmente");
+
+      //console.log("✅ CSV parsed manually");
       return workbook;
       
     } catch (fallbackError: any) {
-      throw new Error(`Error procesando CSV: ${fallbackError.message}`);
+      throw new Error(`Error processing CSV: ${fallbackError.message}`);
     }
   }
 };
 
 // Función para procesar archivos Excel/Numbers con XLSX
 const processExcelWithXLSX = async (selectedFile: any, fileExtension: string): Promise<any> => {
-  console.log(`📊 Procesando archivo ${fileExtension.toUpperCase()}...`);
-  
+  //console.log(`📊 processing file ${fileExtension.toUpperCase()}...`);
+
   const strategies = [
     'fetch_arraybuffer',
     'filesystem_base64',
@@ -1849,8 +1844,8 @@ const processExcelWithXLSX = async (selectedFile: any, fileExtension: string): P
 
   for (const strategy of strategies) {
     try {
-      console.log(`🔄 Probando estrategia: ${strategy}`);
-      
+      //console.log(`🔄 Trying strategy: ${strategy}`);
+
       let arrayBuffer: ArrayBuffer;
       
       switch (strategy) {
@@ -1864,7 +1859,7 @@ const processExcelWithXLSX = async (selectedFile: any, fileExtension: string): P
           const base64Content = await FileSystem.readAsStringAsync(selectedFile.uri, {
             encoding: FileSystem.EncodingType.Base64,
           });
-          if (!base64Content) throw new Error("No se pudo leer como base64");
+          if (!base64Content) throw new Error("Unable to read the file");
           arrayBuffer = base64ToArrayBuffer(base64Content);
           break;
           
@@ -1873,19 +1868,19 @@ const processExcelWithXLSX = async (selectedFile: any, fileExtension: string): P
           const binaryContent = await FileSystem.readAsStringAsync(selectedFile.uri, {
             encoding: 'base64' as any
           });
-          if (!binaryContent) throw new Error("No se pudo leer archivo");
+          if (!binaryContent) throw new Error("Unable to read the file");
           arrayBuffer = base64ToArrayBuffer(binaryContent);
           break;
           
         default:
-          throw new Error(`Estrategia desconocida: ${strategy}`);
+          throw new Error(`Unknown strategy: ${strategy}`);
       }
 
       if (!arrayBuffer || arrayBuffer.byteLength === 0) {
-        throw new Error("ArrayBuffer vacío");
+        throw new Error("Empty ArrayBuffer");
       }
 
-      console.log(`📁 Archivo leído: ${arrayBuffer.byteLength} bytes`);
+      //console.log(`📁 File Readed: ${arrayBuffer.byteLength} bytes`);
 
       // Procesar con XLSX
       const workbook = read(arrayBuffer, {
@@ -1899,14 +1894,14 @@ const processExcelWithXLSX = async (selectedFile: any, fileExtension: string): P
       });
 
       if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) {
-        throw new Error("No se encontraron hojas en el archivo");
+        throw new Error("No sheets found in the file");
       }
 
-      console.log(`✅ Archivo procesado exitosamente con estrategia: ${strategy}`);
+      //console.log(`✅ File processed successfully with strategy: ${strategy}`);
       return workbook;
 
     } catch (error: any) {
-      console.log(`❌ Estrategia ${strategy} falló:`, error.message);
+      //console.log(`❌ Strategy ${strategy} failed:`, error.message);
       lastError = error;
       continue;
     }
@@ -1914,7 +1909,7 @@ const processExcelWithXLSX = async (selectedFile: any, fileExtension: string): P
 
   // Si todas las estrategias fallaron
   const helpMessage = getFileTypeHelp(fileExtension);
-  throw new Error(`No se pudo procesar el archivo ${fileExtension.toUpperCase()}. ${helpMessage}Error: ${lastError?.message || 'Desconocido'}`);
+  throw new Error(`Cannot process ${fileExtension.toUpperCase()}. ${helpMessage}Error: ${lastError?.message || 'Unknown'}`);
 };
 
 // Función auxiliar para convertir base64 a ArrayBuffer
@@ -1927,21 +1922,21 @@ const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
     }
     return bytes.buffer;
   } catch (error: any) {
-    throw new Error(`Error convirtiendo base64: ${error.message}`);
+    throw new Error(`Error converting base64: ${error.message}`);
   }
 };
 
 // Función para limpiar y validar datos extraídos
 const cleanAndValidateData = (rawData: any[]): any[] => {
-  console.log("🧹 Limpiando y validando datos...");
-  
+  //console.log("🧹 Cleaning and validating data...");
+
   // Filtrar filas completamente vacías y tomar solo datos (sin header)
   const dataRows = rawData.slice(1).filter((row: any) => {
     if (!Array.isArray(row)) return false;
     return row.some((cell: any) => cell !== null && cell !== undefined && cell !== "");
   });
 
-  console.log(`📊 Filas de datos encontradas: ${dataRows.length}`);
+  //console.log(`📊 Data rows found: ${dataRows.length}`);
 
   const processedData = dataRows.map((row: any, index: number) => {
     // Asegurar que tengamos al menos 4 columnas
@@ -1966,7 +1961,7 @@ const cleanAndValidateData = (rawData: any[]): any[] => {
     
     // Log de fila procesada para debugging
     if (index < 3) { // Solo las primeras 3 para no saturar el log
-      console.log(`📝 Fila ${index + 1}:`, cleaned);
+      //console.log(`📝 File ${index + 1}:`, cleaned);
     }
     
     return cleaned;
@@ -1975,8 +1970,8 @@ const cleanAndValidateData = (rawData: any[]): any[] => {
     return row.name || row.event || row.noc || row.bib;
   });
 
-  console.log(`✅ Datos procesados: ${processedData.length} filas válidas`);
-  
+  //console.log(`✅ Data processed: ${processedData.length} valid rows`);
+
   return processedData;
 };
 
@@ -1984,13 +1979,13 @@ const cleanAndValidateData = (rawData: any[]): any[] => {
 const getFileTypeHelp = (fileType: string): string => {
   switch (fileType) {
     case 'numbers':
-      return "Los archivos Numbers tienen compatibilidad limitada. Para mejores resultados, exporta desde Numbers como Excel (.xlsx) o CSV. ";
+      return "The Numbers files have limited compatibility. For best results, export from Numbers as Excel (.xlsx) or CSV.";
     case 'xlsx':
-      return "Si el archivo Excel tiene características avanzadas (macros, gráficos, etc.), intenta guardarlo como archivo Excel simple. ";
+      return "If the Excel file has advanced features (macros, charts, etc.), try saving it as a simple Excel file.";
     case 'xls':
-      return "Los archivos Excel antiguos (.xls) pueden tener problemas. Intenta convertirlo a .xlsx. ";
+      return "Old Excel files (.xls) may have issues. Try converting them to .xlsx.";
     case 'csv':
-      return "Verifica que el archivo CSV use codificación UTF-8 y comas como separadores. ";
+      return "Make sure the CSV file uses UTF-8 encoding and commas as separators.";
     default:
       return "";
   }
@@ -1998,15 +1993,15 @@ const getFileTypeHelp = (fileType: string): string => {
 
 // Función para procesar e insertar los datos validados
 const processAndInsertData = async (data: any[]) => {
-  console.log(`💾 Procesando ${data.length} filas para inserción...`);
-  
+  //console.log(`💾 Processing ${data.length} rows for insertion...`);
+
   // Limitar al número de participantes permitido
   const rowsToImport = Math.min(data.length, participants);
   
   if (data.length > participants) {
     Alert.alert(
-      "Límite de Importación",
-      `El archivo contiene ${data.length} filas válidas, pero solo se permiten ${participants} participantes. Solo se importarán los primeros ${participants}.`
+      "Import Limit",
+      `The file contains ${data.length} valid rows, but only ${participants} participants are allowed. Only the first ${participants} will be imported.`
     );
   }
 
@@ -2029,9 +2024,9 @@ const processAndInsertData = async (data: any[]) => {
   let errors = 0;
   const errorDetails: string[] = [];
 
-  console.log("🔄 Iniciando inserción de datos...");
+  //console.log("🔄 Starting data insertion...");
 
-  // Procesar cada fila con numeración correlativa
+  // Process each row with correlative numbering
   for (let i = 0; i < rowsToImport; i++) {
     try {
       const row = data[i];
@@ -2057,13 +2052,13 @@ const processAndInsertData = async (data: any[]) => {
         
         await updateMainTable(existingGymnast.id, updatedGymnast);
         updatedCount++;
-        
-        console.log(`✏️ Actualizado gimnasta ${correlativeNumber}: ${cleanName}`);
-        
+
+        //console.log(`✏️ Updated gymnast ${correlativeNumber}: ${cleanName}`);
+
       } else {
         // Verificar límite de participantes
         if (gymnasts.length + createdCount >= participants) {
-          console.log(`⚠️ Límite de participantes alcanzado: ${participants}`);
+          //console.log(`⚠️ Participant limit reached: ${participants}`);
           break;
         }
         
@@ -2100,38 +2095,38 @@ const processAndInsertData = async (data: any[]) => {
           
           await insertRateGeneral(mainRateGeneralData);
           createdCount++;
-          
-          console.log(`➕ Creado gimnasta ${correlativeNumber}: ${cleanName}`);
-          
+
+          //console.log(`➕ Created gymnast ${correlativeNumber}: ${cleanName}`);
+
         } else {
           errors++;
-          errorDetails.push(`Fila ${correlativeNumber}: Error al insertar en base de datos`);
+          errorDetails.push(`Row ${correlativeNumber}: Error inserting into database`);
         }
       }
       
     } catch (error: any) {
       errors++;
-      errorDetails.push(`Fila ${i + 1}: ${error.message || 'Error desconocido'}`);
-      console.error(`❌ Error procesando fila ${i + 1}:`, error);
+      errorDetails.push(`Row ${i + 1}: ${error.message || 'Unknown error'}`);
+      console.error(`❌ Error processing row ${i + 1}:`, error);
     }
   }
 
-  // Recargar y reordenar todos los gimnastas
-  console.log("🔄 Reordenando gimnastas...");
+  // Reload and reorder all gymnasts
+  //console.log("🔄 Reordering gymnasts...");
   
   const allUpdatedGymnasts = await getMainTablesByCompetenceId(competenceId);
-  
-  // Aplicar numeración correlativa usando nuestra función
+
+  // Apply correlative numbering using our function
   const correlativeGymnasts = await ensureCorrelativeNumbering(allUpdatedGymnasts);
 
-  // Validar que no hay duplicados
+  // Validate that there are no duplicates
   if (!validateNoDuplicateNumbers(correlativeGymnasts)) {
-    console.error("Error: Números duplicados detectados después de importar");
-    Alert.alert("Error", "Error en la numeración después de importar.");
+    console.error("Error: Duplicate numbers detected after import");
+    Alert.alert("Error", "Error in numbering after import. Please check the data.");
     return;
   }
 
-  // Actualizar estado local con todos los campos necesarios
+  // Update local state with all necessary fields
   const finalGymnasts = correlativeGymnasts.map((table) => ({
     id: table.id,
     competenceId: table.competenceId,
@@ -2162,21 +2157,21 @@ const processAndInsertData = async (data: any[]) => {
   }
 
   // Mostrar resultado final
-  let resultMessage = `Importación exitosa:\n• ${createdCount} gimnastas nuevos\n• ${updatedCount} gimnastas actualizados`;
-  
+  let resultMessage = `Success:\n• ${createdCount} new gymnasts\n• ${updatedCount} updated gymnasts`;
+
   if (errors > 0) {
-    resultMessage += `\n• ${errors} errores encontrados`;
-    console.warn("⚠️ Errores durante importación:", errorDetails);
+    resultMessage += `\n• ${errors} errors found`;
+    console.warn("⚠️ Errors during import:", errorDetails);
   }
 
-  console.log("✅ Importación completada:", {
+  /* console.log("✅ Import completed:", {
     created: createdCount,
     updated: updatedCount,
     errors: errors,
     total: finalGymnasts.length
-  });
+  }); */
 
-  Alert.alert("Importación Completa", resultMessage);
+  Alert.alert("Import Completed", resultMessage);
 };
   
   return (
@@ -2329,7 +2324,7 @@ const processAndInsertData = async (data: any[]) => {
           <TouchableOpacity
             style={styles.compactNavButton}
             onPress={() =>
-              router.replace(`/folder?id=${folderId}&discipline=${discipline}`)
+              router.replace(`/main-menu?folderId=${folderId}&discipline=${discipline}`)
             }
           >
             <Ionicons 
@@ -2781,265 +2776,496 @@ const processAndInsertData = async (data: any[]) => {
         </View>
       )}
 
-      {/* Add Gymnast Modal */}
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={showAddGymnastModal && !hideMainModal}
-        onRequestClose={() => {
-          setShowAddGymnastModal(false);
-          setHideMainModal(false);
-        }}
-        /* addig z */
-        style={{ zIndex: -5 }} // Ensure modal is above other components
+{/* Add Gymnast Modal */}
+{(Platform.OS === 'ios' && !Platform.isPad) || (Platform.OS === 'android' && isTinyDevice) ? (
+  showAddGymnastModal && !hideMainModal && (
+    <View style={styles.addGymnastOverlayCentered}>
+      <View
+        style={[
+          isLargeDevice ? styles.addGymnastModal : null,
+          isSmallDevice ? styles.addGymnastModalSmall : null,
+          isTinyDevice ? styles.addGymnastModalTiny : null,
+        ]}
       >
-        <View style={styles.addModalOverlay}>
-          <View
+        {/* Header */}
+        <View style={styles.addModalHeader}>
+          <Ionicons 
+            name="add-circle-outline" 
+            size={isTinyDevice ? 24 : isSmallDevice ? 28 : 32} 
+            color="#0052b4" 
+          />
+          <Text
             style={[
-              isLargeDevice ? styles.addGymnastModal : null,
-              isSmallDevice ? styles.addGymnastModalSmall : null,
-              isTinyDevice ? styles.addGymnastModalTiny : null,
+              isLargeScreen ? styles.addModalTitle : styles.addModalTitleSmall
             ]}
           >
-            {/* Header */}
-            <View style={styles.addModalHeader}>
-              <Ionicons 
-                name="add-circle-outline" 
-                size={isTinyDevice ? 24 : isSmallDevice ? 28 : 32} 
-                color="#0052b4" 
-              />
-              <Text
-                style={[
-                  isLargeScreen ? styles.addModalTitle : styles.addModalTitleSmall
-                ]}
-              >
-                Add Gymnast
-              </Text>
-            </View>
-
-            {/* Options */}
-            <View style={styles.addOptionsContainer}>
-              {/* Option 1: Al final */}
-              <TouchableOpacity
-                style={[
-                  styles.optionButton,
-                  addAtEnd && styles.optionButtonSelected
-                ]}
-                onPress={() => {
-                  setAddAtEnd(true);
-                  setInsertPositionError("");
-                }}
-              >
-                <View style={styles.optionContent}>
-                  <View style={styles.optionIconContainer}>
-                    <Ionicons 
-                      name={addAtEnd ? "radio-button-on" : "radio-button-off"} 
-                      size={isTinyDevice ? 20 : 24} 
-                      color={addAtEnd ? "#0052b4" : "#666"} 
-                    />
-                  </View>
-                  <View style={styles.optionTextContainer}>
-                    <Text style={[
-                      styles.optionTitle,
-                      addAtEnd && styles.optionTitleSelected
-                    ]}>
-                      Add at the end
-                    </Text>
-                    <Text style={styles.optionDescription}>
-                      Will be added as gymnast #{gymnasts.length + 1}
-                    </Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-
-              {/* Option 2: Posición específica */}
-              <TouchableOpacity
-                style={[
-                  styles.optionButton,
-                  !addAtEnd && styles.optionButtonSelected
-                ]}
-                onPress={() => {
-                  setAddAtEnd(false);
-                  setInsertPositionError("");
-                }}
-              >
-                <View style={styles.optionContent}>
-                  <View style={styles.optionIconContainer}>
-                    <Ionicons 
-                      name={!addAtEnd ? "radio-button-on" : "radio-button-off"} 
-                      size={isTinyDevice ? 20 : 24} 
-                      color={!addAtEnd ? "#0052b4" : "#666"} 
-                    />
-                  </View>
-                  <View style={styles.optionTextContainer}>
-                    <Text style={[
-                      styles.optionTitle,
-                      !addAtEnd && styles.optionTitleSelected
-                    ]}>
-                      Insert at position
-                    </Text>
-                    <Text style={styles.optionDescription}>
-                      Following gymnasts will move down
-                    </Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-
-              {/* Input para posición específica */}
-              {!addAtEnd && (
-                <View style={styles.positionInputContainer}>
-                  <Text style={styles.positionInputLabel}>
-                    Position (1 - {gymnasts.length + 1}):
-                  </Text>
-                  <TouchableOpacity
-                    style={[
-                      styles.positionInput,
-                      insertPositionError && insertPositionError.includes("Error") && styles.positionInputError,
-                      styles.numberPadButton
-                    ]}
-                    onPress={openNumberPad}
-                  >
-                    <Text style={[
-                      styles.numberPadButtonText,
-                      !insertPosition && styles.numberPadPlaceholder
-                    ]}>
-                      {insertPosition || "Tap to enter position"}
-                    </Text>
-                    <Text style={styles.numberPadIcon}>🔢</Text>
-                  </TouchableOpacity>
-                  
-                  {insertPositionError ? (
-                    <Text style={[
-                      styles.positionInputError,
-                      insertPositionError.includes("already exists") && styles.positionInputWarning
-                    ]}>
-                      {insertPositionError}
-                    </Text>
-                  ) : null}
-                </View>
-              )}
-            </View>
-
-            {/* Buttons */}
-            <View style={styles.addModalButtons}>
-              <TouchableOpacity
-                style={[
-                  isLargeScreen ? styles.cancelButton : styles.cancelButtonSmall
-                ]}
-                onPress={() => {
-                  setShowAddGymnastModal(false);
-                  setInsertPosition("");
-                  setInsertPositionError("");
-                  setHideMainModal(false); // Resetear estado del modal
-                }}
-              >
-                <Text
-                  style={[
-                    isLargeScreen ? styles.cancelButtonText : styles.cancelButtonTextSmall
-                  ]}
-                >
-                  Cancel
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  isLargeScreen ? styles.confirmButton : styles.confirmButtonSmall,
-                  (!addAtEnd && !insertPosition) && styles.buttonDisabled
-                ]}
-                onPress={confirmAddGymnast}
-                disabled={!addAtEnd && !insertPosition}
-              >
-                <Text
-                  style={[
-                    isLargeScreen ? styles.confirmButtonText : styles.confirmButtonTextSmall
-                  ]}
-                >
-                  Add
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+            Add Gymnast
+          </Text>
         </View>
-      </Modal>
 
-      {/* Delete Confirmation Modal */}
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={confirmationModal}
-        onRequestClose={() => setConfirmationModal(false)}
-      >
-        <View style={styles.addModalOverlay}>
-          <View
+        {/* Options */}
+        <View style={styles.addOptionsContainer}>
+          {/* Option 1: Al final */}
+          <TouchableOpacity
             style={[
-              isLargeDevice ? styles.confirmationModal : null,
-              isSmallDevice ? styles.confirmationmodalSmall : null,
-              isTinyDevice ? styles.confirmationmodalTiny : null,
+              styles.optionButton,
+              addAtEnd && styles.optionButtonSelected
             ]}
+            onPress={() => {
+              setAddAtEnd(true);
+              setInsertPositionError("");
+            }}
+          >
+            <View style={styles.optionContent}>
+              <View style={styles.optionIconContainer}>
+                <Ionicons 
+                  name={addAtEnd ? "radio-button-on" : "radio-button-off"} 
+                  size={isTinyDevice ? 20 : 24} 
+                  color={addAtEnd ? "#0052b4" : "#666"} 
+                />
+              </View>
+              <View style={styles.optionTextContainer}>
+                <Text style={[
+                  styles.optionTitle,
+                  addAtEnd && styles.optionTitleSelected
+                ]}>
+                  Add at the end
+                </Text>
+                <Text style={styles.optionDescription}>
+                  Will be added as gymnast #{gymnasts.length + 1}
+                </Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+
+          {/* Option 2: Posición específica */}
+          <TouchableOpacity
+            style={[
+              styles.optionButton,
+              !addAtEnd && styles.optionButtonSelected
+            ]}
+            onPress={() => {
+              setAddAtEnd(false);
+              setInsertPositionError("");
+            }}
+          >
+            <View style={styles.optionContent}>
+              <View style={styles.optionIconContainer}>
+                <Ionicons 
+                  name={!addAtEnd ? "radio-button-on" : "radio-button-off"} 
+                  size={isTinyDevice ? 20 : 24} 
+                  color={!addAtEnd ? "#0052b4" : "#666"} 
+                />
+              </View>
+              <View style={styles.optionTextContainer}>
+                <Text style={[
+                  styles.optionTitle,
+                  !addAtEnd && styles.optionTitleSelected
+                ]}>
+                  Insert at position
+                </Text>
+                <Text style={styles.optionDescription}>
+                  Following gymnasts will move down
+                </Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+
+          {/* Input para posición específica */}
+          {!addAtEnd && (
+            <View style={styles.positionInputContainer}>
+
+              <TouchableOpacity
+                style={[
+                  styles.positionInput,
+                  insertPositionError && insertPositionError.includes("Error") && styles.positionInputError,
+                  styles.numberPadButton
+                ]}
+                onPress={openNumberPad}
+              >
+                <Text style={[
+                  styles.numberPadButtonText,
+                  !insertPosition && styles.numberPadPlaceholder
+                ]}>
+                  {insertPosition || "Tap to enter position"}
+                </Text>
+                <Text style={styles.numberPadIcon}>🔢</Text>
+              </TouchableOpacity>
+              
+              {insertPositionError ? (
+                <Text style={[
+                  styles.positionInputError,
+                  insertPositionError.includes("already exists") && styles.positionInputWarning
+                ]}>
+                  {insertPositionError}
+                </Text>
+              ) : null}
+            </View>
+          )}
+        </View>
+
+        {/* Buttons */}
+        <View style={styles.addModalButtons}>
+          <TouchableOpacity
+            style={[
+              isLargeScreen ? styles.cancelButton : styles.cancelButtonSmall
+            ]}
+            onPress={() => {
+              setShowAddGymnastModal(false);
+              setInsertPosition("");
+              setInsertPositionError("");
+              setHideMainModal(false); // Resetear estado del modal
+            }}
+          >
+            <Text
+              style={[
+                isLargeScreen ? styles.cancelButtonText : styles.cancelButtonTextSmall
+              ]}
+            >
+              Cancel
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              isLargeScreen ? styles.confirmButton : styles.confirmButtonSmall,
+              (!addAtEnd && !insertPosition) && styles.buttonDisabled
+            ]}
+            onPress={confirmAddGymnast}
+            disabled={!addAtEnd && !insertPosition}
+          >
+            <Text
+              style={[
+                isLargeScreen ? styles.confirmButtonText : styles.confirmButtonTextSmall
+              ]}
+            >
+              Add
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  )
+) : (
+  <Modal
+    animationType="fade"
+    transparent={true}
+    visible={showAddGymnastModal && !hideMainModal}
+    onRequestClose={() => {
+      setShowAddGymnastModal(false);
+      setHideMainModal(false);
+    }}
+    style={{ zIndex: -5 }}
+  >
+    <View style={styles.addModalOverlay}>
+      <View
+        style={[
+          isLargeDevice ? styles.addGymnastModal : null,
+          isSmallDevice ? styles.addGymnastModalSmall : null,
+          isTinyDevice ? styles.addGymnastModalTiny : null,
+        ]}
+      >
+        {/* Header */}
+        <View style={styles.addModalHeader}>
+          <Ionicons 
+            name="add-circle-outline" 
+            size={isTinyDevice ? 24 : isSmallDevice ? 28 : 32} 
+            color="#0052b4" 
+          />
+          <Text
+            style={[
+              isLargeScreen ? styles.addModalTitle : styles.addModalTitleSmall
+            ]}
+          >
+            Add Gymnast
+          </Text>
+        </View>
+
+        {/* Options */}
+        <View style={styles.addOptionsContainer}>
+          {/* Option 1: Al final */}
+          <TouchableOpacity
+            style={[
+              styles.optionButton,
+              addAtEnd && styles.optionButtonSelected
+            ]}
+            onPress={() => {
+              setAddAtEnd(true);
+              setInsertPositionError("");
+            }}
+          >
+            <View style={styles.optionContent}>
+              <View style={styles.optionIconContainer}>
+                <Ionicons 
+                  name={addAtEnd ? "radio-button-on" : "radio-button-off"} 
+                  size={isTinyDevice ? 20 : 24} 
+                  color={addAtEnd ? "#0052b4" : "#666"} 
+                />
+              </View>
+              <View style={styles.optionTextContainer}>
+                <Text style={[
+                  styles.optionTitle,
+                  addAtEnd && styles.optionTitleSelected
+                ]}>
+                  Add at the end
+                </Text>
+                <Text style={styles.optionDescription}>
+                  Will be added as gymnast #{gymnasts.length + 1}
+                </Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+
+          {/* Option 2: Posición específica */}
+          <TouchableOpacity
+            style={[
+              styles.optionButton,
+              !addAtEnd && styles.optionButtonSelected
+            ]}
+            onPress={() => {
+              setAddAtEnd(false);
+              setInsertPositionError("");
+            }}
+          >
+            <View style={styles.optionContent}>
+              <View style={styles.optionIconContainer}>
+                <Ionicons 
+                  name={!addAtEnd ? "radio-button-on" : "radio-button-off"} 
+                  size={isTinyDevice ? 20 : 24} 
+                  color={!addAtEnd ? "#0052b4" : "#666"} 
+                />
+              </View>
+              <View style={styles.optionTextContainer}>
+                <Text style={[
+                  styles.optionTitle,
+                  !addAtEnd && styles.optionTitleSelected
+                ]}>
+                  Insert at position
+                </Text>
+                <Text style={styles.optionDescription}>
+                  Following gymnasts will move down
+                </Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+
+          {/* Input para posición específica */}
+          {!addAtEnd && (
+            <View style={styles.positionInputContainer}>
+              <Text style={styles.positionInputLabel}>
+                Position (1 - {gymnasts.length + 1}):
+              </Text>
+              <TouchableOpacity
+                style={[
+                  styles.positionInput,
+                  insertPositionError && insertPositionError.includes("Error") && styles.positionInputError,
+                  styles.numberPadButton
+                ]}
+                onPress={openNumberPad}
+              >
+                <Text style={[
+                  styles.numberPadButtonText,
+                  !insertPosition && styles.numberPadPlaceholder
+                ]}>
+                  {insertPosition || "Tap to enter position"}
+                </Text>
+                <Text style={styles.numberPadIcon}>🔢</Text>
+              </TouchableOpacity>
+              
+              {insertPositionError ? (
+                <Text style={[
+                  styles.positionInputError,
+                  insertPositionError.includes("already exists") && styles.positionInputWarning
+                ]}>
+                  {insertPositionError}
+                </Text>
+              ) : null}
+            </View>
+          )}
+        </View>
+
+        {/* Buttons */}
+        <View style={styles.addModalButtons}>
+          <TouchableOpacity
+            style={[
+              isLargeScreen ? styles.cancelButton : styles.cancelButtonSmall
+            ]}
+            onPress={() => {
+              setShowAddGymnastModal(false);
+              setInsertPosition("");
+              setInsertPositionError("");
+              setHideMainModal(false); // Resetear estado del modal
+            }}
+          >
+            <Text
+              style={[
+                isLargeScreen ? styles.cancelButtonText : styles.cancelButtonTextSmall
+              ]}
+            >
+              Cancel
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              isLargeScreen ? styles.confirmButton : styles.confirmButtonSmall,
+              (!addAtEnd && !insertPosition) && styles.buttonDisabled
+            ]}
+            onPress={confirmAddGymnast}
+            disabled={!addAtEnd && !insertPosition}
+          >
+            <Text
+              style={[
+                isLargeScreen ? styles.confirmButtonText : styles.confirmButtonTextSmall
+              ]}
+            >
+              Add
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  </Modal>
+)}
+
+{/* Delete Confirmation Modal */}
+{(Platform.OS === 'ios' && !Platform.isPad) || (Platform.OS === 'android' && isTinyDevice) ? (
+  confirmationModal && (
+    <View style={styles.addGymnastOverlayCentered}>
+      <View
+        style={[
+          isLargeDevice ? styles.confirmationModal : null,
+          isSmallDevice ? styles.confirmationmodalSmall : null,
+          isTinyDevice ? styles.confirmationmodalTiny : null,
+        ]}
+      >
+        <Text
+          style={
+            isLargeScreen
+              ? styles.addFolderTitle
+              : styles.addFolderTitleSmall
+          }
+        >
+          Delete {selectedGymnasts.length} gymnast
+          {selectedGymnasts.length > 1 ? "s" : ""}?
+        </Text>
+        <View style={styles.buttonsContainer}>
+          <TouchableOpacity
+            style={
+              isLargeScreen
+                ? styles.confirmButton
+                : styles.confirmButtonSmall
+            }
+            onPress={performDelete}
           >
             <Text
               style={
                 isLargeScreen
-                  ? styles.addFolderTitle
-                  : styles.addFolderTitleSmall
+                  ? styles.confirmButtonText
+                  : styles.confirmButtonTextSmall
               }
             >
-              Delete {selectedGymnasts.length} gymnast
-              {selectedGymnasts.length > 1 ? "s" : ""}?
+              Confirm
             </Text>
-            nnn
-            <View style={styles.buttonsContainer}>
-              <TouchableOpacity
-                style={
-                  isLargeScreen
-                    ? styles.confirmButton
-                    : styles.confirmButtonSmall
-                }
-                onPress={performDelete}
-              >
-                <Text
-                  style={
-                    isLargeScreen
-                      ? styles.confirmButtonText
-                      : styles.confirmButtonTextSmall
-                  }
-                >
-                  Confirm
-                </Text>
-              </TouchableOpacity>
+          </TouchableOpacity>
 
-              <TouchableOpacity
-                style={
-                  isLargeScreen ? styles.cancelButton : styles.cancelButtonSmall
-                }
-                onPress={() => setConfirmationModal(false)}
-              >
-                <Text
-                  style={
-                    isLargeScreen
-                      ? styles.cancelButtonText
-                      : styles.cancelButtonTextSmall
-                  }
-                >
-                  Cancel
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          <TouchableOpacity
+            style={
+              isLargeScreen ? styles.cancelButton : styles.cancelButtonSmall
+            }
+            onPress={() => setConfirmationModal(false)}
+          >
+            <Text
+              style={
+                isLargeScreen
+                  ? styles.cancelButtonText
+                  : styles.cancelButtonTextSmall
+              }
+            >
+              Cancel
+            </Text>
+          </TouchableOpacity>
         </View>
-      </Modal>
+      </View>
+    </View>
+  )
+) : (
+  <Modal
+    animationType="fade"
+    transparent={true}
+    visible={confirmationModal}
+    onRequestClose={() => setConfirmationModal(false)}
+  >
+    <View style={styles.addModalOverlay}>
+      <View
+        style={[
+          isLargeDevice ? styles.confirmationModal : null,
+          isSmallDevice ? styles.confirmationmodalSmall : null,
+          isTinyDevice ? styles.confirmationmodalTiny : null,
+        ]}
+      >
+        <Text
+          style={
+            isLargeScreen
+              ? styles.addFolderTitle
+              : styles.addFolderTitleSmall
+          }
+        >
+          Delete {selectedGymnasts.length} gymnast
+          {selectedGymnasts.length > 1 ? "s" : ""}?
+        </Text>
+        <View style={styles.buttonsContainer}>
+          <TouchableOpacity
+            style={
+              isLargeScreen
+                ? styles.confirmButton
+                : styles.confirmButtonSmall
+            }
+            onPress={performDelete}
+          >
+            <Text
+              style={
+                isLargeScreen
+                  ? styles.confirmButtonText
+                  : styles.confirmButtonTextSmall
+              }
+            >
+              Confirm
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={
+              isLargeScreen ? styles.cancelButton : styles.cancelButtonSmall
+            }
+            onPress={() => setConfirmationModal(false)}
+          >
+            <Text
+              style={
+                isLargeScreen
+                  ? styles.cancelButtonText
+                  : styles.cancelButtonTextSmall
+              }
+            >
+              Cancel
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  </Modal>
+)}
 
       {/* Modal Custom Number Pad para posición */}
       <ModalCustomNumberPad
         visible={showNumberPad}
         value={numberPadValue}
         onValueChange={(value) => {
-          console.log("NumberPad value changed:", value);
+          //console.log("NumberPad value changed:", value);
           setNumberPadValue(value);
         }}
         onClose={(finalValue) => {
-          console.log("NumberPad closed with value:", finalValue);
+          //console.log("NumberPad closed with value:", finalValue);
           handleNumberPadClose(finalValue);
         }}
         title="Enter Position"
@@ -3755,11 +3981,11 @@ const styles = StyleSheet.create({
   addGymnastModalTiny: {
     backgroundColor: "#fff",
     borderRadius: 12,
-    padding: 16,
+    padding: 3,
     minWidth: 300,
     maxWidth: 350,
     width: "95%",
-    maxHeight: "70%",
+    maxHeight: "95%",
     alignItems: "stretch",
     elevation: 6,
     shadowColor: "#000",
@@ -3931,6 +4157,18 @@ const styles = StyleSheet.create({
     color: "#999",
     fontStyle: "italic",
   },
+addGymnastOverlayCentered: {
+  position: "absolute",
+  top: 0,
+  left: 0,
+  right: 0,
+
+  bottom: 0,
+  justifyContent: "center",
+  alignItems: "center",
+  backgroundColor: "rgba(0,0,0,0.5)",
+  zIndex: 9999,
+},
 
   numberPadIcon: {
     fontSize: 18,
