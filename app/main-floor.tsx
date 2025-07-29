@@ -2652,6 +2652,12 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
           comments={comments}
           logs={logs}
           clearLogs={clearLogs}
+          width={width}
+          height={height}
+          isLargeDevice={isLargeDevice}
+          isSmallDevice={isSmallDevice}
+          isTinyDevice={isTinyDevice}
+
         />
       </ScrollView>
     </SafeAreaView>

@@ -1906,6 +1906,11 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
           showmodalwag={showmodalwag}
           comments={comments}
           logs={logs}
+          width={width}
+          height={height}
+          isLargeDevice={isLargeDevice}
+          isSmallDevice={isSmallDevice}
+          isTinyDevice={isTinyDevice}
           clearLogs={clearLogs}
         />
       </ScrollView>
