@@ -68,6 +68,7 @@ import {
   deleteFolderRecursively
 } from "../Database/database"; // Adjust the path based on your project structure
 import { GridDraggableItem } from "../components/GridDraggableItem";
+import CustomNumberPadOptimized from '@/components/CustomNumberPadOptimized';
 const { width, height } = Dimensions.get("window");
 var isLargeDevice = false;
 var isMediumLargeDevice = false;
@@ -78,9 +79,9 @@ if (width >= 1368 ) {
   isLargeDevice = true;
 } else if (width >= 1200 && width < 1368) {
   isMediumLargeDevice = true;
-} else if (width >= 945 && width < 1200) {
+} else if (width >= 960 && width < 1200) {
   isSmallDevice = true;
-} else if (width < 945) {
+} else if (width < 960) {
   isTinyDevice = true;
 }
 
@@ -808,6 +809,8 @@ const [availableFoldersForMove, setAvailableFoldersForMove] = useState<Folder[]>
 // Estados para el modal de opciones de competencia
 const [showCompetitionOptionsModal, setShowCompetitionOptionsModal] = useState(false);
 const [selectedCompetitionForOptions, setSelectedCompetitionForOptions] = useState<any>(null);
+  const [showNumberPad, setShowNumberPad] = useState(false);
+
 
 // Estados para la barra de carga unificada
 const [showLoadingModal, setShowLoadingModal] = useState(false);
@@ -4329,20 +4332,45 @@ const confirmFolderForCompetition = () => {
           value={competitionDescription}
           onChange={(e) => setCompetitionDescription(e.nativeEvent.text)}
         />
-
-        <TextInput
-          style={[
-            isLargeDevice ? styles.folderInputLarge : null,
-            isMediumLargeDevice ? styles.folderInputMediumLarge : null,
-            isSmallDevice ? styles.folderInputSmall : null,
-            isTinyDevice ? styles.folderInputTiny : null,
-          ]}
-          placeholder="Number of participants"
-          placeholderTextColor="#888"
-          keyboardType="numeric"
-          value={competitionParticipants}
-          onChange={(e) => setCompetitionParticipants(e.nativeEvent.text)}
-        />
+        {isTinyDevice ? (
+  <>
+    <TouchableOpacity
+      style={[
+        styles.folderInputTiny,
+        { justifyContent: 'center', minHeight: 48 }
+      ]}
+      onPress={() => setShowNumberPad(true)}
+      activeOpacity={0.8}
+    >
+      <Text style={{ color: competitionParticipants ? '#333' : '#888', fontSize: 15 }}>
+        {competitionParticipants || 'Number of participants'}
+      </Text>
+    </TouchableOpacity>
+    <CustomNumberPadOptimized
+      visible={showNumberPad}
+      value={competitionParticipants}
+      onValueChange={setCompetitionParticipants}
+      onClose={() => setShowNumberPad(false)}
+      title="Number of participants"
+      allowDecimal={false}
+      maxLength={3}
+    />
+  </>
+) : (
+  <TextInput
+    style={[
+      isLargeDevice ? styles.folderInputLarge : null,
+      isMediumLargeDevice ? styles.folderInputMediumLarge : null,
+      isSmallDevice ? styles.folderInputSmall : null,
+      isTinyDevice ? styles.folderInputTiny : null,
+    ]}
+    placeholder="Number of participants"
+    placeholderTextColor="#888"
+    keyboardType="default"
+    value={competitionParticipants}
+    onChange={(e) => setCompetitionParticipants(e.nativeEvent.text)}
+  />
+)}
 
         <View style={[
           isLargeDevice ? styles.buttonsContainerLarge : null,

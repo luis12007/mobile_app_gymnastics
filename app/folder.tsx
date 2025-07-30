@@ -43,9 +43,9 @@ if (width >= 1368 ) {
   isLargeDevice = true;
 } else if (width >= 1200 && width < 1368) {
   isMediumLargeDevice = true;
-} else if (width >= 945 && width < 1200) {
+} else if (width >= 960 && width < 1200) {
   isSmallDevice = true;
-} else if (width < 945) {
+} else if (width < 960) {
   isTinyDevice = true;
 }
 

@@ -52,10 +52,10 @@ var isTinyDevice = false;
 if (width >= 1200 && height >= 700) {
   isLargeDevice = true;
 }
-if (width < 1200 && width >= 950) {
+if (width < 1200 && width >= 960) {
   isSmallDevice = true;
 }
-if (width < 949) {
+if (width < 960) {
   isTinyDevice = true;
 }
 
