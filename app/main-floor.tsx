@@ -726,8 +726,6 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
             console.log("Loaded rate table values:", rateTable);
             console.log("------------");
             const allAreZero = rateTable.execution === 0 && rateTable.eScore === 0 && 
-            rateTable.compD === 0 && rateTable.compE === 0 && 
-            rateTable.compNd === 0 && rateTable.compScore === 0 && 
             mainTable.cv === 0 && mainTable.nd === 0;
 
             if (allAreZero) {
