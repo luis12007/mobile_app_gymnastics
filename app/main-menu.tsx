@@ -3570,7 +3570,6 @@ const confirmFolderForCompetition = () => {
           ]}
           placeholder="Folder's description"
           placeholderTextColor="#888"
-          multiline
           onChange={(e) => setFolderDescription(e.nativeEvent.text)}
           value={folderDescription}
         />
@@ -3672,7 +3671,6 @@ const confirmFolderForCompetition = () => {
           ]}
           placeholder="Folder's description"
           placeholderTextColor="#888"
-          multiline
           onChange={(e) => setFolderDescription(e.nativeEvent.text)}
           value={folderDescription}
         />
@@ -3772,7 +3770,6 @@ const confirmFolderForCompetition = () => {
           ]}
           placeholder="Folder's description"
           placeholderTextColor="#888"
-          multiline
           onChange={(e) => setFolderDescription(e.nativeEvent.text)}
           value={folderDescription}
         />
@@ -4966,7 +4963,6 @@ const confirmFolderForCompetition = () => {
           ]}
           placeholder="Competition description"
           placeholderTextColor="#888"
-          multiline
           value={competitionDescription}
           onChange={(e) => setCompetitionDescription(e.nativeEvent.text)}
         />
@@ -5088,7 +5084,6 @@ const confirmFolderForCompetition = () => {
           ]}
           placeholder="Competition description"
           placeholderTextColor="#888"
-          multiline
           value={competitionDescription}
           onChange={(e) => setCompetitionDescription(e.nativeEvent.text)}
         />
@@ -6771,6 +6766,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F8F8',
     borderRadius: 10,
     padding: 10,
+    maxHeight: 45,
     marginBottom: 15,
     fontSize: 15,
   },
