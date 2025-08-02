@@ -715,71 +715,8 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
               IV: rateTable.elementGroups4 || 0.0,
             };
 
-            /* const allAreZero = Object.values(loadedValues).every(
-              (value) => value === 0.0
-            ) && rateTable.execution === 0 && rateTable.eScore === 0 && 
-            rateTable.compD === 0 && rateTable.compE === 0 && 
-            rateTable.compNd === 0 && rateTable.compScore === 0 && 
-            mainTable.cv === 0 && mainTable.nd === 0; */
-            console.log("------------");
 
-            console.log("Loaded rate table values:", rateTable);
-            console.log("------------");
-            const allAreZero = rateTable.execution === 0 && rateTable.eScore === 0 && 
-            mainTable.cv === 0 && mainTable.nd === 0;
-
-            if (allAreZero) {
-              // Set defaults when all values are zero
-              const defaultValues = {
-                I: 0.5,
-                II: 0.5,
-                III: 0.5,
-                IV: 0.5,
-              };
-              setElementGroupValues(defaultValues);
-
-              // Save the default values to database immediately
-              const updateData: Partial<MainRateGeneral> = {
-                elementGroups1: 0.5,
-                elementGroups2: 0.5,
-                elementGroups3: 0.5,
-                elementGroups4: 0.5,
-                elementGroups5: 2.0, // Total of 0.5 * 4
-              };
-
-              updateRateGeneral(rateTable.id, updateData).then((success) => {
-                if (success) {
-                  console.log(
-                    "Saved default element group values to database"
-                  );
-                  // Update local state with new values
-                  const newTotal = 2.0;
-                  setElementGroupsTotal(newTotal);
-                  
-                  // Update SV and myScore with new total
-                  const newSv = rateTable.difficultyValues + newTotal + mainTable.cv;
-                  setSv(newSv);
-                  const newmyscore =
-                    rateTable.eScore +
-                    newSv +
-                    (rateTable.stickBonus ? 0.1 : 0.0) -
-                    mainTable.nd;
-                  const finalScore = Math.round(newmyscore * 1000) / 1000;
-                  setMyScore(finalScore);
-
-                  // Update MainTable with new SV
-                  updateMainTable(gymnastid, {
-                    sv: newSv,
-                  });
-                  updateRateGeneral(rateTable.id, { myScore: finalScore });
-                } else {
-                  console.error("Failed to save default element group values");
-                }
-              });
-            } else {
-              // Not all zero - use loaded values
               setElementGroupValues(loadedValues);
-            }
           }
         }
       } catch (error) {
