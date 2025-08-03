@@ -775,7 +775,7 @@ export const generateComprehensivePDF = async (
       return `
         <div class="page">
           <div class="header">
-            <h1>🏅 GymJudge - Vault Report</h1>
+            <h1>🏅 Judges' Report</h1>
             <h2>${gymnast.name || 'Unknown Gymnast'} (${gymnast.noc || 'UNK'}) - ${gymnast.event || 'VT'}</h2>
           </div>
           
@@ -907,7 +907,7 @@ export const generateComprehensivePDF = async (
       return `
         <div class="page">
           <div class="header">
-            <h1>🏅 GymJudge - Floor Report</h1>
+            <h1>🏅 Judges' Report</h1>
             <h2>${gymnast.name || 'Unknown Gymnast'} (${gymnast.noc || 'UNK'}) - ${gymnast.event || 'FX'}</h2>
           </div>
           
