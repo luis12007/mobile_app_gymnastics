@@ -22,7 +22,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.anonymous.gym_judge",
-      "versionCode": 3
+      "versionCode": 4
     },
     "web": {
       "bundler": "metro",
