@@ -511,12 +511,12 @@ const renderRow = useCallback((rowData: readonly string[], rowIndex: number) => 
       const buttonContainerStyle = [
         { flex: 1 },
         isWideButton && STYLES.wideButton,
-        isTinyDevice && {
-          minHeight: 50,
-          maxHeight: 20,
-          minWidth: 0,
-          marginHorizontal: 1,
-        }
+        (isTinyDevice || isSmallDevice) && {
+  minHeight: 50,
+  maxHeight: 20,
+  minWidth: 0,
+  marginHorizontal: 1,
+}
       ];
 
       return (
@@ -538,7 +538,7 @@ const renderRow = useCallback((rowData: readonly string[], rowIndex: number) => 
   </View>
 ), [handleButtonPress]);
 
-  return ((Platform.OS === 'ios' && !Platform.isPad) || (Platform.OS === 'android' && isTinyDevice)? (
+  return ((Platform.OS === 'ios' && !Platform.isPad) || (Platform.OS === 'android' && isTinyDevice) || (Platform.OS === 'android' && isSmallDevice)? (
   visible && (
     <View
       style={{
@@ -595,11 +595,11 @@ const renderRow = useCallback((rowData: readonly string[], rowIndex: number) => 
           }}
           onPress={handleClose}
         >
-          <Text style={{ fontSize: 20, fontWeight: '700', color: '#666' }}>×</Text>
+          <Text style={{ fontSize: 14, fontWeight: '700', color: '#666' }}>×</Text>
         </TouchableOpacity>
 
         {/* Header */}
-        <View style={{ marginBottom: 14, alignItems: 'center', width: '100%' }}>
+        <View style={{ marginBottom: 12, alignItems: 'center', width: '100%' }}>
           <Text
             style={{
               fontSize: 18,
@@ -626,7 +626,7 @@ const renderRow = useCallback((rowData: readonly string[], rowIndex: number) => 
           >
             <TextInput
               style={{
-                fontSize: 26,
+                fontSize: 20,
                 fontWeight: '700',
                 color: '#1a1a1a',
                 textAlign: 'center',

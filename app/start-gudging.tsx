@@ -1396,6 +1396,26 @@ const performDelete = async () => {
     gymnast: number,
     number: number
   ) => {
+
+    // Validar que todos los gimnastas tengan los campos requeridos
+const invalids = gymnasts
+  .filter((g) => !g.name || !g.event || !g.noc)
+  .map((g) => g.id);
+
+if (invalids.length > 0) {
+  setInvalidGymnastIds(invalids);
+  Alert.alert("Incomplete Gymnast", "Please fill all fields for each gymnast.");
+  // Scroll to the first invalid gymnast
+  const firstInvalidIndex = gymnasts.findIndex((g) => g.id === invalids[0]);
+  if (firstInvalidIndex !== -1 && scrollViewRef.current) {
+    scrollViewRef.current.scrollTo({
+      y: firstInvalidIndex * 60,
+      animated: true,
+    });
+  }
+  setTimeout(() => setInvalidGymnastIds([]), 1000);
+  return;
+}
     // Validate and recover gymnast data
     const validationResult = await validateAndRecoverGymnastData(gymnastId, number, false);
     

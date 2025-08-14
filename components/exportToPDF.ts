@@ -125,24 +125,44 @@ interface FinalTableData {
 }
 
 // Function to get Jump image as base64
-const getJumpImageBase64 = async (): Promise<string | null> => {
+// Fallback base64 para imagen de salto (puedes usar una imagen pequeña o un SVG simple)
+const JUMP_IMAGE_FALLBACK =
+  'data:image/svg+xml;base64,' +
+  btoa('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60"><rect width="120" height="60" fill="#eee"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="14" fill="#888">No Jump Img</text></svg>');
+
+const getJumpImageBase64 = async (): Promise<string> => {
   try {
-    // Import the asset
+    // Validar que el archivo existe y es accesible
     const asset = Asset.fromModule(require('../assets/images/Jump.png'));
-    
-    // Download the asset if it's not already cached
     await asset.downloadAsync();
-    
-    // Read the file and convert to base64
-    const base64 = await FileSystem.readAsStringAsync(asset.localUri || asset.uri, {
+    const imageUri = asset.localUri || asset.uri;
+    if (!imageUri) {
+      console.error('Jump image URI is missing');
+      return JUMP_IMAGE_FALLBACK;
+    }
+    // Validar que el archivo es PNG
+    if (!imageUri.endsWith('.png')) {
+      console.error('Jump image is not PNG:', imageUri);
+      return JUMP_IMAGE_FALLBACK;
+    }
+    // Validar que el archivo existe en el sistema de archivos
+    const fileInfo = await FileSystem.getInfoAsync(imageUri);
+    if (!fileInfo.exists || fileInfo.size === 0) {
+      console.error('Jump image file does not exist or is empty:', imageUri);
+      return JUMP_IMAGE_FALLBACK;
+    }
+    // Leer como base64
+    const base64 = await FileSystem.readAsStringAsync(imageUri, {
       encoding: FileSystem.EncodingType.Base64,
     });
-    
-    // Return as data URL
+    if (!base64 || base64.length < 100) {
+      console.error('Jump image base64 is empty or too short');
+      return JUMP_IMAGE_FALLBACK;
+    }
     return `data:image/png;base64,${base64}`;
   } catch (error) {
     console.error('Error loading jump image:', error);
-    return null;
+    return JUMP_IMAGE_FALLBACK;
   }
 };
 

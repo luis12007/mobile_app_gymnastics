@@ -105,9 +105,9 @@ const canvasHeight = (() => {
   if (width >= 1368 && screenHeight >= 1025) {
     canvasHeight = 720; // Dispositivos grandes
   } else if (width >= 945 && screenHeight >= 700) {
-    canvasHeight = 640; // Dispositivos medianos
+    canvasHeight = 600; // Dispositivos medianos
   } else {
-    canvasHeight = 300; // Dispositivos pequeños
+    canvasHeight = 280; // Dispositivos pequeños
   }
   
   console.log("Canvas height (fixed for visibility):", canvasHeight);
@@ -205,6 +205,32 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
       cleanup();
     };
   }, [tableId]);
+
+    // Estado para el modo de entrada: 'pen' o 'finger'
+  const [inputMode, setInputMode] = useState('pen');
+  useEffect(() => {
+    const loadInputMode = async () => {
+      try {
+        const saved = await AsyncStorage.getItem('inputMode');
+        if (saved) {
+          setInputMode(saved);
+        } else {
+          setInputMode(isTinyDevice ? 'finger' : 'pen');
+        }
+      } catch (e) {
+        setInputMode(isTinyDevice ? 'finger' : 'pen');
+      }
+    };
+    loadInputMode();
+  }, [isTinyDevice]);
+
+  const toggleInputMode = async () => {
+    const newMode = inputMode === 'pen' ? 'finger' : 'pen';
+    setInputMode(newMode);
+    await AsyncStorage.setItem('inputMode', newMode);
+  };
+
+  
 
   // Función para limpiar memoria mejorada
   const cleanup = useCallback(() => {
@@ -632,19 +658,16 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
       })();
     });
 
-  // Función para interpolar puntos y hacer líneas más suaves
-  const addSmoothPoint = (path: SkPath, x: number, y: number) => {
+  // Función para suavizar puntos, ahora recibe pointerType
+  const addSmoothPoint = (path: SkPath, x: number, y: number, pointerType?: number) => {
+    // Si el modo es finger y el pointerType es 0 (dedo), suavizar menos para evitar saltos
+    const smoothSteps = (inputMode === 'finger' && pointerType === 0) ? 1 : 3;
     if (lastPoint.current) {
       const lastX = lastPoint.current.x;
       const lastY = lastPoint.current.y;
-      
-      // Calcular distancia entre puntos
       const distance = Math.sqrt((x - lastX) ** 2 + (y - lastY) ** 2);
-      
-      // Si la distancia es grande, agregar puntos intermedios para suavizar
       if (distance > 5) {
-        const steps = Math.ceil(distance / 3); // Más puntos para mayor suavidad
-        
+        const steps = Math.ceil(distance / smoothSteps);
         for (let i = 1; i <= steps; i++) {
           const ratio = i / steps;
           const interpX = lastX + (x - lastX) * ratio;
@@ -655,65 +678,66 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
         path.lineTo(x, y);
       }
     }
-    
     lastPoint.current = { x, y };
   };
 
-    const drawGesture = Gesture.Pan()
-      .runOnJS(true)
-      .minDistance(0) // Eliminar el umbral de distancia
-      .onStart((event) => {
-        const { x, y } = event;
-        // Solo permitir dibujo con stylus/pen, no con dedo
-        // pointerType: 0 = touch/finger, 1 = pen/stylus, 2 = mouse
-        if (
-  event.pointerType !== undefined &&
-  event.pointerType === 0 &&
-  !isTinyDevice
-) {
-  return; // Ignorar toques con dedo, excepto si es tiny device
-}
-        
-        isDrawingRef.current = true;
-        currentPath.current = Skia.Path.Make();
-        currentPath.current.moveTo(x, y);
-        lastPoint.current = { x, y };
+  // Gestos de dibujo con lógica de inputMode
+  const drawGesture = Gesture.Pan()
+    .runOnJS(true)
+    .minDistance(0)
+    .onStart((event) => {
+      const { x, y, pointerType } = event;
+      // Solo permitir dibujo si inputMode es 'pen', o si es tiny device y modo 'finger'
+      if (inputMode === 'pen') {
+        if (pointerType !== undefined && pointerType === 0) {
+          return; // En cualquier dispositivo, si es modo pen y el toque es dedo, no dibujar
+        }
+      } else if (inputMode === 'finger') {
+        if (pointerType !== undefined && pointerType !== 0 && isTinyDevice) {
+          return; // Ignorar stylus si tiny device y modo finger
+        }
+      }
+      isDrawingRef.current = true;
+      currentPath.current = Skia.Path.Make();
+      currentPath.current.moveTo(x, y);
+      lastPoint.current = { x, y };
+      setCurrentPathDisplay(currentPath.current.copy());
+    })
+    .onUpdate((event) => {
+      const { x, y, pointerType } = event;
+      if (inputMode === 'pen') {
+        if (pointerType !== undefined && pointerType === 0) {
+          return;
+        }
+      } else if (inputMode === 'finger') {
+        if (pointerType !== undefined && pointerType !== 0 && isTinyDevice) {
+          return;
+        }
+      }
+      if (currentPath.current && isDrawingRef.current) {
+        addSmoothPoint(currentPath.current, x, y, pointerType);
         setCurrentPathDisplay(currentPath.current.copy());
-      })
-      .onUpdate((event) => {
-        const { x, y } = event;
-        // Solo continuar si no es un dedo
-        if (
-  event.pointerType !== undefined &&
-  event.pointerType === 0 &&
-  !isTinyDevice
-) {
-  return; // Ignorar toques con dedo, excepto si es tiny device
-}
-        
-        if (currentPath.current && isDrawingRef.current) {
-          addSmoothPoint(currentPath.current, x, y);
-          setCurrentPathDisplay(currentPath.current.copy());
+      }
+    })
+    .onEnd((event) => {
+      const { pointerType } = event;
+      if (inputMode === 'pen') {
+        if (pointerType !== undefined && pointerType === 0) {
+          return;
         }
-      })
-      .onEnd((event) => {
-        // Solo terminar si no es un dedo
-        if (
-  event.pointerType !== undefined &&
-  event.pointerType === 0 &&
-  !isTinyDevice
-) {
-  return; // Ignorar toques con dedo, excepto si es tiny device
-}
-        
-        if (currentPath.current && isDrawingRef.current) {
-          runOnJS(updatePaths)(currentPath.current.copy());
-          setCurrentPathDisplay(null);
-          currentPath.current = null;
-          isDrawingRef.current = false;
-          lastPoint.current = null;
+      } else if (inputMode === 'finger') {
+        if (pointerType !== undefined && pointerType !== 0 && isTinyDevice) {
+          return;
         }
-      });
+      }
+      if (currentPath.current && isDrawingRef.current) {
+        runOnJS(updatePaths)(currentPath.current.copy());
+        setCurrentPathDisplay(null);
+        currentPath.current = null;
+        isDrawingRef.current = false;
+        lastPoint.current = null;
+      }
+    });
 
   return (
     <View style={styles.container}>
@@ -731,7 +755,6 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
         <GestureHandlerRootView style={{ flex: 1 }}>
           <GestureDetector gesture={drawGesture}>
             <Canvas style={[styles.canvas, { height: canvasHeight }]}>
-            {/* ...existing code... */}
             {/* Normal paths (type 0) */}
             {Children.toArray(pathsData
               .filter(pathData => pathData.penType === 0 || !pathData.penType)
@@ -1100,19 +1123,24 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
       </Animated.View>
 
       {/* Blue Pen button */}
-      <Animated.View style={[
-        styles.bluePenButtonContainer,
-        { transform: [{ translateX: bluePenButtonAnim }] }
-      ]}>
+      <Animated.View style={[styles.bluePenButtonContainer, { transform: [{ translateX: bluePenButtonAnim }] }]}> 
         <TouchableOpacity 
-          style={[
-            styles.actionButton,
-            !isEraser && currentColor === 'blue' && styles.activeButton
-          ]}
+          style={[styles.actionButton, !isEraser && currentColor === 'blue' && styles.activeButton]}
           onPress={selectBluePen}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <Text style={styles.buttonText}>🔵</Text>
+        </TouchableOpacity>
+      </Animated.View>
+
+      {/* Botón de alternancia pen/finger */}
+      <Animated.View style={[styles.toggleInputModeButtonContainer]}> 
+        <TouchableOpacity 
+          style={[styles.actionButton, inputMode === 'finger' && { backgroundColor: '#d1e7dd' }]} 
+          onPress={toggleInputMode}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Text style={styles.buttonText}>{inputMode === 'pen' ? '✍️ ' : '🖐️'}</Text>
         </TouchableOpacity>
       </Animated.View>
 
@@ -1144,6 +1172,12 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
 };
 
 const styles = StyleSheet.create({
+  toggleInputModeButtonContainer: {
+    position: 'absolute',
+    right: 10,
+    top: 60,
+    zIndex: 10,
+  },
   container: {
     backgroundColor: '#e0e0e0',
     marginVertical: 8,

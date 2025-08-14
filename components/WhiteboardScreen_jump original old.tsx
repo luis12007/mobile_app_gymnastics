@@ -1,5 +1,4 @@
 import { useRef, useState, Children, useCallback, useEffect } from "react";
-import * as ImagePicker from 'expo-image-picker';
 import { View, StyleSheet, Dimensions, TouchableOpacity, Text, Animated, Image, Platform } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
@@ -24,9 +23,9 @@ if (width >= 1368) {
   isLargeDevice = true;
 } else if (width >= 1200 && width < 1368) {
   isMediumLargeDevice = true;
-} else if (width >= 945 && width < 1200) {
+} else if (width >= 960 && width < 1200) {
   isSmallDevice = true;
-} else if (width < 945) {
+} else if (width < 960) {
   isTinyDevice = true;
 }
 
@@ -97,6 +96,7 @@ interface WhiteboardProps {
   percentage?: number;
   oncodetable?: () => void; // Función para abrir vault table
   discipline?: boolean; // Prop to control stick bonus visibility
+  onLoaded?: () => void; // Callback para indicar que todo está listo
 }
 
 // Calcular altura del canvas basado en el tamaño del dispositivo (como en jump original)
@@ -127,7 +127,8 @@ const DrawingCanvas = ({
   setStickBonus = () => {}, 
   percentage = 0,
   oncodetable,
-  discipline = false
+  discipline = false,
+  onLoaded
 }: WhiteboardProps) => {
   // Cargar imagen de fondo usando Skia
   const backgroundImage = useImage(require('../assets/images/Jump.png'));
@@ -147,75 +148,6 @@ const DrawingCanvas = ({
   
   // Estado para el modal de vault
   const [vaultModalVisible, setVaultModalVisible] = useState<boolean>(false);
-
-  // Estado para imágenes del whiteboard (igual que en WhiteboardScreen.tsx)
-  type EditableImage = {
-    uri: string;
-    x: number;
-    y: number;
-    scale: number;
-    rotation: number;
-  };
-  const [images, setImages] = useState<EditableImage[]>([]);
-  const [selectedImageIdx, setSelectedImageIdx] = useState<number | null>(null);
-  const [isSavingImage, setIsSavingImage] = useState(false);
-  // Hooks useImage seguros (máximo 3 imágenes)
-  const img0 = useImage(images[0]?.uri || null);
-  const img1 = useImage(images[1]?.uri || null);
-  const img2 = useImage(images[2]?.uri || null);
-
-  // Guardar imágenes en la base de datos cuando cambian (optimizado, no bloquea UI)
-  const saveImagesDebounced = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prevImagesRef = useRef<EditableImage[]>([]);
-  useEffect(() => {
-    const imagesString = JSON.stringify(images);
-    const prevImagesString = JSON.stringify(prevImagesRef.current);
-    if (imagesString === prevImagesString) return;
-    prevImagesRef.current = images;
-    if (saveImagesDebounced.current) {
-      clearTimeout(saveImagesDebounced.current);
-    }
-    saveImagesDebounced.current = setTimeout(async () => {
-      setIsSavingImage(true);
-      try {
-        const rateData = await getRateGeneralByTableId(tableId);
-        if (rateData) {
-          await updateRateGeneral(rateData.id, { images: JSON.stringify(images) });
-        }
-      } catch {}
-      setIsSavingImage(false);
-    }, 600);
-    return () => {
-      if (saveImagesDebounced.current) {
-        clearTimeout(saveImagesDebounced.current);
-      }
-    };
-  }, [images, tableId]);
-
-  // Cargar imágenes guardadas al montar el componente
-  useEffect(() => {
-    const loadSavedImages = async () => {
-      try {
-        const rateData = await getRateGeneralByTableId(tableId);
-        if (rateData && rateData.images) {
-          try {
-            const savedImages: EditableImage[] = JSON.parse(rateData.images);
-            if (Array.isArray(savedImages)) {
-              setImages(savedImages);
-            }
-          } catch (e) {
-            setImages([]);
-          }
-        } else {
-          setImages([]);
-        }
-      } catch {
-        setImages([]);
-      }
-    };
-    loadSavedImages();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableId]);
   
   // Estados para configuración de pen/eraser
   const [currentColor, setCurrentColor] = useState<string>(globalPenConfig.color); // Usar configuración global
@@ -228,99 +160,57 @@ const DrawingCanvas = ({
   const MAX_UNDO_STACK = 20; // Limitar a 50 acciones de undo
   const MAX_PATHS_MEMORY = 500; // Limitar paths en memoria
   
-  // Animaciones para los botones (usando posiciones como en el original)
-  const menuButtonAnim = useRef(new Animated.Value(-60)).current;
-  const undoButtonAnim = useRef(new Animated.Value(-60)).current;
-  const redoButtonAnim = useRef(new Animated.Value(-60)).current;
-  const eraserButtonAnim = useRef(new Animated.Value(-60)).current;
-  const penButtonAnim = useRef(new Animated.Value(-60)).current;
-  const redPenButtonAnim = useRef(new Animated.Value(-60)).current;
-  const bluePenButtonAnim = useRef(new Animated.Value(-60)).current;
-  const strokeBarAnim = useRef(new Animated.Value(-60)).current;
-  const stickButtonAnim = useRef(new Animated.Value(60)).current;
-  const vaultButtonAnim = useRef(new Animated.Value(60)).current; // Nuevo botón vault
+    const getButtonOffset = (index: number) => {
+    if (isTinyDevice) {
+      // Ejemplo: primer botón *1.2, segundo *1.4, tercero *1.6, etc.
+      const factors = [1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6];
+      return BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * factors[index];
+    }
+    return BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * index;
+  };
+  
+    const menuButtonAnim = useRef(new Animated.Value(10)).current;
+  const undoButtonAnim = useRef(new Animated.Value(getButtonOffset(1))).current;
+  const redoButtonAnim = useRef(new Animated.Value(getButtonOffset(2))).current;
+  const eraserButtonAnim = useRef(new Animated.Value(getButtonOffset(3))).current;
+  const penButtonAnim = useRef(new Animated.Value(getButtonOffset(4))).current;
+  const redPenButtonAnim = useRef(new Animated.Value(getButtonOffset(5))).current;
+  const bluePenButtonAnim = useRef(new Animated.Value(getButtonOffset(6))).current;
+  const strokeBarAnim = useRef(new Animated.Value(getButtonOffset(7))).current;
+  const stickButtonAnim = useRef(new Animated.Value(10)).current;
+  const vaultButtonAnim = useRef(new Animated.Value(10)).current; // Nuevo botón vault
 
   // Cargar paths guardados al montar el componente
   useEffect(() => {
+    let didCancel = false;
     const initializeComponent = async () => {
       // Cargar configuración global del pen
       const config = await loadGlobalPenConfig();
-      
-      // Actualizar estados con la configuración cargada
       setCurrentColor(config.color);
       setCurrentStrokeWidth(config.strokeWidth);
       setSelectedPen(config.penType);
       setNormalPenColor(config.color);
       setPreviousStrokeWidth(config.strokeWidth);
-      
       // Cargar paths guardados
-      loadSavedPaths();
+      await loadSavedPaths();
+      // Esperar 1.5s y llamar onLoaded si está definido
+      if (onLoaded && !didCancel) {
+        setTimeout(() => {
+          if (onLoaded && !didCancel) onLoaded();
+        }, 1500);
+      }
     };
-    
     initializeComponent();
-    
-    // Animaciones de entrada para los botones (posiciones corregidas)
-    Animated.parallel([
-      Animated.timing(menuButtonAnim, {
-        toValue: 10,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(undoButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 1, // Coincide con el estilo
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(redoButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 2, // Coincide con el estilo
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(eraserButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 3, // Coincide con el estilo
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(penButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 4, // Coincide con el estilo
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(redPenButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 5, // Botón rojo
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(bluePenButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 6, // Botón azul
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(strokeBarAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 7, // Barra de stroke
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(stickButtonAnim, {
-        toValue: 10, // Desde abajo hacia arriba
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(vaultButtonAnim, {
-        toValue: 10, // Vault button también desde abajo
-        duration: 300,
-        useNativeDriver: true,
-      })
-    ]).start();
-    
+    // Asignar directamente los valores finales de toValue a cada Animated.Value (sin animación)
     return () => {
+      didCancel = true;
       // Cleanup: cancelar timers y limpiar memoria
       if (saveTimeoutRef.current) {
         window.clearTimeout(saveTimeoutRef.current);
       }
       cleanup();
     };
-  }, [tableId]);
+  }, [tableId, onLoaded]);
 
   // Función para limpiar memoria mejorada
   const cleanup = useCallback(() => {
@@ -766,101 +656,61 @@ const DrawingCanvas = ({
     lastPoint.current = { x, y };
   };
 
-  // Gesture para imágenes y paths (igual que en WhiteboardScreen.tsx)
   const drawGesture = Gesture.Pan()
-    .runOnJS(true)
-    .minDistance(0)
-    .onStart((event) => {
-      const { x, y } = event;
-      if (event.pointerType !== undefined && event.pointerType === 0) {
-        return;
-      }
-      // Si hay imagen seleccionada y el click NO es sobre otra imagen, mover la imagen seleccionada aquí
-      if (selectedImageIdx !== null) {
-        let sobreOtra = false;
-        let sobreMisma = false;
-        for (let idx = images.length - 1; idx >= 0; idx--) {
-          const img = images[idx];
-          const w = 120 * img.scale;
-          const h = 120 * img.scale;
-          const cx = img.x + w / 2;
-          const cy = img.y + h / 2;
-          const dx = x - cx;
-          const dy = y - cy;
-          const angle = -img.rotation;
-          const rx = dx * Math.cos(angle) - dy * Math.sin(angle);
-          const ry = dx * Math.sin(angle) + dy * Math.cos(angle);
-          if (Math.abs(rx) <= w / 2 && Math.abs(ry) <= h / 2) {
-            if (idx === selectedImageIdx) {
-              sobreMisma = true;
-            } else {
-              sobreOtra = true;
-            }
-            break;
-          }
-        }
-        if (sobreMisma) {
-          runOnJS(setSelectedImageIdx)(null);
-          return;
-        }
-        if (!sobreOtra && !isSavingImage) {
-          runOnJS(setImages)(prev => prev.map((img, i) => i === selectedImageIdx ? { ...img, x: x - (120 * img.scale) / 2, y: y - (120 * img.scale) / 2 } : img));
-          runOnJS(setSelectedImageIdx)(null);
-          return;
-        }
-      }
-      // --- Selección de imagen ---
-      let found = false;
-      for (let idx = images.length - 1; idx >= 0; idx--) {
-        const img = images[idx];
-        const w = 120 * img.scale;
-        const h = 120 * img.scale;
-        const cx = img.x + w / 2;
-        const cy = img.y + h / 2;
-        const dx = x - cx;
-        const dy = y - cy;
-        const angle = -img.rotation;
-        const rx = dx * Math.cos(angle) - dy * Math.sin(angle);
-        const ry = dx * Math.sin(angle) + dy * Math.cos(angle);
-        if (Math.abs(rx) <= w / 2 && Math.abs(ry) <= h / 2) {
-          runOnJS(setSelectedImageIdx)(idx);
-          found = true;
-          break;
-        }
-      }
-      if (found) {
-        return;
-      }
-      // Si no tocó imagen, iniciar trazo normal
-      isDrawingRef.current = true;
-      currentPath.current = Skia.Path.Make();
-      currentPath.current.moveTo(x, y);
-      lastPoint.current = { x, y };
-      setCurrentPathDisplay(currentPath.current.copy());
-      runOnJS(setSelectedImageIdx)(null);
-    })
-    .onUpdate((event) => {
-      const { x, y } = event;
-      if (event.pointerType !== undefined && event.pointerType === 0) {
-        return;
-      }
-      if (currentPath.current && isDrawingRef.current) {
-        addSmoothPoint(currentPath.current, x, y);
+      .runOnJS(true)
+      .minDistance(0) // Eliminar el umbral de distancia
+      .onStart((event) => {
+        const { x, y } = event;
+        // Solo permitir dibujo con stylus/pen, no con dedo
+        // pointerType: 0 = touch/finger, 1 = pen/stylus, 2 = mouse
+if (
+  event.pointerType !== undefined &&
+  event.pointerType === 0 &&
+  !isTinyDevice
+) {
+  return; // Ignorar toques con dedo, excepto si es tiny device
+}
+        
+        isDrawingRef.current = true;
+        currentPath.current = Skia.Path.Make();
+        currentPath.current.moveTo(x, y);
+        lastPoint.current = { x, y };
         setCurrentPathDisplay(currentPath.current.copy());
-      }
-    })
-    .onEnd((event) => {
-      if (event.pointerType !== undefined && event.pointerType === 0) {
-        return;
-      }
-      if (currentPath.current && isDrawingRef.current) {
-        runOnJS(updatePaths)(currentPath.current.copy());
-        setCurrentPathDisplay(null);
-        currentPath.current = null;
-        isDrawingRef.current = false;
-        lastPoint.current = null;
-      }
-    });
+      })
+      .onUpdate((event) => {
+        const { x, y } = event;
+        // Solo continuar si no es un dedo
+        if (
+  event.pointerType !== undefined &&
+  event.pointerType === 0 &&
+  !isTinyDevice
+) {
+  return; // Ignorar toques con dedo, excepto si es tiny device
+}
+        
+        if (currentPath.current && isDrawingRef.current) {
+          addSmoothPoint(currentPath.current, x, y);
+          setCurrentPathDisplay(currentPath.current.copy());
+        }
+      })
+      .onEnd((event) => {
+        // Solo terminar si no es un dedo
+        if (
+  event.pointerType !== undefined &&
+  event.pointerType === 0 &&
+  !isTinyDevice
+) {
+  return; // Ignorar toques con dedo, excepto si es tiny device
+}
+        
+        if (currentPath.current && isDrawingRef.current) {
+          runOnJS(updatePaths)(currentPath.current.copy());
+          setCurrentPathDisplay(null);
+          currentPath.current = null;
+          isDrawingRef.current = false;
+          lastPoint.current = null;
+        }
+      });
 
   return (
     <View style={styles.container}>
@@ -869,55 +719,30 @@ const DrawingCanvas = ({
           <View style={[styles.canvasContainer, { height: canvasHeight }]}>
             {/* Canvas para dibujar con imagen de fondo integrada */}
             <Canvas style={[styles.canvas, { height: canvasHeight }]}>
-
-            {/* Mostrar hasta 3 imágenes guardadas */}
-            {[img0, img1, img2].map((img, idx) => {
-              if (!img || !images[idx]) return null;
-              const { x, y, scale, rotation } = images[idx];
-              const w = 120 * scale;
-              const h = 120 * scale;
-              return (
-                <SkiaImage
-                  key={images[idx].uri + idx}
-                  image={img}
-                  x={x}
-                  y={y}
-                  width={w}
-                  height={h}
-                  fit="contain"
-                  transform={[
-                    { translateX: x + w / 2 },
-                    { translateY: y + h / 2 },
-                    { rotate: rotation },
-                    { translateX: -(x + w / 2) },
-                    { translateY: -(y + h / 2) }
-                  ]}
-                />
-              );
-            })}
-
-            {/* LAYER 1: Normal paths (type 0) - incluye eraser que se ve como gris */}
-            {Children.toArray(pathsData
-              .filter(pathData => pathData.penType === 0 || !pathData.penType)
-              .map((pathData, index) => {
-                const pathIndex = pathsData.findIndex(p => p === pathData);
-                const path = paths[pathIndex];
-                if (!path) return null;
-                const displayColor = pathData.isEraser ? '#e0e0e0' : pathData.color;
-                return (
-                  <Path 
-                    key={`normal-${pathIndex}`}
-                    path={path} 
-                    color={displayColor}
-                    style="stroke"
-                    strokeWidth={pathData.strokeWidth}
-                    strokeCap="round"
-                    strokeJoin="round"
-                    opacity={1}
-                  />
-                );
-              })
-            )}
+              {/* LAYER 1: Normal paths (type 0) - incluye eraser que se ve como gris */}
+              {Children.toArray(pathsData
+                .filter(pathData => pathData.penType === 0 || !pathData.penType)
+                .map((pathData, index) => {
+                  const pathIndex = pathsData.findIndex(p => p === pathData);
+                  const path = paths[pathIndex];
+                  if (!path) return null;
+                  
+                  const displayColor = pathData.isEraser ? '#e0e0e0' : pathData.color;
+                  
+                  return (
+                    <Path 
+                      key={`normal-${pathIndex}`}
+                      path={path} 
+                      color={displayColor}
+                      style="stroke"
+                      strokeWidth={pathData.strokeWidth}
+                      strokeCap="round"
+                      strokeJoin="round"
+                      opacity={1}
+                    />
+                  );
+                })
+              )}
 
               {/* Current path para pen normal (tipo 0) y eraser - renderizado en LAYER 1 */}
               {currentPathDisplay && (selectedPen === 0 || isEraser) && (
@@ -1105,10 +930,11 @@ const DrawingCanvas = ({
       {/* Menu desplegable responsivo */}
       {menuOpen && (
         <View style={styles.menuDropdown}>
-          <Text style={styles.menuTitle}>Herramientas de Dibujo</Text>
+          <Text style={styles.menuTitle}>Drawing Tools</Text>
+          
           {/* Selector de color */}
           <View style={styles.menuSection}>
-            <Text style={styles.menuSectionTitle}>Color:</Text>
+            <Text style={styles.menuSectionTitle}>Colors:</Text>
             <View style={styles.colorRow}>
               {['black', 'red', 'blue', 'green', 'orange'].map((color) => (
                 <TouchableOpacity
@@ -1126,7 +952,7 @@ const DrawingCanvas = ({
 
           {/* Selector de grosor */}
           <View style={styles.menuSection}>
-            <Text style={styles.menuSectionTitle}>Grosor: {currentStrokeWidth}px</Text>
+            <Text style={styles.menuSectionTitle}>Stroke: {currentStrokeWidth}px</Text>
             <View style={styles.strokeRow}>
               {[2, 5, 10, 15].map((width) => (
                 <TouchableOpacity
@@ -1152,7 +978,7 @@ const DrawingCanvas = ({
 
           {/* Selector de tipo de pen */}
           <View style={styles.menuSection}>
-            <Text style={styles.menuSectionTitle}>Tipo de Pen:</Text>
+            <Text style={styles.menuSectionTitle}>Pen Type:</Text>
             <View style={styles.penTypeRow}>
               <TouchableOpacity
                 style={[
@@ -1164,6 +990,7 @@ const DrawingCanvas = ({
                 <Text style={styles.penTypeIcon}>✏️</Text>
                 <Text style={styles.penTypeLabel}>Normal</Text>
               </TouchableOpacity>
+              
               <TouchableOpacity
                 style={[
                   styles.penTypeButton,
@@ -1174,6 +1001,7 @@ const DrawingCanvas = ({
                 <Text style={styles.penTypeIcon}>🖍️</Text>
                 <Text style={styles.penTypeLabel}>Telestrator</Text>
               </TouchableOpacity>
+              
               <TouchableOpacity
                 style={[
                   styles.penTypeButton,
@@ -1187,146 +1015,15 @@ const DrawingCanvas = ({
             </View>
           </View>
 
-          {/* Sección de imagen */}
-          <View style={styles.menuSection}>
-            <Text style={styles.menuSectionTitle}>Imagen:</Text>
-            <TouchableOpacity
-              style={[ 
-                styles.penTypeButton,
-                { width: '100%', flex: undefined, minWidth: undefined, marginBottom: 10 }
-              ]}
-              onPress={async () => {
-                try {
-                  const result = await ImagePicker.launchImageLibraryAsync({
-                    mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                    allowsEditing: false,
-                    quality: 1,
-                  });
-                  if (!result.canceled && result.assets && result.assets.length > 0) {
-                    const asset = result.assets[0];
-                    const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
-                    if (allowed.includes(asset.mimeType || '')) {
-                      setImages(prev => [
-                        ...prev,
-                        {
-                          uri: asset.uri,
-                          x: (width - 120) / 2,
-                          y: (canvasHeight - 120) / 2 + prev.length * 20,
-                          scale: 1,
-                          rotation: 0,
-                        }
-                      ]);
-                    } else {
-                      alert('Formato de imagen no soportado');
-                    }
-                  }
-                } catch (e) {
-                  alert('Error al seleccionar imagen: ' + e);
-                }
-              }}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#333', textAlign: 'center' }}>🖼️ Seleccionar imagen</Text>
-            </TouchableOpacity>
-          </View>
-
           {/* Botón para cerrar menú */}
           <TouchableOpacity 
             style={styles.closeMenuButton}
             onPress={toggleMenu}
           >
-            <Text style={styles.closeMenuText}>Cerrar</Text>
+            <Text style={styles.closeMenuText}>Close</Text>
           </TouchableOpacity>
         </View>
       )}
-      {/* Controles de imagen ABSOLUTOS fuera del GestureHandlerRootView y Canvas */}
-      {images.slice(0, 3).map((img, idx) => {
-        if (selectedImageIdx !== idx) return null;
-        const { x, y, scale } = img;
-        const w = 120 * scale;
-        const h = 120 * scale;
-        return (
-          <View key={img.uri + idx + '-controls'} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, zIndex: 2000 }} pointerEvents="box-none">
-            {/* Botón eliminar (equis) */}
-            <TouchableOpacity
-              style={{
-                position: 'absolute',
-                left: x + w - 18,
-                top: y - 10,
-                backgroundColor: 'rgba(220,53,69,0.9)',
-                borderRadius: 12,
-                width: 24,
-                height: 24,
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-              onPress={() => {
-                setImages(prev => prev.filter((_, i) => i !== idx));
-                setSelectedImageIdx(null);
-              }}
-            >
-              <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>✕</Text>
-            </TouchableOpacity>
-            {/* Botón aumentar tamaño */}
-            <TouchableOpacity
-              style={{
-                position: 'absolute',
-                left: x - 18,
-                top: y - 10,
-                backgroundColor: 'rgba(76,175,80,0.9)',
-                borderRadius: 12,
-                width: 24,
-                height: 24,
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-              onPress={() => {
-                setImages(prev => prev.map((img2, i) => i === idx ? { ...img2, scale: Math.min(img2.scale + 0.1, 3) } : img2));
-              }}
-            >
-              <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>＋</Text>
-            </TouchableOpacity>
-            {/* Botón disminuir tamaño */}
-            <TouchableOpacity
-              style={{
-                position: 'absolute',
-                left: x - 18,
-                top: y + h - 10,
-                backgroundColor: 'rgba(255,193,7,0.9)',
-                borderRadius: 12,
-                width: 24,
-                height: 24,
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-              onPress={() => {
-                setImages(prev => prev.map((img2, i) => i === idx ? { ...img2, scale: Math.max(img2.scale - 0.1, 0.3) } : img2));
-              }}
-            >
-              <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>－</Text>
-            </TouchableOpacity>
-            {/* Botón rotar */}
-            <TouchableOpacity
-              style={{
-                position: 'absolute',
-                left: x + w - 18,
-                top: y + h - 10,
-                backgroundColor: 'rgba(33,150,243,0.9)',
-                borderRadius: 12,
-                width: 24,
-                height: 24,
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-              onPress={() => {
-                setImages(prev => prev.map((img2, i) => i === idx ? { ...img2, rotation: img2.rotation + Math.PI / 8 } : img2));
-              }}
-            >
-              <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>⟳</Text>
-            </TouchableOpacity>
-          </View>
-        );
-      })}
 
       {/* Undo button */}
       <Animated.View style={[
@@ -1755,7 +1452,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   penTypeLabel: {
-    fontSize: 10,
+    fontSize: 8,
     fontWeight: '600',
     color: '#333',
     textAlign: 'center',

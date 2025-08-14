@@ -11,6 +11,19 @@ const isWeb = Platform.OS === 'web';
 
 // Obtener dimensiones de la pantalla para responsividad
 const { width, height: screenHeight } = Dimensions.get("window");
+var isLargeDevice = false;
+var isMediumLargeDevice = false;
+var isSmallDevice = false;
+var isTinyDevice = false;
+if (width >= 1368 ) {
+  isLargeDevice = true;
+} else if (width >= 1200 && width < 1368) {
+  isMediumLargeDevice = true;
+} else if (width >= 960 && width < 1200) {
+  isSmallDevice = true;
+} else if (width < 960) {
+  isTinyDevice = true;
+}
 
 // Configuración de layout para botones más compactos
 const BUTTON_SIZE = 50; // Tamaño reducido de botones
@@ -78,6 +91,8 @@ interface WhiteboardProps {
   setStickBonusset?: Function;
   percentage?: number;
   discipline?: boolean;
+  event?: string; // Evento opcional para compatibilidad con web
+  onLoaded?: () => void;
 }
 
 // Calcular altura del canvas optimizada para el contexto del padre
@@ -90,9 +105,9 @@ const canvasHeight = (() => {
   if (width >= 1368 && screenHeight >= 1025) {
     canvasHeight = 720; // Dispositivos grandes
   } else if (width >= 945 && screenHeight >= 700) {
-    canvasHeight = 640; // Dispositivos medianos
+    canvasHeight = 600; // Dispositivos medianos
   } else {
-    canvasHeight = 450; // Dispositivos pequeños
+    canvasHeight = 280; // Dispositivos pequeños
   }
   
   console.log("Canvas height (fixed for visibility):", canvasHeight);
@@ -106,7 +121,9 @@ const DrawingCanvas = ({
   stickBonus = false, 
   setStickBonusset, 
   percentage = 0,
-  discipline = true
+  discipline = true,
+  event,
+  onLoaded
 }: WhiteboardProps) => {
   const currentPath = useRef<SkPath | null>(null);
   const [paths, setPaths] = useState<SkPath[]>([]);
@@ -133,86 +150,55 @@ const DrawingCanvas = ({
   const MAX_PATHS_MEMORY = 500; // Limitar paths en memoria
   
   // Animaciones para los botones (más cercanos)
-  const menuButtonAnim = useRef(new Animated.Value(-60)).current;
-  const undoButtonAnim = useRef(new Animated.Value(-60)).current;
-  const redoButtonAnim = useRef(new Animated.Value(-60)).current;
-  const eraserButtonAnim = useRef(new Animated.Value(-60)).current;
-  const penButtonAnim = useRef(new Animated.Value(-60)).current;
-  const redPenButtonAnim = useRef(new Animated.Value(-60)).current;
-  const bluePenButtonAnim = useRef(new Animated.Value(-60)).current;
-  const strokeBarAnim = useRef(new Animated.Value(-60)).current;
-  const stickButtonAnim = useRef(new Animated.Value(60)).current;
+
+  const getButtonOffset = (index: number) => {
+  if (isTinyDevice) {
+    // Ejemplo: primer botón *1.2, segundo *1.4, tercero *1.6, etc.
+    const factors = [1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6];
+    return BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * factors[index];
+  }
+  return BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * index;
+};
+
+  const menuButtonAnim = useRef(new Animated.Value(10)).current;
+const undoButtonAnim = useRef(new Animated.Value(getButtonOffset(1))).current;
+const redoButtonAnim = useRef(new Animated.Value(getButtonOffset(2))).current;
+const eraserButtonAnim = useRef(new Animated.Value(getButtonOffset(3))).current;
+const penButtonAnim = useRef(new Animated.Value(getButtonOffset(4))).current;
+const redPenButtonAnim = useRef(new Animated.Value(getButtonOffset(5))).current;
+const bluePenButtonAnim = useRef(new Animated.Value(getButtonOffset(6))).current;
+const strokeBarAnim = useRef(new Animated.Value(getButtonOffset(7))).current;
+const stickButtonAnim = useRef(new Animated.Value(10)).current;
 
   // Cargar paths guardados al montar el componente
   useEffect(() => {
     const initializeComponent = async () => {
-      // Cargar configuración global del pen
+      // 1. Cargar configuración global del pen
       const config = await loadGlobalPenConfig();
-      
-      // Actualizar estados con la configuración cargada
       setCurrentColor(config.color);
       setCurrentStrokeWidth(config.strokeWidth);
       setSelectedPen(config.penType);
       setNormalPenColor(config.color);
       setPreviousStrokeWidth(config.strokeWidth);
-      
-      // Cargar paths guardados
-      loadSavedPaths();
+
+      // 2. Cargar paths guardados
+      await loadSavedPaths();
+
+      // 3. Asignar directamente los valores finales de toValue a cada Animated.Value (sin animación)
+
+      // Resolver inmediatamente
+      return Promise.resolve();
     };
-    
-    initializeComponent();
-    
-    // Animaciones de entrada para los botones (posiciones corregidas)
-    Animated.parallel([
-      Animated.timing(menuButtonAnim, {
-        toValue: 10,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(undoButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 1, // Coincide con el estilo
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(redoButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 2, // Coincide con el estilo
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(eraserButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 3, // Coincide con el estilo
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(penButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 4, // Coincide con el estilo
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(redPenButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 5, // Botón rojo
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(bluePenButtonAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 6, // Botón azul
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(strokeBarAnim, {
-        toValue: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 7, // Barra de stroke
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(stickButtonAnim, {
-        toValue: 10, // Desde abajo hacia arriba
-        duration: 300,
-        useNativeDriver: true,
-      })
-    ]).start();
-    
+    // Encadenar todo y llamar onLoaded SOLO al final
+    initializeComponent().then(() => {
+      if (onLoaded) {
+        setTimeout(() => {
+          // Verificar que la referencia siga siendo válida
+          if (onLoaded) onLoaded();
+        }, 1500);
+      }
+    });
     return () => {
-      // Cleanup: cancelar timers y limpiar memoria
       if (saveTimeoutRef.current) {
         window.clearTimeout(saveTimeoutRef.current);
       }
@@ -680,9 +666,13 @@ const DrawingCanvas = ({
         const { x, y } = event;
         // Solo permitir dibujo con stylus/pen, no con dedo
         // pointerType: 0 = touch/finger, 1 = pen/stylus, 2 = mouse
-        if (event.pointerType !== undefined && event.pointerType === 0) {
-          return; // Ignorar toques con dedo
-        }
+        if (
+  event.pointerType !== undefined &&
+  event.pointerType === 0 &&
+  !isTinyDevice
+) {
+  return; // Ignorar toques con dedo, excepto si es tiny device
+}
         
         isDrawingRef.current = true;
         currentPath.current = Skia.Path.Make();
@@ -693,9 +683,13 @@ const DrawingCanvas = ({
       .onUpdate((event) => {
         const { x, y } = event;
         // Solo continuar si no es un dedo
-        if (event.pointerType !== undefined && event.pointerType === 0) {
-          return;
-        }
+        if (
+  event.pointerType !== undefined &&
+  event.pointerType === 0 &&
+  !isTinyDevice
+) {
+  return; // Ignorar toques con dedo, excepto si es tiny device
+}
         
         if (currentPath.current && isDrawingRef.current) {
           addSmoothPoint(currentPath.current, x, y);
@@ -704,9 +698,13 @@ const DrawingCanvas = ({
       })
       .onEnd((event) => {
         // Solo terminar si no es un dedo
-        if (event.pointerType !== undefined && event.pointerType === 0) {
-          return;
-        }
+        if (
+  event.pointerType !== undefined &&
+  event.pointerType === 0 &&
+  !isTinyDevice
+) {
+  return; // Ignorar toques con dedo, excepto si es tiny device
+}
         
         if (currentPath.current && isDrawingRef.current) {
           runOnJS(updatePaths)(currentPath.current.copy());
@@ -1120,8 +1118,8 @@ const DrawingCanvas = ({
 
 
 
-      {/* Stick Bonus button - bottom right - Only show for discipline=true */}
-      {discipline && (
+      {/* Stick Bonus button - bottom right - Only show for discipline=true and if the event is not 'PH' */}
+      {discipline && event !== 'PH' && (
         <Animated.View style={[
           styles.stickButtonContainer,
           { transform: [{ translateY: stickButtonAnim }] }
