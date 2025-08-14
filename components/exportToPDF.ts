@@ -131,18 +131,18 @@ const JUMP_IMAGE_FALLBACK =
   btoa('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60"><rect width="120" height="60" fill="#eee"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="14" fill="#888">No Jump Img</text></svg>');
 
 const JUMP_IMAGE_PATHS = [
-  '../assets/images/Jump.png',
-  '../assets/images/Jump.webp',
-  '../assets/images/Jump.jpg',
-  '../assets/images/Jump.jpeg',
+  '../assets/images/Jump1.png',
+  '../assets/images/Jump2.webp',
+  '../assets/images/Jump3.jpg',
+  '../assets/images/Jump4.jpeg',
 ];
 
 const getJumpImageBase64 = async (): Promise<string> => {
   let asset = null;
-  try { asset = Asset.fromModule(require('../assets/images/Jump.png')); } catch (e) {}
-  if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump.jpg')); } catch (e) {}
-  if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump.jpeg')); } catch (e) {}
-  if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump.webp')); } catch (e) {}
+  try { asset = Asset.fromModule(require('../assets/images/Jump1.png')); } catch (e) {}
+  if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump2.webp')); } catch (e) {}
+  if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump3.jpg')); } catch (e) {}
+  if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump4.jpeg')); } catch (e) {}
 
   if (asset) {
     try {
