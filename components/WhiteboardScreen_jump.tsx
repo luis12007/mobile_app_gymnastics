@@ -131,7 +131,7 @@ const DrawingCanvas = ({
   onLoaded
 }: WhiteboardProps) => {
   // Cargar imagen de fondo usando Skia
-  const backgroundImage = useImage(require('../assets/images/Jump.png'));
+  const backgroundImage = useImage(require('../assets/images/Jump1.png'));
   
   const currentPath = useRef<SkPath | null>(null);
   const [paths, setPaths] = useState<SkPath[]>([]);
