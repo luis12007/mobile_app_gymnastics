@@ -130,40 +130,40 @@ const JUMP_IMAGE_FALLBACK =
   'data:image/svg+xml;base64,' +
   btoa('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60"><rect width="120" height="60" fill="#eee"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="14" fill="#888">No Jump Img</text></svg>');
 
+const JUMP_IMAGE_PATHS = [
+  '../assets/images/Jump.png',
+  '../assets/images/Jump.webp',
+  '../assets/images/Jump.jpg',
+  '../assets/images/Jump.jpeg',
+];
+
 const getJumpImageBase64 = async (): Promise<string> => {
-  try {
-    // Validar que el archivo existe y es accesible
-    const asset = Asset.fromModule(require('../assets/images/Jump.png'));
-    await asset.downloadAsync();
-    const imageUri = asset.localUri || asset.uri;
-    if (!imageUri) {
-      console.error('Jump image URI is missing');
-      return JUMP_IMAGE_FALLBACK;
+  for (const path of JUMP_IMAGE_PATHS) {
+    try {
+      const asset = Asset.fromModule(require(path));
+      await asset.downloadAsync();
+      const imageUri = asset.localUri || asset.uri;
+      if (!imageUri) continue;
+      // Validar que el archivo existe en el sistema de archivos
+      const fileInfo = await FileSystem.getInfoAsync(imageUri);
+      if (!fileInfo.exists || fileInfo.size === 0) continue;
+      // Leer como base64
+      const base64 = await FileSystem.readAsStringAsync(imageUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      if (!base64 || base64.length < 100) continue;
+      // Detectar el tipo MIME por extensión
+      let mime = 'image/png';
+      if (imageUri.endsWith('.jpg') || imageUri.endsWith('.jpeg')) mime = 'image/jpeg';
+      if (imageUri.endsWith('.webp')) mime = 'image/webp';
+      return `data:${mime};base64,${base64}`;
+    } catch (error) {
+      // Continúa con el siguiente formato
+      continue;
     }
-    // Validar que el archivo es PNG
-    if (!imageUri.endsWith('.png')) {
-      console.error('Jump image is not PNG:', imageUri);
-      return JUMP_IMAGE_FALLBACK;
-    }
-    // Validar que el archivo existe en el sistema de archivos
-    const fileInfo = await FileSystem.getInfoAsync(imageUri);
-    if (!fileInfo.exists || fileInfo.size === 0) {
-      console.error('Jump image file does not exist or is empty:', imageUri);
-      return JUMP_IMAGE_FALLBACK;
-    }
-    // Leer como base64
-    const base64 = await FileSystem.readAsStringAsync(imageUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    if (!base64 || base64.length < 100) {
-      console.error('Jump image base64 is empty or too short');
-      return JUMP_IMAGE_FALLBACK;
-    }
-    return `data:image/png;base64,${base64}`;
-  } catch (error) {
-    console.error('Error loading jump image:', error);
-    return JUMP_IMAGE_FALLBACK;
   }
+  // Si ninguno funcionó, usar fallback SVG
+  return JUMP_IMAGE_FALLBACK;
 };
 
 
@@ -813,17 +813,14 @@ export const generateComprehensivePDF = async (
             <div class="whiteboard-title">Judge's Whiteboard</div>
             <svg class="whiteboard-canvas" viewBox="0 0 1300 780" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
               <!-- Jump background image -->
+               ${jumpImageBase64 ? `
+                <image href="${jumpImageBase64}" 
+            width="1000" height="663" x="97" y="65" opacity="0.6" />
+              ` : `
+                
+              `}
               ${renderWhiteboardPaths(gymnast.rateGeneral?.paths || '')}
 
-              ${jumpImageBase64 ? `
-                <image href="${jumpImageBase64}" 
-                       width="1000" height="663" x="97" y="65" opacity="0.6" />
-              ` : `
-                <!-- Fallback: Simple vault layout -->
-                <rect x="100" y="300" width="1100" height="180" fill="#f0f0f0" stroke="#ccc" stroke-width="2" rx="10"/>
-                <rect x="600" y="320" width="100" height="140" fill="#e0e0e0" stroke="#999" stroke-width="2" rx="5"/>
-                <rect x="800" y="280" width="400" height="220" fill="#e8f4e8" stroke="#999" stroke-width="2" rx="10"/>
-              `}
             </svg>
           </div>
           
