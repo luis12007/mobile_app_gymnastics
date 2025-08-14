@@ -138,28 +138,29 @@ const JUMP_IMAGE_PATHS = [
 ];
 
 const getJumpImageBase64 = async (): Promise<string> => {
-  for (const path of JUMP_IMAGE_PATHS) {
+  let asset = null;
+  try { asset = Asset.fromModule(require('../assets/images/Jump.png')); } catch (e) {}
+  if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump.jpg')); } catch (e) {}
+  if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump.jpeg')); } catch (e) {}
+  if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump.webp')); } catch (e) {}
+
+  if (asset) {
     try {
-      const asset = Asset.fromModule(require(path));
       await asset.downloadAsync();
       const imageUri = asset.localUri || asset.uri;
-      if (!imageUri) continue;
-      // Validar que el archivo existe en el sistema de archivos
+      if (!imageUri) throw new Error('No image URI');
       const fileInfo = await FileSystem.getInfoAsync(imageUri);
-      if (!fileInfo.exists || fileInfo.size === 0) continue;
-      // Leer como base64
+      if (!fileInfo.exists || fileInfo.size === 0) throw new Error('File not found or empty');
       const base64 = await FileSystem.readAsStringAsync(imageUri, {
         encoding: FileSystem.EncodingType.Base64,
       });
-      if (!base64 || base64.length < 100) continue;
-      // Detectar el tipo MIME por extensión
+      if (!base64 || base64.length < 100) throw new Error('Base64 empty or too short');
       let mime = 'image/png';
       if (imageUri.endsWith('.jpg') || imageUri.endsWith('.jpeg')) mime = 'image/jpeg';
       if (imageUri.endsWith('.webp')) mime = 'image/webp';
       return `data:${mime};base64,${base64}`;
     } catch (error) {
-      // Continúa con el siguiente formato
-      continue;
+      console.error('Error loading jump image:', error);
     }
   }
   // Si ninguno funcionó, usar fallback SVG
