@@ -1,8 +1,10 @@
+import { useImage } from '@shopify/react-native-skia';
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
 import * as Print from 'expo-print';
 import { shareAsync } from 'expo-sharing';
-import { Dimensions } from "react-native";
+import { useEffect, useState } from 'react';
+import { Dimensions, Platform } from "react-native";
 
 
 const { width, height } = Dimensions.get("window");
@@ -137,35 +139,43 @@ const JUMP_IMAGE_PATHS = [
   '../assets/images/Jump4.jpeg',
 ];
 
-const getJumpImageBase64 = async (): Promise<string> => {
-  let asset = null;
-  try { asset = Asset.fromModule(require('../assets/images/Jump1.png')); } catch (e) {}
-  if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump2.webp')); } catch (e) {}
-  if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump3.jpg')); } catch (e) {}
-  if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump4.jpeg')); } catch (e) {}
 
-  if (asset) {
-    try {
-      await asset.downloadAsync();
-      const imageUri = asset.localUri || asset.uri;
-      if (!imageUri) throw new Error('No image URI');
-      const fileInfo = await FileSystem.getInfoAsync(imageUri);
-      if (!fileInfo.exists || fileInfo.size === 0) throw new Error('File not found or empty');
-      const base64 = await FileSystem.readAsStringAsync(imageUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      if (!base64 || base64.length < 100) throw new Error('Base64 empty or too short');
-      let mime = 'image/png';
-      if (imageUri.endsWith('.jpg') || imageUri.endsWith('.jpeg')) mime = 'image/jpeg';
-      if (imageUri.endsWith('.webp')) mime = 'image/webp';
-      return `data:${mime};base64,${base64}`;
-    } catch (error) {
-      console.error('Error loading jump image:', error);
+// iOS: lógica original
+const getJumpImageBase64 = async (): Promise<string> => {
+  if (Platform.OS === 'ios') {
+    let asset = null;
+    try { asset = Asset.fromModule(require('../assets/images/Jump1.png')); } catch (e) {}
+    if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump2.webp')); } catch (e) {}
+    if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump3.jpg')); } catch (e) {}
+    if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump4.jpeg')); } catch (e) {}
+
+    if (asset) {
+      try {
+        await asset.downloadAsync();
+        const imageUri = asset.localUri || asset.uri;
+        if (!imageUri) throw new Error('No image URI');
+        const fileInfo = await FileSystem.getInfoAsync(imageUri);
+        if (!fileInfo.exists || fileInfo.size === 0) throw new Error('File not found or empty');
+        const base64 = await FileSystem.readAsStringAsync(imageUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        if (!base64 || base64.length < 100) throw new Error('Base64 empty or too short');
+        let mime = 'image/png';
+        if (imageUri.endsWith('.jpg') || imageUri.endsWith('.jpeg')) mime = 'image/jpeg';
+        if (imageUri.endsWith('.webp')) mime = 'image/webp';
+        return `data:${mime};base64,${base64}`;
+      } catch (error) {
+        console.error('Error loading jump image:', error);
+      }
     }
+    // Si ninguno funcionó, usar fallback SVG
+    return JUMP_IMAGE_FALLBACK;
   }
-  // Si ninguno funcionó, usar fallback SVG
-  return JUMP_IMAGE_FALLBACK;
+  // En Android, se debe usar el hook useJumpImageBase64
+  throw new Error('getJumpImageBase64 solo se debe usar en iOS. En Android, use el hook useJumpImageBase64 en un componente.');
 };
+
+
 
 
 
@@ -653,10 +663,14 @@ interface Competence {
   numberOfParticipants: number;
 }
 
+
+
+
 export const generateComprehensivePDF = async (
   individualData: MainTableWithRateGeneral[], 
   finalTableData: FinalTableData,
-  competence: Competence
+  competence: Competence,
+  jumpImageBase64: string | null,
 ) => {
   console.log('Generating comprehensive PDF...');
   
@@ -664,8 +678,10 @@ export const generateComprehensivePDF = async (
     throw new Error('No individual data provided for PDF generation');
   }
 
-  // Get the base64 image for vault pages
-  const jumpImageBase64 = await getJumpImageBase64();
+  // Obtener la imagen base64 de salto según plataforma
+  if (Platform.OS === 'ios') {
+    jumpImageBase64 = await getJumpImageBase64();
+  }
 
   // Function to render whiteboard paths (reuse from existing functions)
   const renderWhiteboardPaths = (pathsString: string) => {

@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { getCompetenceById, getMainTablesByCompetenceId, getRateGeneralByTableId } from "../Database/database";
 import { generateComprehensivePDF } from '../components/exportToPDF';
+import { Asset } from "expo-asset";
 
 const { width, height } = Dimensions.get("window");
 var isLargeDevice = false;
@@ -103,6 +104,25 @@ interface MainTableWithRateGeneral extends MainTable {
   rateGeneral?: MainRateGeneral;
 }
 
+import * as FileSystem from 'expo-file-system';
+import { useImage } from "@shopify/react-native-skia";
+
+export function useJumpImageBase64(): string | null {
+  const [base64, setBase64] = useState<string | null>(null);
+  const image = useImage(require('../assets/images/Jump1.png'));
+
+  useEffect(() => {
+    if (image) {
+      // Skia Image tiene método encodeToBase64
+      const b64 = image.encodeToBase64?.() || image.encodeToBase64?.("png") || image.encodeToBase64?.("image/png");
+if (b64) {
+  setBase64(`data:image/png;base64,${b64}`);
+}
+    }
+  }, [image]);
+
+  return base64;
+}
 const GymnasticsScoreTable: React.FC = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -123,6 +143,9 @@ const GymnasticsScoreTable: React.FC = () => {
   const [pdfExporting, setPdfExporting] = useState(false);
   const [competencecurrent, setcurrentcompetence] = useState<Competence | null>(null);
 
+
+
+  let jumpImageBase64 = useJumpImageBase64();
   // Fetch data on component mount
   useEffect(() => {
     const fetchTables = async () => {
@@ -403,7 +426,7 @@ const handleDownloadPDF = async () => {
       throw new Error("No se pudo obtener la información de la competencia");
     }
     
-    await generateComprehensivePDF(tables, finalTableData, competencecurrent);
+    await generateComprehensivePDF(tables, finalTableData, competencecurrent, jumpImageBase64);
     
     setPdfExporting(false);
     setModalVisible(false);

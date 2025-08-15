@@ -2,7 +2,7 @@
   "expo": {
     "name": "gym_judge",
     "slug": "gym_judge",
-    "version": "1.3.1",
+    "version": "1.3.2",
     "orientation": "landscape",
     "icon": "./assets/images/iconapp.png",
     "scheme": "gymjudge",
@@ -22,7 +22,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.anonymous.gym_judge",
-      "versionCode": 6
+      "versionCode": 7
     },
     "web": {
       "bundler": "metro",
