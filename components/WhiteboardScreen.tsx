@@ -4,7 +4,7 @@ import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-g
 import { runOnJS } from "react-native-reanimated";
 import { Path, SkPath, Skia, Canvas } from "@shopify/react-native-skia";
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { updateRateGeneral, getRateGeneralByTableId } from '../Database/database';
+import { updateRateGeneral, getRateGeneralByTableId, getMainTableById, updateMainTable } from '../Database/database';
 
 // Detectar si estamos en entorno web
 const isWeb = Platform.OS === 'web';
@@ -255,10 +255,36 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
   const loadSavedPaths = useCallback(async () => {
     try {
       const rateData = await getRateGeneralByTableId(tableId);
+      const mainTable = await getMainTableById(tableId); // Fetch data by gymnastid
       
       if (rateData && rateData.paths) {
         try {
           const savedPathsData: PathData[] = JSON.parse(rateData.paths);
+          
+          // Convertir pathsData a SkPath objects de manera eficiente
+          const skPaths: SkPath[] = [];
+          
+          savedPathsData.forEach((pathData) => {
+            try {
+              const path = Skia.Path.MakeFromSVGString(pathData.path);
+              if (path) {
+                skPaths.push(path);
+              }
+            } catch (error) {
+              console.warn('Error loading path:', error);
+            }
+          });
+          
+          setPathsData(savedPathsData);
+          setPaths(skPaths);
+        } catch (parseError) {
+          console.warn('Error parsing saved paths:', parseError);
+          setPathsData([]);
+          setPaths([]);
+        }
+      } else if (mainTable && mainTable.paths) {
+        try {
+          const savedPathsData: PathData[] = JSON.parse(mainTable.paths);
           
           // Convertir pathsData a SkPath objects de manera eficiente
           const skPaths: SkPath[] = [];
@@ -296,10 +322,14 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
       const pathsString = JSON.stringify(limitedPaths);
       
       const rateData = await getRateGeneralByTableId(tableId);
+      const mainTable = await getMainTableById(tableId);
       if (rateData) {
         await updateRateGeneral(rateData.id, { paths: pathsString });
       }
-      
+      if (mainTable) {
+        await updateMainTable(mainTable.id, { paths: pathsString });
+      }
+
       console.log(`Saved ${limitedPaths.length} paths efficiently`);
     } catch (error) {
       console.error('Error saving paths:', error);

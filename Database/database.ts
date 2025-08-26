@@ -78,6 +78,31 @@ interface MainTable {
   e3: number;
   delt: number;
   percentage: number;
+  stickBonus: boolean;
+  numberOfElements: number;
+  difficultyValues: number;
+  elementGroups1: number;
+  elementGroups2: number;
+  elementGroups3: number;
+  elementGroups4: number;
+  elementGroups5: number;
+  execution: number;
+  eScore: number;
+  myScore: number;
+  compD: number;
+  compE: number;
+  compSd: number;
+  compNd: number;
+  compScore: number;
+  comments: string;
+  paths: string;
+  ded: number;
+  dedexecution: number;
+  vaultNumber: string;
+  vaultDescription: string;
+  startValue: number;
+  description: string;
+  score: number;
 }
 
 interface MainRateGeneral {
@@ -1331,7 +1356,10 @@ export const getRateGeneralTables = async (): Promise<MainRateGeneral[]> => {
 export const getRateGeneralByTableId = async (tableId: number): Promise<MainRateGeneral | null> => {
   try {
     const rateGeneralTables = await getRateGeneralTables();
+    /* just id of the tables */
+    console.log("Rate General Tables ids:", rateGeneralTables.map(rate => rate.id));
     const rateGeneral = rateGeneralTables.find(rate => rate.tableId === tableId);
+    console.log("Rate General:", rateGeneral);
     return rateGeneral || null;
   } catch (error) {
     console.error("Error getting rate general by table ID:", error);
@@ -1674,7 +1702,32 @@ export const addTestData = async () => {
         d3: 18,
         e3: 19,
         delt: 20,
-        percentage: 95
+        percentage: 95,
+        stickBonus: true,
+        numberOfElements: 6,
+        difficultyValues: 3.5,
+        elementGroups1: 0.5,
+        elementGroups2: 0.5,
+        elementGroups3: 0.5,
+        elementGroups4: 0.5,
+        elementGroups5: 0.5,
+        execution: 8.5,
+        eScore: 9.0,
+        myScore: 12.5,
+        compD: 6.0,
+        compE: 8.0,
+        compSd: 0.0,
+        compNd: 0.0,
+        compScore: 14.0,
+        comments: "Good performance overall",
+        paths: "Path A",
+        ded: 1.5,
+        dedexecution: 1.5,
+        vaultNumber: "1",
+        vaultDescription: "Test vault",
+        description: "Test description",
+        startValue: 5.6,
+        score: 14.8
       };
       
       const result = await insertMainTable(tableData);

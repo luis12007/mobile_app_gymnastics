@@ -374,6 +374,19 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         percentage: percentage,
         cv: cv,
         e2: startValue,
+        stickBonus: stickbonus,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+        compSd: sb ? 0.1 : 0.0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+        ded: ded,
+        vaultNumber: vaultnumber,
+        vaultDescription: vaultDescription,
       };
       await updateMainTable(gymnastid, mainTableUpdate);
 
@@ -410,6 +423,19 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         percentage: percentage,
         cv: cv,
         e2: startValue,
+        stickBonus: stickbonus,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+        compSd: sb ? 0.1 : 0.0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+        ded: ded,
+        vaultNumber: vaultnumber,
+        vaultDescription: vaultDescription,
       };
       await updateMainTable(gymnastid, mainTableUpdate);
 
@@ -448,6 +474,19 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         percentage: percentage,
         cv: cv,
         e2: startValue,
+        stickBonus: stickbonus,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+        compSd: sb ? 0.1 : 0.0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+        ded: ded,
+        vaultNumber: vaultnumber,
+        vaultDescription: vaultDescription, 
       };
       await updateMainTable(gymnastid, mainTableUpdate);
 
@@ -502,8 +541,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
           );
         }
       } else {
-        console.warn("No next gymnast found.");
-        alert("No next gymnast found.");
+        router.replace(
+          `/final-table?competenceId=${competenceId}&gymnastId=${discipline}&event=${event}&discipline=${discipline}&gymnast=${gymnastid}&number=${number}&participants=${participants}&folderId=${folderId}`
+        );
       }
     } catch (error) {
       console.error("Error navegando o guardando datos:", error);
@@ -521,6 +561,19 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         percentage: percentage,
         cv: cv,
         e2: startValue,
+        stickBonus: stickbonus,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+        compSd: sb ? 0.1 : 0.0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+        ded: ded,
+        vaultNumber: vaultnumber,
+        vaultDescription: vaultDescription,
       };
       await updateMainTable(gymnastid, mainTableUpdate);
 

@@ -633,12 +633,15 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     const fetchMainRateGeneral = async () => {
       try {
         const mainTable = await getMainTableById(gymnastid); // Fetch data by gymnastid
-        console.log("MainGeneral data:", mainTable); // Debugging line
+         //console.log("MainGeneral data:", mainTable); // Debugging line
         /* getting rate table with the mainrategeneral id */
         if (mainTable) {
           const mainRateGeneralId = mainTable.id;
+           //console.log("id:", mainRateGeneralId);
           const rateTable = await getRateGeneralByTableId(mainRateGeneralId);
-          console.log("Rate Table data:", rateTable); // Debugging line
+           //console.log("Rate Table data:", rateTable); Debugging line
+          /* console the path */
+           //console.log("Path:", `/final-table?competenceId=${competenceId}&gymnastId=${discipline}&event=${event}&discipline=${discipline}&gymnast=${gymnastid}&number=${number}&participants=${participants}&folderId=${folderId}`);
           setElementCounts({
             J: {
               value: mainTable.j || 0,
@@ -717,6 +720,31 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
 
 
               setElementGroupValues(loadedValues);
+          }else{
+            setTotalElements(mainTable.numberOfElements);
+            setRateId(mainTable.id);
+            setStickBonus(mainTable.stickBonus);
+            setDifficultyValues(mainTable.difficultyValues);
+            setElementGroupsTotal(mainTable.elementGroups5);
+            setExecution(mainTable.execution);
+            setEScore(mainTable.eScore);
+            setMyScore(mainTable.myScore);
+            setD(mainTable.compD);
+            setScore(mainTable.compScore);
+            setE(mainTable.compE);
+            setSb(mainTable.compSd === 0.1);
+            setndcomp(mainTable.compNd);
+            setComments(mainTable.comments);
+            setSetded(mainTable.ded);
+
+            // Check if all element groups are 0.0 and set defaults
+            const loadedValues = {
+              I: mainTable.elementGroups1 || 0.0,
+              II: mainTable.elementGroups2 || 0.0,
+              III: mainTable.elementGroups3 || 0.0,
+              IV: mainTable.elementGroups4 || 0.0,
+            };
+            setElementGroupValues(loadedValues);
           }
         }
       } catch (error) {
@@ -1076,6 +1104,25 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         sv: sv,
         delt: delt,
         percentage: percentage,
+        /* Backup data */
+        stickBonus: stickbonus,
+        numberOfElements: totalElements,
+        difficultyValues: difficultyValues,
+        elementGroups1: elementGroupValues.I,
+        elementGroups2: elementGroupValues.II,
+        elementGroups3: elementGroupValues.III,
+        elementGroups4: elementGroupValues.IV,
+        elementGroups5: elementGroupsTotal,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+        compSd: sb ? 0.1 : 0.0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+      ded: ded,
       };
       await updateMainTable(gymnastid, mainTableUpdate);
 
@@ -1127,6 +1174,25 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         sv: sv,
         delt: delt,
         percentage: percentage,
+        /* Backup data */
+        stickBonus: stickbonus,
+        numberOfElements: totalElements,
+        difficultyValues: difficultyValues,
+        elementGroups1: elementGroupValues.I,
+        elementGroups2: elementGroupValues.II,
+        elementGroups3: elementGroupValues.III,
+        elementGroups4: elementGroupValues.IV,
+        elementGroups5: elementGroupsTotal,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+        compSd: sb ? 0.1 : 0.0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+      ded: ded,
       };
       await updateMainTable(gymnastid, mainTableUpdate);
 
@@ -1181,6 +1247,25 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         sv: sv,
         delt: delt,
         percentage: percentage,
+        /* back up data */
+        stickBonus: stickbonus,
+        numberOfElements: totalElements,
+        difficultyValues: difficultyValues,
+        elementGroups1: elementGroupValues.I,
+        elementGroups2: elementGroupValues.II,
+        elementGroups3: elementGroupValues.III,
+        elementGroups4: elementGroupValues.IV,
+        elementGroups5: elementGroupsTotal,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+        compSd: sb ? 0.1 : 0.0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+      ded: ded,
       };
       await updateMainTable(gymnastid, mainTableUpdate);
 
@@ -1244,8 +1329,9 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
           );
         }
       } else {
-        console.warn("No next gymnast found.");
-        alert("No next gymnast found.");
+        router.replace(
+          `/final-table?competenceId=${competenceId}&gymnastId=${discipline}&event=${event}&discipline=${discipline}&gymnast=${gymnastid}&number=${number}&participants=${participants}&folderId=${folderId}`
+        );
       }
     } catch (error) {
       console.error("Error navigating to the next gymnast:", error);
@@ -1273,6 +1359,24 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         sv: sv,
         delt: delt,
         percentage: percentage,
+        stickBonus: stickbonus,
+        numberOfElements: totalElements,
+        difficultyValues: difficultyValues,
+        elementGroups1: elementGroupValues.I,
+        elementGroups2: elementGroupValues.II,
+        elementGroups3: elementGroupValues.III,
+        elementGroups4: elementGroupValues.IV,
+        elementGroups5: elementGroupsTotal,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+        compSd: sb ? 0.1 : 0.0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+      ded: ded,
       };
       await updateMainTable(gymnastid, mainTableUpdate);
 

@@ -55,6 +55,31 @@ interface MainTable {
   e3: number;
   delt: number;
   percentage: number;
+  stickBonus: boolean;
+  numberOfElements: number;
+  difficultyValues: number;
+  elementGroups1: number;
+  elementGroups2: number;
+  elementGroups3: number;
+  elementGroups4: number;
+  elementGroups5: number;
+  execution: number;
+  eScore: number;
+  myScore: number;
+  compD: number;
+  compE: number;
+  compSd: number;
+  compNd: number;
+  compScore: number;
+  comments: string;
+  paths: string;
+  ded: number;
+  dedexecution: number;
+  vaultNumber: string;
+  vaultDescription: string;
+  startValue: number;
+  description: string;
+  score: number;
 }
 
 interface MainRateGeneral {
@@ -832,11 +857,11 @@ export const generateComprehensivePDF = async (
               <!-- Jump background image -->
                ${jumpImageBase64 ? `
                 <image href="${jumpImageBase64}" 
-            width="1000" height="663" x="97" y="65" opacity="0.6" />
+            width="1000" height="663" x="80" y="65" opacity="0.6" />
               ` : `
                 
               `}
-              ${renderWhiteboardPaths(gymnast.rateGeneral?.paths || '')}
+              ${renderWhiteboardPaths(gymnast.paths || gymnast.rateGeneral?.paths || '')}
 
             </svg>
           </div>

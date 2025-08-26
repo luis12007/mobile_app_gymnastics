@@ -62,6 +62,31 @@ interface MainTable {
   e3: number;
   delt: number;
   percentage: number;
+  stickBonus: boolean;
+  numberOfElements: number;
+  difficultyValues: number;
+  elementGroups1: number;
+  elementGroups2: number;
+  elementGroups3: number;
+  elementGroups4: number;
+  elementGroups5: number;
+  execution: number;
+  eScore: number;
+  myScore: number;
+  compD: number;
+  compE: number;
+  compSd: number;
+  compNd: number;
+  compScore: number;
+  comments: string;
+  paths: string;
+  ded: number;
+  dedexecution: number;
+  vaultNumber: string;
+  vaultDescription: string;
+  startValue: number;
+  description: string;
+  score: number;
 }
 
 interface MainRateGeneral {
@@ -154,7 +179,9 @@ const GymnasticsScoreTable: React.FC = () => {
         setError(null);
         
         const mainTables = await getMainTablesByCompetenceId(competenceId);
-        
+        console.log("information tables ===============================================")
+        console.log(mainTables);
+
         if (mainTables.length === 0) {
           setError("No gymnasts found for this competition");
           return;
@@ -400,22 +427,22 @@ const handleDownloadPDF = async () => {
             a: table.a || 0
           },
           scores: {
-            difficultyValues: table.rateGeneral?.difficultyValues || 0,
-            elementGroups: table.rateGeneral?.elementGroups5 || 0,
-            stickBonus: table.rateGeneral?.stickBonus ? 0.1 : 0,
+            difficultyValues: table.difficultyValues || table.rateGeneral?.difficultyValues || 0,
+            elementGroups: table.elementGroups5 || table.rateGeneral?.elementGroups5 || 0,
+            stickBonus: table.stickBonus ? 0.1 : 0,
             neutralDeductions: table.nd || 0,
             connectionValue: table.cv || 0,
             startValue: table.sv || 0,
-            executionScore: table.rateGeneral?.eScore || 0,
-            dScore: table.rateGeneral?.compD || 0,
-            eScore: table.rateGeneral?.compE || 0,
-            finalScore: table.rateGeneral?.compScore || 0,
-            myScorefinal: table.rateGeneral?.myScore || 0,
+            executionScore: table.execution || table.rateGeneral?.execution || 0,
+            dScore: table.compD || table.rateGeneral?.compD || 0,
+            eScore: table.compE || table.rateGeneral?.compE || 0,
+            finalScore: table.compScore || table.rateGeneral?.compScore || 0,
+            myScorefinal: table.myScore || table.rateGeneral?.myScore || 0,
           },
           details: {
             delta: table.delt || 0,
             percentage: table.percentage || 0,
-            comments: table.rateGeneral?.comments || ""
+            comments: table.comments || table.rateGeneral?.comments || ""
           }
         };
       })

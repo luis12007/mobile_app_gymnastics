@@ -604,7 +604,7 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
       if (gymnast) {
         // Create an updated gymnast object with the new event
         const updatedGymnast = { ...gymnast, event };
-
+        console.log("Updated gymnast:", updatedGymnast);
         // Save to database
         updateMainTable(activeDropdownGymnastId, updatedGymnast)
           .then(() => {
@@ -2524,26 +2524,33 @@ const processAndInsertData = async (data: any[]) => {
                 {/* Event Cell with Dropdown */}
                 <View style={styles.eventCell}>
                   {Platform.OS === "android" ? (
-                    <Picker
-                      selectedValue={gymnast.event}
-                      style={{ height: 60, width: "100%" }}
-                      onValueChange={(itemValue) => {
-                        if (!isDeleteMode) {
-                          handleGymnastChange(gymnast.id, "event", itemValue);
-                        }
-                      }}
-                      mode="dropdown"
-                      enabled={!isDeleteMode}
-                    >
-                      <Picker.Item label="Select" value="" />
-                      {eventOptions.map((option) => (
-                        <Picker.Item
-                          key={option}
-                          label={option}
-                          value={option}
-                        />
-                      ))}
-                    </Picker>
+  <Picker
+    selectedValue={gymnast.event || ""}
+    style={{ height: 60, width: "100%" }}
+    mode="dropdown"
+    enabled={!isDeleteMode}
+    onValueChange={async (itemValue: string) => {
+      if (isDeleteMode) return;
+      if (itemValue === gymnast.event) return;
+
+      // Actualiza UI primero
+      handleGymnastChange(gymnast.id, "event", itemValue);
+
+      // Persiste en DB; revierte si falla
+      try {
+        console.log(`Updating event for gymnast ID ${gymnast.id} to ${itemValue}`);
+        await updateMainTable(gymnast.id, { ...gymnast, event: itemValue });
+      } catch (error) {
+        handleGymnastChange(gymnast.id, "event", gymnast.event);
+        Alert.alert("Error", "Failed to save event change");
+      }
+    }}
+  >
+    <Picker.Item label="Select" value="" />
+    {eventOptions.map((option) => (
+      <Picker.Item key={option} label={option} value={option} />
+    ))}
+  </Picker>
                   ) : (
                     <TouchableOpacity
                       ref={(el) => {
