@@ -842,14 +842,6 @@ const performDelete = async () => {
         e3: 0,
         delt: 0,
         percentage: 0,
-      };
-
-      // Insertar en la base de datos
-      const id = await insertMainTable(newGymnast);
-
-      // Crear la entrada correspondiente en MainRateGeneral
-      const mainRateGeneralData = {
-        tableId: id as number,
         stickBonus: false,
         numberOfElements: 0,
         difficultyValues: 0,
@@ -872,9 +864,14 @@ const performDelete = async () => {
         dedexecution: 0,
         vaultNumber: "0",
         vaultDescription: "",
+          startValue: 0,
+  description: "",
+  score: 0,
       };
 
-      await insertRateGeneral(mainRateGeneralData);
+      // Insertar en la base de datos
+      const id = await insertMainTable(newGymnast);
+
 
       if (id) {
         // Crear el gimnasta agregado para el historial
@@ -1296,74 +1293,6 @@ const performDelete = async () => {
           Alert.alert("Error", "Unable to validate vault scoring data."); */
           return null;
         }
-      } else {
-        // Check MainRateGeneral
-        try {
-          const rateGeneral = await getRateGeneralByTableId(targetGymnast.id);
-          if (!rateGeneral) {
-            // Delete any existing record with the same number and recreate
-            const allRateGenerals = await getRateGeneralTables();
-            const conflictingRecord = allRateGenerals.find((r: any) => r.tableId === targetGymnast!.id);
-            if (conflictingRecord) {
-              await deleteRateGeneral(conflictingRecord.id);
-            }
-            
-            // Create new record
-            await insertRateGeneral({
-              tableId: targetGymnast.id,
-              stickBonus: false,
-              numberOfElements: 0,
-              difficultyValues: 0,
-              elementGroups1: 0.5,
-              elementGroups2: 0.5,
-              elementGroups3: 0.5,
-              elementGroups4: 0.5,
-              elementGroups5: 2.0,
-              execution: 0,
-              eScore: 0,
-              myScore: 2.000,
-              compD: 0,
-              compE: 0,
-              compSd: 0,
-              compNd: 0,
-              compScore: 0,
-              comments: "",
-              paths: "",
-              ded: 0,
-              dedexecution: 0,
-              vaultNumber: "0",
-              vaultDescription: ""
-            });
-
-            // Update MainTable with sv: 2.0, or create if it doesn't exist
-            try {
-              await updateMainTable(targetGymnast.id, { sv: 2.0 });
-            } catch (updateError) {
-              //console.log("MainTable record doesn't exist, creating new one...");
-              const newMainTableRecord = {
-                id: targetGymnast.id,
-                competenceId: competenceId,
-                number: targetGymnast.number,
-                name: targetGymnast.name || "",
-                event: targetGymnast.event || "",
-                noc: targetGymnast.noc || "",
-                bib: targetGymnast.bib || "",
-                sv: 2.0,
-                // Set other fields to default values
-                j: 0, i: 0, h: 0, g: 0, f: 0, e: 0, d: 0, c: 0, b: 0, a: 0,
-                dv: 0, eg: 0, sb: 0, nd: 0, cv: 0, e2: 0, d3: 0, e3: 0, delt: 0, percentage: 0
-              };
-              await insertMainTable(newMainTableRecord);
-            }
-            
-            dataRecoveryPerformed = true;
-            recoveryMessage += (recoveryMessage ? " " : "") + "Floor/apparatus scoring data was missing and has been recreated. Please re-enter your scores.";
-          }
-        } catch (error) {
-          console.error("Error validating/recovering MainRateGeneral:", error);
-          Alert.alert("Error", "Unable to validate apparatus scoring data.");
-          return null;
-        }
       }
 
       // Show recovery message if any recovery was performed
@@ -1490,6 +1419,33 @@ const handleUndo = async () => {
           e3: gymnast.e3 || 0,
           delt: gymnast.delt || 0,
           percentage: gymnast.percentage || 0,
+          stickBonus: false,
+  numberOfElements: 0,
+  difficultyValues: 0,
+  elementGroups1: 0.5,
+  elementGroups2: 0.5,
+  elementGroups3: 0.5,
+  elementGroups4: 0.5,
+  elementGroups5: 2.0,
+  execution: 0,
+  eScore: 0,
+  myScore: 2.0,
+  compD: 0,
+  compE: 0,
+  compSd: 0,
+  compNd: 0,
+  compScore: 0,
+  comments: "",
+  paths: "",
+  ded: 0,
+  dedexecution: 0,
+  vaultNumber: "",
+  vaultDescription: "",
+  // ...missing fields added:
+  startValue: 0,
+  description: "",
+  score: 0,
+
         };
 
         const id = await insertMainTable(newGymnastData);
@@ -2094,6 +2050,32 @@ const processAndInsertData = async (data: any[]) => {
           j: 0, i: 0, h: 0, g: 0, f: 0, e: 0, d: 0, c: 0, b: 0, a: 0,
           dv: 0, eg: 0, sb: 0, nd: 0, cv: 0, sv: 0, e2: 0, d3: 0, e3: 0, 
           delt: 0, percentage: 0,
+          stickBonus: false,
+  numberOfElements: 0,
+  difficultyValues: 0,
+  elementGroups1: 0.5,
+  elementGroups2: 0.5,
+  elementGroups3: 0.5,
+  elementGroups4: 0.5,
+  elementGroups5: 2.0,
+  execution: 0,
+  eScore: 0,
+  myScore: 2.0,
+  compD: 0,
+  compE: 0,
+  compSd: 0,
+  compNd: 0,
+  compScore: 0,
+  comments: "",
+  paths: "",
+  ded: 0,
+  dedexecution: 0,
+  vaultNumber: "",
+  vaultDescription: "",
+  // ...missing fields added:
+  startValue: 0,
+  description: "",
+  score: 0,
         };
         
         const id = await insertMainTable(newGymnast);

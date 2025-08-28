@@ -254,35 +254,9 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
   // Cargar paths desde la base de datos
   const loadSavedPaths = useCallback(async () => {
     try {
-      const rateData = await getRateGeneralByTableId(tableId);
       const mainTable = await getMainTableById(tableId); // Fetch data by gymnastid
       
-      if (rateData && rateData.paths) {
-        try {
-          const savedPathsData: PathData[] = JSON.parse(rateData.paths);
-          
-          // Convertir pathsData a SkPath objects de manera eficiente
-          const skPaths: SkPath[] = [];
-          
-          savedPathsData.forEach((pathData) => {
-            try {
-              const path = Skia.Path.MakeFromSVGString(pathData.path);
-              if (path) {
-                skPaths.push(path);
-              }
-            } catch (error) {
-              console.warn('Error loading path:', error);
-            }
-          });
-          
-          setPathsData(savedPathsData);
-          setPaths(skPaths);
-        } catch (parseError) {
-          console.warn('Error parsing saved paths:', parseError);
-          setPathsData([]);
-          setPaths([]);
-        }
-      } else if (mainTable && mainTable.paths) {
+      if (mainTable && mainTable.paths) {
         try {
           const savedPathsData: PathData[] = JSON.parse(mainTable.paths);
           
@@ -321,11 +295,8 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
       
       const pathsString = JSON.stringify(limitedPaths);
       
-      const rateData = await getRateGeneralByTableId(tableId);
       const mainTable = await getMainTableById(tableId);
-      if (rateData) {
-        await updateRateGeneral(rateData.id, { paths: pathsString });
-      }
+
       if (mainTable) {
         await updateMainTable(mainTable.id, { paths: pathsString });
       }

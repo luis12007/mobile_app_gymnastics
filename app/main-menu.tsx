@@ -2576,19 +2576,7 @@ const handleRemoveCompetition = async () => {
           d3: 0,
           e3: 0,
           delt: 0,
-          percentage: 0
-        };
-        
-        // Insert the main table entry and get the ID of the inserted row
-        const mainTableId = await insertMainTable(mainTableData);
-        if (!mainTableId) {
-          console.error(`Failed to create main table entry ${i} for competition ID: ${competenceId}`);
-          continue;
-        }
-
-        // Create the corresponding MainRateGeneral entry
-        const mainRateGeneralData = {
-          tableId: mainTableId, // Use the ID of the inserted MainTable
+          percentage: 0,
           stickBonus: false,
           numberOfElements: 0,
           difficultyValues: 0,
@@ -2611,12 +2599,19 @@ const handleRemoveCompetition = async () => {
           dedexecution: 0,
           vaultNumber: "",
           vaultDescription: "",
-        };
+            startValue: 0,
+          description: "",
+        score: 0,
 
-        const rateGeneralResult = await insertRateGeneral(mainRateGeneralData);
-        if (!rateGeneralResult) {
-          console.error(`Failed to create MainRateGeneral entry for MainTable ID: ${mainTableId}`);
+        };
+        
+        // Insert the main table entry and get the ID of the inserted row
+        const mainTableId = await insertMainTable(mainTableData);
+        if (!mainTableId) {
+          console.error(`Failed to create main table entry ${i} for competition ID: ${competenceId}`);
+          continue;
         }
+
       }
       console.log(`Successfully created ${numberOfParticipants} main table entries and rate general entries for competition ID: ${competenceId}`);
     } catch (error) {

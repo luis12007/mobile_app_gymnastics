@@ -855,13 +855,13 @@ export const generateComprehensivePDF = async (
             <div class="whiteboard-title">Judge's Whiteboard</div>
             <svg class="whiteboard-canvas" viewBox="0 0 1300 780" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
               <!-- Jump background image -->
-               ${jumpImageBase64 ? `
+              ${jumpImageBase64 ? `
                 <image href="${jumpImageBase64}" 
             width="1000" height="663" x="80" y="65" opacity="0.6" />
               ` : `
                 
               `}
-              ${renderWhiteboardPaths(gymnast.paths || gymnast.rateGeneral?.paths || '')}
+              ${renderWhiteboardPaths(gymnast.paths || '')}
 
             </svg>
           </div>
@@ -881,7 +881,7 @@ export const generateComprehensivePDF = async (
                 <tbody>
                   <tr class="vault-info-row">
                     <td>VAULT NUMBER</td>
-                    <td class="vault-info-value">${gymnast.rateGeneral?.vaultNumber || 'N/A'}</td>
+                    <td class="vault-info-value">${gymnast.vaultNumber || 'N/A'}</td>
                   </tr>
                   <tr class="vault-info-row">
                     <td>START VALUE</td>
@@ -889,7 +889,7 @@ export const generateComprehensivePDF = async (
                   </tr>
                   <tr class="vault-info-row">
                     <td>DESCRIPTION</td>
-                    <td class="vault-info-value">${gymnast.rateGeneral?.vaultDescription || 'No description'}</td>
+                    <td class="vault-info-value">${gymnast.vaultDescription || 'No description'}</td>
                   </tr>
                 </tbody>
               </table>
@@ -911,21 +911,21 @@ export const generateComprehensivePDF = async (
                     </div>
                     <div class="score-group">
                       <div class="score-header">SB</div>
-                      <div class="score-value sb">${gymnast.rateGeneral?.stickBonus ? '0.1' : '0.0'}</div>
+                      <div class="score-value sb">${gymnast.stickBonus ? '0.1' : '0.0'}</div>
                     </div>
                     <div class="score-group">
                       <div class="score-header">EXEC</div>
-                      <div class="score-value execution">${(gymnast.rateGeneral?.execution || 0).toFixed(1)}</div>
+                      <div class="score-value execution">${(gymnast.execution || 0).toFixed(1)}</div>
                     </div>
                   </td>
                 </tr>
                 <tr>
                   <td class="info-label">E SCORE</td>
-                  <td class="info-value">${(gymnast.rateGeneral?.eScore || 0).toFixed(3)}</td>
+                  <td class="info-value">${(gymnast.eScore || 0).toFixed(3)}</td>
                 </tr>
                 <tr>
                   <td class="info-label">MY SCORE</td>
-                  <td class="info-value orange">${(gymnast.rateGeneral?.myScore || 0).toFixed(3)}</td>
+                  <td class="info-value orange">${(gymnast.myScore || 0).toFixed(3)}</td>
                 </tr>
                 <tr>
                   <td class="info-label">EXECUTION PERFORMANCE</td>
@@ -940,15 +940,15 @@ export const generateComprehensivePDF = async (
             <div class="comp-row">
               <div class="comp-label">COMPETITION</div>
               <div class="comp-cell">D</div>
-              <div class="comp-value">${(gymnast.rateGeneral?.compD || 0).toFixed(1)}</div>
+              <div class="comp-value">${(gymnast.compD || 0).toFixed(1)}</div>
               <div class="comp-cell">E</div>
-              <div class="comp-value">${(gymnast.rateGeneral?.compE || 0).toFixed(3)}</div>
+              <div class="comp-value">${(gymnast.compE || 0).toFixed(3)}</div>
               <div class="comp-cell">SB</div>
-              <div class="comp-value">${gymnast.rateGeneral?.compSd ? '0.1' : '0.0'}</div>
+              <div class="comp-value">${gymnast.compSd ? '0.1' : '0.0'}</div>
               <div class="comp-cell">ND</div>
-              <div class="comp-value">${(gymnast.rateGeneral?.compNd || gymnast.nd || 0).toFixed(1)}</div>
+              <div class="comp-value">${(gymnast.compNd || gymnast.nd || 0).toFixed(1)}</div>
               <div class="comp-cell">SCORE</div>
-              <div class="comp-value">${(gymnast.rateGeneral?.compScore || 0).toFixed(3)}</div>
+              <div class="comp-value">${(gymnast.compScore || 0).toFixed(3)}</div>
             </div>
           </div>
           
@@ -956,7 +956,7 @@ export const generateComprehensivePDF = async (
           <div class="comments-section">
             <h3>💬 Judge Comments</h3>
             <div class="comments-text">
-              ${gymnast.rateGeneral?.comments || 'No comments provided for this vault.'}
+              ${gymnast.comments || 'No comments provided for this vault.'}
             </div>
           </div>
         </div>
@@ -983,7 +983,7 @@ export const generateComprehensivePDF = async (
           <div class="whiteboard-section">
             <div class="whiteboard-title">Judge's Whiteboard</div>
             <svg class="whiteboard-canvas" viewBox="0 0 1300 780" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
-              ${renderWhiteboardPaths(gymnast.rateGeneral?.paths || '')}
+              ${renderWhiteboardPaths(gymnast.paths || '')}
             </svg>
           </div>
           
@@ -1134,38 +1134,38 @@ export const generateComprehensivePDF = async (
               <table class="info-table">
                 <tr>
                   <td class="info-label">NUMBER OF ELEMENTS</td>
-                  <td class="info-value ${(gymnast.rateGeneral?.numberOfElements || 0) >= 6 && (gymnast.rateGeneral?.numberOfElements || 0) <= 8 ? 'green' : 'red'}">
-                    ${gymnast.rateGeneral?.numberOfElements || 0}
+                  <td class="info-value ${(gymnast.numberOfElements || 0) >= 6 && (gymnast.numberOfElements || 0) <= 8 ? 'green' : 'red'}">
+                    ${gymnast.numberOfElements || 0}
                   </td>
                 </tr>
                 <tr>
                   <td class="info-label">DIFFICULTY VALUES</td>
-                  <td class="info-value">${(gymnast.rateGeneral?.difficultyValues || 0).toFixed(1)}</td>
+                  <td class="info-value">${(gymnast.difficultyValues || 0).toFixed(1)}</td>
                 </tr>
                 <tr>
                   <td class="info-label">ELEMENT GROUPS</td>
                   <td class="element-groups">
                     <div class="element-group">
                       <div class="group-header">I</div>
-                      <div class="group-value">${(gymnast.rateGeneral?.elementGroups1 || 0).toFixed(1)}</div>
+                      <div class="group-value">${(gymnast.elementGroups1 || 0).toFixed(1)}</div>
                     </div>
                     <div class="element-group">
                       <div class="group-header">II</div>
-                      <div class="group-value">${(gymnast.rateGeneral?.elementGroups2 || 0).toFixed(1)}</div>
+                      <div class="group-value">${(gymnast.elementGroups2 || 0).toFixed(1)}</div>
                     </div>
                     <div class="element-group">
                       <div class="group-header">III</div>
-                      <div class="group-value">${(gymnast.rateGeneral?.elementGroups3 || 0).toFixed(1)}</div>
+                      <div class="group-value">${(gymnast.elementGroups3 || 0).toFixed(1)}</div>
                     </div>
                     <div class="element-group">
                       <div class="group-header">IV</div>
-                      <div class="group-value">${(gymnast.rateGeneral?.elementGroups4 || 0).toFixed(1)}</div>
+                      <div class="group-value">${(gymnast.elementGroups4 || 0).toFixed(1)}</div>
                     </div>
                   </td>
                 </tr>
                 <tr>
                   <td class="info-label">ELEMENT GROUPS TOTAL</td>
-                  <td class="info-value">${(gymnast.rateGeneral?.elementGroups5 || 0).toFixed(1)}</td>
+                  <td class="info-value">${(gymnast.elementGroups5 || 0).toFixed(1)}</td>
                 </tr>
                 <tr>
                   <td class="info-label">SCORES</td>
@@ -1176,7 +1176,7 @@ export const generateComprehensivePDF = async (
                     </div>
                     <div class="score-group">
                       <div class="score-header">SB</div>
-                      <div class="score-value sb">${gymnast.rateGeneral?.stickBonus ? '0.1' : '0.0'}</div>
+                      <div class="score-value sb">${gymnast.stickBonus ? '0.1' : '0.0'}</div>
                     </div>
                     <div class="score-group">
                       <div class="score-header">ND</div>
@@ -1190,15 +1190,15 @@ export const generateComprehensivePDF = async (
                 </tr>
                 <tr>
                   <td class="info-label">EXECUTION</td>
-                  <td class="info-value">${(gymnast.rateGeneral?.execution || gymnast.e2 || 0).toFixed(1)}</td>
+                  <td class="info-value">${(gymnast.execution || gymnast.e2 || 0).toFixed(1)}</td>
                 </tr>
                 <tr>
                   <td class="info-label">E SCORE</td>
-                  <td class="info-value">${(gymnast.rateGeneral?.eScore || gymnast.e3 || 0).toFixed(3)}</td>
+                  <td class="info-value">${(gymnast.eScore || gymnast.e3 || 0).toFixed(3)}</td>
                 </tr>
                 <tr>
                   <td class="info-label">MY SCORE</td>
-                  <td class="info-value orange">${(gymnast.rateGeneral?.myScore || 0).toFixed(3)}</td>
+                  <td class="info-value orange">${(gymnast.myScore || 0).toFixed(3)}</td>
                 </tr>
               </table>
             </div>
@@ -1209,15 +1209,15 @@ export const generateComprehensivePDF = async (
             <div class="comp-row">
               <div class="comp-label">COMPETITION</div>
               <div class="comp-cell">D</div>
-              <div class="comp-value">${(gymnast.rateGeneral?.compD || gymnast.d3 || 0).toFixed(1)}</div>
+              <div class="comp-value">${(gymnast.compD || gymnast.d3 || 0).toFixed(1)}</div>
               <div class="comp-cell">E</div>
-              <div class="comp-value">${(gymnast.rateGeneral?.compE || gymnast.e3 || 0).toFixed(3)}</div>
+              <div class="comp-value">${(gymnast.compE || gymnast.e3 || 0).toFixed(3)}</div>
               <div class="comp-cell">SB</div>
-              <div class="comp-value">${gymnast.rateGeneral?.compSd ? '0.1' : '0.0'}</div>
+              <div class="comp-value">${gymnast.compSd ? '0.1' : '0.0'}</div>
               <div class="comp-cell">ND</div>
-              <div class="comp-value">${(gymnast.rateGeneral?.compNd || gymnast.nd || 0).toFixed(1)}</div>
+              <div class="comp-value">${(gymnast.compNd || gymnast.nd || 0).toFixed(1)}</div>
               <div class="comp-cell">SCORE</div>
-              <div class="comp-value">${(gymnast.rateGeneral?.compScore || 0).toFixed(3)}</div>
+              <div class="comp-value">${(gymnast.compScore || 0).toFixed(3)}</div>
             </div>
           </div>
           
@@ -1225,7 +1225,7 @@ export const generateComprehensivePDF = async (
           <div class="comments-section">
             <h3>💬 Judge Comments</h3>
             <div class="comments-text">
-              ${gymnast.rateGeneral?.comments || 'No comments provided for this routine.'}
+              ${gymnast.comments || 'No comments provided for this routine.'}
             </div>
           </div>
         </div>

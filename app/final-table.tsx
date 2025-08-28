@@ -427,22 +427,22 @@ const handleDownloadPDF = async () => {
             a: table.a || 0
           },
           scores: {
-            difficultyValues: table.difficultyValues || table.rateGeneral?.difficultyValues || 0,
-            elementGroups: table.elementGroups5 || table.rateGeneral?.elementGroups5 || 0,
+            difficultyValues: table.difficultyValues || 0,
+            elementGroups: table.elementGroups5 || 0,
             stickBonus: table.stickBonus ? 0.1 : 0,
             neutralDeductions: table.nd || 0,
             connectionValue: table.cv || 0,
             startValue: table.sv || 0,
-            executionScore: table.execution || table.rateGeneral?.execution || 0,
-            dScore: table.compD || table.rateGeneral?.compD || 0,
-            eScore: table.compE || table.rateGeneral?.compE || 0,
-            finalScore: table.compScore || table.rateGeneral?.compScore || 0,
-            myScorefinal: table.myScore || table.rateGeneral?.myScore || 0,
+            executionScore: table.execution || 0,
+            dScore: table.compD || 0,
+            eScore: table.compE || 0,
+            finalScore: table.compScore || 0,
+            myScorefinal: table.myScore || 0,
           },
           details: {
             delta: table.delt || 0,
             percentage: table.percentage || 0,
-            comments: table.comments || table.rateGeneral?.comments || ""
+            comments: table.comments || ""
           }
         };
       })

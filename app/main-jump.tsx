@@ -328,22 +328,22 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
           setSv(mainRateGeneral.sv);
           setStartValue(mainRateGeneral.e2);
           setNd(mainRateGeneral.nd);
-          if (rateTable) {
-            setVaultNumber(rateTable.vaultNumber);
-            setVaultDescription(rateTable.vaultDescription);
-            setRateId(rateTable.id);
-            setStickBonus(rateTable.stickBonus);
-            setCommentsInput(rateTable.comments);
-            setComments(rateTable.comments);
-            setExecution(rateTable.execution);
-            setEScore(rateTable.eScore);
-            setMyScore(rateTable.myScore);
-            setD(rateTable.compD);
-            setScore(rateTable.compScore);
-            setE(rateTable.compE);
-            setSb(rateTable.compSd === 0.1);
-            setndcomp(rateTable.compNd);
-            setSetded(rateTable.ded);
+          if (mainRateGeneral) {
+            setVaultNumber(mainRateGeneral.vaultNumber);
+            setVaultDescription(mainRateGeneral.vaultDescription);
+            setRateId(mainRateGeneral.id);
+            setStickBonus(mainRateGeneral.stickBonus);
+            setCommentsInput(mainRateGeneral.comments);
+            setComments(mainRateGeneral.comments);
+            setExecution(mainRateGeneral.execution);
+            setEScore(mainRateGeneral.eScore);
+            setMyScore(mainRateGeneral.myScore);
+            setD(mainRateGeneral.compD);
+            setScore(mainRateGeneral.compScore);
+            setE(mainRateGeneral.compE);
+            setSb(mainRateGeneral.compSd === 0.1);
+            setndcomp(mainRateGeneral.compNd);
+            setSetded(mainRateGeneral.ded);
           }
         }
       } catch (error) {
@@ -390,7 +390,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
       };
       await updateMainTable(gymnastid, mainTableUpdate);
 
-      // 2. Guardar RateGeneral (todos los valores relevantes)
+/*       // 2. Guardar RateGeneral (todos los valores relevantes)
       const rateGeneralUpdate = {
         stickBonus: stickbonus,
         execution: execution,
@@ -406,7 +406,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         vaultNumber: vaultnumber,
         vaultDescription: vaultDescription,
       };
-      await updateRateGeneral(rateid, rateGeneralUpdate);
+      await updateRateGeneral(rateid, rateGeneralUpdate); */
 
 
     router.replace(
@@ -439,7 +439,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
       };
       await updateMainTable(gymnastid, mainTableUpdate);
 
-      // 2. Guardar RateGeneral (todos los valores relevantes)
+      /* // 2. Guardar RateGeneral (todos los valores relevantes)
       const rateGeneralUpdate = {
         stickBonus: stickbonus,
         execution: execution,
@@ -455,7 +455,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         vaultNumber: vaultnumber,
         vaultDescription: vaultDescription,
       };
-      await updateRateGeneral(rateid, rateGeneralUpdate);
+      await updateRateGeneral(rateid, rateGeneralUpdate); */
 
 
     router.replace(
@@ -490,7 +490,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
       };
       await updateMainTable(gymnastid, mainTableUpdate);
 
-      // 2. Guardar RateGeneral (todos los valores relevantes)
+      /* // 2. Guardar RateGeneral (todos los valores relevantes)
       const rateGeneralUpdate = {
         stickBonus: stickbonus,
         execution: execution,
@@ -506,7 +506,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         vaultNumber: vaultnumber,
         vaultDescription: vaultDescription,
       };
-      await updateRateGeneral(rateid, rateGeneralUpdate);
+      await updateRateGeneral(rateid, rateGeneralUpdate); */
 
       // Navegación igual que antes
       if (number === participants) {
@@ -577,7 +577,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
       };
       await updateMainTable(gymnastid, mainTableUpdate);
 
-      // 2. Guardar RateGeneral (todos los valores relevantes)
+      /* // 2. Guardar RateGeneral (todos los valores relevantes)
       const rateGeneralUpdate = {
         stickBonus: stickbonus,
         execution: execution,
@@ -593,7 +593,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         vaultNumber: vaultnumber,
         vaultDescription: vaultDescription,
       };
-      await updateRateGeneral(rateid, rateGeneralUpdate);
+      await updateRateGeneral(rateid, rateGeneralUpdate); */
 
       
       const mainTables = await getMainTablesByCompetenceId(

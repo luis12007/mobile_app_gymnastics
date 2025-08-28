@@ -250,18 +250,8 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       const dedInterval = getDeductionIntervalValue(Number(newded));
       const percentageValue = getPercentageFromTable(dedInterval, newdelt);
       setpercentage(percentageValue);
-      updateMainTable(gymnastid, { delt: newdelt, percentage: percentageValue });
-      updateRateGeneral(rateid, { compNd: rounded, compScore: finalScore })
-        .then((success) => {
-          if (success) {
-            console.log(`Saved ndcomp = ${rounded} in MainRateGeneral.`);
-          } else {
-            console.error(`Failed to save ndcomp in MainRateGeneral.`);
-          }
-        })
-        .catch((error) => {
-          console.error("Error saving ndcomp to MainRateGeneral:", error);
-        });
+      updateMainTable(gymnastid, { delt: newdelt, percentage: percentageValue, compNd: rounded, compScore: finalScore });
+        
     } else {
       Alert.alert("Invalid Input", "Please enter a valid ND value.", [{ text: "OK" }]);
       return;
@@ -300,18 +290,8 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       const dedInterval = getDeductionIntervalValue(Number(newded));
       const percentageValue = getPercentageFromTable(dedInterval, newdelt);
       setpercentage(percentageValue);
-      updateMainTable(gymnastid, { delt: newdelt, percentage: percentageValue });
-      updateRateGeneral(rateid, { compE: rounded, compScore: finalScore, ded: newded })
-        .then((success) => {
-          if (success) {
-            console.log(`Saved e = ${rounded} in MainTable.`);
-          } else {
-            console.error(`Failed to save e in MainTable.`);
-          }
-        })
-        .catch((error) => {
-          console.error("Error saving e to MainTable:", error);
-        });
+      updateMainTable(gymnastid, { delt: newdelt, percentage: percentageValue, compE: rounded, compScore: finalScore, ded: newded });
+      
     } else {
       Alert.alert("Invalid Input", "Please enter a valid E value.", [{ text: "OK" }]);
       return;
@@ -350,18 +330,8 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       const dedInterval = getDeductionIntervalValue(Number(newded));
       const percentageValue = getPercentageFromTable(dedInterval, newdelt);
       setpercentage(percentageValue);
-      updateMainTable(gymnastid, { delt: newdelt, percentage: percentageValue });
-      updateRateGeneral(rateid, { compD: rounded, compScore: finalScore, ded: newded })
-        .then((success) => {
-          if (success) {
-            console.log(`Saved d = ${rounded} in MainTable.`);
-          } else {
-            console.error(`Failed to save d in MainTable.`);
-          }
-        })
-        .catch((error) => {
-          console.error("Error saving d to MainTable:", error);
-        });
+      updateMainTable(gymnastid, { delt: newdelt, percentage: percentageValue, compD: rounded, compScore: finalScore, ded: newded });
+      
     } else {
       Alert.alert("Invalid Input", "Please enter a valid D value.", [{ text: "OK" }]);
       return;
@@ -443,7 +413,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       const dedInterval = getDeductionIntervalValue(Number(newded));
       const percentageValue = getPercentageFromTable(dedInterval, newdelt);
       setpercentage(percentageValue);
-      updateMainTable(gymnastid, { delt: newdelt, percentage: percentageValue })
+      updateMainTable(gymnastid, { delt: newdelt, percentage: percentageValue, execution: rounded, eScore: newEScore, myScore: finalScore, ded: newded })
         .then((mainTableSuccess) => {
           if (mainTableSuccess) {
             console.log(`Successfully saved delt = ${newdelt} and percentage = ${percentageValue} to MainTable from execution modal.`);
@@ -454,17 +424,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         .catch((error) => {
           console.error("Error saving to MainTable from execution modal:", error);
         });
-      updateRateGeneral(rateid, { execution: rounded, eScore: newEScore, myScore: finalScore, ded: newded })
-        .then((success) => {
-          if (success) {
-            console.log(`Saved execution = ${rounded} and percentage = ${percentageValue} in database.`);
-          } else {
-            console.error(`Failed to save execution in database.`);
-          }
-        })
-        .catch((error) => {
-          console.error("Error saving execution to database:", error);
-        });
+      
     } else {
       Alert.alert("Invalid Input", "Please enter a valid Execution value.", [{ text: "OK" }]);
       return;
@@ -693,34 +653,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
           setNd(mainTable.nd);
           setDelt(mainTable.delt);
           setpercentage(mainTable.percentage);
-          if (rateTable) {
-            setTotalElements(rateTable.numberOfElements);
-            setRateId(rateTable.id);
-            setStickBonus(rateTable.stickBonus);
-            setDifficultyValues(rateTable.difficultyValues);
-            setElementGroupsTotal(rateTable.elementGroups5);
-            setExecution(rateTable.execution);
-            setEScore(rateTable.eScore);
-            setMyScore(rateTable.myScore);
-            setD(rateTable.compD);
-            setScore(rateTable.compScore);
-            setE(rateTable.compE);
-            setSb(rateTable.compSd === 0.1);
-            setndcomp(rateTable.compNd);
-            setComments(rateTable.comments);
-            setSetded(rateTable.ded);
-
-            // Check if all element groups are 0.0 and set defaults
-            const loadedValues = {
-              I: rateTable.elementGroups1 || 0.0,
-              II: rateTable.elementGroups2 || 0.0,
-              III: rateTable.elementGroups3 || 0.0,
-              IV: rateTable.elementGroups4 || 0.0,
-            };
-
-
-              setElementGroupValues(loadedValues);
-          }else{
+          if (mainTable) {
             setTotalElements(mainTable.numberOfElements);
             setRateId(mainTable.id);
             setStickBonus(mainTable.stickBonus);
@@ -744,7 +677,9 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
               III: mainTable.elementGroups3 || 0.0,
               IV: mainTable.elementGroups4 || 0.0,
             };
-            setElementGroupValues(loadedValues);
+
+
+              setElementGroupValues(loadedValues);
           }
         }
       } catch (error) {
@@ -850,14 +785,10 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     // Save the total to the database
     const saveElementGroupsTotal = async () => {
       try {
-        const updateData: Partial<MainRateGeneral> = {
-          elementGroups1: elementGroupValues.I,
+        const success = await updateMainTable(gymnastid, {elementGroups1: elementGroupValues.I,
           elementGroups2: elementGroupValues.II,
           elementGroups3: elementGroupValues.III,
-          elementGroups4: elementGroupValues.IV,
-        };
-
-        const success = await updateRateGeneral(rateid, updateData);
+          elementGroups4: elementGroupValues.IV,});
         trackSaveAttempt(success, "element groups total");
 
         if (success) {
@@ -1125,7 +1056,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       ded: ded,
       };
       await updateMainTable(gymnastid, mainTableUpdate);
-
+/* 
       // 2. Guardar RateGeneral (todos los valores relevantes)
       const rateGeneralUpdate = {
         stickBonus: stickbonus,
@@ -1147,7 +1078,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         comments: comments,
       ded: ded,
       };
-      await updateRateGeneral(rateid, rateGeneralUpdate);
+      await updateRateGeneral(rateid, rateGeneralUpdate); */
 
     router.replace(
       `/final-table?competenceId=${competenceId}&gymnastId=${discipline}&event=${event}&discipline=${discipline}&gymnast=${gymnastid}&number=${number}&participants=${participants}&folderId=${folderId}`
@@ -1196,7 +1127,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       };
       await updateMainTable(gymnastid, mainTableUpdate);
 
-      // 2. Guardar RateGeneral (todos los valores relevantes)
+      /* // 2. Guardar RateGeneral (todos los valores relevantes)
       const rateGeneralUpdate = {
         stickBonus: stickbonus,
         numberOfElements: totalElements,
@@ -1217,7 +1148,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         comments: comments,
       ded: ded,
       };
-      await updateRateGeneral(rateid, rateGeneralUpdate);
+      await updateRateGeneral(rateid, rateGeneralUpdate); */
 
 
     router.replace(
@@ -1269,7 +1200,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       };
       await updateMainTable(gymnastid, mainTableUpdate);
 
-      // 2. Guardar RateGeneral (todos los valores relevantes)
+      /* // 2. Guardar RateGeneral (todos los valores relevantes)
       const rateGeneralUpdate = {
         stickBonus: stickbonus,
         numberOfElements: totalElements,
@@ -1290,7 +1221,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         comments: comments,
       ded: ded,
       };
-      await updateRateGeneral(rateid, rateGeneralUpdate);
+      await updateRateGeneral(rateid, rateGeneralUpdate); */
 
       if (number === participants) {
         router.replace(
@@ -1380,7 +1311,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       };
       await updateMainTable(gymnastid, mainTableUpdate);
 
-      // 2. Guardar RateGeneral (todos los valores relevantes)
+      /* // 2. Guardar RateGeneral (todos los valores relevantes)
       const rateGeneralUpdate = {
         stickBonus: stickbonus,
         numberOfElements: totalElements,
@@ -1401,7 +1332,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         comments: comments,
       ded: ded,
       };
-      await updateRateGeneral(rateid, rateGeneralUpdate);
+      await updateRateGeneral(rateid, rateGeneralUpdate); */
 
       
       // Fetch all MainTable entries for the current competenceId
