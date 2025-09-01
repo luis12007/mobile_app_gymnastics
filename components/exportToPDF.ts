@@ -1130,6 +1130,9 @@ export const generateComprehensivePDF = async (
             </div>
             
             <!-- Info Table -->
+
+
+            
             <div>
               <table class="info-table">
                 <tr>
