@@ -1,4 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as FileSystem from 'expo-file-system';
+import JSZip from 'jszip';
 
 // Storage keys for all tables
 const USERS_KEY = "users";
@@ -8,6 +10,56 @@ const COMPETENCES_KEY = "competences";
 const MAIN_TABLES_KEY = "main_tables";
 const RATE_GENERAL_KEY = "rate_general";
 const RATE_JUMP_KEY = "rate_jump";
+
+// Large field externalization configuration
+const LARGE_FIELD_THRESHOLD = 150_000; // ~150KB; adjust if needed
+const PATHS_DIR = `${FileSystem.documentDirectory}whiteboard_paths/`;
+
+const ensureDirAsync = async (dirUri: string) => {
+  try {
+    const info = await FileSystem.getInfoAsync(dirUri);
+    if (!info.exists) {
+      await FileSystem.makeDirectoryAsync(dirUri, { intermediates: true });
+    }
+  } catch (e) {
+    console.warn('ensureDirAsync error:', e);
+  }
+};
+
+const isFileRef = (value?: string | null): boolean => {
+  if (!value) return false;
+  return value.startsWith('file://') || value.startsWith('content://');
+};
+
+const makePathsFileUri = (tableId: number) => `${PATHS_DIR}main_${tableId}_paths.json`;
+
+const writeStringToFile = async (uri: string, content: string): Promise<string> => {
+  await ensureDirAsync(PATHS_DIR);
+  await FileSystem.writeAsStringAsync(uri, content);
+  return uri;
+};
+
+const readStringFromFile = async (uri: string): Promise<string> => {
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    if (!info.exists) return '[]';
+    return await FileSystem.readAsStringAsync(uri);
+  } catch (e) {
+    console.warn('readStringFromFile error:', e);
+    return '[]';
+  }
+};
+
+const deleteFileIfExists = async (uri: string): Promise<void> => {
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    if (info.exists) {
+      await FileSystem.deleteAsync(uri, { idempotent: true });
+    }
+  } catch (e) {
+    // ignore
+  }
+};
 
 // Table interfaces
 interface User {
@@ -1278,11 +1330,39 @@ export const getMainTableById = async (tableId: number): Promise<MainTable | nul
   }
 };
 
+// Resolve and return the full JSON string for paths, reading from file if externalized
+export const getMainTablePaths = async (tableId: number): Promise<string> => {
+  try {
+    const table = await getMainTableById(tableId);
+    if (!table || !table.paths) return '[]';
+    const value = table.paths;
+    if (isFileRef(value)) {
+      // Only file:// URIs written by us; content:// not expected here
+      return await readStringFromFile(value);
+    }
+    return value;
+  } catch (e) {
+    console.warn('getMainTablePaths error:', e);
+    return '[]';
+  }
+};
+
 export const insertMainTable = async (tableData: Omit<MainTable, 'id'>): Promise<number | false> => {
   try {
     const mainTables = await getMainTables();
     const id = await getNextId(MAIN_TABLES_KEY);
-    const newTable: MainTable = { id, ...tableData };
+    let pathsField = tableData.paths;
+    // Externalize large paths payloads
+    if (typeof pathsField === 'string' && !isFileRef(pathsField) && pathsField.length > LARGE_FIELD_THRESHOLD) {
+      try {
+        const uri = makePathsFileUri(id);
+        await writeStringToFile(uri, pathsField);
+        pathsField = uri;
+      } catch (e) {
+        console.warn('insertMainTable: failed to externalize paths, keeping inline', e);
+      }
+    }
+    const newTable: MainTable = { id, ...tableData, paths: pathsField };
     mainTables.push(newTable);
     await saveItems(MAIN_TABLES_KEY, mainTables);
     console.log("Main table added successfully. ID:", id);
@@ -1305,9 +1385,42 @@ export const updateMainTable = async (
       console.error("Main table not found.");
       return false;
     }
-    
+
+    const current = mainTables[tableIndex];
+    let nextRecord: MainTable = { ...current, ...tableData } as MainTable;
+
+    // Handle externalization for 'paths' if present in update
+    if (Object.prototype.hasOwnProperty.call(tableData, 'paths') && typeof tableData.paths === 'string') {
+      const incoming = tableData.paths || '';
+      if (!incoming) {
+        // Clearing paths: remove external file if existed
+        if (isFileRef(current.paths)) {
+          await deleteFileIfExists(current.paths);
+        }
+        nextRecord.paths = '';
+      } else if (isFileRef(incoming)) {
+        // Already a file ref (shouldn't happen from UI), keep as is
+        nextRecord.paths = incoming;
+      } else if (incoming.length > LARGE_FIELD_THRESHOLD) {
+        try {
+          const uri = makePathsFileUri(tableId);
+          await writeStringToFile(uri, incoming);
+          nextRecord.paths = uri;
+        } catch (e) {
+          console.warn('updateMainTable: failed to externalize paths, keeping inline', e);
+          nextRecord.paths = incoming;
+        }
+      } else {
+        // Small enough, keep inline. If previous was file, optionally clean it.
+        if (isFileRef(current.paths)) {
+          await deleteFileIfExists(current.paths);
+        }
+        nextRecord.paths = incoming;
+      }
+    }
+
     // Update main table data
-    mainTables[tableIndex] = { ...mainTables[tableIndex], ...tableData };
+    mainTables[tableIndex] = nextRecord;
     await saveItems(MAIN_TABLES_KEY, mainTables);
     console.log("Main table updated successfully.");
     return true;
@@ -1848,10 +1961,22 @@ export const exportFolderData = async (
         const tables = await getMainTablesByCompetenceId(competence.id);
         const tablesWithRates = [];
         for (const table of tables) {
+          // Asegurar que paths se exporta como contenido (no como file://), para portabilidad
+          let exportedPaths = typeof table.paths === 'string' ? table.paths : '[]';
+          if (isFileRef(exportedPaths)) {
+            try {
+              exportedPaths = await readStringFromFile(exportedPaths);
+            } catch (e) {
+              console.warn('exportFolderData: no se pudo leer paths externo, exportando []', e);
+              exportedPaths = '[]';
+            }
+          }
+          const safeMainTable = { ...table, paths: exportedPaths };
+
           const rateGeneral = await getRateGeneralByTableId(table.id);
           const rateJump = await getRateJumpByTableId(table.id);
           tablesWithRates.push({
-            mainTable: table,
+            mainTable: safeMainTable,
             rateGeneral,
             rateJump
           });
@@ -1929,6 +2054,58 @@ export const exportFolderData = async (
   } catch (error) {
     console.error("Error exporting folder data:", error);
     return null;
+  }
+};
+
+// Export folder as a ZIP, bundling any file-backed paths
+export const exportFolderZip = async (
+  folderId: number,
+  progressCallback?: (message: string, progress: number) => void
+): Promise<Uint8Array | null> => {
+  try {
+    progressCallback?.("Preparando datos para ZIP...", 5);
+    // Reutilizamos exportFolderData para obtener JSON seguro (inline paths)
+    const secureJson = await exportFolderData(folderId, (m, p) => {
+      // map progress to first half
+      const mapped = Math.min(50, Math.max(0, Math.floor(p * 0.5)));
+      progressCallback?.(m, mapped);
+    });
+    if (!secureJson) return null;
+
+    // Armamos zip con el JSON exportado (export.json)
+    const zip = new JSZip();
+    zip.file('export.json', secureJson);
+
+    progressCallback?.("Comprimiendo ZIP...", 80);
+    const content = await zip.generateAsync({ type: 'uint8array' });
+    progressCallback?.("ZIP listo", 95);
+    return content;
+  } catch (e) {
+    console.error('Error creating ZIP export:', e);
+    return null;
+  }
+};
+
+// Import folder from a ZIP previously exported by exportFolderZip
+export const importFolderZip = async (
+  zipData: Uint8Array,
+  targetParentId: number,
+  progressCallback?: (message: string, progress: number) => void
+): Promise<boolean> => {
+  try {
+    progressCallback?.("Leyendo ZIP...", 5);
+    const zip = await JSZip.loadAsync(zipData);
+    const jsonFile = zip.file('export.json');
+    if (!jsonFile) throw new Error('export.json no encontrado dentro del ZIP');
+    const secureJson = await jsonFile.async('string');
+    progressCallback?.("Importando datos...", 20);
+    return await importFolderData(secureJson, targetParentId, (m, p) => {
+      const mapped = 20 + Math.min(75, Math.max(0, Math.floor(p * 0.75)));
+      progressCallback?.(m, mapped);
+    });
+  } catch (e) {
+    console.error('Error importing ZIP:', e);
+    return false;
   }
 };
 
@@ -2019,8 +2196,14 @@ export const importFolderData = async (
           for (const tableData of competenceData.tables) {
             const progress = 25 + Math.floor((processedGymnasts / totalGymnasts) * 65);
             progressCallback?.(`Importando gimnasta ${processedGymnasts + 1} de ${totalGymnasts}...`, progress);
+            // Saneamos paths: si viene como file:// de exportaciones antiguas, lo reemplazamos por []
+            const incomingPaths = tableData?.mainTable?.paths;
+            const sanitizedPaths = typeof incomingPaths === 'string'
+              ? (isFileRef(incomingPaths) ? '[]' : incomingPaths)
+              : '[]';
             const newMainTableData = {
               ...tableData.mainTable,
+              paths: sanitizedPaths,
               competenceId: newCompetenceId
             };
             delete newMainTableData.id;

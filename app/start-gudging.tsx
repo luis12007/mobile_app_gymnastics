@@ -367,6 +367,7 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
 
           // Load gymnasts data
           const tables = await getMainTablesByCompetenceId(competenceId);
+          console.log(tables);
           const formattedGymnasts = tables.map((table) => ({
             id: table.id,
             competenceId: table.competenceId,

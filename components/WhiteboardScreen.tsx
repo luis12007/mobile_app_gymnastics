@@ -4,7 +4,7 @@ import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-g
 import { runOnJS } from "react-native-reanimated";
 import { Path, SkPath, Skia, Canvas } from "@shopify/react-native-skia";
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { updateRateGeneral, getRateGeneralByTableId, getMainTableById, updateMainTable } from '../Database/database';
+import { updateRateGeneral, getRateGeneralByTableId, getMainTableById, updateMainTable, getMainTablePaths } from '../Database/database';
 
 // Detectar si estamos en entorno web
 const isWeb = Platform.OS === 'web';
@@ -256,9 +256,10 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
     try {
       const mainTable = await getMainTableById(tableId); // Fetch data by gymnastid
       
-      if (mainTable && mainTable.paths) {
+      if (mainTable) {
         try {
-          const savedPathsData: PathData[] = JSON.parse(mainTable.paths);
+          const pathsString = await getMainTablePaths(mainTable.id);
+          const savedPathsData: PathData[] = JSON.parse(pathsString || '[]');
           
           // Convertir pathsData a SkPath objects de manera eficiente
           const skPaths: SkPath[] = [];

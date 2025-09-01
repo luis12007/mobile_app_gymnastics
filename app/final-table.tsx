@@ -626,7 +626,7 @@ const handleDownloadPDF = async () => {
                       })
                     );
                     
-                    setTables(tablesWithRates);
+                    setTables(sortedTables);
                     
                   } catch (error) {
                     setError(error instanceof Error ? error.message : "Error desconocido al cargar los datos");
@@ -971,7 +971,7 @@ const handleDownloadPDF = async () => {
                     isMediumLargeDevice ? styles.cellTextMediumLarge : null,
                     isSmallDevice ? styles.cellTextSmall : null,
                     isTinyDevice ? styles.cellTextTiny : null,
-                  ]}>{table.rateGeneral?.difficultyValues.toFixed(1)}</Text>
+                  ]}>{table.difficultyValues.toFixed(1)}</Text>
                 </View>
                 <View style={[
                   isLargeDevice ? styles.smallCellLarge : null,
@@ -984,7 +984,7 @@ const handleDownloadPDF = async () => {
                     isMediumLargeDevice ? styles.cellTextMediumLarge : null,
                     isSmallDevice ? styles.cellTextSmall : null,
                     isTinyDevice ? styles.cellTextTiny : null,
-                  ]}>{table.rateGeneral?.elementGroups5.toFixed(1)}</Text>
+                  ]}>{table.elementGroups5.toFixed(1)}</Text>
                 </View>
                 <View style={[
                   isLargeDevice ? styles.smallCellLarge : null,
@@ -997,7 +997,7 @@ const handleDownloadPDF = async () => {
                     isMediumLargeDevice ? styles.cellTextMediumLarge : null,
                     isSmallDevice ? styles.cellTextSmall : null,
                     isTinyDevice ? styles.cellTextTiny : null,
-                  ]}>{table.rateGeneral?.stickBonus ? 0.1 : "0.0"}</Text>
+                  ]}>{table.stickBonus ? 0.1 : "0.0"}</Text>
                 </View>
                 <View style={[
                   isLargeDevice ? styles.smallCellLarge : null,
@@ -1032,7 +1032,7 @@ const handleDownloadPDF = async () => {
                   isTinyDevice ? styles.smallCellTiny : null,
                   // Conditional background color based on SV vs compD comparison
                   {
-                    backgroundColor: table.sv.toFixed(1) === table.rateGeneral?.compD?.toFixed(1)
+                    backgroundColor: table.sv.toFixed(1) === table.compD?.toFixed(1)
                       ? '#4CAF50'  // Green if SV equals compD
                       : 'rgb(253, 110, 110)'  // Red if they don't match
                   }
@@ -1059,7 +1059,7 @@ const handleDownloadPDF = async () => {
                     isMediumLargeDevice ? styles.cellTextMediumLarge : null,
                     isSmallDevice ? styles.cellTextSmall : null,
                     isTinyDevice ? styles.cellTextTiny : null,
-                  ]}>{table.rateGeneral?.eScore.toFixed(3) || '0.000'}</Text>
+                  ]}>{table.eScore.toFixed(3) || '0.000'}</Text>
                 </View>
                 
                 {/* Gold data cells */}
@@ -1074,7 +1074,7 @@ const handleDownloadPDF = async () => {
                     isMediumLargeDevice ? styles.cellTextMediumLarge : null,
                     isSmallDevice ? styles.cellTextSmall : null,
                     isTinyDevice ? styles.cellTextTiny : null,
-                  ]}>{table.rateGeneral?.compD.toFixed(1)}</Text>
+                  ]}>{table.compD.toFixed(1)}</Text>
                 </View>
                 <View style={[
                   isLargeDevice ? styles.goldDataCellLarge : null,
@@ -1087,7 +1087,7 @@ const handleDownloadPDF = async () => {
                     isMediumLargeDevice ? styles.cellTextMediumLarge : null,
                     isSmallDevice ? styles.cellTextSmall : null,
                     isTinyDevice ? styles.cellTextTiny : null,
-                  ]}>{table.rateGeneral?.compE.toFixed(3)}</Text>
+                  ]}>{table.compE.toFixed(3)}</Text>
                 </View>
                 
                 {/* Delta cell */}
@@ -1151,7 +1151,7 @@ const handleDownloadPDF = async () => {
                     isMediumLargeDevice ? styles.cellTextMediumLarge : null,
                     isSmallDevice ? styles.cellTextSmall : null,
                     isTinyDevice ? styles.cellTextTiny : null,
-                  ]}>{table.rateGeneral?.comments}</Text>
+                  ]}>{table.comments}</Text>
                 </View>
               </TouchableOpacity>
             ))}

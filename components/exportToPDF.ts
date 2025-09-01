@@ -1,9 +1,7 @@
-import { useImage } from '@shopify/react-native-skia';
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
 import * as Print from 'expo-print';
 import { shareAsync } from 'expo-sharing';
-import { useEffect, useState } from 'react';
 import { Dimensions, Platform } from "react-native";
 
 
@@ -157,12 +155,7 @@ const JUMP_IMAGE_FALLBACK =
   'data:image/svg+xml;base64,' +
   btoa('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60"><rect width="120" height="60" fill="#eee"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="14" fill="#888">No Jump Img</text></svg>');
 
-const JUMP_IMAGE_PATHS = [
-  '../assets/images/Jump1.png',
-  '../assets/images/Jump2.webp',
-  '../assets/images/Jump3.jpg',
-  '../assets/images/Jump4.jpeg',
-];
+// (Android usa un hook en componentes para obtener esta imagen)
 
 
 // iOS: lógica original
@@ -656,19 +649,8 @@ export const generateFinalTablePDF = async (data: FinalTableData) => {
 
 
 // EXPORT FUNCTIONS
-export const generateAndShareMainFloorPDF = async (data?: MainTableWithRateGeneral) => {
-  try {
-    const pdfUri = await generateMainFloorPDF(data);
-    await shareAsync(pdfUri, { 
-      UTI: '.pdf', 
-      mimeType: 'application/pdf' 
-    });
-    return pdfUri;
-  } catch (error) {
-    console.error('Error generating and sharing PDF:', error);
-    throw error;
-  }
-};
+// Nota: función de compartir PDF individual por aparato fue eliminada porque
+// referenciaba generateMainFloorPDF, que no existe en este archivo.
 
 
 // Add this function after the existing functions and before the EXPORT FUNCTIONS section:
@@ -707,6 +689,27 @@ export const generateComprehensivePDF = async (
   if (Platform.OS === 'ios') {
     jumpImageBase64 = await getJumpImageBase64();
   }
+
+  const isFileRef = (value?: string | null): boolean => {
+    if (!value) return false;
+    return value.startsWith('file://') || value.startsWith('content://');
+  };
+
+  // Resolve externalized whiteboard paths if needed
+  const resolvedData: MainTableWithRateGeneral[] = await Promise.all(
+    individualData.map(async (g) => {
+      let pathsVal = g.paths || '';
+      if (isFileRef(pathsVal)) {
+        try {
+          pathsVal = await FileSystem.readAsStringAsync(pathsVal);
+        } catch (e) {
+          console.warn('Failed reading externalized paths for PDF:', e);
+          pathsVal = '[]';
+        }
+      }
+      return { ...g, paths: pathsVal } as MainTableWithRateGeneral;
+    })
+  );
 
   // Function to render whiteboard paths (reuse from existing functions)
   const renderWhiteboardPaths = (pathsString: string) => {
@@ -829,7 +832,7 @@ export const generateComprehensivePDF = async (
   };
 
   // Generate individual pages HTML using the exact same logic from the existing functions
-  const individualPagesHTML = individualData.map((gymnast, index) => {
+  const individualPagesHTML = resolvedData.map((gymnast, index) => {
     const isVault = gymnast.event === "VT";
     
     if (isVault) {

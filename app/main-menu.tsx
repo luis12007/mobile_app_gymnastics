@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
+import { Buffer } from 'buffer';
 import { useFonts } from "expo-font";
 import { getAllFoldersByParent, updateFolder } from "../Database/database";
 import { getFolderById } from '../Database/database';
@@ -48,12 +49,14 @@ import {
   deleteMainTableByCompetenceId,
   deleteRateGeneralByTableId,
   exportFolderData,
+  exportFolderZip,
   getCompetencesByFolderId,
   getFolders,
   reorderFolders,
   getFoldersOrderedByPosition,
   getMainTablesByCompetenceId,
   importFolderData,
+  importFolderZip,
   insertCompetence, insertFolder, insertMainTable, insertRateGeneral, updateFolderPositions,
   deleteCompetence, updateCompetence,
   getRootFoldersByUserId,
@@ -1544,25 +1547,28 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
   const exportFolderAsync = async (folderId: number, folderName: string) => {
     try {
       // Exportar datos del folder con progreso
-      console.log("Calling exportFolderData...");
-      const exportedData = await exportFolderData(folderId, updateLoading);
-      if (!exportedData) {
+  console.log("Calling exportFolderZip...");
+  const zipBytes = await exportFolderZip(folderId, updateLoading);
+  if (!zipBytes) {
         throw new Error("No data exported");
       }
-      console.log("Export successful, data length:", exportedData.length);
-      updateLoading("Creating file...", 97);
-      // Crear archivo temporal
-      const fileName = `folder_${folderName}_${new Date().toISOString().split('T')[0]}.json`;
-      const fileUri = FileSystem.documentDirectory + fileName;
-      await FileSystem.writeAsStringAsync(fileUri, exportedData);
+  console.log("Export successful, bytes:", zipBytes.length);
+  updateLoading("Creating file...", 97);
+  // Crear archivo temporal ZIP
+  const fileName = `folder_${folderName}_${new Date().toISOString().split('T')[0]}.zip`;
+  const fileUri = FileSystem.documentDirectory + fileName;
+  // Guardar bytes en Base64 por compatibilidad con RN FS
+  const base64 = Buffer.from(zipBytes).toString('base64');
+  await FileSystem.writeAsStringAsync(fileUri, base64, { encoding: FileSystem.EncodingType.Base64 });
       updateLoading("Preparing to share...", 99);
       // Share file
       if (await Sharing.isAvailableAsync()) {
         updateLoading("Sharing file...", 100);
         try {
           await Sharing.shareAsync(fileUri, {
-            mimeType: 'application/json',
-            dialogTitle: 'Exportar Folder'
+    mimeType: 'application/zip',
+    dialogTitle: 'Exportar Folder',
+    UTI: 'public.zip-archive'
           });
         } catch (shareError) {
           console.warn("Sharing cancelled or failed:", shareError);
@@ -1594,7 +1600,7 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
     try {
       // Seleccionar archivo PRIMERO, sin mostrar barra de carga aún
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/json', 'text/plain'],
+        type: ['application/zip', 'application/x-zip-compressed', 'application/json', 'text/plain'],
         copyToCacheDirectory: true
       });
 
@@ -1613,7 +1619,7 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
         showLoading("Reading file...", 5);
         setIsImporting(true);
         // Ejecutar la importación asíncrona
-        importFileAsync(result.assets[0].uri);
+  importFileAsync(result.assets[0].uri, result.assets[0].mimeType || result.assets[0].name);
       }, 300);
 
     } catch (error: any) {
@@ -1623,16 +1629,23 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
   };
 
   // Nueva función para manejar la importación asíncrona
-  const importFileAsync = async (fileUri: string) => {
+  const importFileAsync = async (fileUri: string, mimeOrName?: string) => {
     try {
-      // Leer archivo
-      const fileContent = await FileSystem.readAsStringAsync(fileUri);
+      const isZip = (mimeOrName || '').includes('.zip') || (mimeOrName || '').includes('zip');
+      let importedOk = false;
+      if (isZip) {
+        // Leer como bytes base64 y convertir a Uint8Array
+        const b64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
+        const bytes = Uint8Array.from(Buffer.from(b64, 'base64'));
+        const targetFolderId = currentParentId || 0;
+        importedOk = await importFolderZip(bytes, targetFolderId, updateLoading);
+      } else {
+        const fileContent = await FileSystem.readAsStringAsync(fileUri);
+        const targetFolderId = currentParentId || 0; // 0 para carpetas raíz
+        importedOk = await importFolderData(fileContent, targetFolderId, updateLoading);
+      }
       
-      // ✨ ACTUALIZADO: Usar currentParentId en lugar de userId para importar en la carpeta actual
-      const targetFolderId = currentParentId || 0; // 0 para carpetas raíz
-      const success = await importFolderData(fileContent, targetFolderId, updateLoading);
-      
-      if (success) {
+      if (importedOk) {
         updateLoading("Updating list...", 98);
 
         // ✨ ACTUALIZADO: Recargar carpetas y competencias del nivel actual
@@ -1644,7 +1657,7 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
           hideLoading();
           Alert.alert(
             "Success", 
-            "Folder imported successfully. The data has been added to your account.",
+            "Folder imported successfully.",
             [{ text: "OK", onPress: () => {
               setMenuVisible(false);
             }}]
@@ -2528,7 +2541,7 @@ const handleRemoveCompetition = async () => {
     setShowCompetitionOptionsModal(false);
     await fetchFolders();
     // Navigate to the parent folder after moving the competition
-    await navigateFromBreadcrumb(newParentId);
+  await navigateFromBreadcrumb(newParentId ?? null);
     setFeedbackAcceptModel(true);
     setTimeout(() => {
       setFeedbackAcceptModel(false);
@@ -5221,7 +5234,12 @@ const confirmFolderForCompetition = () => {
             onPress={() => {
               setSelectionMode(true);
               setSelectionAction('move');
-              setSelectedFolders([selectedFolderForOptions?.id]);
+              if (selectedFolderForOptions?.id != null) {
+                setSelectedFolders([selectedFolderForOptions.id]);
+              } else {
+                Alert.alert('Select a folder', 'No folder selected to move.');
+                return;
+              }
               setShowFolderOptionsModal(false);
               setAvailableFoldersForMove(folders.filter(f => f.id !== selectedFolderForOptions?.id));
             }}
@@ -5292,7 +5310,12 @@ const confirmFolderForCompetition = () => {
             onPress={() => {
               setSelectionMode(true);
               setSelectionAction('move');
-              setSelectedFolders([selectedFolderForOptions?.id]);
+              if (selectedFolderForOptions?.id != null) {
+                setSelectedFolders([selectedFolderForOptions.id]);
+              } else {
+                Alert.alert('Select a folder', 'No folder selected to move.');
+                return;
+              }
               setShowFolderOptionsModal(false);
               setAvailableFoldersForMove(folders.filter(f => f.id !== selectedFolderForOptions?.id));
             }}

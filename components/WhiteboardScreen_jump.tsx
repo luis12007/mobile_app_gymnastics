@@ -4,7 +4,7 @@ import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-g
 import { runOnJS } from "react-native-reanimated";
 import { Path, SkPath, Skia, Canvas, useImage, Image as SkiaImage } from "@shopify/react-native-skia";
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { updateRateGeneral, getRateGeneralByTableId, getMainTableById, updateMainTable } from '../Database/database';
+import { updateRateGeneral, getRateGeneralByTableId, getMainTableById, updateMainTable, getMainTablePaths } from '../Database/database';
 import VaultSelectorModal from './ModalVaultWag';
 
 // Detectar si estamos en entorno web
@@ -272,10 +272,10 @@ const DrawingCanvas = ({
   const loadSavedPaths = useCallback(async () => {
     try {
       const mainTable = await getMainTableById(tableId);
-
-      if (mainTable && mainTable.paths) {
-      try {
-          const savedPathsData: PathData[] = JSON.parse(mainTable.paths);
+      if (mainTable) {
+        try {
+          const pathsString = await getMainTablePaths(mainTable.id);
+          const savedPathsData: PathData[] = JSON.parse(pathsString || '[]');
           
           // Convertir pathsData a SkPath objects de manera eficiente
           const skPaths: SkPath[] = [];
