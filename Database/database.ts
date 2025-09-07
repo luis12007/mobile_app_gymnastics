@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from 'expo-file-system';
 import JSZip from 'jszip';
+import { Alert } from 'react-native';
 
 // Storage keys for all tables
 const USERS_KEY = "users";
@@ -156,6 +157,116 @@ interface MainTable {
   description: string;
   score: number;
 }
+
+// ================= VALIDACIÓN DE MainTable =================
+const _MAIN_TABLE_NUMERIC_FIELDS: (keyof MainTable)[] = [
+  'competenceId','number','j','i','h','g','f','e','d','c','b','a','dv','eg','sb','nd','cv','sv','e2','d3','e3','delt','percentage','numberOfElements','difficultyValues','elementGroups1','elementGroups2','elementGroups3','elementGroups4','elementGroups5','execution','eScore','myScore','compD','compE','compSd','compNd','compScore','ded','dedexecution','startValue','score'
+];
+const _MAIN_TABLE_BOOL_FIELDS: (keyof MainTable)[] = ['stickBonus'];
+const _MAIN_TABLE_STRING_FIELDS: (keyof MainTable)[] = ['name','event','noc','bib','vaultNumber','vaultDescription','description','comments','paths'];
+
+const validateMainTableRecord = (record: any): { ok: boolean; errors: string[] } => {
+  const errors: string[] = [];
+  if (!record || typeof record !== 'object') {
+    return { ok: false, errors: ['El objeto no es válido'] };
+  }
+  const allowedKeys = new Set<keyof MainTable | string>([
+    'id','competenceId','number','name','event','noc','bib','j','i','h','g','f','e','d','c','b','a','dv','eg','sb','nd','cv','sv','e2','d3','e3','delt','percentage','stickBonus','numberOfElements','difficultyValues','elementGroups1','elementGroups2','elementGroups3','elementGroups4','elementGroups5','execution','eScore','myScore','compD','compE','compSd','compNd','compScore','comments','paths','ded','dedexecution','vaultNumber','vaultDescription','startValue','description','score'
+  ]);
+  // Detectar campos desconocidos
+  Object.keys(record).forEach(k => {
+    if (!allowedKeys.has(k)) errors.push(`Campo desconocido no permitido: ${k}`);
+  });
+  // Verificar presencia de todos los campos requeridos (excepto los que se completan luego como id antes del insert)
+  allowedKeys.forEach(k => {
+    if (k === 'id') return; // id lo asignamos nosotros
+    if (!(k in record)) errors.push(`Falta campo requerido: ${k}`);
+  });
+  // id puede no existir antes de insert, se valida después de asignar
+  _MAIN_TABLE_NUMERIC_FIELDS.forEach(f => {
+    const v = record[f];
+    if (typeof v !== 'number' || Number.isNaN(v)) errors.push(`Campo numérico inválido: ${String(f)}`);
+  });
+  _MAIN_TABLE_BOOL_FIELDS.forEach(f => {
+    if (typeof record[f] !== 'boolean') errors.push(`Campo boolean inválido: ${String(f)}`);
+  });
+  _MAIN_TABLE_STRING_FIELDS.forEach(f => {
+    const v = record[f];
+    if (typeof v !== 'string') errors.push(`Campo string inválido: ${String(f)}`);
+  });
+  if (typeof record.id !== 'number' || record.id <= 0) errors.push('Campo id inválido');
+  return { ok: errors.length === 0, errors };
+};
+
+// Valida parcial (update) fusionando con el actual antes de verificar
+const validateMainTableUpdate = (current: MainTable, patch: Partial<MainTable>): { ok: boolean; errors: string[] } => {
+  const merged = { ...current, ...patch } as MainTable;
+  return validateMainTableRecord(merged);
+};
+
+// Saneo + coerción previa a validar (convierte strings numéricos a número, arrays/objetos en JSON para paths, elimina claves desconocidas)
+const sanitizeMainTableInput = (raw: any, { partial = false }: { partial?: boolean } = {}): { sanitized: any; errors: string[] } => {
+  const errors: string[] = [];
+  if (!raw || typeof raw !== 'object') return { sanitized: raw, errors: ['Input no es objeto'] };
+  const allowed = new Set<keyof MainTable | string>([
+    'id','competenceId','number','name','event','noc','bib','j','i','h','g','f','e','d','c','b','a','dv','eg','sb','nd','cv','sv','e2','d3','e3','delt','percentage','stickBonus','numberOfElements','difficultyValues','elementGroups1','elementGroups2','elementGroups3','elementGroups4','elementGroups5','execution','eScore','myScore','compD','compE','compSd','compNd','compScore','comments','paths','ded','dedexecution','vaultNumber','vaultDescription','startValue','description','score'
+  ]);
+  const out: any = {};
+  // Copiar sólo permitidos
+  for (const k of Object.keys(raw)) {
+    if (allowed.has(k)) out[k] = raw[k];
+  }
+  // Numeric coercion
+  for (const k of _MAIN_TABLE_NUMERIC_FIELDS) {
+    if (out[k] === undefined) {
+      if (!partial) out[k] = 0;
+      continue;
+    }
+    if (typeof out[k] === 'string' && out[k].trim() !== '') {
+      const num = Number(out[k]);
+      if (!Number.isNaN(num)) {
+        out[k] = num;
+      }
+    }
+    if (typeof out[k] !== 'number' || Number.isNaN(out[k])) {
+      errors.push(`No numérico o inválido: ${k}`);
+    }
+  }
+  // Boolean coercion
+  for (const k of _MAIN_TABLE_BOOL_FIELDS) {
+    if (out[k] === undefined) {
+      if (!partial) out[k] = false;
+      continue;
+    }
+    if (typeof out[k] !== 'boolean') {
+      if (out[k] === 'true') out[k] = true; else if (out[k] === 'false') out[k] = false; else errors.push(`No boolean: ${k}`);
+    }
+  }
+  // String fields
+  for (const k of _MAIN_TABLE_STRING_FIELDS) {
+    if (out[k] === undefined) {
+      if (!partial) {
+        // paths tiene default especial
+        out[k] = k === 'paths' ? '[]' : '';
+      }
+      continue;
+    }
+    if (k === 'paths') {
+      if (Array.isArray(out[k]) || (out[k] && typeof out[k] === 'object')) {
+        try { out[k] = JSON.stringify(out[k]); } catch { errors.push('paths no convertible a JSON'); }
+      }
+      if (typeof out[k] !== 'string') errors.push('paths debe ser string JSON');
+      else if (!out[k].trim()) out[k] = '[]';
+      else {
+        // validar que sea JSON válido
+        try { JSON.parse(out[k]); } catch { errors.push('paths no es JSON válido'); }
+      }
+    } else if (typeof out[k] !== 'string') {
+      out[k] = String(out[k] ?? '');
+    }
+  }
+  return { sanitized: out, errors };
+};
 
 interface MainRateGeneral {
   id: number;
@@ -1294,6 +1405,14 @@ export const updateElementGroup = async (rateId: number, elementGroupKey: keyof 
 export const getMainTablesByCompetenceId = async (competenceId: number): Promise<MainTable[]> => {
   try {
     const mainTables = await getMainTables();
+    console.log(`Total main tables in database: ${mainTables.length}`);
+    console.log("All main tables:", `${mainTables} `)
+    console.log(`Filtering main tables for competenceId: ${competenceId}`);
+    console.log("Filtered main tables:", mainTables.filter(table => table.competenceId === competenceId).map(t => ({
+      id: t.id,
+      name: t.name,
+      competenceId: t.competenceId
+    })));
     return mainTables.filter(table => table.competenceId === competenceId);
   } catch (error) {
     console.error("Error getting main tables by competence ID:", error);
@@ -1322,6 +1441,8 @@ export const deleteCompetencesByFolderId = async (folderId: number): Promise<voi
 export const getMainTableById = async (tableId: number): Promise<MainTable | null> => {
   try {
     const mainTables = await getMainTables();
+  console.log(`Total main tables in database: ${mainTables.length}`);
+  console.log("All main tables:", `${mainTables} `)
     const table = mainTables.find(table => table.id === tableId);
     return table || null;
   } catch (error) {
@@ -1351,7 +1472,9 @@ export const insertMainTable = async (tableData: Omit<MainTable, 'id'>): Promise
   try {
     const mainTables = await getMainTables();
     const id = await getNextId(MAIN_TABLES_KEY);
-    let pathsField = tableData.paths;
+    // Saneo entrada (sin id todavía)
+    const { sanitized, errors: sanitizeErrors } = sanitizeMainTableInput(tableData, { partial: false });
+    let pathsField = sanitized.paths;
     // Externalize large paths payloads
     if (typeof pathsField === 'string' && !isFileRef(pathsField) && pathsField.length > LARGE_FIELD_THRESHOLD) {
       try {
@@ -1362,7 +1485,19 @@ export const insertMainTable = async (tableData: Omit<MainTable, 'id'>): Promise
         console.warn('insertMainTable: failed to externalize paths, keeping inline', e);
       }
     }
-    const newTable: MainTable = { id, ...tableData, paths: pathsField };
+    const newTable: MainTable = { id, ...sanitized, paths: pathsField };
+    if (sanitizeErrors.length) {
+      console.warn('[MainTable][SANITIZE][insert] Coerciones/errores:', sanitizeErrors);
+    }
+    const validation = validateMainTableRecord(newTable);
+    if (!validation.ok) {
+      console.error('[MainTable][VALIDATION][insert] Errores:', validation.errors);
+      Alert.alert(
+        'Datos inválidos',
+        'Se detectó un formato inválido al crear una tabla principal. Reinicia o recarga la app antes de continuar.\n' + validation.errors.slice(0,6).join('\n')
+      );
+      return false;
+    }
     mainTables.push(newTable);
     await saveItems(MAIN_TABLES_KEY, mainTables);
     console.log("Main table added successfully. ID:", id);
@@ -1387,7 +1522,19 @@ export const updateMainTable = async (
     }
 
     const current = mainTables[tableIndex];
-    let nextRecord: MainTable = { ...current, ...tableData } as MainTable;
+    // Saneo patch parcial primero
+    const { sanitized: sanitizedPatch, errors: patchErrors } = sanitizeMainTableInput(tableData, { partial: true });
+    if (patchErrors.length) {
+      console.warn('[MainTable][SANITIZE][update][patch]', patchErrors);
+    }
+    // Mezclar
+    const merged: MainTable = { ...(current as MainTable), ...(sanitizedPatch as Partial<MainTable>) } as MainTable;
+    // Re-saneo completo para garantizar que no falte nada y tipos queden definitivos
+    const { sanitized: fullySanitized, errors: fullErrors } = sanitizeMainTableInput(merged, { partial: false });
+    if (fullErrors.length) {
+      console.warn('[MainTable][SANITIZE][update][full] Errores:', fullErrors);
+    }
+    let nextRecord: MainTable = { ...fullySanitized, id: current.id } as MainTable;
 
     // Handle externalization for 'paths' if present in update
     if (Object.prototype.hasOwnProperty.call(tableData, 'paths') && typeof tableData.paths === 'string') {
@@ -1420,7 +1567,16 @@ export const updateMainTable = async (
     }
 
     // Update main table data
-    mainTables[tableIndex] = nextRecord;
+  const validation = validateMainTableRecord(nextRecord);
+    if (!validation.ok) {
+      console.error('[MainTable][VALIDATION][update] Errores:', validation.errors);
+      Alert.alert(
+        'Datos inválidos',
+        'Se detectó un formato inválido al actualizar una tabla principal. Cambios NO guardados. Reinicia o recarga la app.\n' + validation.errors.slice(0,6).join('\n')
+      );
+      return false;
+    }
+    mainTables[tableIndex] = nextRecord; // solo si válido
     await saveItems(MAIN_TABLES_KEY, mainTables);
     console.log("Main table updated successfully.");
     return true;

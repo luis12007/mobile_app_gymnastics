@@ -72,6 +72,7 @@ import {
 } from "../Database/database"; // Adjust the path based on your project structure
 import { GridDraggableItem } from "../components/GridDraggableItem";
 import CustomNumberPadOptimized from '@/components/CustomNumberPadOptimized_competition';
+import DevCorruptMainTableScreen from './dev-corrupt-main-table';
 const { width, height } = Dimensions.get("window");
 var isLargeDevice = false;
 var isMediumLargeDevice = false;
@@ -5479,6 +5480,8 @@ const confirmFolderForCompetition = () => {
     </View>
   </Modal>
 )}
+{/* <DevCorruptMainTableScreen /> */}
+
     </SafeAreaView>
   );
 }

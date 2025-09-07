@@ -1,224 +1,2085 @@
+import { Asset } from 'expo-asset';
+import * as FileSystem from 'expo-file-system';
 import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
-import { Platform } from 'react-native';
+import { shareAsync } from 'expo-sharing';
+import { PDFDocument } from 'pdf-lib';
+import { Buffer } from 'buffer';
+import { Dimensions, Platform } from "react-native";
 
-export async function exportToPDF(tables: any[], fileName = 'Gymnastics_Scores.pdf') {
-  // Styled gymnastPages for PDF export
-  const gymnastPages = tables.map((table, idx) => `
-    <div class="gymnast-main-container">
-      <div class="gymnast-header">
-        <span class="gymnast-title">Gymnast: <b>${table.name}</b></span>
-        <span class="gymnast-event">Event: <b>${table.event}</b></span>
-        <span class="gymnast-noc">NOC: <b>${table.noc}</b></span>
-        <span class="gymnast-bib">BIB: <b>${table.bib}</b></span>
+
+const { width, height } = Dimensions.get("window");
+
+// Variables para determinar el tamaño del dispositivo (como en el original)
+var isLargeDevice = false;
+var isMediumLargeDevice = false;
+var isSmallDevice = false;
+var isTinyDevice = false;
+
+if (width >= 1368) {
+  isLargeDevice = true;
+} else if (width >= 1200 && width < 1368) {
+  isMediumLargeDevice = true;
+} else if (width >= 945 && width < 1200) {
+  isSmallDevice = true;
+} else if (width < 945) {
+  isTinyDevice = true;
+}
+
+// Interface for main floor data
+interface MainTable {
+  id: number;
+  competenceId: number;
+  number: number;
+  name: string;
+  event: string;
+  noc: string;
+  bib: string;
+  j: number;
+  i: number;
+  h: number;
+  g: number;
+  f: number;
+  e: number;
+  d: number;
+  c: number;
+  b: number;
+  a: number;
+  dv: number;
+  eg: number;
+  sb: number;
+  nd: number;
+  cv: number;
+  sv: number;
+  e2: number;
+  d3: number;
+  e3: number;
+  delt: number;
+  percentage: number;
+  stickBonus: boolean;
+  numberOfElements: number;
+  difficultyValues: number;
+  elementGroups1: number;
+  elementGroups2: number;
+  elementGroups3: number;
+  elementGroups4: number;
+  elementGroups5: number;
+  execution: number;
+  eScore: number;
+  myScore: number;
+  compD: number;
+  compE: number;
+  compSd: number;
+  compNd: number;
+  compScore: number;
+  comments: string;
+  paths: string;
+  ded: number;
+  dedexecution: number;
+  vaultNumber: string;
+  vaultDescription: string;
+  startValue: number;
+  description: string;
+  score: number;
+}
+
+interface MainRateGeneral {
+  id: number;
+  tableId: number;
+  stickBonus: boolean;
+  numberOfElements: number;
+  difficultyValues: number;
+  elementGroups1: number;
+  elementGroups2: number;
+  elementGroups3: number;
+  elementGroups4: number;
+  elementGroups5: number;
+  execution: number;
+  eScore: number;
+  myScore: number;
+  compD: number;
+  compE: number;
+  compSd: number;
+  compNd: number;
+  compScore: number;
+  comments: string;
+  paths: string;
+}
+
+interface MainTableWithRateGeneral extends MainTable {
+  rateGeneral?: MainRateGeneral;
+}
+
+// Interface for final table data
+interface FinalTableData {
+  competition: {
+    title: string;
+    event: string;
+    discipline: string;
+    date: string;
+    totalParticipants: number;
+    competenceId: number;
+  };
+  participants: Array<{
+    position: number;
+    number: number;
+    name: string;
+    noc: string;
+    event: string;
+    bib: string;
+    elements: {
+      j: number; i: number; h: number; g: number; f: number;
+      e: number; d: number; c: number; b: number; a: number;
+    };
+    scores: {
+      difficultyValues: number;
+      elementGroups: number;
+      stickBonus: number;
+      neutralDeductions: number;
+      connectionValue: number;
+      startValue: number;
+      executionScore: number;
+      dScore: number;
+      eScore: number;
+      finalScore: number;
+      myScorefinal: number;
+    };
+    details: {
+      delta: number;
+      percentage: number;
+      comments: string;
+    };
+  }>;
+}
+
+// Function to get Jump image as base64
+// Fallback base64 para imagen de salto (puedes usar una imagen pequeña o un SVG simple)
+const JUMP_IMAGE_FALLBACK =
+  'data:image/svg+xml;base64,' +
+  btoa('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60"><rect width="120" height="60" fill="#eee"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="14" fill="#888">No Jump Img</text></svg>');
+
+// (Android usa un hook en componentes para obtener esta imagen)
+
+
+// iOS: lógica original
+const getJumpImageBase64 = async (): Promise<string> => {
+  if (Platform.OS === 'ios') {
+    let asset = null;
+    try { asset = Asset.fromModule(require('../assets/images/Jump1.png')); } catch (e) {}
+    if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump2.webp')); } catch (e) {}
+    if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump3.jpg')); } catch (e) {}
+    if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump4.jpeg')); } catch (e) {}
+
+    if (asset) {
+      try {
+        await asset.downloadAsync();
+        const imageUri = asset.localUri || asset.uri;
+        if (!imageUri) throw new Error('No image URI');
+        const fileInfo = await FileSystem.getInfoAsync(imageUri);
+        if (!fileInfo.exists || fileInfo.size === 0) throw new Error('File not found or empty');
+        const base64 = await FileSystem.readAsStringAsync(imageUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        if (!base64 || base64.length < 100) throw new Error('Base64 empty or too short');
+        let mime = 'image/png';
+        if (imageUri.endsWith('.jpg') || imageUri.endsWith('.jpeg')) mime = 'image/jpeg';
+        if (imageUri.endsWith('.webp')) mime = 'image/webp';
+        return `data:${mime};base64,${base64}`;
+      } catch (error) {
+        console.error('Error loading jump image:', error);
+      }
+    }
+    // Si ninguno funcionó, usar fallback SVG
+    return JUMP_IMAGE_FALLBACK;
+  }
+  // En Android, se debe usar el hook useJumpImageBase64
+  throw new Error('getJumpImageBase64 solo se debe usar en iOS. En Android, use el hook useJumpImageBase64 en un componente.');
+};
+
+
+
+
+
+
+// FINAL TABLE PDF GENERATION
+export const generateFinalTablePDF = async (data: FinalTableData) => {
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        * {
+          margin: 0;
+          padding: 0;
+          box-sizing: border-box;
+        }
+        
+        body {
+          font-family: Arial, sans-serif;
+          font-size: 11px;
+          line-height: 1.2;
+          color: #333;
+          background: #f0f4f8;
+          padding: 15px;
+        }
+        
+        .header {
+          text-align: center;
+          margin-bottom: 20px;
+          background: linear-gradient(135deg, #0052b4, #004aad);
+          color: white;
+          padding: 20px;
+          border-radius: 8px;
+        }
+        
+        .header h1 {
+          font-size: 28px;
+          margin-bottom: 10px;
+        }
+        
+        .competition-info {
+          background: #e8f4ff;
+          padding: 15px;
+          border-radius: 5px;
+          margin-bottom: 20px;
+          border-left: 4px solid #0052b4;
+        }
+        
+        .competition-info h2 {
+          color: #0052b4;
+          margin-bottom: 10px;
+        }
+        
+        .info-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 10px;
+        }
+        
+        .info-item {
+          background: white;
+          padding: 8px;
+          border-radius: 4px;
+          text-align: center;
+          border: 1px solid #ddd;
+        }
+        
+        .info-label {
+          font-weight: bold;
+          color: #0052b4;
+          font-size: 10px;
+        }
+        
+        .info-value {
+          font-size: 12px;
+          margin-top: 2px;
+        }
+        
+        .table-container {
+          background: white;
+          border-radius: 15px;
+          overflow: hidden;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+          margin-bottom: 20px;
+        }
+        
+        .results-table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        
+        .results-table th {
+          padding: 8px 4px;
+          text-align: center;
+          font-weight: bold;
+          font-size: 10px;
+          color: white;
+          border-right: 1px solid #ddd;
+          height: 40px;
+        }
+        
+        /* Header colors - exact match */
+        .header-gray {
+          background: #A2A2A2;
+        }
+        
+        .header-blue {
+          background: #0052b4;
+        }
+        
+        .header-gold {
+          background: #F5D76E;
+          color: #333 !important;
+        }
+        
+        /* First header cell with rounded corner */
+        .header-first {
+          border-top-left-radius: 15px;
+        }
+        
+        /* Last header cell with rounded corner */
+        .header-last {
+          border-top-right-radius: 15px;
+        }
+        
+        .results-table td {
+          padding: 6px 4px;
+          text-align: center;
+          border-right: 1px solid #ddd;
+          border-bottom: 1px solid #ddd;
+          font-size: 10px;
+          background: white;
+          height: 40px;
+          vertical-align: middle;
+        }
+        
+        /* Position column styling */
+        .position-cell {
+          background: white !important;
+          font-weight: bold;
+          color: #333;
+        }
+        
+        /* Gymnast name column */
+        .name-cell {
+          text-align: left !important;
+          padding-left: 10px !important;
+          font-weight: bold;
+          max-width: 200px;
+        }
+        
+        /* Percentage column - pink background */
+        .percentage-cell {
+          background: #FFC0C7 !important;
+          font-weight: bold;
+        }
+        
+        /* Score cells styling */
+        .score-cell {
+          font-weight: bold;
+          color: #333;
+        }
+        
+        /* Comments column styling */
+        .comments-cell {
+          text-align: justify !important;
+          padding: 4px 6px !important;
+          font-size: 9px;
+          line-height: 1.1;
+          max-width: 120px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        
+        /* Last row corners */
+        .bottom-left {
+          border-bottom-left-radius: 15px;
+        }
+        
+        .bottom-right {
+          border-bottom-right-radius: 15px;
+        }
+        
+        .statistics-section {
+          background: white;
+          padding: 15px;
+          border-radius: 8px;
+          margin-bottom: 20px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .stats-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 15px;
+        }
+        
+        .stat-box {
+          text-align: center;
+          padding: 10px;
+          background: #f8f9fa;
+          border-radius: 4px;
+        }
+        
+        .stat-number {
+          font-size: 20px;
+          font-weight: bold;
+          color: #0052b4;
+        }
+        
+        .stat-label {
+          font-size: 10px;
+          color: #666;
+          margin-top: 2px;
+        }
+        
+        .comments-section {
+          background: white;
+          padding: 15px;
+          border-radius: 8px;
+          margin-bottom: 20px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .comments-section h3 {
+          color: #0052b4;
+          margin-bottom: 15px;
+          border-bottom: 2px solid #0052b4;
+          padding-bottom: 5px;
+        }
+        
+        .comment-item {
+          margin-bottom: 10px;
+          padding: 10px;
+          background: #f8f9fa;
+          border-radius: 4px;
+          border-left: 4px solid #0052b4;
+        }
+        
+        .comment-gymnast {
+          font-weight: bold;
+          color: #0052b4;
+          margin-bottom: 5px;
+        }
+        
+        .comment-text {
+          color: #555;
+          font-size: 11px;
+          text-align: justify;
+        }
+        
+        .footer {
+          text-align: center;
+          margin-top: 30px;
+          font-size: 10px;
+          color: #666;
+          border-top: 1px solid #ddd;
+          padding-top: 15px;
+        }
+        
+        @media print {
+          body { padding: 10px; }
+          .header h1 { font-size: 24px; }
+          .results-table { font-size: 9px; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>🏅 ${data.competition.title}</h1>
+        <p>${data.competition.discipline}</p>
       </div>
-      <div class="gymnast-table">
-        <table>
-          <tr>
-            <th class="main-label">NUMBER OF ELEMENTS</th>
-            <td class="main-value">${table.rateGeneral?.numberOfElements ?? ''}</td>
-          </tr>
-          <tr>
-            <th class="main-label">DIFFICULTY VALUES</th>
-            <td class="main-value">${table.rateGeneral?.difficultyValues?.toFixed?.(1) ?? ''}</td>
-          </tr>
-          <tr>
-            <th class="main-label">ELEMENT GROUPS</th>
-            <td class="main-value">
-              I: ${table.rateGeneral?.elementGroups1 ?? ''} &nbsp;
-              II: ${table.rateGeneral?.elementGroups2 ?? ''} &nbsp;
-              III: ${table.rateGeneral?.elementGroups3 ?? ''} &nbsp;
-              IV: ${table.rateGeneral?.elementGroups4 ?? ''} &nbsp;
-              V: ${table.rateGeneral?.elementGroups5 ?? ''}
-            </td>
-          </tr>
-          <tr>
-            <th class="main-label">ELEMENT GROUPS TOTAL</th>
-            <td class="main-value">${table.rateGeneral?.elementGroupsTotal ?? ''}</td>
-          </tr>
-          <tr>
-            <th class="main-label">CV</th>
-            <td class="main-value">${table.rateGeneral?.cv ?? ''}</td>
-          </tr>
-          <tr>
-            <th class="main-label">STICK BONUS</th>
-            <td class="main-value">${table.rateGeneral?.stickBonus ? '0.1' : '0.0'}</td>
-          </tr>
-          <tr>
-            <th class="main-label">ND</th>
-            <td class="main-value">${table.rateGeneral?.nd ?? ''}</td>
-          </tr>
-          <tr>
-            <th class="main-label">SV</th>
-            <td class="main-value">${table.rateGeneral?.sv ?? ''}</td>
-          </tr>
-          <tr>
-            <th class="main-label">EXECUTION</th>
-            <td class="main-value">${table.rateGeneral?.execution ?? ''}</td>
-          </tr>
-          <tr>
-            <th class="main-label">E SCORE</th>
-            <td class="main-value">${table.rateGeneral?.eScore?.toFixed?.(3) ?? ''}</td>
-          </tr>
-          <tr>
-            <th class="main-label">MY SCORE</th>
-            <td class="main-value">${table.rateGeneral?.myScore?.toFixed?.(3) ?? ''}</td>
-          </tr>
-          <tr>
-            <th class="main-label">COMPETITION INFO</th>
-            <td class="main-value">
-              D: ${table.rateGeneral?.compD ?? ''} &nbsp;
-              E: ${table.rateGeneral?.compE ?? ''} &nbsp;
-              SB: ${table.rateGeneral?.compSd ?? ''} &nbsp;
-              ND: ${table.rateGeneral?.compNd ?? ''} &nbsp;
-              SCORE: ${table.rateGeneral?.compScore ?? ''}
-            </td>
-          </tr>
-          <tr>
-            <th class="main-label">GYMNAST INFO</th>
-            <td class="main-value">
-              Name: ${table.name} &nbsp;
-              NOC: ${table.noc} &nbsp;
-              Event: ${table.event} &nbsp;
-              Number: ${table.number}
-            </td>
-          </tr>
-          <tr>
-            <th class="main-label">COMMENTS</th>
-            <td class="main-value comments-cell">${table.rateGeneral?.comments ?? ''}</td>
-          </tr>
+      
+      <div class="competition-info">
+        <h2>Competition Details</h2>
+        <div class="info-grid">
+          <div class="info-item">
+            <div class="info-label">DATE</div>
+            <div class="info-value">${data.competition.date}</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">PARTICIPANTS</div>
+            <div class="info-value">${data.competition.totalParticipants}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Results Table - Exact replica -->
+      <div class="table-container">
+        <table class="results-table">
+          <thead>
+            <tr>
+              <th class="header-gray header-first">No.</th>
+              <th class="header-blue">GYMNAST</th>
+              <th class="header-blue">EVENT</th>
+              <th class="header-blue">NOC</th>
+              <th class="header-blue">BIB</th>
+              <th class="header-gray">J</th>
+              <th class="header-gray">I</th>
+              <th class="header-gray">H</th>
+              <th class="header-gray">G</th>
+              <th class="header-gray">F</th>
+              <th class="header-gray">E</th>
+              <th class="header-gray">D</th>
+              <th class="header-gray">C</th>
+              <th class="header-gray">B</th>
+              <th class="header-gray">A</th>
+              <th class="header-blue">DV</th>
+              <th class="header-blue">EG</th>
+              <th class="header-blue">SB</th>
+              <th class="header-blue">ND</th>
+              <th class="header-blue">CV</th>
+              <th class="header-blue">SV</th>
+              <th class="header-blue">E</th>
+              <th class="header-gold">D</th>
+              <th class="header-gold">E</th>
+              <th class="header-gold">DELT</th>
+              <th class="header-gold">%</th>
+              <th class="header-blue header-last">Comments</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.participants.map((participant, index) => {
+              const isLastRow = index === data.participants.length - 1;
+              const truncateComment = (text: string) => {
+                if (!text || text.trim() === '') return '';
+                
+                // Split text into chunks of 12 characters
+                const chunks = [];
+                for (let i = 0; i < text.length; i += 12) {
+                  chunks.push(text.substring(i, i + 12));
+                }
+                
+                // Limit to maximum 3 lines
+                if (chunks.length <= 3) {
+                  // If 3 lines or less, show all lines
+                  return chunks.join('<br>');
+                } else {
+                  // If more than 3 lines, show first 2 lines + truncated 3rd line with ...
+                  const firstTwoLines = chunks.slice(0, 2);
+                  const thirdLineText = chunks[2];
+                  
+                  // Cut the third line to make room for "..." (9 characters + "...")
+                  const truncatedThirdLine = thirdLineText.substring(0, 9) + '...';
+                  
+                  return [...firstTwoLines, truncatedThirdLine].join('<br>');
+                }
+              };
+              
+              return `
+                <tr>
+                  <td class="position-cell ${isLastRow ? 'bottom-left' : ''}">${participant.position}</td>
+                  <td class="name-cell">${participant.name}</td>
+                  <td>${participant.event}</td>
+                  <td>${participant.noc}</td>
+                  <td>${participant.bib}</td>
+                  <td>${participant.elements.j}</td>
+                  <td>${participant.elements.i}</td>
+                  <td>${participant.elements.h}</td>
+                  <td>${participant.elements.g}</td>
+                  <td>${participant.elements.f}</td>
+                  <td>${participant.elements.e}</td>
+                  <td>${participant.elements.d}</td>
+                  <td>${participant.elements.c}</td>
+                  <td>${participant.elements.b}</td>
+                  <td>${participant.elements.a}</td>
+                  <td>${participant.scores.difficultyValues.toFixed(1)}</td>
+                  <td>${participant.scores.elementGroups.toFixed(1)}</td>
+                  <td>${participant.scores.stickBonus.toFixed(1)}</td>
+                  <td>${participant.scores.neutralDeductions.toFixed(1)}</td>
+                  <td>${participant.scores.connectionValue.toFixed(1)}</td>
+                  <td>${participant.scores.startValue.toFixed(1)}</td>
+                  <td>${participant.scores.executionScore.toFixed(3)}</td>
+                  <td class="score-cell">${participant.scores.dScore.toFixed(3)}</td>
+                  <td class="score-cell">${participant.scores.eScore.toFixed(3)}</td>
+                  <td class="score-cell">${participant.details.delta.toFixed(3)}</td>
+                  <td class="percentage-cell">${participant.details.percentage}%</td>
+                  <td class="comments-cell ${isLastRow ? 'bottom-right' : ''}" title="${participant.details.comments || ''}">${truncateComment(participant.details.comments)}</td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
         </table>
       </div>
-    </div>
-  `).join('<div style="page-break-after: always;"></div>');
 
-  // Generate HTML for the summary table (like final-table)
-  const summaryTableRows = tables.map(table => `
-    <tr>
-      <td>${table.number}</td>
-      <td>${table.name}</td>
-      <td>${table.event}</td>
-      <td>${table.noc}</td>
-      <td>${table.bib}</td>
-      <td>${table.rateGeneral?.difficultyValues ?? ''}</td>
-      <td>${table.rateGeneral?.stickBonus ? '0.1' : '0'}</td>
-      <td>${table.nd}</td>
-      <td>${table.cv}</td>
-      <td>${table.sv}</td>
-      <td>${table.rateGeneral?.eScore ?? ''}</td>
-      <td>${table.rateGeneral?.myScore ?? ''}</td>
-      <td>${table.rateGeneral?.comments ?? ''}</td>
-    </tr>
-  `).join('');
+      <!-- Statistics Section -->
+      <div class="statistics-section">
+        <h3 style="color: #0052b4; margin-bottom: 15px;">📊 Competition Statistics</h3>
+        <div class="stats-grid">
+          <div class="stat-box">
+            <div class="stat-number">${data.participants.length}</div>
+            <div class="stat-label">Total Participants</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-number">${Math.max(...data.participants.map(p => p.scores.myScorefinal)).toFixed(3)}</div>
+            <div class="stat-label">Highest Score</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-number">${(data.participants.reduce((sum, p) => sum + p.scores.myScorefinal, 0) / data.participants.length).toFixed(3)}</div>
+            <div class="stat-label">Average Score</div>
+          </div>
+        </div>
+      </div>
 
-  const summaryTableHTML = `
-    <div>
-      <h2>Summary Table</h2>
-      <table border="1" cellspacing="0" cellpadding="4" style="width:100%; font-size:12px;">
-        <thead>
-          <tr>
-            <th>No.</th>
-            <th>Gymnast</th>
-            <th>Event</th>
-            <th>NOC</th>
-            <th>BIB</th>
-            <th>Difficulty</th>
-            <th>SB</th>
-            <th>ND</th>
-            <th>CV</th>
-            <th>SV</th>
-            <th>E Score</th>
-            <th>My Score</th>
-            <th>Comments</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${summaryTableRows}
-        </tbody>
-      </table>
-    </div>
-  `;
-
-  const html = `
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <style>
-          body { font-family: Arial, sans-serif; background: #f8f8f8; }
-          .gymnast-main-container {
-            background: #e0e0e0;
-            border-radius: 16px;
-            padding: 24px 18px;
-            margin: 24px 0;
-            font-family: Arial, sans-serif;
-          }
-          .gymnast-header {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 18px;
-            margin-bottom: 18px;
-            font-size: 18px;
-            color: #0052b4;
-            font-weight: bold;
-          }
-          .gymnast-table table {
-            width: 100%;
-            border-collapse: collapse;
-            background: #fff;
-            border-radius: 12px;
-            overflow: hidden;
-            font-size: 16px;
-          }
-          .gymnast-table th, .gymnast-table td {
-            border: 1px solid #bbb;
-            padding: 8px 12px;
-            text-align: left;
-          }
-          .gymnast-table th.main-label {
-            background: #a9def9;
-            color: #333;
-            font-weight: bold;
-            width: 260px;
-          }
-          .gymnast-table td.main-value {
-            background: #f9f9f9;
-            color: #333;
-            font-weight: bold;
-          }
-          .gymnast-table tr:nth-child(even) td {
-            background: #f0f4f8;
-          }
-          .gymnast-table td.comments-cell {
-            color: #888;
-            font-style: italic;
-          }
-          h2 { color: #0052b4; }
-          table { border-collapse: collapse; margin-top: 20px; }
-          th, td { border: 1px solid #ddd; padding: 4px; }
-          th { background: #f0f4f8; }
-        </style>
-      </head>
-      <body>
-        ${gymnastPages}
-        ${summaryTableHTML}
-      </body>
+      ${(() => {
+        // Check if any participant has comments
+        const participantsWithComments = data.participants.filter(p => p.details.comments && p.details.comments.trim() !== '');
+        
+        if (participantsWithComments.length > 0) {
+          return `
+            <!-- Comments Section - Only show if there are comments -->
+            <div class="comments-section">
+              <h3>💬 Judge Comments</h3>
+              ${participantsWithComments.map(participant => `
+                <div class="comment-item">
+                  <div class="comment-gymnast">${participant.name} (${participant.noc})</div>
+                  <div class="comment-text">${participant.details.comments}</div>
+                </div>
+              `).join('')}
+            </div>
+          `;
+        }
+        return '';
+      })()}
+      
+      <div class="footer">
+        <p><strong>Generated by GymJudge</strong> on ${new Date().toLocaleString()}</p>
+        <p>© 2025 GymJudge. All rights reserved. | Competition Report</p>
+      </div>
+    </body>
     </html>
   `;
 
-  // Generate PDF and get its URI
-  const { uri, base64 } = await Print.printToFileAsync({ html, base64: Platform.OS === 'web' });
-
-  if (Platform.OS === 'web') {
-    // This opens the browser's print dialog for the user to save/print as PDF
-    await Print.printAsync({ html });
-    return;
-  } else {
-    // Share the PDF file on native
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Share PDF', UTI: 'com.adobe.pdf' });
-    } else {
-      alert('Sharing is not available on this device');
-    }
+  try {
+    const { uri } = await Print.printToFileAsync({ 
+      html,
+      base64: false 
+    });
+    
+    await shareAsync(uri, { 
+      UTI: '.pdf', 
+      mimeType: 'application/pdf' 
+    });
+    
     return uri;
+  } catch (error) {
+    console.error('Error generating final table PDF:', error);
+    throw error;
   }
+};
+
+
+// EXPORT FUNCTIONS
+// Nota: función de compartir PDF individual por aparato fue eliminada porque
+// referenciaba generateMainFloorPDF, que no existe en este archivo.
+
+
+// Add this function after the existing functions and before the EXPORT FUNCTIONS section:
+
+// Replace the existing generateComprehensivePDF function with this corrected version:
+
+interface Competence {
+  id: number;
+  name: string;
+  description: string;
+  date: string; // ISO date string
+  type: string; // "Floor", "Jump", etc.
+  gender: boolean; // mag and wag
+  sessionId: number;
+  folderId: number;
+  userId: number;
+  numberOfParticipants: number;
 }
+
+
+
+
+export const generateComprehensivePDF = async (
+  individualData: MainTableWithRateGeneral[], 
+  finalTableData: FinalTableData,
+  competence: Competence,
+  jumpImageBase64: string | null,
+) => {
+  console.log('Generating comprehensive PDF...');
+  
+  if (!individualData || !Array.isArray(individualData) || individualData.length === 0) {
+    throw new Error('No individual data provided for PDF generation');
+  }
+
+  // Obtener la imagen base64 de salto según plataforma
+  if (Platform.OS === 'ios') {
+    jumpImageBase64 = await getJumpImageBase64();
+  }
+
+  const isFileRef = (value?: string | null): boolean => {
+    if (!value) return false;
+    return value.startsWith('file://') || value.startsWith('content://');
+  };
+
+  // Resolve externalized whiteboard paths if needed
+  const resolvedData: MainTableWithRateGeneral[] = await Promise.all(
+    individualData.map(async (g) => {
+      let pathsVal = g.paths || '';
+      if (isFileRef(pathsVal)) {
+        try {
+          pathsVal = await FileSystem.readAsStringAsync(pathsVal);
+        } catch (e) {
+          console.warn('Failed reading externalized paths for PDF:', e);
+          pathsVal = '[]';
+        }
+      }
+      return { ...g, paths: pathsVal } as MainTableWithRateGeneral;
+    })
+  );
+
+  // Function to render whiteboard paths (reuse from existing functions)
+  const renderWhiteboardPaths = (pathsString: string) => {
+    if (!pathsString) return '';
+    
+    try {
+      const paths = JSON.parse(pathsString);
+      if (!Array.isArray(paths)) return '';
+      
+      // Calculate bounding box of all paths
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      
+      paths.forEach(pathData => {
+        if (pathData.path) {
+          const matches = pathData.path.match(/([ML])\s*([0-9.-]+)\s*([0-9.-]+)/g);
+          if (matches) {
+            matches.forEach((match: string) => {
+              const coords = match.match(/([ML])\s*([0-9.-]+)\s*([0-9.-]+)/);
+              if (coords) {
+                const x = parseFloat(coords[2]);
+                const y = parseFloat(coords[3]);
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x);
+                maxY = Math.max(maxY, y);
+              }
+            });
+          }
+        }
+      });
+      
+      // If we found valid coordinates, calculate centering transform
+      let transformGroup = '';
+      if (minX !== Infinity && minY !== Infinity && maxX !== -Infinity && maxY !== -Infinity) {
+        const pathWidth = maxX - minX;
+        const pathHeight = maxY - minY;
+        
+        // SVG viewBox dimensions
+        const svgWidth = 1300;
+        const svgHeight = 780;
+        
+        // Calculate centering offsets with additional right shift
+        const centerX = svgWidth / 2;
+        const centerY = svgHeight / 2;
+        const pathCenterX = (minX + pathWidth / 2);
+        const pathCenterY = (minY + pathHeight / 2);
+        
+        // Ajustar shift según tamaño de dispositivo
+        let rightShift = 0;
+        let bShift = 0;
+        if (isLargeDevice || isMediumLargeDevice) {
+          rightShift = 120; // Move paths 120 units to the right
+          bShift = 60;      // Move paths 60 units down
+        }
+        // Si es small o tiny, no aplicar shift
+        const offsetX = centerX - pathCenterX + rightShift;
+        const offsetY = centerY - pathCenterY + bShift;
+        transformGroup = `<g transform="translate(${offsetX}, ${offsetY})">`;
+      }
+      
+      const pathElements = paths.map((pathData, index) => {
+        let scaledPath = pathData.path;
+        
+        if (pathData.path) {
+          scaledPath = pathData.path.replace(/([ML])\s*([0-9.-]+)\s*([0-9.-]+)/g, (match: string, command: string, x: string, y: string) => {
+            const scaledX = parseFloat(x) * 0.85;
+            const scaledY = parseFloat(y) * 0.85;
+            return `${command} ${scaledX} ${scaledY}`;
+          });
+        }
+        
+        let pathElement = '';
+        
+        if (pathData.penType === 2) {
+          pathElement = `
+            <path 
+              d="${scaledPath}" 
+              stroke="${pathData.color || 'yellow'}" 
+              stroke-width="4" 
+              fill="${pathData.color || 'yellow'}" 
+              fill-opacity="0.4" 
+              stroke-opacity="0.8"
+            />`;
+        } else if (pathData.penType === 1) {
+          pathElement = `
+            <path 
+              d="${scaledPath}" 
+              stroke="red" 
+              stroke-width="3" 
+              fill="none" 
+              stroke-linecap="round" 
+              stroke-linejoin="round" 
+              opacity="1"
+            />`;
+        } else {
+          pathElement = `
+            <path 
+              d="${scaledPath}" 
+              stroke="${pathData.isEraser ? 'white' : (pathData.color || 'black')}" 
+              stroke-width="${pathData.strokeWidth || 3}" 
+              fill="none" 
+              stroke-linecap="round" 
+              stroke-linejoin="round"
+            />`;
+        }
+        
+        return pathElement;
+      }).join('');
+      
+      // Wrap paths in transform group if we have valid centering
+      if (transformGroup) {
+        return transformGroup + pathElements + '</g>';
+      } else {
+        return pathElements;
+      }
+    } catch (error) {
+      console.error('Error parsing paths:', error);
+      return '';
+    }
+  };
+
+  // Generate individual pages HTML using the exact same logic from the existing functions
+  const individualPagesHTML = resolvedData.map((gymnast, index) => {
+    const isVault = gymnast.event === "VT";
+    
+    if (isVault) {
+      // Use exact vault layout from generateMainJumpPDF
+      return `
+        <div class="page">
+          <div class="header">
+            <h1>🏅 Judges' Report</h1>
+            <h2>${gymnast.name || 'Unknown Gymnast'} (${gymnast.noc || 'UNK'}) - ${gymnast.event || 'VT'}</h2>
+          </div>
+          
+          <div class="gymnast-info">
+          <strong>Number:</strong> ${gymnast.number || 0} | 
+            <strong>Gymnast:</strong> ${gymnast.name || 'Unknown'} | 
+            <strong>NOC:</strong> ${gymnast.noc || 'UNK'} | 
+            <strong>Event:</strong> ${gymnast.event || 'VT'} | 
+            <strong>BIB:</strong> ${gymnast.bib || 0} | 
+            <strong>Execution Performance:</strong> ${gymnast.percentage || 0}%
+          </div>
+          
+          <!-- Full Width Whiteboard Section -->
+          <div class="whiteboard-section">
+            <div class="whiteboard-title">Judge's Whiteboard</div>
+            <svg class="whiteboard-canvas" viewBox="0 0 1300 780" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+              <!-- Jump background image -->
+              ${jumpImageBase64 ? `
+                <image href="${jumpImageBase64}" 
+            width="1000" height="663" x="80" y="65" opacity="0.6" />
+              ` : `
+                
+              `}
+              ${renderWhiteboardPaths(gymnast.paths || '')}
+
+            </svg>
+          </div>
+          
+          <!-- Tables Section Below Whiteboard -->
+          <div class="tables-section">
+            <!-- Vault Information Table -->
+            <div>
+              <div class="vault-table-header">ANNOUNCED VAULT</div>
+              <table class="vault-table">
+                <thead>
+                  <tr>
+                    <th>CATEGORY</th>
+                    <th>VALUE</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="vault-info-row">
+                    <td>VAULT NUMBER</td>
+                    <td class="vault-info-value">${gymnast.vaultNumber || 'N/A'}</td>
+                  </tr>
+                  <tr class="vault-info-row">
+                    <td>START VALUE</td>
+                    <td class="vault-info-value">${(gymnast.e2 || 0).toFixed(1)}</td>
+                  </tr>
+                  <tr class="vault-info-row">
+                    <td>DESCRIPTION</td>
+                    <td class="vault-info-value">${gymnast.vaultDescription || 'No description'}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            
+            <!-- Scoring Information Table -->
+            <div>
+              <table class="info-table">
+                <tr>
+                  <td class="info-label">SCORES</td>
+                  <td class="score-groups">
+                    <div class="score-group">
+                      <div class="score-header">SV</div>
+                      <div class="score-value sv">${(gymnast.sv || 0).toFixed(1)}</div>
+                    </div>
+                    <div class="score-group">
+                      <div class="score-header">ND</div>
+                      <div class="score-value nd">${(gymnast.nd || 0).toFixed(1)}</div>
+                    </div>
+                    <div class="score-group">
+                      <div class="score-header">SB</div>
+                      <div class="score-value sb">${gymnast.stickBonus ? '0.1' : '0.0'}</div>
+                    </div>
+                    <div class="score-group">
+                      <div class="score-header">EXEC</div>
+                      <div class="score-value execution">${(gymnast.execution || 0).toFixed(1)}</div>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="info-label">E SCORE</td>
+                  <td class="info-value">${(gymnast.eScore || 0).toFixed(3)}</td>
+                </tr>
+                <tr>
+                  <td class="info-label">MY SCORE</td>
+                  <td class="info-value orange">${(gymnast.myScore || 0).toFixed(3)}</td>
+                </tr>
+                <tr>
+                  <td class="info-label">EXECUTION PERFORMANCE</td>
+                  <td class="info-value">${(gymnast.percentage || 0)}%</td>
+                </tr>
+              </table>
+            </div>
+          </div>
+          
+          <!-- Competition Section Below Tables -->
+          <div class="competition-section">
+            <div class="comp-row">
+              <div class="comp-label">COMPETITION</div>
+              <div class="comp-cell">D</div>
+              <div class="comp-value">${(gymnast.compD || 0).toFixed(1)}</div>
+              <div class="comp-cell">E</div>
+              <div class="comp-value">${(gymnast.compE || 0).toFixed(3)}</div>
+              <div class="comp-cell">SB</div>
+              <div class="comp-value">${gymnast.compSd ? '0.1' : '0.0'}</div>
+              <div class="comp-cell">ND</div>
+              <div class="comp-value">${(gymnast.compNd || gymnast.nd || 0).toFixed(1)}</div>
+              <div class="comp-cell">SCORE</div>
+              <div class="comp-value">${(gymnast.compScore || 0).toFixed(3)}</div>
+            </div>
+          </div>
+          
+          <!-- Comments Section -->
+          <div class="comments-section">
+            <h3>💬 Judge Comments</h3>
+            <div class="comments-text">
+              ${gymnast.comments || 'No comments provided for this vault.'}
+            </div>
+          </div>
+        </div>
+      `;
+    } else {
+      // Use exact floor layout from generateMainFloorPDF
+      return `
+        <div class="page">
+          <div class="header">
+            <h1>🏅 Judges' Report</h1>
+            <h2>${gymnast.name || 'Unknown Gymnast'} (${gymnast.noc || 'UNK'}) - ${gymnast.event || 'FX'}</h2>
+          </div>
+          
+          <div class="gymnast-info">
+            <strong>Number:</strong> ${gymnast.number || 0} | 
+            <strong>Gymnast:</strong> ${gymnast.name || 'Unknown'} | 
+            <strong>NOC:</strong> ${gymnast.noc || 'UNK'} | 
+            <strong>Event:</strong> ${gymnast.event || 'FX'} | 
+            <strong>BIB:</strong> ${gymnast.bib || ""} | 
+            <strong>Execution Performance:</strong> ${gymnast.percentage || 0}%
+          </div>
+          
+          <!-- Full Width Whiteboard Section -->
+          <div class="whiteboard-section">
+            <div class="whiteboard-title">Judge's Whiteboard</div>
+            <svg class="whiteboard-canvas" viewBox="0 0 1300 780" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+              ${renderWhiteboardPaths(gymnast.paths || '')}
+            </svg>
+          </div>
+          
+          <!-- Tables Section Below Whiteboard -->
+          <div class="tables-section">
+            <!-- Code Table Section -->
+            <div>
+              <div class="code-table-header">Difficulty Values</div>
+              <table class="code-table">
+                
+                <tbody>
+                  <tr class="element-row">
+                    <td class="code-cell ${(gymnast.j || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''} ">J</td>
+                    <td class="number-cell ${(gymnast.j || 0) === 1 ? 'selected' : ''}" ${(gymnast.j || 0) === 1 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.j || 0) === 2 ? 'selected' : ''}" ${(gymnast.j || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.j || 0) === 3 ? 'selected' : ''}" ${(gymnast.j || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.j || 0) === 4 ? 'selected' : ''}" ${(gymnast.j || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.j || 0) === 5 ? 'selected' : ''}" ${(gymnast.j || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.j || 0) === 6 ? 'selected' : ''}" ${(gymnast.j || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.j || 0) === 7 ? 'selected' : ''}" ${(gymnast.j || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.j || 0) === 8 ? 'selected' : ''}" ${(gymnast.j || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.j || 0) > 0 ? 'selected' : ''}" ${(gymnast.j || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.j || 0}</td>
+                    <td class="${(gymnast.j || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.j || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>J</td>
+                  </tr>
+                  <tr class="element-row">
+                    <td class="code-cell ${(gymnast.i || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}">I</td>
+                    <td class="number-cell ${(gymnast.i || 0) === 1 ? 'selected' : ''}" ${(gymnast.i || 0) === 1 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.i || 0) === 2 ? 'selected' : ''}" ${(gymnast.i || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.i || 0) === 3 ? 'selected' : ''}" ${(gymnast.i || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.i || 0) === 4 ? 'selected' : ''}" ${(gymnast.i || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.i || 0) === 5 ? 'selected' : ''}" ${(gymnast.i || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.i || 0) === 6 ? 'selected' : ''}" ${(gymnast.i || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.i || 0) === 7 ? 'selected' : ''}" ${(gymnast.i || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.i || 0) === 8 ? 'selected' : ''}" ${(gymnast.i || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.i || 0) > 0 ? 'selected' : ''}" ${(gymnast.i || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.i || 0}</td>
+                    <td class="${(gymnast.i || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.i || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>I</td>
+                  </tr>
+                  <tr class="element-row">
+                    <td class="code-cell ${(gymnast.h || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}">H</td>
+                    <td class="number-cell ${(gymnast.h || 0) === 1 ? 'selected' : ''}" ${(gymnast.h || 0) === 1 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.h || 0) === 2 ? 'selected' : ''}" ${(gymnast.h || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.h || 0) === 3 ? 'selected' : ''}" ${(gymnast.h || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.h || 0) === 4 ? 'selected' : ''}" ${(gymnast.h || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.h || 0) === 5 ? 'selected' : ''}" ${(gymnast.h || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.h || 0) === 6 ? 'selected' : ''}" ${(gymnast.h || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.h || 0) === 7 ? 'selected' : ''}" ${(gymnast.h || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.h || 0) === 8 ? 'selected' : ''}" ${(gymnast.h || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.h || 0) > 0 ? 'selected' : ''}" ${(gymnast.h || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.h || 0}</td>
+                    <td class="${(gymnast.h || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.h || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>H</td>
+                  </tr>
+                  <tr class="element-row">
+                    <td class="code-cell ${(gymnast.g || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}">G</td>
+                    <td class="number-cell ${(gymnast.g || 0) === 1 ? 'selected' : ''}" ${(gymnast.g || 0) === 1 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.g || 0) === 2 ? 'selected' : ''}" ${(gymnast.g || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.g || 0) === 3 ? 'selected' : ''}" ${(gymnast.g || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.g || 0) === 4 ? 'selected' : ''}" ${(gymnast.g || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.g || 0) === 5 ? 'selected' : ''}" ${(gymnast.g || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.g || 0) === 6 ? 'selected' : ''}" ${(gymnast.g || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.g || 0) === 7 ? 'selected' : ''}" ${(gymnast.g || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.g || 0) === 8 ? 'selected' : ''}" ${(gymnast.g || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.g || 0) > 0 ? 'selected' : ''}" ${(gymnast.g || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.g || 0}</td>
+                    <td class="${(gymnast.g || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.g || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>G</td>
+                  </tr>
+                  <tr class="element-row">
+                    <td class="code-cell ${(gymnast.f || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}">F</td>
+                    <td class="number-cell ${(gymnast.f || 0) === 1 ? 'selected' : ''}" ${(gymnast.f || 0) === 1 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.f || 0) === 2 ? 'selected' : ''}" ${(gymnast.f || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.f || 0) === 3 ? 'selected' : ''}" ${(gymnast.f || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.f || 0) === 4 ? 'selected' : ''}" ${(gymnast.f || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.f || 0) === 5 ? 'selected' : ''}" ${(gymnast.f || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.f || 0) === 6 ? 'selected' : ''}" ${(gymnast.f || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.f || 0) === 7 ? 'selected' : ''}" ${(gymnast.f || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.f || 0) === 8 ? 'selected' : ''}" ${(gymnast.f || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.f || 0) > 0 ? 'selected' : ''}" ${(gymnast.f || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.f || 0}</td>
+                    <td class="${(gymnast.f || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.f || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>F</td>
+                  </tr>
+                  <tr class="element-row">
+                    <td class="code-cell ${(gymnast.e || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}">E</td>
+                    <td class="number-cell ${(gymnast.e || 0) === 1 ? 'selected' : ''}" ${(gymnast.e || 0) === 1 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.e || 0) === 2 ? 'selected' : ''}" ${(gymnast.e || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.e || 0) === 3 ? 'selected' : ''}" ${(gymnast.e || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.e || 0) === 4 ? 'selected' : ''}" ${(gymnast.e || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.e || 0) === 5 ? 'selected' : ''}" ${(gymnast.e || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.e || 0) === 6 ? 'selected' : ''}" ${(gymnast.e || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.e || 0) === 7 ? 'selected' : ''}" ${(gymnast.e || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.e || 0) === 8 ? 'selected' : ''}" ${(gymnast.e || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.e || 0) > 0 ? 'selected' : ''}" ${(gymnast.e || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.e || 0}</td>
+                    <td class="${(gymnast.e || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.e || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>E</td>
+                  </tr>
+                  <tr class="element-row">
+                    <td class="code-cell ${(gymnast.d || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}">D</td>
+                    <td class="number-cell ${(gymnast.d || 0) === 1 ? 'selected' : ''}" ${(gymnast.d || 0) === 1 ? 'style="color:rgb(153, 1, 1)!important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.d || 0) === 2 ? 'selected' : ''}" ${(gymnast.d || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.d || 0) === 3 ? 'selected' : ''}" ${(gymnast.d || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.d || 0) === 4 ? 'selected' : ''}" ${(gymnast.d || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.d || 0) === 5 ? 'selected' : ''}" ${(gymnast.d || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.d || 0) === 6 ? 'selected' : ''}" ${(gymnast.d || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.d || 0) === 7 ? 'selected' : ''}" ${(gymnast.d || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.d || 0) === 8 ? 'selected' : ''}" ${(gymnast.d || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.d || 0) > 0 ? 'selected' : ''}" ${(gymnast.d || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.d || 0}</td>
+                    <td class="${(gymnast.d || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.d || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>D</td>
+                  </tr>
+                  <tr class="element-row">
+                    <td class="code-cell ${(gymnast.c || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}">C</td>
+                    <td class="number-cell ${(gymnast.c || 0) === 1 ? 'selected' : ''}" ${(gymnast.c || 0) === 1 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.c || 0) === 2 ? 'selected' : ''}" ${(gymnast.c || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.c || 0) === 3 ? 'selected' : ''}" ${(gymnast.c || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.c || 0) === 4 ? 'selected' : ''}" ${(gymnast.c || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.c || 0) === 5 ? 'selected' : ''}" ${(gymnast.c || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.c || 0) === 6 ? 'selected' : ''}" ${(gymnast.c || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.c || 0) === 7 ? 'selected' : ''}" ${(gymnast.c || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.c || 0) === 8 ? 'selected' : ''}" ${(gymnast.c || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.c || 0) > 0 ? 'selected' : ''}" ${(gymnast.c || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.c || 0}</td>
+                    <td class="${(gymnast.c || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.c || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>C</td>
+                  </tr>
+                  <tr class="element-row">
+                    <td class="code-cell ${(gymnast.b || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}">B</td>
+                    <td class="number-cell ${(gymnast.b || 0) === 1 ? 'selected' : ''}" ${(gymnast.b || 0) === 1 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.b || 0) === 2 ? 'selected' : ''}" ${(gymnast.b || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.b || 0) === 3 ? 'selected' : ''}" ${(gymnast.b || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.b || 0) === 4 ? 'selected' : ''}" ${(gymnast.b || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.b || 0) === 5 ? 'selected' : ''}" ${(gymnast.b || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.b || 0) === 6 ? 'selected' : ''}" ${(gymnast.b || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.b || 0) === 7 ? 'selected' : ''}" ${(gymnast.b || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.b || 0) === 8 ? 'selected' : ''}" ${(gymnast.b || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.b || 0) > 0 ? 'selected' : ''}" ${(gymnast.b || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.b || 0}</td>
+                    <td class="${(gymnast.b || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.b || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>B</td>
+                  </tr>
+                  <tr class="element-row">
+                    <td class="code-cell ${(gymnast.a || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}">A</td>
+                    <td class="number-cell ${(gymnast.a || 0) === 1 ? 'selected' : ''}" ${(gymnast.a || 0) === 1 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>1</td>
+                    <td class="number-cell ${(gymnast.a || 0) === 2 ? 'selected' : ''}" ${(gymnast.a || 0) === 2 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>2</td>
+                    <td class="number-cell ${(gymnast.a || 0) === 3 ? 'selected' : ''}" ${(gymnast.a || 0) === 3 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>3</td>
+                    <td class="number-cell ${(gymnast.a || 0) === 4 ? 'selected' : ''}" ${(gymnast.a || 0) === 4 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>4</td>
+                    <td class="number-cell ${(gymnast.a || 0) === 5 ? 'selected' : ''}" ${(gymnast.a || 0) === 5 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>5</td>
+                    <td class="number-cell ${(gymnast.a || 0) === 6 ? 'selected' : ''}" ${(gymnast.a || 0) === 6 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>6</td>
+                    <td class="number-cell ${(gymnast.a || 0) === 7 ? 'selected' : ''}" ${(gymnast.a || 0) === 7 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>7</td>
+                    <td class="number-cell ${(gymnast.a || 0) === 8 ? 'selected' : ''}" ${(gymnast.a || 0) === 8 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>8</td>
+                    <td class="sel-cell ${(gymnast.a || 0) > 0 ? 'selected' : ''}" ${(gymnast.a || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>${gymnast.a || 0}</td>
+                    <td class="${(gymnast.a || 0) > 0 ? 'selected-value has-selection' : 'selected-value'}" ${(gymnast.a || 0) > 0 ? 'style="color: rgb(153, 1, 1) !important; font-weight: bold !important;"' : ''}>A</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            
+            <!-- Info Table -->
+
+
+            
+            <div>
+              <table class="info-table">
+                <tr>
+                  <td class="info-label">NUMBER OF ELEMENTS</td>
+                  <td class="info-value ${(gymnast.numberOfElements || 0) >= 6 && (gymnast.numberOfElements || 0) <= 8 ? 'green' : 'red'}">
+                    ${gymnast.numberOfElements || 0}
+                  </td>
+                </tr>
+                <tr>
+                  <td class="info-label">DIFFICULTY VALUES</td>
+                  <td class="info-value">${(gymnast.difficultyValues || 0).toFixed(1)}</td>
+                </tr>
+                <tr>
+                  <td class="info-label">ELEMENT GROUPS</td>
+                  <td class="element-groups">
+                    <div class="element-group">
+                      <div class="group-header">I</div>
+                      <div class="group-value">${(gymnast.elementGroups1 || 0).toFixed(1)}</div>
+                    </div>
+                    <div class="element-group">
+                      <div class="group-header">II</div>
+                      <div class="group-value">${(gymnast.elementGroups2 || 0).toFixed(1)}</div>
+                    </div>
+                    <div class="element-group">
+                      <div class="group-header">III</div>
+                      <div class="group-value">${(gymnast.elementGroups3 || 0).toFixed(1)}</div>
+                    </div>
+                    <div class="element-group">
+                      <div class="group-header">IV</div>
+                      <div class="group-value">${(gymnast.elementGroups4 || 0).toFixed(1)}</div>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="info-label">ELEMENT GROUPS TOTAL</td>
+                  <td class="info-value">${(gymnast.elementGroups5 || 0).toFixed(1)}</td>
+                </tr>
+                <tr>
+                  <td class="info-label">SCORES</td>
+                  <td class="score-groups">
+                    <div class="score-group">
+                      <div class="score-header">CV</div>
+                      <div class="score-value cv">${(gymnast.cv || 0).toFixed(1)}</div>
+                    </div>
+                    <div class="score-group">
+                      <div class="score-header">SB</div>
+                      <div class="score-value sb">${gymnast.stickBonus ? '0.1' : '0.0'}</div>
+                    </div>
+                    <div class="score-group">
+                      <div class="score-header">ND</div>
+                      <div class="score-value nd">${(gymnast.nd || 0).toFixed(1)}</div>
+                    </div>
+                    <div class="score-group">
+                      <div class="score-header">SV</div>
+                      <div class="score-value sv">${(gymnast.sv || 0).toFixed(1)}</div>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="info-label">EXECUTION</td>
+                  <td class="info-value">${(gymnast.execution || gymnast.e2 || 0).toFixed(1)}</td>
+                </tr>
+                <tr>
+                  <td class="info-label">E SCORE</td>
+                  <td class="info-value">${(gymnast.eScore || gymnast.e3 || 0).toFixed(3)}</td>
+                </tr>
+                <tr>
+                  <td class="info-label">MY SCORE</td>
+                  <td class="info-value orange">${(gymnast.myScore || 0).toFixed(3)}</td>
+                </tr>
+              </table>
+            </div>
+          </div>
+          
+          <!-- Competition Section Below Tables -->
+          <div class="competition-section">
+            <div class="comp-row">
+              <div class="comp-label">COMPETITION</div>
+              <div class="comp-cell">D</div>
+              <div class="comp-value">${(gymnast.compD || gymnast.d3 || 0).toFixed(1)}</div>
+              <div class="comp-cell">E</div>
+              <div class="comp-value">${(gymnast.compE || gymnast.e3 || 0).toFixed(3)}</div>
+              <div class="comp-cell">SB</div>
+              <div class="comp-value">${gymnast.compSd ? '0.1' : '0.0'}</div>
+              <div class="comp-cell">ND</div>
+              <div class="comp-value">${(gymnast.compNd || gymnast.nd || 0).toFixed(1)}</div>
+              <div class="comp-cell">SCORE</div>
+              <div class="comp-value">${(gymnast.compScore || 0).toFixed(3)}</div>
+            </div>
+          </div>
+          
+          <!-- Comments Section -->
+          <div class="comments-section">
+            <h3>💬 Judge Comments</h3>
+            <div class="comments-text">
+              ${gymnast.comments || 'No comments provided for this routine.'}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+  }).join('');
+
+  // Generate final table HTML (exact copy from generateFinalTablePDF)
+  const finalTableHTML = `
+    <div class="page final-table-page">
+      <div class="header final-table-header">
+        <h1>🏅 Judging Summary</h1>
+        <p>${finalTableData.competition.discipline}</p>
+      </div>
+      
+      <div class="competition-info">
+        <h2>Competition Details</h2>
+        <div class="info-grid">
+          <div class="info-item">
+            <div class="info-value">DATE: ${finalTableData.competition.date}</div>
+          </div>
+          <div class="info-item">
+            <div class="info-value">PARTICIPANTS: ${finalTableData.competition.totalParticipants}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="table-container">
+        <table class="results-table">
+          <thead>
+            <tr>
+              <th class="header-gray header-first">No.</th>
+              <th class="header-blue">GYMNAST</th>
+              <th class="header-blue">EVENT</th>
+              <th class="header-blue">NOC</th>
+              <th class="header-blue">BIB</th>
+              <th class="header-gray">J</th>
+              <th class="header-gray">I</th>
+              <th class="header-gray">H</th>
+              <th class="header-gray">G</th>
+              <th class="header-gray">F</th>
+              <th class="header-gray">E</th>
+              <th class="header-gray">D</th>
+              <th class="header-gray">C</th>
+              <th class="header-gray">B</th>
+              <th class="header-gray">A</th>
+              <th class="header-blue">DV</th>
+              <th class="header-blue">EG</th>
+              <th class="header-blue">SB</th>
+              <th class="header-blue">ND</th>
+              <th class="header-blue">CV</th>
+              <th class="header-blue">SV</th>
+              <th class="header-blue">E</th>
+              <th class="header-gold">D</th>
+              <th class="header-gold">E</th>
+              <th class="header-gold">DELT</th>
+              <th class="header-gold">%</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${finalTableData.participants.map((participant, index) => {
+              const isLastRow = index === finalTableData.participants.length - 1;
+              const truncateComment = (text: string) => {
+                if (!text || text.trim() === '') return '';
+                const chunks = [];
+                for (let i = 0; i < text.length; i += 12) {
+                  chunks.push(text.substring(i, i + 12));
+                }
+                if (chunks.length <= 3) {
+                  return chunks.join('<br>');
+                } else {
+                  const firstTwoLines = chunks.slice(0, 2);
+                  const thirdLineText = chunks[2];
+                  const truncatedThirdLine = thirdLineText.substring(0, 9) + '...';
+                  return [...firstTwoLines, truncatedThirdLine].join('<br>');
+                }
+              };
+              
+              return `
+                <tr>
+                  <td class="position-cell ${isLastRow ? 'bottom-left' : ''}">${participant.position}</td>
+                  <td class="name-cell">${participant.name}</td>
+                  <td>${participant.event}</td>
+                  <td>${participant.noc}</td>
+                  <td>${participant.bib}</td>
+                  <td>${participant.elements.j}</td>
+                  <td>${participant.elements.i}</td>
+                  <td>${participant.elements.h}</td>
+                  <td>${participant.elements.g}</td>
+                  <td>${participant.elements.f}</td>
+                  <td>${participant.elements.e}</td>
+                  <td>${participant.elements.d}</td>
+                  <td>${participant.elements.c}</td>
+                  <td>${participant.elements.b}</td>
+                  <td>${participant.elements.a}</td>
+                  <td>${participant.scores.difficultyValues.toFixed(1)}</td>
+                  <td>${participant.scores.elementGroups.toFixed(1)}</td>
+                  <td>${participant.scores.stickBonus.toFixed(1)}</td>
+                  <td>${participant.scores.neutralDeductions.toFixed(1)}</td>
+                  <td>${participant.scores.connectionValue.toFixed(1)}</td>
+                  <td class="${participant.scores.startValue.toFixed(1) !== participant.scores.dScore.toFixed(1) ? 'red-text' : ''}">${participant.scores.startValue.toFixed(1)}</td>
+                  <td>${participant.scores.executionScore.toFixed(3)}</td>
+                  <td class="score-cell">${participant.scores.dScore.toFixed(1)}</td>
+                  <td class="score-cell">${participant.scores.eScore.toFixed(3)}</td>
+                  <td class="score-cell">${participant.details.delta.toFixed(1)}</td>
+                  <td class="${participant.details.percentage >= 88 ? 'green-text' : participant.details.percentage >= 70 ? 'yellow-text' : 'red-text'} ${isLastRow ? 'bottom-right' : ''}">${participant.details.percentage}%</td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Statistics Section -->
+      <div class="statistics-section">
+        <h3 style="color: #0052b4; margin-bottom: 15px;">📊 Competition Statistics</h3>
+        <div class="stats-grid">
+          <div class="stat-box">
+            <div class="stat-number">${finalTableData.participants.filter(p => p.scores.executionScore > 0 ).length}</div>
+            <div class="stat-label">Total Participants</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-number">${(() => {
+              const realParticipants = finalTableData.participants.filter(p => p.scores.executionScore > 0);
+              return realParticipants.length > 0 ? (realParticipants.reduce((sum, p) => sum + p.details.percentage, 0) / realParticipants.length).toFixed(2) : '0.0';
+            })()}%</div>
+            <div class="stat-label">Average Percentage</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-number">${(() => {
+              const realParticipants = finalTableData.participants.filter(p => p.scores.executionScore > 0);
+              return realParticipants.length > 0 ? Math.min(...realParticipants.map(p => p.details.percentage)) : 0;
+            })()}%</div>
+            <div class="stat-label">Lowest Percentage</div>
+          </div>
+        </div>
+      </div>
+
+      ${(() => {
+        const participantsWithComments = finalTableData.participants.filter(p => p.details.comments && p.details.comments.trim() !== '');
+        
+        if (participantsWithComments.length > 0) {
+          return `
+            <div class="comments-section">
+              <h3>💬 Judge Comments</h3>
+              ${participantsWithComments.map(participant => `
+                <div class="comment-item">
+                  <div class="comment-gymnast">${participant.name} (${participant.noc})</div>
+                  <div class="comment-text">${participant.details.comments}</div>
+                </div>
+              `).join('')}
+            </div>
+          `;
+        }
+        return '';
+      })()}
+      
+      <div class="footer">
+        <p><strong>Generated by GymJudge</strong> on ${new Date().toLocaleString()}</p>
+        <p>© 2025 GymJudge. All rights reserved. | Competition Report</p>
+      </div>
+    </div>
+  `;
+
+  // Combine ALL CSS from both functions (vault + floor + final table)
+  // --- Chunking + Merge para evitar OOM ---
+  const MAX_PAGES_PER_CHUNK = 35; // Ajustable
+  const MAX_HTML_CHARS = 750_000; // fallback por tamaño
+  const pagesCount = individualPagesHTML.length;
+
+  const buildFullHTML = (pages: string[] | string, includeFinalTable: boolean) => {
+    const arr = Array.isArray(pages) ? pages : [pages];
+    return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        * {
+          margin: 0;
+          padding: 0;
+          box-sizing: border-box;
+        }
+        
+        body {
+          font-family: Arial, sans-serif;
+          font-size: 10px;
+          line-height: 1.2;
+          color: #333;
+          background: #f5f5f5;
+          padding: 8px;
+        }
+        
+        .red-text {
+          color:rgb(153, 1, 1) !important;
+        }
+        
+        .green-text {
+          color:rgb(27, 92, 29) !important;
+        }
+        .yellow-text {
+          color:rgb(188, 142, 28) !important;
+        }
+
+        .page {
+          background: white;
+          margin-bottom: 20px;
+          padding: 15px;
+          border-radius: 8px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          page-break-after: always;
+        }
+        
+        .final-table-page {
+          background: #f0f4f8 !important;
+          padding: 15px;
+        }
+        
+        .header {
+          text-align: center;
+          margin-bottom: 15px;
+          background: linear-gradient(135deg, #0052b4, #004aad);
+          color: white;
+          padding: 12px;
+          border-radius: 6px;
+        }
+        
+        .final-table-header {
+          padding: 20px;
+        }
+        
+        .header h1 {
+          font-size: 18px;
+          margin-bottom: 3px;
+        }
+        
+        .header h2 {
+          font-size: 14px;
+          font-weight: normal;
+        }
+        
+        .final-table-header h1 {
+          font-size: 28px !important;
+          margin-bottom: 10px;
+        }
+        
+        .gymnast-info {
+          background: #e8f4ff;
+          padding: 8px;
+          border-radius: 4px;
+          margin-bottom: 15px;
+          border-left: 3px solid #0052b4;
+          font-size: 9px;
+        }
+        
+        .whiteboard-section {
+          background: #f9f9f9;
+          border-radius: 6px;
+          padding: 15px 25px 20px 25px;
+          border: 1px solid #ddd;
+          margin-bottom: 15px;
+          text-align: center;
+        }
+        
+        .whiteboard-title {
+          font-size: 12px;
+          font-weight: bold;
+          color: #0052b4;
+          margin-bottom: 8px;
+          text-align: center;
+        }
+        
+        .whiteboard-canvas {
+          width: 60%;
+          height: 180px;
+          background: #ffffffff;
+          border: 1px solid #ccc;
+          border-radius: 4px;
+          margin: 0 auto;
+          position: relative;
+        }
+        
+        .tables-section {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 15px;
+          margin-bottom: 15px;
+        }
+        
+        /* VAULT TABLE STYLES - From generateMainJumpPDF */
+        .vault-table {
+          width: 100%;
+          border-collapse: collapse;
+          background: white;
+          border-radius: 4px;
+          overflow: hidden;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+          font-size: 8px;
+        }
+        
+        .vault-table-header {
+          background: #0052b4;
+          color: white;
+          text-align: center;
+          padding: 6px;
+          font-weight: bold;
+          font-size: 10px;
+        }
+        
+        .vault-table th,
+        .vault-table td {
+          border: 1px solid #ddd;
+          padding: 3px;
+          text-align: center;
+          font-weight: bold;
+        }
+        
+        .vault-table th {
+          background: #f0f0f0;
+          font-size: 8px;
+        }
+        
+        .vault-info-row {
+          background: #a9def9;
+        }
+        
+        .vault-info-value {
+          background: #6B9BDF;
+          color: white;
+          font-weight: bold;
+          font-size: 10px;
+        }
+        
+        /* CODE TABLE STYLES - From generateMainFloorPDF */
+        .code-table {
+          width: 100%;
+          border-collapse: collapse;
+          background: white;
+          border-radius: 4px;
+          overflow: hidden;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+          font-size: 8px;
+        }
+        
+        .code-table-header {
+          background: #0052b4;
+          color: white;
+          text-align: center;
+          padding: 6px;
+          font-weight: bold;
+          font-size: 10px;
+        }
+        
+        .code-table th,
+        .code-table td {
+          border: 1px solid #ddd;
+          padding: 3px;
+          text-align: center;
+          font-weight: bold;
+        }
+        
+        .code-table th {
+          background: #f0f0f0;
+          font-size: 7px;
+        }
+        
+        .element-row {
+          background: #a9def9;
+        }
+        
+        .code-cell {
+          background: #a9def9;
+          color: #333;
+        }
+
+        .code-cell.selected {
+          background: #28a745 !important; 
+          color: white !important;
+        }
+        
+        .number-cell {
+          background: #a9def9;
+          color: #333;
+        }
+        
+        .number-cell.selected {
+          background: #28a745 !important; 
+          color: #ffffff !important;
+          font-weight: bold !important;
+        }
+
+        .sel-cell {
+          background: #a9def9;
+          color: #333;
+        }
+
+        .sel-cell.selected {
+          background: #28a745 !important;
+          color: white !important;
+        }
+        
+        .selected-value {
+          color:  #333; 
+        }
+
+        .selected-value.has-selection {
+          background: #28a745 !important; 
+          color: white !important;
+        }
+        
+        /* INFO TABLE STYLES - Common to both */
+        .info-table {
+          width: 100%;
+          border-collapse: collapse;
+          background: white;
+          border-radius: 4px;
+          overflow: hidden;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+          font-size: 8px;
+          border: 1px solid #ddd;
+        }
+        
+        .info-table tr {
+          height: 22px;
+        }
+        
+        .info-label {
+          background: #a9def9;
+          padding: 3px 6px;
+          font-weight: bold;
+          text-align: right;
+          width: 120px;
+          border: 1px solid #ddd;
+          font-size: 8px;
+        }
+        
+        .info-value {
+          background: #6B9BDF;
+          padding: 3px;
+          text-align: center;
+          font-weight: bold;
+          border: 1px solid #ddd;
+          font-size: 10px;
+        }
+        
+        .info-value.green {
+          background: #00b050;
+        }
+        
+        .info-value.red {
+          background: #ff9b9b;
+        }
+        
+        .info-value.yellow {
+          background: #f8c471;
+        }
+        
+        .info-value.orange {
+          background: #ffcb41;
+        }
+        
+        /* ELEMENT GROUPS - From Floor */
+        .element-groups {
+          display: flex;
+          flex: 1;
+        }
+        
+        .element-group {
+          flex: 1;
+          text-align: center;
+          border: 1px solid #ddd;
+        }
+        
+        .group-header {
+          background: #D9D9D9;
+          padding: 3px;
+          font-weight: bold;
+          font-size: 10px;
+        }
+        
+        .group-value {
+          background: #6B9BDF;
+          padding: 3px;
+          font-weight: bold;
+          font-size: 10px;
+        }
+        
+        /* SCORE GROUPS - Common to both */
+        .score-groups {
+          display: flex;
+          flex: 1;
+        }
+        
+        .score-group {
+          flex: 1;
+          text-align: center;
+          border: 1px solid #ddd;
+        }
+        
+        .score-header {
+          background: #D9D9D9;
+          padding: 3px;
+          font-weight: bold;
+          font-size: 8px;
+        }
+        
+        .score-value {
+          padding: 3px;
+          font-weight: bold;
+          font-size: 9px;
+        }
+        
+        .score-value.cv {
+          background: #f8c471;
+        }
+        
+        .score-value.sb {
+          background: #00b050;
+          color: white;
+        }
+        
+        .score-value.nd {
+          background: #ff9b9b;
+        }
+        
+        .score-value.sv {
+          background: #6B9BDF;
+        }
+        
+        .score-value.execution {
+          background: #f8c471;
+        }
+        
+        /* COMPETITION SECTION - Common to both */
+        .competition-section {
+          background: white;
+          border-radius: 4px;
+          margin: 0 auto 10px auto;
+          max-width: 600px;
+          overflow: hidden;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .comp-row {
+          display: flex;
+          height: 25px;
+        }
+        
+        .comp-label {
+          background: #00b050;
+          color: white;
+          text-align: center;
+          padding: 3px 6px;
+          font-weight: bold;
+          width: 120px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 8px;
+        }
+        
+        .comp-cell {
+          flex: 1;
+          background: #D9D9D9;
+          text-align: center;
+          padding: 3px;
+          font-weight: bold;
+          border: 1px solid black;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 8px;
+        }
+        
+        .comp-value {
+          flex: 1;
+          background: #00b050;
+          color: white;
+          text-align: center;
+          padding: 3px;
+          font-weight: bold;
+          border: 1px solid black;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 9px;
+        }
+        
+        /* COMMENTS SECTION - Common to both */
+        .comments-section {
+          background: white;
+          padding: 10px;
+          border-radius: 4px;
+          margin-bottom: 10px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .comments-section h3 {
+          color: #0052b4;
+          margin-bottom: 6px;
+          border-bottom: 1px solid #0052b4;
+          padding-bottom: 3px;
+          font-size: 11px;
+        }
+        
+        .comments-text {
+          font-size: 9px;
+          line-height: 1.3;
+          text-align: justify;
+        }
+        
+        /* FINAL TABLE STYLES - From generateFinalTablePDF */
+        .competition-info {
+          background: #e8f4ff;
+          padding: 15px;
+          border-radius: 5px;
+          margin-bottom: 20px;
+          border-left: 4px solid #0052b4;
+        }
+        
+        .competition-info h2 {
+          color: #0052b4;
+          margin-bottom: 10px;
+        }
+        
+        .info-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 10px;
+        }
+        
+        .info-item {
+          background: white;
+          padding: 8px;
+          border-radius: 4px;
+          text-align: center;
+          border: 1px solid #ddd;
+        }
+        
+        .table-container {
+          background: white;
+          border-radius: 15px;
+          overflow: hidden;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+          margin-bottom: 20px;
+        }
+        
+        .results-table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        
+        .results-table th {
+          padding: 8px 4px;
+          text-align: center;
+          font-weight: bold;
+          font-size: 10px;
+          color: white;
+          border-right: 1px solid #ddd;
+          height: 40px;
+        }
+        
+        .header-gray { background: #A2A2A2; }
+        .header-blue { background: #0052b4; }
+        .header-gold { background: #F5D76E; color: #333 !important; }
+        .header-first { border-top-left-radius: 15px; }
+        .header-last { border-top-right-radius: 15px; }
+        
+        .results-table td {
+          padding: 6px 4px;
+          text-align: center;
+          border-right: 1px solid #ddd;
+          border-bottom: 1px solid #ddd;
+          font-size: 10px;
+          background: white;
+          height: 40px;
+          vertical-align: middle;
+        }
+        
+        .position-cell {
+          background: white !important;
+          font-weight: bold;
+          color: #333;
+        }
+        
+        .name-cell {
+          text-align: left !important;
+          padding-left: 10px !important;
+          font-weight: bold;
+          max-width: 200px;
+        }
+        
+        .percentage-cell {
+          background: #FFC0C7 !important;
+          font-weight: bold;
+        }
+        
+        .score-cell {
+          font-weight: bold;
+          color: #333;
+        }
+        
+        .comments-cell {
+          text-align: justify !important;
+          padding: 4px 6px !important;
+          font-size: 9px;
+          line-height: 1.1;
+          max-width: 120px;
+        }
+        
+        .bottom-left { border-bottom-left-radius: 15px; }
+        .bottom-right { border-bottom-right-radius: 15px; }
+        
+        .statistics-section {
+          background: white;
+          padding: 15px;
+          border-radius: 8px;
+          margin-bottom: 20px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .stats-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 15px;
+        }
+        
+        .stat-box {
+          text-align: center;
+          padding: 10px;
+          background: #f8f9fa;
+          border-radius: 4px;
+        }
+        
+        .stat-number {
+          font-size: 20px;
+          font-weight: bold;
+          color: #0052b4;
+        }
+        
+        .stat-label {
+          font-size: 10px;
+          color: #666;
+          margin-top: 2px;
+        }
+        
+        .comment-item {
+          margin-bottom: 10px;
+          padding: 10px;
+          background: #f8f9fa;
+          border-radius: 4px;
+          border-left: 4px solid #0052b4;
+        }
+        
+        .comment-gymnast {
+          font-weight: bold;
+          color: #0052b4;
+          margin-bottom: 5px;
+        }
+        
+        .comment-text {
+          color: #555;
+          font-size: 11px;
+          text-align: justify;
+        }
+        
+        .footer {
+          text-align: center;
+          margin-top: 15px;
+          font-size: 8px;
+          color: #666;
+          border-top: 1px solid #ddd;
+          padding-top: 8px;
+        }
+        
+        @media print {
+          body { padding: 5px; }
+          .page { margin-bottom: 0; page-break-after: always; }
+          .header h1 { font-size: 16px; }
+          .final-table-header h1 { font-size: 24px !important; }
+          .results-table { font-size: 9px; }
+        }
+      </style>
+    </head>
+    <body>
+    ${arr.join('')}
+      ${includeFinalTable ? finalTableHTML : ''}
+    </body>
+    </html>`;
+  };
+
+  let finalUri: string | null = null;
+
+  if (pagesCount > MAX_PAGES_PER_CHUNK || buildFullHTML(individualPagesHTML, true).length > MAX_HTML_CHARS) {
+    const chunkUris: string[] = [];
+    for (let i = 0; i < pagesCount; i += MAX_PAGES_PER_CHUNK) {
+      const slice = individualPagesHTML.slice(i, i + MAX_PAGES_PER_CHUNK);
+      const includeFinal = i + MAX_PAGES_PER_CHUNK >= pagesCount; // sólo último incluye tabla final
+      const chunkHtml = buildFullHTML(slice, includeFinal);
+      const { uri } = await Print.printToFileAsync({ html: chunkHtml, base64: false });
+      chunkUris.push(uri);
+    }
+    if (chunkUris.length === 1) {
+      finalUri = chunkUris[0];
+    } else {
+      try {
+        const merged = await PDFDocument.create();
+        for (const u of chunkUris) {
+          try {
+            const base64Data = await FileSystem.readAsStringAsync(u, { encoding: FileSystem.EncodingType.Base64 });
+            const pdf = await PDFDocument.load(Buffer.from(base64Data, 'base64'));
+            const pages = await merged.copyPages(pdf, pdf.getPageIndices());
+            pages.forEach(p => merged.addPage(p));
+          } catch (e) {
+            console.warn('Fallo al fusionar chunk PDF:', e);
+          }
+        }
+        const mergedBytes = await merged.save();
+        finalUri = `${FileSystem.documentDirectory}${competence.name}-${competence.date.split('T')[0]}-merged.pdf`;
+        await FileSystem.writeAsStringAsync(finalUri, Buffer.from(mergedBytes).toString('base64'), { encoding: FileSystem.EncodingType.Base64 });
+      } catch (mergeError) {
+        console.warn('Error en merge, usando primer chunk', mergeError);
+        finalUri = chunkUris[0];
+      }
+    }
+  } else {
+    const html = buildFullHTML(individualPagesHTML, true);
+    const { uri } = await Print.printToFileAsync({ html, base64: false });
+    finalUri = uri;
+  }
+
+  if (!finalUri) throw new Error('No se pudo generar el PDF');
+
+  try {
+    const newUri = `${FileSystem.documentDirectory}${competence.name}-${competence.date.split('T')[0]}.pdf`;
+    await FileSystem.copyAsync({ from: finalUri, to: newUri });
+    await shareAsync(newUri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    return newUri;
+  } catch (shareErr) {
+    console.warn('Fallback share directo', shareErr);
+    await shareAsync(finalUri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    return finalUri;
+  }
+};
+
+
+// Export types for external use
+export type { FinalTableData, MainTableWithRateGeneral };
+

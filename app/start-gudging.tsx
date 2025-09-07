@@ -41,6 +41,7 @@ import {
   updateMainTable,
 } from "../Database/database"; // Adjust the import path as needed
 import ModalCustomNumberPad from "../components/ModalCustomNumberPad"; // Import the new component
+import DevCorruptMainTableScreen from "./dev-corrupt-main-table";
 
 // Get screen dimensions for responsive design
 const { width, height } = Dimensions.get("window");
@@ -3137,7 +3138,6 @@ const processAndInsertData = async (data: any[]) => {
     </View>
   </Modal>
 )}
-
 {/* Delete Confirmation Modal */}
 {(Platform.OS === 'ios' && !Platform.isPad) || (Platform.OS === 'android' && isTinyDevice) ? (
   confirmationModal && (

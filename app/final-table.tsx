@@ -14,7 +14,7 @@ import {
   View
 } from 'react-native';
 import { getCompetenceById, getMainTablesByCompetenceId, getRateGeneralByTableId } from "../Database/database";
-import { generateComprehensivePDF } from '../components/exportToPDF';
+import { generateComprehensivePDF } from '../components/exportToPDFv1';
 import { Asset } from "expo-asset";
 
 const { width, height } = Dimensions.get("window");
