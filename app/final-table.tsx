@@ -139,7 +139,7 @@ export function useJumpImageBase64(): string | null {
   useEffect(() => {
     if (image) {
       // Skia Image tiene método encodeToBase64
-      const b64 = image.encodeToBase64?.() || image.encodeToBase64?.("png") || image.encodeToBase64?.("image/png");
+  const b64 = image.encodeToBase64?.();
 if (b64) {
   setBase64(`data:image/png;base64,${b64}`);
 }
@@ -166,6 +166,8 @@ const GymnasticsScoreTable: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [pdfExporting, setPdfExporting] = useState(false);
+  const [pdfProgressMsg, setPdfProgressMsg] = useState<string>('');
+  const [pdfProgressValue, setPdfProgressValue] = useState<number>(0);
   const [competencecurrent, setcurrentcompetence] = useState<Competence | null>(null);
 
 
@@ -395,6 +397,8 @@ const GymnasticsScoreTable: React.FC = () => {
 const handleDownloadPDF = async () => {
   try {
     setPdfExporting(true);
+  setPdfProgressMsg('Preparando datos…');
+  setPdfProgressValue(0);
     
     // Prepare data for comprehensive PDF
     const finalTableData = {
@@ -453,9 +457,18 @@ const handleDownloadPDF = async () => {
       throw new Error("No se pudo obtener la información de la competencia");
     }
     
-    await generateComprehensivePDF(tables, finalTableData, competencecurrent, jumpImageBase64);
+    await generateComprehensivePDF(
+      tables,
+      finalTableData,
+      competencecurrent,
+      jumpImageBase64,
+      (msg, p) => {
+        setPdfProgressMsg(msg);
+        setPdfProgressValue(p);
+      }
+    );
     
-    setPdfExporting(false);
+  setPdfExporting(false);
     setModalVisible(false);
     
     Alert.alert(
@@ -467,7 +480,7 @@ const handleDownloadPDF = async () => {
     router.replace(`/main-menu?folderId=${folderId}&discipline=${discipline}`);
     
   } catch (err) {
-    setPdfExporting(false);
+  setPdfExporting(false);
     
     const errorMessage = err instanceof Error ? err.message : "Error desconocido";
     
@@ -667,6 +680,23 @@ const handleDownloadPDF = async () => {
           </View>
         </View>
       )}
+
+      {/* PDF Export Progress Modal */}
+      <Modal visible={pdfExporting} transparent animationType="fade">
+        <View style={styles.pdfModalBackdrop}>
+          <View style={styles.pdfModalCard}>
+            <Text style={styles.pdfModalTitle}>Generating PDF Report</Text>
+            <Text style={styles.pdfModalMsg}>{pdfProgressMsg || 'Please wait…'}</Text>
+            <View style={styles.pdfProgressBarOuter}>
+              <View style={[styles.pdfProgressBarInner, { width: `${Math.min(100, Math.round(pdfProgressValue * 100))}%` }]} />
+            </View>
+            <Text style={styles.pdfPercent}>{Math.min(100, Math.round(pdfProgressValue * 100))}%</Text>
+            <TouchableOpacity style={styles.pdfCancelBtn} disabled>
+              <Text style={styles.pdfCancelText}>Working...</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
       
       {/* Main Content - Only show when not loading and no error */}
       {!loading && !error && (
@@ -3315,6 +3345,65 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 14,
     fontWeight: '600',
+  },
+  // PDF Export Modal Styles
+  pdfModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  pdfModalCard: {
+    width: '85%',
+    maxWidth: 500,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8
+  },
+  pdfModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#0052b4',
+    marginBottom: 6,
+    textAlign: 'center'
+  },
+  pdfModalMsg: {
+    fontSize: 14,
+    color: '#333',
+    marginBottom: 14,
+    textAlign: 'center'
+  },
+  pdfProgressBarOuter: {
+    height: 12,
+    backgroundColor: '#e3eef6',
+    borderRadius: 8,
+    overflow: 'hidden'
+  },
+  pdfProgressBarInner: {
+    height: '100%',
+    backgroundColor: '#0052b4'
+  },
+  pdfPercent: {
+    marginTop: 6,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0052b4',
+    textAlign: 'center'
+  },
+  pdfCancelBtn: {
+    marginTop: 18,
+    backgroundColor: '#ccc',
+    paddingVertical: 10,
+    borderRadius: 10
+  },
+  pdfCancelText: {
+    textAlign: 'center',
+    fontWeight: '600',
+    color: '#555'
   },
 });
 

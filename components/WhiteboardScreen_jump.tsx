@@ -1,5 +1,5 @@
 import { useRef, useState, Children, useCallback, useEffect } from "react";
-import { View, StyleSheet, Dimensions, TouchableOpacity, Text, Animated, Image, Platform } from "react-native";
+import { View, StyleSheet, Dimensions, TouchableOpacity, Text, Animated, Image, Platform, Alert } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
 import { Path, SkPath, Skia, Canvas, useImage, Image as SkiaImage } from "@shopify/react-native-skia";
@@ -311,6 +311,18 @@ const DrawingCanvas = ({
       const limitedPaths = newPathsData.slice(-1000);
       
       const pathsString = JSON.stringify(limitedPaths);
+      // Validación tamaño (< ~0.9MB)
+      const INLINE_HARD_LIMIT = 900_000; // bytes
+      const byteLengthUtf8 = (str: string): number => {
+        try { if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(str).length; } catch {}
+        try { return unescape(encodeURIComponent(str)).length; } catch { return str.length; }
+      };
+      const size = byteLengthUtf8(pathsString);
+      if (size > INLINE_HARD_LIMIT) {
+        Alert.alert('Whiteboard cap reached', 'Has reached the maximum drawing capacity. Please erase some strokes before continuing.');
+        console.warn(`[Whiteboard Jump] Save blocked. paths size=${size} bytes > ${INLINE_HARD_LIMIT}`);
+        return;
+      }
       
       const mainTable = await getMainTableById(tableId);
 

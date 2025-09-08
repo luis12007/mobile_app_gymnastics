@@ -680,8 +680,10 @@ export const generateComprehensivePDF = async (
   finalTableData: FinalTableData,
   competence: Competence,
   jumpImageBase64: string | null,
+  progressCb?: (msg: string, progress: number) => void,
 ) => {
-  console.log('Generating comprehensive PDF...');
+  console.log('[PDF] Inicio generateComprehensivePDF');
+  progressCb?.('Inicializando…', 0);
   
   if (!individualData || !Array.isArray(individualData) || individualData.length === 0) {
     throw new Error('No individual data provided for PDF generation');
@@ -834,7 +836,7 @@ export const generateComprehensivePDF = async (
   };
 
   // Generate individual pages HTML using the exact same logic from the existing functions
-  const individualPagesHTML = resolvedData.map((gymnast, index) => {
+  let individualPagesHTML = resolvedData.map((gymnast, index) => {
     const isVault = gymnast.event === "VT";
     
     if (isVault) {
@@ -1402,7 +1404,10 @@ export const generateComprehensivePDF = async (
   // --- Chunking + Merge para evitar OOM ---
   const MAX_PAGES_PER_CHUNK = 35; // Ajustable
   const MAX_HTML_CHARS = 750_000; // fallback por tamaño
-  const pagesCount = individualPagesHTML.length;
+  const pagesArray: string[] = Array.isArray(individualPagesHTML) ? individualPagesHTML : [String(individualPagesHTML)];
+  const pagesCount = pagesArray.length;
+  console.log(`[PDF] Tipo individualPagesHTML: ${typeof individualPagesHTML} isArray=${Array.isArray(individualPagesHTML)}`);
+  console.log(`[PDF] Total páginas individuales (elementos array): ${pagesCount}`);
 
   const buildFullHTML = (pages: string[] | string, includeFinalTable: boolean) => {
     const arr = Array.isArray(pages) ? pages : [pages];
@@ -2027,12 +2032,18 @@ export const generateComprehensivePDF = async (
 
   let finalUri: string | null = null;
 
-  if (pagesCount > MAX_PAGES_PER_CHUNK || buildFullHTML(individualPagesHTML, true).length > MAX_HTML_CHARS) {
+  const needsChunk = pagesCount > MAX_PAGES_PER_CHUNK || buildFullHTML(pagesArray, true).length > MAX_HTML_CHARS;
+  console.log(`[PDF] needsChunk = ${needsChunk}`);
+  if (needsChunk) {
+    progressCb?.('Dividiendo en chunks…', 0.05);
     const chunkUris: string[] = [];
+    const totalChunks = Math.ceil(pagesCount / MAX_PAGES_PER_CHUNK);
     for (let i = 0; i < pagesCount; i += MAX_PAGES_PER_CHUNK) {
-      const slice = individualPagesHTML.slice(i, i + MAX_PAGES_PER_CHUNK);
+  const slice = pagesArray.slice(i, i + MAX_PAGES_PER_CHUNK);
       const includeFinal = i + MAX_PAGES_PER_CHUNK >= pagesCount; // sólo último incluye tabla final
       const chunkHtml = buildFullHTML(slice, includeFinal);
+      console.log(`[PDF] Generando chunk ${(i / MAX_PAGES_PER_CHUNK) + 1}/${totalChunks} (páginas ${i + 1}-${Math.min(i + MAX_PAGES_PER_CHUNK, pagesCount)}) length=${chunkHtml.length}`);
+      progressCb?.(`Generando chunk ${(i / MAX_PAGES_PER_CHUNK) + 1}/${totalChunks}`, 0.1 + (0.4 * (i / pagesCount)));
       const { uri } = await Print.printToFileAsync({ html: chunkHtml, base64: false });
       chunkUris.push(uri);
     }
@@ -2041,26 +2052,35 @@ export const generateComprehensivePDF = async (
     } else {
       try {
         const merged = await PDFDocument.create();
+        console.log('[PDF] Iniciando merge de', chunkUris.length, 'chunks');
+        progressCb?.('Fusionando chunks…', 0.55);
         for (const u of chunkUris) {
           try {
             const base64Data = await FileSystem.readAsStringAsync(u, { encoding: FileSystem.EncodingType.Base64 });
             const pdf = await PDFDocument.load(Buffer.from(base64Data, 'base64'));
             const pages = await merged.copyPages(pdf, pdf.getPageIndices());
             pages.forEach(p => merged.addPage(p));
+            console.log('[PDF] Chunk fusionado', u, 'páginas añadidas:', pages.length);
           } catch (e) {
             console.warn('Fallo al fusionar chunk PDF:', e);
           }
+          // actualizar progreso de merge incremental
+          const idx = chunkUris.indexOf(u);
+          progressCb?.(`Fusionando chunk ${idx + 1}/${chunkUris.length}`, 0.55 + 0.35 * ((idx + 1) / chunkUris.length));
         }
         const mergedBytes = await merged.save();
         finalUri = `${FileSystem.documentDirectory}${competence.name}-${competence.date.split('T')[0]}-merged.pdf`;
         await FileSystem.writeAsStringAsync(finalUri, Buffer.from(mergedBytes).toString('base64'), { encoding: FileSystem.EncodingType.Base64 });
+        console.log('[PDF] Merge completo. URI final:', finalUri);
       } catch (mergeError) {
         console.warn('Error en merge, usando primer chunk', mergeError);
         finalUri = chunkUris[0];
       }
     }
   } else {
-    const html = buildFullHTML(individualPagesHTML, true);
+  const html = buildFullHTML(pagesArray, true);
+    console.log('[PDF] Generando PDF en único archivo length=', html.length);
+    progressCb?.('Generando PDF…', 0.4);
     const { uri } = await Print.printToFileAsync({ html, base64: false });
     finalUri = uri;
   }
@@ -2070,11 +2090,17 @@ export const generateComprehensivePDF = async (
   try {
     const newUri = `${FileSystem.documentDirectory}${competence.name}-${competence.date.split('T')[0]}.pdf`;
     await FileSystem.copyAsync({ from: finalUri, to: newUri });
+    progressCb?.('Compartiendo…', 0.95);
+    console.log('[PDF] Compartiendo archivo', newUri);
     await shareAsync(newUri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    progressCb?.('Completado', 1);
+    console.log('[PDF] Proceso completado');
     return newUri;
   } catch (shareErr) {
     console.warn('Fallback share directo', shareErr);
+    progressCb?.('Compartiendo (fallback)…', 0.95);
     await shareAsync(finalUri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    progressCb?.('Completado', 1);
     return finalUri;
   }
 };

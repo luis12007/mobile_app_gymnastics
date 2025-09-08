@@ -13,7 +13,8 @@ const RATE_GENERAL_KEY = "rate_general";
 const RATE_JUMP_KEY = "rate_jump";
 
 // Large field externalization configuration
-const LARGE_FIELD_THRESHOLD = 150_000; // ~150KB; adjust if needed
+// Reducido para externalizar antes y evitar filas enormes que provoquen CursorWindow
+const LARGE_FIELD_THRESHOLD = 40_000; // ~40KB: si paths supera esto, se externaliza a fichero
 const PATHS_DIR = `${FileSystem.documentDirectory}whiteboard_paths/`;
 
 const ensureDirAsync = async (dirUri: string) => {
@@ -710,6 +711,8 @@ export const initDatabase = async (): Promise<void> => {
     
     // Migración/limpieza de datos si es necesario
     await cleanupData();
+  // Externalizar cualquier paths antiguo grande que siga inline
+  await migrateLargeInlinePaths();
     
     console.log("Database initialized successfully");
   } catch (error) {
@@ -1472,9 +1475,18 @@ export const insertMainTable = async (tableData: Omit<MainTable, 'id'>): Promise
   try {
     const mainTables = await getMainTables();
     const id = await getNextId(MAIN_TABLES_KEY);
-    // Saneo entrada (sin id todavía)
+    // Saneo entrada (sin id todavía)\]
     const { sanitized, errors: sanitizeErrors } = sanitizeMainTableInput(tableData, { partial: false });
     let pathsField = sanitized.paths;
+  // Límite duro para evitar "Row too big to fit into CursorWindow" (más conservador)
+  const PATHS_INLINE_HARD_LIMIT = 900_000; // ~0.9MB
+    const byteLengthUtf8 = (str: string): number => {
+      try {
+        if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(str).length;
+      } catch {}
+      // Fallback aproximado
+      try { return unescape(encodeURIComponent(str)).length; } catch { return str.length; }
+    };
     // Externalize large paths payloads
     if (typeof pathsField === 'string' && !isFileRef(pathsField) && pathsField.length > LARGE_FIELD_THRESHOLD) {
       try {
@@ -1483,6 +1495,18 @@ export const insertMainTable = async (tableData: Omit<MainTable, 'id'>): Promise
         pathsField = uri;
       } catch (e) {
         console.warn('insertMainTable: failed to externalize paths, keeping inline', e);
+      }
+    }
+    // Validar tamaño si aún es string inline (externalización fallida o menor al umbral de externalización pero demasiado grande igualmente)
+    if (typeof pathsField === 'string' && !isFileRef(pathsField)) {
+      const size = byteLengthUtf8(pathsField);
+      if (size > PATHS_INLINE_HARD_LIMIT) {
+        console.error(`[MainTable][INSERT] paths demasiado grande (${size} bytes) – abortando inserción.`);
+        Alert.alert(
+          'Datos demasiado grandes',
+          'El campo de trazos (paths) excede el tamaño máximo permitido y no pudo almacenarse. Reduce la complejidad (menos puntos) o divide la rutina antes de guardar.'
+        );
+        return false;
       }
     }
     const newTable: MainTable = { id, ...sanitized, paths: pathsField };
@@ -1563,6 +1587,24 @@ export const updateMainTable = async (
           await deleteFileIfExists(current.paths);
         }
         nextRecord.paths = incoming;
+      }
+    }
+
+    // Validar tamaño final de paths si sigue inline
+    if (typeof nextRecord.paths === 'string' && !isFileRef(nextRecord.paths)) {
+  const PATHS_INLINE_HARD_LIMIT = 900_000; // mantener consistente con insert
+      const byteLengthUtf8 = (str: string): number => {
+        try { if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(str).length; } catch {}
+        try { return unescape(encodeURIComponent(str)).length; } catch { return str.length; }
+      };
+      const size = byteLengthUtf8(nextRecord.paths);
+      if (size > PATHS_INLINE_HARD_LIMIT) {
+        console.error(`[MainTable][UPDATE] paths demasiado grande (${size} bytes) – abortando actualización.`);
+        Alert.alert(
+          'Datos demasiado grandes',
+          'El campo de trazos (paths) excede el tamaño máximo permitido y no pudo actualizarse. No se guardaron los cambios.'
+        );
+        return false;
       }
     }
 
@@ -2354,9 +2396,22 @@ export const importFolderData = async (
             progressCallback?.(`Importando gimnasta ${processedGymnasts + 1} de ${totalGymnasts}...`, progress);
             // Saneamos paths: si viene como file:// de exportaciones antiguas, lo reemplazamos por []
             const incomingPaths = tableData?.mainTable?.paths;
-            const sanitizedPaths = typeof incomingPaths === 'string'
+            let sanitizedPaths = typeof incomingPaths === 'string'
               ? (isFileRef(incomingPaths) ? '[]' : incomingPaths)
               : '[]';
+            // Validación de tamaño para evitar fallo "Row too big to fit into CursorWindow"
+            if (typeof sanitizedPaths === 'string' && sanitizedPaths) {
+              const PATHS_INLINE_HARD_LIMIT = 900_000; // alineado con nueva política
+              const byteLengthUtf8 = (str: string): number => {
+                try { if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(str).length; } catch {}
+                try { return unescape(encodeURIComponent(str)).length; } catch { return str.length; }
+              };
+              const size = byteLengthUtf8(sanitizedPaths);
+              if (size > PATHS_INLINE_HARD_LIMIT) {
+                console.warn(`[Import][MainTable] paths demasiado grande (${size} bytes). Reemplazando por [] y continuando.`);
+                sanitizedPaths = '[]';
+              }
+            }
             const newMainTableData = {
               ...tableData.mainTable,
               paths: sanitizedPaths,
@@ -2723,5 +2778,52 @@ export const getFoldersOrderedByPosition = async (): Promise<Folder[]> => {
   } catch (error) {
     console.error("Error getting ordered folders:", error);
     return [];
+  }
+};
+
+// Migración: externalizar paths inline grandes existentes para evitar errores CursorWindow
+export const migrateLargeInlinePaths = async (): Promise<void> => {
+  try {
+    const tables = await getMainTables();
+    if (!tables.length) return;
+    let modified = false;
+    const INLINE_HARD_LIMIT = 900_000; // nuevo límite objetivo seguridad (<1MB)
+    const SHOULD_EXTERNALIZE_AT = 60_000; // si supera esto, externalizamos (byte size)
+    const byteLengthUtf8 = (str: string): number => {
+      try { if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(str).length; } catch {}
+      try { return unescape(encodeURIComponent(str)).length; } catch { return str.length; }
+    };
+    for (let i = 0; i < tables.length; i++) {
+      const t: any = tables[i];
+      if (t && typeof t.paths === 'string' && !isFileRef(t.paths)) {
+        const size = byteLengthUtf8(t.paths);
+        if (size > INLINE_HARD_LIMIT) {
+          // Demasiado grande: truncar preventivamente (o vaciar) para evitar crash si externalización falla
+          console.warn(`[MIGRATE][MainTable:${t.id}] paths > ${INLINE_HARD_LIMIT} (${size}). Intentando externalizar, fallback a '[]' si falla.`);
+        }
+        if (size > SHOULD_EXTERNALIZE_AT) {
+          try {
+            const uri = makePathsFileUri(t.id);
+            await writeStringToFile(uri, t.paths);
+            t.paths = uri;
+            modified = true;
+            console.log(`[MIGRATE][MainTable:${t.id}] paths externalizado (${size} bytes) -> ${uri}`);
+          } catch (e) {
+            console.warn(`[MIGRATE][MainTable:${t.id}] fallo externalizando (${size} bytes)`, e);
+            if (size > INLINE_HARD_LIMIT) {
+              t.paths = '[]';
+              modified = true;
+              console.warn(`[MIGRATE][MainTable:${t.id}] paths reemplazado por [] para evitar CursorWindow.`);
+            }
+          }
+        }
+      }
+    }
+    if (modified) {
+      await saveItems(MAIN_TABLES_KEY, tables);
+      console.log('[MIGRATE] Large inline paths externalizados / saneados.');
+    }
+  } catch (e) {
+    console.warn('migrateLargeInlinePaths error:', e);
   }
 };
