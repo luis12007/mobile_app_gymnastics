@@ -1,4 +1,4 @@
-import { useRef, useState, Children, useCallback, useEffect, memo, useMemo } from "react";
+import { useRef, useState, Children, useCallback, useEffect, memo } from "react";
 import { View, StyleSheet, Dimensions, TouchableOpacity, Text, Animated, Platform, Alert } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
@@ -1003,100 +1003,6 @@ const findPhotoAtPoint = (x: number, y: number): string | null => {
   // Combinar pan (dibujo) y tap (mover foto)
   const combinedGesture = Gesture.Simultaneous(tapToMoveGesture, drawGesture);
 
-  // --- Canvas memoizado para evitar flicker por cambios de UI externos ---
-  const DrawingSurface = useMemo(() => {
-    return memo(({
-      pathsData,
-      paths,
-      currentPathDisplay,
-      photoItems,
-      activePhoto,
-      registerImageMeta,
-      selectedPen,
-      isEraser,
-      currentColor,
-      currentStrokeWidth
-    }: any) => {
-      // Derivar estilo actual sólo si hay path en progreso
-      let liveColor = isEraser ? '#e0e0e0' : selectedPen === 1 ? 'red' : selectedPen === 2 ? 'yellow' : currentColor;
-      let liveStrokeWidth = isEraser ? currentStrokeWidth * 4 : selectedPen === 1 ? 2 : currentStrokeWidth;
-      return (
-        <Canvas style={[styles.canvas, { height: canvasHeight }]}> 
-          {Children.toArray(pathsData
-            .filter((pd: any) => pd.penType === 0 || !pd.penType)
-            .map((pd: any) => {
-              const idx = pathsData.indexOf(pd);
-              const path = paths[idx];
-              if (!path) return null;
-              const displayColor = pd.isEraser ? '#e0e0e0' : pd.color;
-              return (
-                <Path
-                  key={`n-${idx}`}
-                  path={path}
-                  color={displayColor}
-                  style="stroke"
-                  strokeWidth={pd.strokeWidth}
-                  strokeCap="round"
-                  strokeJoin="round"
-                />
-              );
-            }))}
-          {Children.toArray(pathsData
-            .filter((pd: any) => pd.penType === 1)
-            .map((pd: any) => {
-              const idx = pathsData.indexOf(pd);
-              const path = paths[idx];
-              if (!path) return null;
-              return (
-                <Path
-                  key={`t-${idx}`}
-                  path={path}
-                  color={pd.color}
-                  style="stroke"
-                  strokeWidth={pd.strokeWidth}
-                  strokeCap="round"
-                  strokeJoin="round"
-                  opacity={0.8}
-                />
-              );
-            }))}
-          {Children.toArray(pathsData
-            .filter((pd: any) => pd.penType === 2)
-            .map((pd: any) => {
-              const idx = pathsData.indexOf(pd);
-              const path = paths[idx];
-              if (!path) return null;
-              return (
-                <Group key={`h-${idx}`}>
-                  <Path path={path} color={pd.color} style="fill" opacity={0.3} />
-                  <Path path={path} color={pd.color} style="stroke" strokeWidth={pd.strokeWidth} strokeCap="round" strokeJoin="round" opacity={0.5} />
-                </Group>
-              );
-            }))}
-          {photoItems.map((item: any) => (
-            <SkiaPhoto key={item.uri} item={item} active={activePhoto === item.uri} registerMeta={registerImageMeta} />
-          ))}
-          {currentPathDisplay && (
-            <Group>
-              {selectedPen === 2 && !isEraser && (
-                <Path path={currentPathDisplay} color="yellow" style="fill" opacity={0.3} />
-              )}
-              <Path
-                path={currentPathDisplay}
-                color={liveColor}
-                style="stroke"
-                strokeWidth={liveStrokeWidth}
-                strokeCap="round"
-                strokeJoin="round"
-                opacity={isEraser ? 1 : selectedPen === 1 ? 0.8 : selectedPen === 2 ? 0.5 : 1}
-              />
-            </Group>
-          )}
-        </Canvas>
-      );
-    });
-  }, []);
-
   return (
     <View style={styles.container}>
       {isWeb ? (
@@ -1112,18 +1018,133 @@ const findPhotoAtPoint = (x: number, y: number): string | null => {
       ) : (
         <GestureHandlerRootView style={{ flex: 1 }}>
           <GestureDetector gesture={combinedGesture}>
-            <DrawingSurface
-              pathsData={pathsData}
-              paths={paths}
-              currentPathDisplay={currentPathDisplay}
-              photoItems={photoItems}
-              activePhoto={activePhoto}
-              registerImageMeta={registerImageMeta}
-              selectedPen={selectedPen}
-              isEraser={isEraser}
-              currentColor={currentColor}
-              currentStrokeWidth={currentStrokeWidth}
-            />
+            <Canvas style={[styles.canvas, { height: canvasHeight }]}>
+            {/* Normal paths (type 0) */}
+            {Children.toArray(pathsData
+              .filter(pathData => pathData.penType === 0 || !pathData.penType)
+              .map((pathData, index) => {
+                const pathIndex = pathsData.findIndex(p => p === pathData);
+                const path = paths[pathIndex];
+                if (!path) return null;
+                
+                const displayColor = pathData.isEraser ? '#e0e0e0' : pathData.color;
+                
+                return (
+                  <Path 
+                    key={`normal-${pathIndex}`}
+                    path={path} 
+                    color={displayColor}
+                    style="stroke"
+                    strokeWidth={pathData.strokeWidth}
+                    strokeCap="round"
+                    strokeJoin="round"
+                    opacity={pathData.isEraser ? 1 : 1} // Eraser y normal sin transparencia
+                  />
+                );
+              })
+            )}
+
+            {/* Telestrator paths (type 1) */}
+            {Children.toArray(pathsData
+              .filter(pathData => pathData.penType === 1)
+              .map((pathData, index) => {
+                const pathIndex = pathsData.findIndex(p => p === pathData);
+                const path = paths[pathIndex];
+                if (!path) return null;
+                
+                return (
+                  <Path 
+                    key={`telestrator-${pathIndex}`}
+                    path={path} 
+                    color={pathData.color}
+                    style="stroke"
+                    strokeWidth={pathData.strokeWidth}
+                    strokeCap="round"
+                    strokeJoin="round"
+                    opacity={0.8} // Telestrator semi-transparente
+                  />
+                );
+              })
+            )}
+
+            {/* Highlighter paths (type 2) - con relleno */}
+            {Children.toArray(pathsData
+              .filter(pathData => pathData.penType === 2)
+              .map((pathData, index) => {
+                const pathIndex = pathsData.findIndex(p => p === pathData);
+                const path = paths[pathIndex];
+                if (!path) return null;
+                
+                return (
+                  <>
+                    {/* Relleno del highlighter */}
+                    <Path 
+                      key={`highlighter-fill-${pathIndex}`}
+                      path={path} 
+                      color={pathData.color}
+                      style="fill"
+                      opacity={0.3} // Relleno más transparente
+                    />
+                    {/* Borde del highlighter */}
+                    <Path 
+                      key={`highlighter-stroke-${pathIndex}`}
+                      path={path} 
+                      color={pathData.color}
+                      style="stroke"
+                      strokeWidth={pathData.strokeWidth}
+                      strokeCap="round"
+                      strokeJoin="round"
+                      opacity={0.5} // Borde semi-transparente
+                    />
+                  </>
+                );
+              })
+            )}
+
+            {/* Imágenes (SkiaPhoto componentes) */}
+            {photoItems.map(item => (
+              <SkiaPhoto key={item.uri} item={item} active={activePhoto === item.uri} registerMeta={registerImageMeta} />
+            ))}
+
+            {/* Current path being drawn */}
+            {currentPathDisplay && (
+              <>
+                {/* Si es highlighter, mostrar relleno + borde */}
+                {selectedPen === 2 && !isEraser && (
+                  <Path 
+                    path={currentPathDisplay} 
+                    color="yellow"
+                    style="fill"
+                    opacity={0.3} // Relleno transparente
+                  />
+                )}
+                {/* Path principal */}
+                <Path 
+                  path={currentPathDisplay} 
+                  color={
+                    isEraser ? '#e0e0e0' : 
+                    selectedPen === 1 ? 'red' : 
+                    selectedPen === 2 ? 'yellow' : 
+                    currentColor
+                  }
+                  style="stroke"
+                  strokeWidth={
+                    isEraser ? currentStrokeWidth * 4 : 
+                    selectedPen === 1 ? 2 : 
+                    currentStrokeWidth
+                  }
+                  strokeCap="round"
+                  strokeJoin="round"
+                  opacity={
+                    isEraser ? 1 : // Eraser completamente opaco
+                    selectedPen === 1 ? 0.8 : 
+                    selectedPen === 2 ? 0.5 : 
+                    1
+                  }
+                />
+              </>
+            )}
+          </Canvas>
         </GestureDetector>
   {/* Sin overlays: gestión de selección y movimiento via tap gesture con hit test rotacional */}
         <PhotoControls
@@ -1426,7 +1447,7 @@ const findPhotoAtPoint = (x: number, y: number): string | null => {
 
 
       {/* Stick Bonus button - bottom right - Only show for discipline=true and if the event is not 'PH' */}
-      {event !== 'PH' && (
+      {discipline && event !== 'PH' && (
         <Animated.View style={[
           styles.stickButtonContainer,
           { transform: [{ translateY: stickButtonAnim }] }
@@ -1439,7 +1460,7 @@ const findPhotoAtPoint = (x: number, y: number): string | null => {
             onPress={toggleStickBonus}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Text style={styles.stickButtonText}>{discipline ? "STICK BONUS" : "DMT BONUS"}</Text>
+            <Text style={styles.stickButtonText}>STICK BONUS</Text>
           </TouchableOpacity>
         </Animated.View>
       )}

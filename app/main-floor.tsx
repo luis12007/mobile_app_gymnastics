@@ -30,6 +30,7 @@ import {
   updateMainTable,
   updateRateGeneral,
 } from "../Database/database";
+import { get } from "http";
 
 const { width, height } = Dimensions.get("window");
 const isLargeScreen = width >= 1000 && height >= 700;
@@ -215,6 +216,9 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
 
   const [showCommentsModal, setShowCommentsModal] = useState(false);
   const [commentsInput, setCommentsInput] = useState("");
+  // Valor dinámico de stick/bonus según discipline
+  const getStickBonusValue = () => (discipline ? 0.1 : 0.2);
+
   const commentsInputRef = useRef<any>(null);
 
   // Handlers optimizados para CustomNumberPadOptimized
@@ -240,7 +244,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       const rounded = safeRound(num, 1);
       setNdInputcomp(rounded.toString());
       setndcomp(rounded);
-      let compscorecalc = d + e + (sb ? 0.1 : 0.0) - rounded;
+  let compscorecalc = d + e + (sb ? getStickBonusValue() : 0) - rounded;
       const finalScore = Math.round(compscorecalc * 1000) / 1000;
       setScore(finalScore);
       const newdelt = Math.abs(Math.round((eScore - e) * 10) / 10);
@@ -280,7 +284,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     if (!isNaN(num)) {
       const rounded = safeRound(num, 3);
       setE(rounded);
-      let compscorecalc = d + rounded + (sb ? 0.1 : 0.0) - ndcomp;
+  let compscorecalc = d + rounded + (sb ? getStickBonusValue() : 0) - ndcomp;
       const finalScore = Math.round(compscorecalc * 1000) / 1000;
       setScore(finalScore);
       const newdelt = Math.abs(Math.round((eScore - rounded) * 10) / 10);
@@ -320,7 +324,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     if (!isNaN(num)) {
       const rounded = safeRound(num, 1);
       setD(rounded);
-      let compscorecalc = rounded + e + (sb ? 0.1 : 0.0) - ndcomp;
+  let compscorecalc = rounded + e + (sb ? getStickBonusValue() : 0) - ndcomp;
       const finalScore = Math.round(compscorecalc * 1000) / 1000;
       setScore(finalScore);
       const newdelt = Math.abs(Math.round((eScore - e) * 10) / 10);
@@ -360,7 +364,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     if (!isNaN(num)) {
       const rounded = safeRound(num, 1);
       setNd(rounded);
-      let newmyscore = eScore + sv + (stickbonus ? 0.1 : 0.0) - rounded;
+  let newmyscore = eScore + sv + (stickbonus ? getStickBonusValue() : 0) - rounded;
       const finalScore = Math.round(newmyscore * 1000) / 1000;
       setMyScore(finalScore);
       updateMainTable(gymnastid, { nd: rounded })
@@ -403,7 +407,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       setExecution(rounded);
       const newEScore = Number((10 - rounded).toFixed(3));
       setEScore(newEScore);
-      let rawScore = newEScore + sv + (stickbonus ? 0.1 : 0.0) - nd;
+  let rawScore = newEScore + sv + (stickbonus ? getStickBonusValue() : 0) - nd;
       const finalScore = Math.round(rawScore * 1000) / 1000;
       setMyScore(finalScore);
       const newdelt = Math.abs(Math.round((newEScore - e) * 10) / 10);
@@ -562,10 +566,18 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
 
   const handleStickBonusChange = async (value: boolean) => {
     setStickBonus(value);
-    
     // Calculate the raw score first
-    let rawScore = eScore + sv + (value ? 0.1 : 0.0) - nd;
-    console.log("Raw myScore calculation:", eScore, "+", sv, "+", (value ? 0.1 : 0.0), "-", nd, "=", rawScore);
+    console.log("Handling stick bonus change to:", value);  
+        const bonus = value ? getStickBonusValue() : - 0.2;
+    if (!discipline) {
+      setSv(difficultyValues + elementGroupsTotal + cv + (value ? getStickBonusValue() : 0));
+        let rawScore = eScore + sv + (value ? getStickBonusValue() : 0) - nd;
+    const finalScore = Math.round(rawScore * 1000) / 1000;
+    setMyScore(finalScore);
+
+    }else{
+        let rawScore = eScore + sv + (value ? getStickBonusValue() : 0) - nd;
+  console.log("Raw myScore calculation:", eScore, "+", sv, "+", (value ? getStickBonusValue() : 0), "-", nd, "=", rawScore);
     
 
 
@@ -586,6 +598,14 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     } catch (error) {
       console.error("Error saving stickBonus to MainRateGeneral:", error);
     }
+
+
+    }
+
+    
+
+
+    
   };
 
   // Fetch MainTable data and populate elementCounts
@@ -854,12 +874,23 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
 
 
       setElementGroupsTotal(total);
+      if(!discipline){
+      setSv(total + difficultyValues + cv + (value ? getStickBonusValue() : 0));
+  let rawScore = eScore + (total + difficultyValues + cv) + (stickbonus ? getStickBonusValue() : 0) - nd;
+      const finalScore = Math.round(rawScore * 1000) / 1000;
+      setMyScore(finalScore);
+
+
+      }
+      else {
       setSv(total + difficultyValues + cv);
+
+        }
       const newsv = total + difficultyValues + cv;
       
       // Calculate raw score first
-      let rawScore = eScore + (total + difficultyValues + cv) + (stickbonus ? 0.1 : 0.0) - nd;
-      console.log("Raw myScore calculation (element groups):", eScore, "+", newsv, "+", (stickbonus ? 0.1 : 0.0), "-", nd, "=", rawScore);
+  let rawScore = eScore + (total + difficultyValues + cv) + (stickbonus ? getStickBonusValue() : 0) - nd;
+  console.log("Raw myScore calculation (element groups):", eScore, "+", newsv, "+", (stickbonus ? getStickBonusValue() : 0), "-", nd, "=", rawScore);
       
 
       
@@ -913,8 +944,20 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
           newCounts.I.value * 0.9 +
           newCounts.J.value * 1.0;
         setDifficultyValues(difficulty);
-        setSv(difficulty + elementGroupsTotal + cv);
-        let rawScore = eScore + (difficulty + elementGroupsTotal + cv) + (stickbonus ? 0.1 : 0.0) - nd;
+        if(!discipline){
+        setSv(difficulty + elementGroupsTotal + cv + (stickbonus ? getStickBonusValue() : 0));
+
+  let rawScore = eScore + (difficulty + elementGroupsTotal + cv) + (stickbonus ? getStickBonusValue() : 0) - nd;
+        let adjustedScore = adjustScoreFor99(rawScore);
+          const finalScore = Math.round(adjustedScore * 1000) / 1000;
+        setMyScore(finalScore);
+
+        }
+        else {
+            setSv(difficulty + elementGroupsTotal + cv);
+        }
+
+  let rawScore = eScore + (difficulty + elementGroupsTotal + cv) + (stickbonus ? getStickBonusValue() : 0) - nd;
         let adjustedScore = adjustScoreFor99(rawScore);
         const finalScore = Math.round(adjustedScore * 1000) / 1000;
         setMyScore(finalScore);
@@ -1049,7 +1092,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         myScore: myScore,
         compD: d,
         compE: e,
-        compSd: sb ? 0.1 : 0.0,
+  compSd: sb ? getStickBonusValue() : 0,
         compNd: ndcomp,
         compScore: score,
         comments: comments,
@@ -1072,7 +1115,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         myScore: myScore,
         compD: d,
         compE: e,
-        compSd: sb ? 0.1 : 0.0,
+  compSd: sb ? getStickBonusValue() : 0,
         compNd: ndcomp,
         compScore: score,
         comments: comments,
@@ -1119,7 +1162,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         myScore: myScore,
         compD: d,
         compE: e,
-        compSd: sb ? 0.1 : 0.0,
+  compSd: sb ? getStickBonusValue() : 0,
         compNd: ndcomp,
         compScore: score,
         comments: comments,
@@ -1142,7 +1185,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         myScore: myScore,
         compD: d,
         compE: e,
-        compSd: sb ? 0.1 : 0.0,
+  compSd: sb ? getStickBonusValue() : 0,
         compNd: ndcomp,
         compScore: score,
         comments: comments,
@@ -1192,7 +1235,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         myScore: myScore,
         compD: d,
         compE: e,
-        compSd: sb ? 0.1 : 0.0,
+  compSd: sb ? getStickBonusValue() : 0,
         compNd: ndcomp,
         compScore: score,
         comments: comments,
@@ -1215,7 +1258,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         myScore: myScore,
         compD: d,
         compE: e,
-        compSd: sb ? 0.1 : 0.0,
+  compSd: sb ? getStickBonusValue() : 0,
         compNd: ndcomp,
         compScore: score,
         comments: comments,
@@ -1303,7 +1346,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         myScore: myScore,
         compD: d,
         compE: e,
-        compSd: sb ? 0.1 : 0.0,
+  compSd: sb ? getStickBonusValue() : 0,
         compNd: ndcomp,
         compScore: score,
         comments: comments,
@@ -1326,7 +1369,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         myScore: myScore,
         compD: d,
         compE: e,
-        compSd: sb ? 0.1 : 0.0,
+  compSd: sb ? getStickBonusValue() : 0,
         compNd: ndcomp,
         compScore: score,
         comments: comments,
@@ -1469,12 +1512,21 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
   }, []);
 
   const calculateCvScore = React.useCallback((cvValue: number) => {
-    const newSv = cvValue + difficultyValues + elementGroupsTotal;
-    let rawScore = eScore + newSv + (stickbonus ? 0.1 : 0.0) - nd;
-    
+    let newSv;
+    let finalScore;
+    if(!discipline){
+    newSv = cvValue + difficultyValues + elementGroupsTotal + (stickbonus ? getStickBonusValue() : 0);
+    let rawScore = eScore + (difficultyValues + elementGroupsTotal + cvValue) + (stickbonus ? getStickBonusValue() : 0) - nd;
+    finalScore = Math.round(rawScore * 1000) / 1000;
+
+  } else {
+    newSv = cvValue + difficultyValues + elementGroupsTotal;
+    let rawScore = eScore + newSv + (stickbonus ? getStickBonusValue() : 0) - nd;
+    finalScore = Math.round(rawScore * 1000) / 1000;
+
+  }
 
     
-    const finalScore = Math.round(rawScore * 1000) / 1000;
     
     return { newSv, finalScore };
   }, [difficultyValues, elementGroupsTotal, eScore, stickbonus, nd, adjustScoreFor99]);
@@ -1754,7 +1806,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                 const rounded = safeRound(num, 1);
                 setNdInputcomp(rounded.toString());
                 setndcomp(rounded);
-                let compscorecalc = d + e + (sb ? 0.1 : 0.0) - rounded;
+                let compscorecalc = d + e + (sb ? getStickBonusValue() : 0) - rounded;
                 const finalScore = Math.round(compscorecalc * 1000) / 1000;
                 setScore(finalScore);
                 const newdelt = Math.abs(Math.round((eScore - e) * 10) / 10);
@@ -1797,7 +1849,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
               if (!isNaN(num)) {
                 const rounded = safeRound(num, 3);
                 setE(rounded);
-                let compscorecalc = d + rounded + (sb ? 0.1 : 0.0) - ndcomp;
+                let compscorecalc = d + rounded + (sb ? getStickBonusValue() : 0) - ndcomp;
                 const finalScore = Math.round(compscorecalc * 1000) / 1000;
                 setScore(finalScore);
                 const newdelt = Math.abs(Math.round((eScore - rounded) * 10) / 10);
@@ -2256,7 +2308,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                     </Text>
                   </TouchableOpacity>
                 </View> : ''}
-                {discipline && gymnastEvent !== 'PH' && (
+                {gymnastEvent !== 'PH' && (
   <>
     <View style={styles.stickBonusCell}>
       <Text
@@ -2271,7 +2323,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     </View>
     <View style={styles.stickBonusCelltext}>
       <Text style={styles.bonusValueText}>
-        {stickbonus ? "0.1" : "0.0"}
+        {stickbonus ? getStickBonusValue() : "0.0"}
       </Text>
     </View>
   </>
@@ -2405,7 +2457,6 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                   </TouchableOpacity>
                 </View>
 
-                {discipline && (
                   <>
                     <View style={styles.sdCell}>
                       <Text
@@ -2425,7 +2476,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                           setSb(newValue);
                           // Save to database if needed
                           let compscorecalc =
-                            d + e + (newValue ? 0.1 : 0.0) - ndcomp;
+                            d + e + (newValue ? getStickBonusValue() : 0.0) - ndcomp;
 
                           // Apply the 99 adjustment
 
@@ -2443,12 +2494,11 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                             isTinyDevice ? styles.sdValueTextTiny : null,
                           ]}
                         >
-                          {sb ? "0.1" : "0.0"}
+                          {sb ? getStickBonusValue() : "0.0"}
                         </Text>
                       </TouchableOpacity>
                     </View>
                   </>
-                )}
                 <View style={styles.ndDeductionCell}>
                   <Text
                     style={[

@@ -4,7 +4,9 @@ import * as Print from 'expo-print';
 import { shareAsync } from 'expo-sharing';
 import { PDFDocument } from 'pdf-lib';
 import { Buffer } from 'buffer';
-import { Dimensions, Platform } from "react-native";
+import { Dimensions, Platform, Image } from "react-native";
+// Integración de fotos del whiteboard
+import { getPhotoItemsForMainTable } from '../Database/database';
 
 
 const { width, height } = Dimensions.get("window");
@@ -715,8 +717,97 @@ export const generateComprehensivePDF = async (
     })
   );
 
+  // ------------------------------------------------------------------
+  // CARGA Y CODIFICACIÓN DE FOTOS (re-aplicando integración previa)
+  // ------------------------------------------------------------------
+  progressCb?.('Cargando fotos…', 0.07);
+  interface EncodedPhotoItem {
+    uri: string;
+    dataUrl: string;
+    x: number; // posición topleft igual a whiteboard (después de aplicar límite de tamaño base)
+    y: number;
+    scale: number; // mismo scale guardado
+    rotation: number; // grados
+    baseWidth: number;  // bw tras clamps whiteboard (ANTES scale)
+    baseHeight: number; // bh tras clamps whiteboard (ANTES scale)
+  }
+
+  const gymnastPhotosMap: Record<number, EncodedPhotoItem[]> = {};
+
+  const inferMimeFromExt = (u: string): string => {
+    if (/\.jpe?g$/i.test(u)) return 'image/jpeg';
+    if (/\.png$/i.test(u)) return 'image/png';
+    if (/\.webp$/i.test(u)) return 'image/webp';
+    return 'image/png';
+  };
+
+  // Obtiene dimensiones reales de la imagen (promesa)
+  const getImageSize = (uri: string): Promise<{ width: number; height: number; }> => new Promise(resolve => {
+    Image.getSize(uri, (w, h) => resolve({ width: w, height: h }), () => resolve({ width: DEFAULT_EXPORT_PHOTO_WIDTH, height: DEFAULT_EXPORT_PHOTO_HEIGHT }));
+  });
+
+  const encodePhotoUri = async (uri: string): Promise<string> => {
+    if (uri.startsWith('data:image')) return uri;
+    try {
+      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+      return `data:${inferMimeFromExt(uri)};base64,${base64}`;
+    } catch (e) {
+      console.warn('Fallo lectura directa imagen (encodePhotoUri)', e);
+      return 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60"><rect width="60" height="60" fill="#ccc"/><text x="50%" y="50%" font-size="8" text-anchor="middle" dominant-baseline="middle">IMG</text></svg>');
+    }
+  };
+
+  // Tamaño base placeholder (TODO: capturar dimensiones reales y persistirlas)
+  const DEFAULT_EXPORT_PHOTO_WIDTH = 200;
+  const DEFAULT_EXPORT_PHOTO_HEIGHT = 200;
+  const MAX_W = 400, MAX_H = 400, MIN_W = 90; // mismos límites que whiteboard
+
+  await Promise.all(
+    resolvedData.map(async (g, idx) => {
+      try {
+    const items = await getPhotoItemsForMainTable(g.id);
+        if (!items || !items.length) return;
+        const limited = items.slice(-4); // límite de fotos por PDF por gimnasta
+        const encoded: EncodedPhotoItem[] = [];
+        for (const it of limited) {
+          const dataUrl = await encodePhotoUri(it.uri);
+            // Dimensiones reales
+            // Dimensiones reales originales
+            const real = await getImageSize(it.uri);
+            let bw = real.width || DEFAULT_EXPORT_PHOTO_WIDTH;
+            let bh = real.height || DEFAULT_EXPORT_PHOTO_HEIGHT;
+            // Reducción adicional de calidad visual: si el área supera 160k px, reducir a 70%
+            const AREA_LIMIT = 160000; // ~400x400
+            if ((bw * bh) > AREA_LIMIT) {
+              bw *= 0.7;
+              bh *= 0.7;
+            }
+            if (bw > MAX_W) { const f = MAX_W / bw; bw = MAX_W; bh *= f; }
+            if (bh > MAX_H) { const f = MAX_H / bh; bh = MAX_H; bw *= f; }
+            if (bw < MIN_W) { const f = MIN_W / bw; bw = MIN_W; bh *= f; }
+            encoded.push({
+              uri: it.uri,
+              dataUrl,
+              x: Number.isFinite(it.x) ? it.x : 40,
+              y: Number.isFinite(it.y) ? it.y : 40,
+              scale: Number.isFinite(it.scale) ? it.scale : 1,
+              rotation: Number.isFinite(it.rotation) ? it.rotation : 0,
+              baseWidth: bw,
+              baseHeight: bh,
+            });
+        }
+        gymnastPhotosMap[g.id] = encoded;
+      } catch (e) {
+        console.warn('No se pudieron cargar fotos para gimnasta', g.id, e);
+      }
+      if (idx % 5 === 0) {
+        progressCb?.(`Fotos procesadas: ${idx + 1}/${resolvedData.length}`, 0.1 + (0.1 * (idx / resolvedData.length)));
+      }
+    })
+  );
+
   // Function to render whiteboard paths (reuse from existing functions)
-  const renderWhiteboardPaths = (pathsString: string) => {
+  const renderWhiteboardPaths = (pathsString: string, photos: EncodedPhotoItem[] = []) => {
     if (!pathsString) return '';
     
     try {
@@ -774,7 +865,7 @@ export const generateComprehensivePDF = async (
         transformGroup = `<g transform="translate(${offsetX}, ${offsetY})">`;
       }
       
-      const pathElements = paths.map((pathData, index) => {
+  const pathElements = paths.map((pathData, index) => {
         let scaledPath = pathData.path;
         
         if (pathData.path) {
@@ -823,11 +914,32 @@ export const generateComprehensivePDF = async (
         return pathElement;
       }).join('');
       
-      // Wrap paths in transform group if we have valid centering
+      // Render fotos (mismo grupo de centrado y factor de escala 0.85)
+      const photoElements = (photos || []).map(ph => {
+        // Aplicar mismo factor global de paths (0.85) después de reproducir escala igual que en whiteboard
+        const scaledBaseW = ph.baseWidth * ph.scale;
+        const scaledBaseH = ph.baseHeight * ph.scale;
+  const PHOTO_LEFT_MARGIN = 30; // margen adicional a la izquierda para la imagen
+  const sx = ph.x * 0.85 + PHOTO_LEFT_MARGIN;
+        const sy = ph.y * 0.85;
+        const sw = scaledBaseW * 0.85;
+        const sh = scaledBaseH * 0.85;
+        const cx = sx + sw / 2;
+        const cy = sy + sh / 2;
+        const rotation = ph.rotation || 0;
+        return `
+          <g>
+            <image href="${ph.dataUrl}" x="${sx}" y="${sy}" width="${sw}" height="${sh}" preserveAspectRatio="none" transform="rotate(${rotation}, ${cx}, ${cy})" />
+            <rect x="${sx}" y="${sy}" width="${sw}" height="${sh}" fill="none" stroke="rgba(0,0,0,0.18)" stroke-width="2" transform="rotate(${rotation}, ${cx}, ${cy})" />
+          </g>`;
+      }).join('');
+
+      const combined = pathElements + photoElements;
+
       if (transformGroup) {
-        return transformGroup + pathElements + '</g>';
+        return transformGroup + combined + '</g>';
       } else {
-        return pathElements;
+        return combined;
       }
     } catch (error) {
       console.error('Error parsing paths:', error);
@@ -836,7 +948,8 @@ export const generateComprehensivePDF = async (
   };
 
   // Generate individual pages HTML using the exact same logic from the existing functions
-  let individualPagesHTML = resolvedData.map((gymnast, index) => {
+  // Función que construye la página de un gimnasta usando el estado actual de fotos
+  const buildGymnastPageHTML = (gymnast: MainTableWithRateGeneral) => {
     const isVault = gymnast.event === "VT";
     
     if (isVault) {
@@ -868,7 +981,7 @@ export const generateComprehensivePDF = async (
               ` : `
                 
               `}
-              ${renderWhiteboardPaths(gymnast.paths || '')}
+              ${renderWhiteboardPaths(gymnast.paths || '', gymnastPhotosMap[gymnast.id] || [])}
 
             </svg>
           </div>
@@ -990,7 +1103,7 @@ export const generateComprehensivePDF = async (
           <div class="whiteboard-section">
             <div class="whiteboard-title">Judge's Whiteboard</div>
             <svg class="whiteboard-canvas" viewBox="0 0 1300 780" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
-              ${renderWhiteboardPaths(gymnast.paths || '')}
+              ${renderWhiteboardPaths(gymnast.paths || '', gymnastPhotosMap[gymnast.id] || [])}
             </svg>
           </div>
           
@@ -1241,7 +1354,10 @@ export const generateComprehensivePDF = async (
         </div>
       `;
     }
-  }).join('');
+  };
+
+  // Array dinámico de páginas (se puede regenerar una página tras eliminar fotos)
+  let pagesArray: string[] = resolvedData.map(g => buildGymnastPageHTML(g));
 
   // Generate final table HTML (exact copy from generateFinalTablePDF)
   const finalTableHTML = `
@@ -1402,12 +1518,13 @@ export const generateComprehensivePDF = async (
 
   // Combine ALL CSS from both functions (vault + floor + final table)
   // --- Chunking + Merge para evitar OOM ---
-  const MAX_PAGES_PER_CHUNK = 35; // Ajustable
+  // Si existe al menos una imagen en toda la competencia, usar chunks de 1 (más seguro de memoria).
+  // Si no hay imágenes, podemos agrupar en chunks de 15 para acelerar.
+  const hasAnyPhotos = Object.values(gymnastPhotosMap).some(arr => (arr?.length ?? 0) > 0);
+  const MAX_PAGES_PER_CHUNK = hasAnyPhotos ? 2 : 20;
   const MAX_HTML_CHARS = 750_000; // fallback por tamaño
-  const pagesArray: string[] = Array.isArray(individualPagesHTML) ? individualPagesHTML : [String(individualPagesHTML)];
   const pagesCount = pagesArray.length;
-  console.log(`[PDF] Tipo individualPagesHTML: ${typeof individualPagesHTML} isArray=${Array.isArray(individualPagesHTML)}`);
-  console.log(`[PDF] Total páginas individuales (elementos array): ${pagesCount}`);
+  console.log(`[PDF] Total páginas individuales: ${pagesCount}`);
 
   const buildFullHTML = (pages: string[] | string, includeFinalTable: boolean) => {
     const arr = Array.isArray(pages) ? pages : [pages];
@@ -2038,15 +2155,119 @@ export const generateComprehensivePDF = async (
     progressCb?.('Dividiendo en chunks…', 0.05);
     const chunkUris: string[] = [];
     const totalChunks = Math.ceil(pagesCount / MAX_PAGES_PER_CHUNK);
+
+    const isOOMMessage = (msg: string) => /OutOfMemory|Failed to allocate/i.test(msg);
+
+    // Remueve la foto más grande (por área * scale^2) dentro del conjunto de ids y devuelve true si removió
+    const removeLargestPhotoInSet = (gymnastIds: number[]): boolean => {
+      let target: { gid: number; index: number; weight: number } | null = null;
+      for (const gid of gymnastIds) {
+        const arr = gymnastPhotosMap[gid];
+        if (!arr || !arr.length) continue;
+        arr.forEach((ph, idx) => {
+          const weight = (ph.baseWidth * ph.baseHeight) * (ph.scale * ph.scale);
+          if (!target || weight > target.weight) {
+            target = { gid, index: idx, weight };
+          }
+        });
+      }
+  if (!target) return false;
+  const { gid, index } = target as { gid: number; index: number; weight: number }; // assert
+  gymnastPhotosMap[gid].splice(index, 1);
+      return true;
+    };
+
     for (let i = 0; i < pagesCount; i += MAX_PAGES_PER_CHUNK) {
-  const slice = pagesArray.slice(i, i + MAX_PAGES_PER_CHUNK);
-      const includeFinal = i + MAX_PAGES_PER_CHUNK >= pagesCount; // sólo último incluye tabla final
-      const chunkHtml = buildFullHTML(slice, includeFinal);
-      console.log(`[PDF] Generando chunk ${(i / MAX_PAGES_PER_CHUNK) + 1}/${totalChunks} (páginas ${i + 1}-${Math.min(i + MAX_PAGES_PER_CHUNK, pagesCount)}) length=${chunkHtml.length}`);
-      progressCb?.(`Generando chunk ${(i / MAX_PAGES_PER_CHUNK) + 1}/${totalChunks}`, 0.1 + (0.4 * (i / pagesCount)));
-      const { uri } = await Print.printToFileAsync({ html: chunkHtml, base64: false });
-      chunkUris.push(uri);
+      const chunkStart = i;
+      const chunkEnd = Math.min(i + MAX_PAGES_PER_CHUNK, pagesCount);
+      const pageIndices = Array.from({ length: chunkEnd - chunkStart }, (_, k) => chunkStart + k);
+      const gymnastIdsInChunk = pageIndices.map(idx => resolvedData[idx].id);
+      let attempt = 0;
+      let rebuilt = false;
+      while (true) {
+        if (rebuilt) {
+          // Rebuild only changed pages after photo removals
+          pageIndices.forEach(pi => { pagesArray[pi] = buildGymnastPageHTML(resolvedData[pi]); });
+          rebuilt = false;
+        }
+        const slice = pagesArray.slice(chunkStart, chunkEnd);
+        const includeFinal = chunkEnd >= pagesCount; // última chunk incluye tabla final
+        const chunkHtml = buildFullHTML(slice, includeFinal);
+        try {
+          console.log(`[PDF] Generando chunk ${Math.floor(chunkStart / MAX_PAGES_PER_CHUNK) + 1}/${totalChunks} páginas ${chunkStart + 1}-${chunkEnd} intento ${attempt + 1} length=${chunkHtml.length}`);
+          progressCb?.(`Chunk ${(Math.floor(chunkStart / MAX_PAGES_PER_CHUNK) + 1)}/${totalChunks}`, 0.1 + 0.35 * (chunkStart / pagesCount));
+          const { uri } = await Print.printToFileAsync({ html: chunkHtml, base64: false });
+          chunkUris.push(uri);
+          break; // éxito
+        } catch (err: any) {
+          const msg = String(err?.message || err);
+          const isOOM = isOOMMessage(msg);
+          // contar fotos en el chunk
+          const totalPhotosInChunk = gymnastIdsInChunk.reduce((sum, gid) => sum + ((gymnastPhotosMap[gid]?.length) || 0), 0);
+          if (isOOM || totalPhotosInChunk > 0) {
+            const removed = removeLargestPhotoInSet(gymnastIdsInChunk);
+            if (removed) {
+              attempt++;
+              rebuilt = true;
+              progressCb?.(`${isOOM ? 'OOM' : 'Error'} chunk, removiendo imagen grande (intent ${attempt})`, 0.1 + 0.35 * (chunkStart / pagesCount));
+              if (attempt > 40) {
+                console.warn('Demasiados intentos; eliminando todas las imágenes del chunk');
+                gymnastIdsInChunk.forEach(gid => { gymnastPhotosMap[gid] = []; });
+                rebuilt = true;
+              }
+              continue; // reintentar con menos imágenes
+            }
+          }
+          // Si sigue fallando (no OOM o sin imágenes removibles), dividir en páginas individuales
+          if (pageIndices.length > 1) {
+            console.warn('Fallo chunk completo; dividiendo en páginas individuales');
+            for (const pi of pageIndices) {
+              let singleAttempts = 0;
+              while (true) {
+                try {
+                  const includeFinalSingle = includeFinal && pi === pagesCount - 1;
+                  const singleHtml = buildFullHTML(pagesArray[pi], includeFinalSingle);
+                  const { uri } = await Print.printToFileAsync({ html: singleHtml, base64: false });
+                  chunkUris.push(uri);
+                  break;
+                } catch (singleErr: any) {
+                  const smsg = String(singleErr?.message || singleErr);
+                  const isSingleOOM = isOOMMessage(smsg);
+                  const gid = resolvedData[pi].id;
+                  const photosArr = gymnastPhotosMap[gid] || [];
+                  if ((isSingleOOM || photosArr.length > 0) && photosArr.length > 0) {
+                    // quitar más grande de ESTA página
+                    let largestIndex = -1; let largestWeight = -1;
+                    photosArr.forEach((ph, idx) => {
+                      const w = (ph.baseWidth * ph.baseHeight) * (ph.scale * ph.scale);
+                      if (w > largestWeight) { largestWeight = w; largestIndex = idx; }
+                    });
+                    if (largestIndex >= 0) {
+                      photosArr.splice(largestIndex, 1);
+                      gymnastPhotosMap[gid] = photosArr;
+                      pagesArray[pi] = buildGymnastPageHTML(resolvedData[pi]);
+                      singleAttempts++;
+                      if (singleAttempts > 25) {
+                        console.warn('Demasiados intentos página individual, sin imágenes restantes o persistente fallo');
+                        break;
+                      }
+                      continue; // reintentar página
+                    }
+                  }
+                  console.error('Fallo página individual sin recuperación posible', singleErr);
+                  break; // abandonamos esa página para no bloquear restantes
+                }
+              }
+            }
+            break; // salir del while chunk; seguimos con el siguiente chunk
+          }
+          console.error('Error generando chunk no recuperable', err);
+          throw err;
+        }
+      }
     }
+
+    // Merge chunks
     if (chunkUris.length === 1) {
       finalUri = chunkUris[0];
     } else {
@@ -2064,9 +2285,8 @@ export const generateComprehensivePDF = async (
           } catch (e) {
             console.warn('Fallo al fusionar chunk PDF:', e);
           }
-          // actualizar progreso de merge incremental
           const idx = chunkUris.indexOf(u);
-          progressCb?.(`Fusionando chunk ${idx + 1}/${chunkUris.length}`, 0.55 + 0.35 * ((idx + 1) / chunkUris.length));
+            progressCb?.(`Fusionando chunk ${idx + 1}/${chunkUris.length}`, 0.55 + 0.35 * ((idx + 1) / chunkUris.length));
         }
         const mergedBytes = await merged.save();
         finalUri = `${FileSystem.documentDirectory}${competence.name}-${competence.date.split('T')[0]}-merged.pdf`;

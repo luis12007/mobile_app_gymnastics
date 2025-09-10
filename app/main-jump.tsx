@@ -32,6 +32,7 @@ import ModalvaultMag from "../components/ModalVaultMag";
 import ModalvaultWag from "../components/ModalVaultWag";
 import WhiteboardScreen from "../components/WhiteboardScreen_jump";
 import { ActivityIndicator } from "react-native";
+import { get } from "http";
 
 const { width, height } = Dimensions.get("window");
 const isLargeScreen = width >= 1000 && height >= 700;
@@ -238,6 +239,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   const [commentsInput, setCommentsInput] = useState("");
   const commentsInputRef = useRef<any>(null);
 
+  // Valor dinámico de stick/bonus (0.1 si discipline true, 0.2 si false)
+  const getStickBonusValue = () => (discipline ? 0.1 : 0.2);
+
   // Eliminar animaciones: dejar los valores finales directamente
   const backButtonOpacity = { setValue: () => {}, _value: 1 };
   const backButtonTranslateX = { setValue: () => {}, _value: 0 };
@@ -380,7 +384,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         myScore: myScore,
         compD: d,
         compE: e,
-        compSd: sb ? 0.1 : 0.0,
+  compSd: sb ? getStickBonusValue() : 0,
         compNd: ndcomp,
         compScore: score,
         comments: comments,
@@ -398,7 +402,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         myScore: myScore,
         compD: d,
         compE: e,
-        compSd: sb ? 0.1 : 0.0,
+  compSd: sb ? getStickBonusValue() : 0,
         compNd: ndcomp,
         compScore: score,
         comments: comments,
@@ -429,7 +433,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         myScore: myScore,
         compD: d,
         compE: e,
-        compSd: sb ? 0.1 : 0.0,
+  compSd: sb ? getStickBonusValue() : 0,
         compNd: ndcomp,
         compScore: score,
         comments: comments,
@@ -447,7 +451,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         myScore: myScore,
         compD: d,
         compE: e,
-        compSd: sb ? 0.1 : 0.0,
+  compSd: sb ? getStickBonusValue() : 0,
         compNd: ndcomp,
         compScore: score,
         comments: comments,
@@ -480,7 +484,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         myScore: myScore,
         compD: d,
         compE: e,
-        compSd: sb ? 0.1 : 0.0,
+  compSd: sb ? getStickBonusValue() : 0,
         compNd: ndcomp,
         compScore: score,
         comments: comments,
@@ -498,7 +502,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         myScore: myScore,
         compD: d,
         compE: e,
-        compSd: sb ? 0.1 : 0.0,
+  compSd: sb ? getStickBonusValue() : 0,
         compNd: ndcomp,
         compScore: score,
         comments: comments,
@@ -567,7 +571,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         myScore: myScore,
         compD: d,
         compE: e,
-        compSd: sb ? 0.1 : 0.0,
+  compSd: sb ? getStickBonusValue() : 0,
         compNd: ndcomp,
         compScore: score,
         comments: comments,
@@ -585,7 +589,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         myScore: myScore,
         compD: d,
         compE: e,
-        compSd: sb ? 0.1 : 0.0,
+  compSd: sb ? getStickBonusValue() : 0,
         compNd: ndcomp,
         compScore: score,
         comments: comments,
@@ -640,8 +644,8 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
     setStickBonus(value);
     
     // Usar operación más robusta para evitar errores de punto flotante
-    const newmyscore = Math.round((eScore + sv + (value ? 0.1 : 0.0) - nd) * 1000) / 1000;
-    console.log("handleStickBonusChange calculation:", eScore, "+", sv, "+", (value ? 0.1 : 0.0), "-", nd, "=", newmyscore);
+  const newmyscore = Math.round((eScore + sv + (value ? getStickBonusValue() : 0) - nd) * 1000) / 1000;
+  console.log("handleStickBonusChange calculation:", eScore, "+", sv, "+", (value ? getStickBonusValue() : 0), "-", nd, "=", newmyscore);
     const finalScore = newmyscore;
     console.log("Final Score (handleStickBonusChange):", finalScore);
 
@@ -808,7 +812,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               setNdInputcomp(rounded.toString());
               setndcomp(rounded);
 
-              const compscorecalc = d + e + (sb ? 0.1 : 0.0) - rounded;
+              const compscorecalc = d + e + (sb ? getStickBonusValue() : 0) - rounded;
               const finalScore = Math.round(compscorecalc * 1000) / 1000;
 
               setScore(finalScore);
@@ -864,8 +868,8 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               console.log("stickbonus:", stickbonus);
               
               // Usar operación más robusta para evitar errores de punto flotante
-              const newmyscore = Math.round((eScore + rounded + (stickbonus ? 0.1 : 0.0) - nd) * 1000) / 1000;
-              console.log("Calculation: ", eScore, "+", rounded, "+", (stickbonus ? 0.1 : 0.0), "-", nd, "=", newmyscore);
+              const newmyscore = Math.round((eScore + rounded + (stickbonus ? getStickBonusValue() : 0) - nd) * 1000) / 1000;
+              console.log("Calculation: ", eScore, "+", rounded, "+", (stickbonus ? getStickBonusValue() : 0), "-", nd, "=", newmyscore);
               const finalScore = newmyscore;
 
               console.log("Final Score (SV Modal):", finalScore);
@@ -919,7 +923,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               const rounded = Math.round(num * 1000) / 1000;
               setE(rounded);
               // Save to database
-              const compscorecalc = d + rounded + (sb ? 0.1 : 0.0) - ndcomp;
+              const compscorecalc = d + rounded + (sb ? getStickBonusValue() : 0) - ndcomp;
               const finalScore = Math.round(compscorecalc * 1000) / 1000;
 
               setScore(finalScore);
@@ -990,7 +994,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               const rounded = Math.round(num * 10) / 10;
               setD(rounded);
 
-              const compscorecalc = rounded + e + (sb ? 0.1 : 0.0) - ndcomp;
+              const compscorecalc = rounded + e + (sb ? getStickBonusValue() : 0) - ndcomp;
               const finalScore = Math.round(compscorecalc * 1000) / 1000;
 
               setScore(finalScore);
@@ -1041,7 +1045,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               const rounded = Math.round(num * 10) / 10;
               setExecution(rounded);
               const eScore = Number((10 - rounded).toFixed(3));
-              const newmyscore = eScore + sv + (stickbonus ? 0.1 : 0.0) - nd;
+              const newmyscore = eScore + sv + (stickbonus ? getStickBonusValue() : 0) - nd;
               const finalScore = Math.round(newmyscore * 1000) / 1000;
 
               setMyScore(finalScore);
@@ -1201,7 +1205,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               const rounded = Math.round(num * 10) / 10;
               setNd(rounded);
               const newmyscore =
-                eScore + sv + (stickbonus ? 0.1 : 0.0) - rounded;
+                eScore + sv + (stickbonus ? getStickBonusValue() : 0) - rounded;
               const finalScore = Math.round(newmyscore * 1000) / 1000;
 
               setMyScore(finalScore);
@@ -1293,7 +1297,6 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                 ND
               </Text>
             </View>
-            {discipline && (
               <View style={styles.sbCell}>
                 <Text
                   style={[
@@ -1308,7 +1311,6 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                   SB
                 </Text>
               </View>
-            )}
             <View style={styles.executionCell}>
               <Text
                 style={[
@@ -1398,7 +1400,6 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                 {nd.toFixed(1)}
               </Text>{" "}
             </TouchableOpacity>
-            {discipline && (
               <View style={styles.sbValueCell}>
                 <Text
                   style={[
@@ -1408,10 +1409,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                     isTinyDevice ? styles.valueTextTiny : null,
                   ]}
                 >
-                  {stickbonus ? "0.1" : "0.0"}
+                  {stickbonus ? getStickBonusValue() : "0.0"}
                 </Text>
               </View>
-            )}
             <View style={styles.executionValueCellflex}>
               <View style={styles.executionValueCell}>
                 <Text
@@ -1605,7 +1605,6 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                 </TouchableOpacity>
               </Text>
             </View>
-            {discipline && (
               <>
                 <View style={styles.sdCell}>
                   <Text
@@ -1637,7 +1636,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                         const newValue = !sb;
                         setSb(newValue);
                         const compscorecalc =
-                          d + e + (newValue ? 0.1 : 0.0) - ndcomp;
+                          d + e + (newValue ? getStickBonusValue() : 0) - ndcomp;
                         const finalScore = Math.round(compscorecalc * 1000) / 1000;
 
                         setScore(finalScore);
@@ -1654,13 +1653,12 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                           isTinyDevice ? styles.sdValueTextTiny : null,
                         ]}
                       >
-                        {sb ? "0.1" : "0.0"}
+                        {sb ? getStickBonusValue() : "0.0"}
                       </Text>
                     </TouchableOpacity>
                   </Text>
                 </View>
               </>
-            )}
             <View style={styles.ndDeductionCell}>
               <Text
                 style={[

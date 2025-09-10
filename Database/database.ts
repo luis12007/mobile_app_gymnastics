@@ -11,11 +11,13 @@ const COMPETENCES_KEY = "competences";
 const MAIN_TABLES_KEY = "main_tables";
 const RATE_GENERAL_KEY = "rate_general";
 const RATE_JUMP_KEY = "rate_jump";
+const MAIN_TABLE_PHOTOS_KEY = "main_table_photos"; // Nueva tabla lógica para fotos de cada MainTable
 
 // Large field externalization configuration
 // Reducido para externalizar antes y evitar filas enormes que provoquen CursorWindow
 const LARGE_FIELD_THRESHOLD = 40_000; // ~40KB: si paths supera esto, se externaliza a fichero
 const PATHS_DIR = `${FileSystem.documentDirectory}whiteboard_paths/`;
+const PHOTOS_DIR = `${FileSystem.documentDirectory}main_table_photos/`;
 
 const ensureDirAsync = async (dirUri: string) => {
   try {
@@ -1648,6 +1650,30 @@ export const deleteMainTable = async (tableId: number): Promise<boolean> => {
     const rateJumpTables = await getRateJumpTables();
     const filteredRateJumpTables = rateJumpTables.filter(rate => rate.tableId !== tableId);
     await saveItems(RATE_JUMP_KEY, filteredRateJumpTables);
+
+    // Delete associated photos entry & files
+    try {
+      const photoEntries = await getMainTablePhotosEntries();
+      const keepEntries: MainTablePhotos[] = [];
+      for (const entry of photoEntries) {
+        if (entry.tableId === tableId) {
+          // borrar archivos
+            for (const p of entry.photos) {
+              const uri = typeof p === 'string' ? p : p.uri;
+              if (isFileRef(uri)) {
+                try { await deleteFileIfExists(uri); } catch (e) { console.warn('deleteMainTable photo delete error', e); }
+              }
+            }
+        } else {
+          keepEntries.push(entry);
+        }
+      }
+      if (keepEntries.length !== photoEntries.length) {
+        await saveItems(MAIN_TABLE_PHOTOS_KEY, keepEntries);
+      }
+    } catch (e) {
+      console.warn('deleteMainTable photos cleanup error:', e);
+    }
     
     console.log("Main table and associated items deleted successfully.");
     return true;
@@ -1656,6 +1682,221 @@ export const deleteMainTable = async (tableId: number): Promise<boolean> => {
     return false;
   }
 };
+
+// ================= MAIN TABLE PHOTOS (hasta 5 fotos por tabla) =================
+
+// Elemento de foto con metadatos de posición/escala/rotación
+export interface MainTablePhotoItem {
+  uri: string;        // Ruta (file://, http://, etc.)
+  x: number;          // posición X relativa al canvas
+  y: number;          // posición Y relativa
+  scale: number;      // escala
+  rotation: number;   // en grados
+}
+
+// Registro lógico por tabla principal
+interface MainTablePhotos {
+  id: number;        // id del registro fotos
+  tableId: number;   // referencia a MainTable
+  // Para compatibilidad: puede contener strings antiguos o objetos con metadatos
+  photos: (string | MainTablePhotoItem)[];  // Máx 5
+}
+
+const MAX_PHOTOS_PER_MAIN_TABLE = 5;
+const LARGE_IMAGE_INLINE_THRESHOLD = 20_000; // si base64 dataURL > 20KB la movemos a archivo (muy bajo para forzar externalización)
+
+const ensurePhotosDir = async () => {
+  await ensureDirAsync(PHOTOS_DIR);
+};
+
+const makePhotoFileUri = (tableId: number, slot: number, ext: string) => `${PHOTOS_DIR}mt_${tableId}_${Date.now()}_${slot}.${ext}`;
+
+const isDataUrlImage = (value: string) => /^data:image\/(png|jpeg|jpg);base64,/i.test(value);
+
+const extractImageExt = (dataUrl: string): string => {
+  const m = dataUrl.match(/^data:image\/(png|jpeg|jpg);base64,/i);
+  if (!m) return 'png';
+  const raw = m[1].toLowerCase();
+  return raw === 'jpeg' ? 'jpg' : raw;
+};
+
+const decodeAndPersistDataUrl = async (tableId: number, slot: number, dataUrl: string): Promise<string> => {
+  try {
+    await ensurePhotosDir();
+    const ext = extractImageExt(dataUrl);
+    const base64 = dataUrl.split(',')[1];
+    const uri = makePhotoFileUri(tableId, slot, ext);
+    await FileSystem.writeAsStringAsync(uri, base64, { encoding: FileSystem.EncodingType.Base64 });
+    return uri;
+  } catch (e) {
+    console.warn('decodeAndPersistDataUrl error, fallback skip externalization', e);
+    return dataUrl; // fallback inline (debería ser pequeño si falla)
+  }
+};
+
+const getMainTablePhotosEntries = async (): Promise<MainTablePhotos[]> => {
+  return getItems<MainTablePhotos>(MAIN_TABLE_PHOTOS_KEY);
+};
+
+const saveMainTablePhotosEntries = async (entries: MainTablePhotos[]) => {
+  await saveItems(MAIN_TABLE_PHOTOS_KEY, entries);
+};
+
+export const getPhotosForMainTable = async (tableId: number): Promise<string[]> => {
+  const entries = await getMainTablePhotosEntries();
+  const entry = entries.find(e => e.tableId === tableId);
+  if (!entry) return [];
+  return entry.photos.map(p => typeof p === 'string' ? p : p.uri);
+};
+
+export const getPhotoItemsForMainTable = async (tableId: number): Promise<MainTablePhotoItem[]> => {
+  const entries = await getMainTablePhotosEntries();
+  const entry = entries.find(e => e.tableId === tableId);
+  if (!entry) return [];
+  return entry.photos.map(p => {
+    if (typeof p === 'string') {
+      return { uri: p, x: 40, y: 40, scale: 1, rotation: 0 } as MainTablePhotoItem; // default position
+    }
+    // Asegurar valores por si faltan
+    return {
+      uri: p.uri,
+      x: Number.isFinite(p.x) ? p.x : 40,
+      y: Number.isFinite(p.y) ? p.y : 40,
+      scale: Number.isFinite(p.scale) ? p.scale : 1,
+      rotation: Number.isFinite(p.rotation) ? p.rotation : 0
+    };
+  });
+};
+
+export const addPhotoToMainTable = async (tableId: number, image: string): Promise<boolean> => {
+  try {
+    let entries = await getMainTablePhotosEntries();
+    let entry = entries.find(e => e.tableId === tableId);
+    if (!entry) {
+      const id = await getNextId(MAIN_TABLE_PHOTOS_KEY);
+  entry = { id, tableId, photos: [] };
+      entries.push(entry);
+    }
+    if (entry.photos.length >= MAX_PHOTOS_PER_MAIN_TABLE) {
+      console.warn('addPhotoToMainTable: max photos reached');
+      Alert.alert('Límite alcanzado', 'Máximo 5 fotos por gimnasta.');
+      return false;
+    }
+    let finalUri = image;
+    if (typeof image === 'string') {
+      const isData = isDataUrlImage(image);
+      // Detectar base64 largo sin dataURL (posible) -> externalizar
+      if (isData) {
+        finalUri = await decodeAndPersistDataUrl(tableId, entry.photos.length, image);
+      } else if (!isFileRef(image) && image.length > LARGE_IMAGE_INLINE_THRESHOLD && !/^https?:\/\//i.test(image)) {
+        // Podría ser base64 sin header (no recomendado) -> intentar externalizar
+        const guessExt = 'jpg';
+        try {
+          await ensurePhotosDir();
+          const uri = makePhotoFileUri(tableId, entry.photos.length, guessExt);
+          await FileSystem.writeAsStringAsync(uri, image, { encoding: FileSystem.EncodingType.Base64 });
+          finalUri = uri;
+        } catch (e) {
+          console.warn('addPhotoToMainTable raw base64 externalization failed', e);
+        }
+      }
+    }
+  // Insertar como objeto con metadatos iniciales
+  const photoItem: MainTablePhotoItem = { uri: finalUri, x: 40 + (entry.photos.length * 60), y: 40, scale: 1, rotation: 0 };
+  entry.photos.push(photoItem);
+    await saveMainTablePhotosEntries(entries);
+    console.log(`Foto añadida a MainTable ${tableId}. Total: ${entry.photos.length}`);
+    return true;
+  } catch (e) {
+    console.error('addPhotoToMainTable error', e);
+    return false;
+  }
+};
+
+export const removePhotoFromMainTable = async (tableId: number, index: number): Promise<boolean> => {
+  try {
+    const entries = await getMainTablePhotosEntries();
+    const entry = entries.find(e => e.tableId === tableId);
+    if (!entry || index < 0 || index >= entry.photos.length) return false;
+    const [removed] = entry.photos.splice(index, 1);
+    const removedUri = typeof removed === 'string' ? removed : removed.uri;
+    if (isFileRef(removedUri)) {
+      try { await deleteFileIfExists(removedUri); } catch {}
+    }
+    await saveMainTablePhotosEntries(entries);
+    return true;
+  } catch (e) {
+    console.error('removePhotoFromMainTable error', e);
+    return false;
+  }
+};
+
+export const clearPhotosForMainTable = async (tableId: number): Promise<boolean> => {
+  try {
+    const entries = await getMainTablePhotosEntries();
+    const keep: MainTablePhotos[] = [];
+    let modified = false;
+    for (const entry of entries) {
+      if (entry.tableId === tableId) {
+        modified = true;
+        for (const p of entry.photos) {
+          const uri = typeof p === 'string' ? p : p.uri;
+          if (isFileRef(uri)) { try { await deleteFileIfExists(uri); } catch {} }
+        }
+      } else keep.push(entry);
+    }
+    if (modified) await saveMainTablePhotosEntries(keep);
+    return true;
+  } catch (e) {
+    console.error('clearPhotosForMainTable error', e);
+    return false;
+  }
+};
+
+export const setPhotosForMainTable = async (tableId: number, images: string[]): Promise<boolean> => {
+  try {
+    if (images.length > MAX_PHOTOS_PER_MAIN_TABLE) {
+      Alert.alert('Demasiadas fotos', 'Máximo 5 fotos.');
+      return false;
+    }
+    // Limpia existentes
+    await clearPhotosForMainTable(tableId);
+    for (const img of images) {
+      const ok = await addPhotoToMainTable(tableId, img);
+      if (!ok) return false;
+    }
+    return true;
+  } catch (e) {
+    console.error('setPhotosForMainTable error', e);
+    return false;
+  }
+};
+
+// Actualizar transform (x,y,scale,rotation) de una foto identificada por uri
+export const updatePhotoTransformForMainTable = async (
+  tableId: number,
+  uri: string,
+  transform: Partial<Pick<MainTablePhotoItem, 'x' | 'y' | 'scale' | 'rotation'>>
+): Promise<boolean> => {
+  try {
+    const entries = await getMainTablePhotosEntries();
+    const entry = entries.find(e => e.tableId === tableId);
+    if (!entry) return false;
+    let changed = false;
+    entry.photos = entry.photos.map(p => {
+      if ((typeof p === 'string' ? p : p.uri) !== uri) return p;
+      const base: MainTablePhotoItem = typeof p === 'string' ? { uri: p, x: 40, y: 40, scale: 1, rotation: 0 } : p;
+      changed = true;
+      return { ...base, ...transform };
+    });
+    if (changed) await saveMainTablePhotosEntries(entries);
+    return changed;
+  } catch (e) {
+    console.error('updatePhotoTransformForMainTable error', e);
+    return false;
+  }
+};
+
 
 // MAIN RATE GENERAL FUNCTIONS
 export const getRateGeneralTables = async (): Promise<MainRateGeneral[]> => {
