@@ -1308,7 +1308,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                     isTinyDevice ? styles.cellHeaderTextTiny : null,
                   ]}
                 >
-                  SB
+                  {discipline ? "SB" : "B"}
                 </Text>
               </View>
             <View style={styles.executionCell}>
@@ -1617,7 +1617,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                       isTinyDevice ? styles.smallCellTextTiny : null,
                     ]}
                   >
-                    SB
+                    {discipline ? "SB" : "B"}
                   </Text>
                 </View>
                 <View style={styles.sdValueCell}>

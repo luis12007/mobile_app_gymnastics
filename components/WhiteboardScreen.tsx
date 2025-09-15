@@ -6,6 +6,7 @@ import { Path, SkPath, Skia, Canvas, Image as SkiaImage, Group, useImage } from 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateRateGeneral, getRateGeneralByTableId, getMainTableById, updateMainTable, getMainTablePaths, getPhotosForMainTable, addPhotoToMainTable, getPhotoItemsForMainTable, updatePhotoTransformForMainTable, removePhotoFromMainTable } from '../Database/database';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 
 // Detectar si estamos en entorno web
 const isWeb = Platform.OS === 'web';
@@ -352,36 +353,136 @@ const findPhotoAtPoint = (x: number, y: number): string | null => {
     } catch (e) { console.warn('Error loading photo items', e); }
   }, [tableId]);
 
+  // Helpers iOS: asegurar archivo accesible y formato soportado
+  const PHOTO_IMPORT_LOG_KEY = '@photoImportLog';
+
+  const appendPhotoImportLog = useCallback(async (entry: Record<string, any>) => {
+    try {
+      const payload = {
+        ts: new Date().toISOString(),
+        platform: Platform.OS,
+        tableId,
+        ...entry,
+      };
+      console.log('[PhotoImport]', payload);
+      const prev = await AsyncStorage.getItem(PHOTO_IMPORT_LOG_KEY);
+      const arr = prev ? JSON.parse(prev) : [];
+      arr.push(payload);
+      const MAX = 200;
+      if (arr.length > MAX) arr.splice(0, arr.length - MAX);
+      await AsyncStorage.setItem(PHOTO_IMPORT_LOG_KEY, JSON.stringify(arr));
+    } catch (e) {
+      console.warn('[PhotoImport] log save failed', e);
+    }
+  }, [tableId]);
+
+  const ensurePhotosDir = async () => {
+    const dir = FileSystem.cacheDirectory + 'photos/';
+    try { await FileSystem.makeDirectoryAsync(dir, { intermediates: true }); } catch {}
+    return dir;
+  };
+
+  const getExtFromUri = (uri: string) => {
+    const m = uri.split('?')[0].match(/\.([a-zA-Z0-9]+)$/);
+    return m ? m[1].toLowerCase() : 'jpg';
+  };
+
+  const isHeic = (ext: string) => ext === 'heic' || ext === 'heif';
+
+  const copyToAppCache = async (srcUri: string): Promise<string> => {
+    const dir = await ensurePhotosDir();
+    const ext = getExtFromUri(srcUri);
+    const filename = `${Date.now()}_${Math.floor(Math.random()*1e6)}.${ext}`;
+    const dst = dir + filename;
+    try {
+      await FileSystem.copyAsync({ from: srcUri, to: dst });
+      const info = await FileSystem.getInfoAsync(dst);
+      if (info.exists && info.size && info.size > 0) return dst;
+    } catch (e) {
+      console.warn('copyToAppCache failed, fallback to original uri', e);
+    }
+    return srcUri;
+  };
+
   const handleAddPhoto = useCallback(async () => {
     try {
+      await appendPhotoImportLog({ step: 'start', msg: 'Add photo tapped' });
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) {
         Alert.alert('Permiso requerido', 'Se necesita acceso a la galería.');
+        await appendPhotoImportLog({ step: 'permission_denied' });
         return;
       }
+      await appendPhotoImportLog({ step: 'permission_granted' });
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsMultipleSelection: false,
         base64: false,
         quality: 0.8
       });
-      if (result.canceled) return;
+      if (result.canceled) {
+        await appendPhotoImportLog({ step: 'picker_canceled' });
+        return;
+      }
       const asset = result.assets?.[0];
-      if (!asset?.uri) return;
-      const ok = await addPhotoToMainTable(tableId, asset.uri);
+      await appendPhotoImportLog({ step: 'asset_selected', assetUri: asset?.uri ?? null, fileName: (asset as any)?.fileName ?? null, mimeType: (asset as any)?.mimeType ?? null });
+      if (!asset?.uri) {
+        await appendPhotoImportLog({ step: 'asset_missing_uri' });
+        return;
+      }
+
+      // Pre-validaciones iOS: bloquear HEIC/HEIF y forzar copia a sandbox
+      let pickedUri = asset.uri;
+      const ext = getExtFromUri(pickedUri);
+      if (Platform.OS === 'ios') {
+        if (isHeic(ext)) {
+          Alert.alert('Formato no soportado', 'Las imágenes HEIC/HEIF no son compatibles para exportar. Por favor, selecciona una imagen JPEG o PNG.');
+          await appendPhotoImportLog({ step: 'blocked_heic_heif', ext, uri: pickedUri });
+          return;
+        }
+        // Copiar a cache para evitar rutas no accesibles (ph://, private://)
+        const before = pickedUri;
+        pickedUri = await copyToAppCache(pickedUri);
+        await appendPhotoImportLog({ step: 'copied_to_cache', from: before, to: pickedUri, changed: before !== pickedUri });
+      }
+
+      // Verificar existencia y tamaño razonable
+      try {
+        const info = await FileSystem.getInfoAsync(pickedUri);
+        if (!info.exists || (info.size ?? 0) === 0) {
+          Alert.alert('Error', 'No se pudo acceder a la imagen seleccionada.');
+          await appendPhotoImportLog({ step: 'file_info_invalid', uri: pickedUri, info });
+          return;
+        }
+        // Límite blando 25MB
+        if ((info.size ?? 0) > 25 * 1024 * 1024) {
+          Alert.alert('Imagen muy grande', 'La imagen supera 25MB. Selecciona otra más pequeña.');
+          await appendPhotoImportLog({ step: 'file_too_large', size: info.size, uri: pickedUri });
+          return;
+        }
+        await appendPhotoImportLog({ step: 'file_info_ok', size: info.size, uri: pickedUri });
+      } catch {}
+
+      const ok = await addPhotoToMainTable(tableId, pickedUri);
+      await appendPhotoImportLog({ step: 'db_add_result', ok, uri: pickedUri });
       if (ok) {
         // Calcular centro basándonos en el ancho de pantalla y altura de canvas
   const photoSize = 120; // base centrar (independiente de escala)
         const centerX = Math.round((width - photoSize) / 2);
         const centerY = Math.round((canvasHeight - photoSize) / 2);
         // Actualizar transform inicial para centrar
-  await updatePhotoTransformForMainTable(tableId, asset.uri, { x: centerX, y: centerY, scale: 0.5 });
+  await updatePhotoTransformForMainTable(tableId, pickedUri, { x: centerX, y: centerY, scale: 0.5 });
+        await appendPhotoImportLog({ step: 'transform_initialized', x: centerX, y: centerY, scale: 0.5, uri: pickedUri });
         await loadPhotos();
         await loadPhotoItems();
-        setActivePhoto(asset.uri);
+        setActivePhoto(pickedUri);
+        await appendPhotoImportLog({ step: 'success', uri: pickedUri });
       }
     } catch (e) {
-      console.error('handleAddPhoto error', e);
+    console.error('handleAddPhoto error', e);
+    const message = (typeof e === 'object' && e && 'message' in e) ? String((e as any).message) : String(e);
+    const stack = (typeof e === 'object' && e && 'stack' in e) ? String((e as any).stack) : null;
+    await appendPhotoImportLog({ step: 'error', message, stack });
       Alert.alert('Error', 'No se pudo añadir la imagen');
     }
   }, [tableId, loadPhotos]);

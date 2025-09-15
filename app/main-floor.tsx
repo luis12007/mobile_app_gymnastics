@@ -2457,7 +2457,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                   </TouchableOpacity>
                 </View>
 
-                  <>
+                  {discipline && (<>
                     <View style={styles.sdCell}>
                       <Text
                         style={[
@@ -2498,7 +2498,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                         </Text>
                       </TouchableOpacity>
                     </View>
-                  </>
+                  </>)}
                 <View style={styles.ndDeductionCell}>
                   <Text
                     style={[
