@@ -6,6 +6,7 @@ import { Path, SkPath, Skia, Canvas, useImage, Image as SkiaImage, Group } from 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateRateGeneral, getRateGeneralByTableId, getMainTableById, updateMainTable, getMainTablePaths, getPhotosForMainTable, addPhotoToMainTable, getPhotoItemsForMainTable, updatePhotoTransformForMainTable, removePhotoFromMainTable } from '../Database/database';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import VaultSelectorModal from './ModalVaultWag';
 
@@ -386,23 +387,56 @@ const DrawingCanvas = ({
       setPhotoItems(normalized);
     } catch(e){ console.warn('Error loading photo items', e);} }, [tableId]);
 
+  // Helpers iOS + logs persistentes para importación de fotos
+  const PHOTO_IMPORT_LOG_KEY = '@photoImportLog';
+  const appendPhotoImportLog = useCallback(async (entry: Record<string, any>) => {
+    try {
+      const payload = { ts: new Date().toISOString(), platform: Platform.OS, tableId, screen: 'jump', ...entry };
+      console.log('[PhotoImport]', payload);
+      const prev = await AsyncStorage.getItem(PHOTO_IMPORT_LOG_KEY);
+      const arr = prev ? JSON.parse(prev) : [];
+      arr.push(payload);
+      const MAX = 200; if (arr.length > MAX) arr.splice(0, arr.length - MAX);
+      await AsyncStorage.setItem(PHOTO_IMPORT_LOG_KEY, JSON.stringify(arr));
+    } catch (e) { console.warn('[PhotoImport] log save failed', e); }
+  }, [tableId]);
+
+  const pickImageUriViaDocumentPicker = useCallback(async (): Promise<string | null> => {
+    try {
+      await appendPhotoImportLog({ step: 'ios_docpicker_start' });
+      const res: any = await DocumentPicker.getDocumentAsync({ type: ['image/*'], multiple: false, copyToCacheDirectory: false });
+      if ((res && 'canceled' in res && res.canceled) || res?.type === 'cancel') { await appendPhotoImportLog({ step: 'ios_docpicker_canceled' }); return null; }
+      const asset = (res as any).assets?.[0] ?? res; const uri = asset?.uri ?? null;
+      await appendPhotoImportLog({ step: 'ios_docpicker_selected', assetUri: uri, fileName: asset?.name ?? null, size: asset?.size ?? null, mimeType: asset?.mimeType ?? null });
+      return uri;
+    } catch (e) {
+      const message = (typeof e === 'object' && e && 'message' in e) ? String((e as any).message) : String(e);
+      const stack = (typeof e === 'object' && e && 'stack' in e) ? String((e as any).stack) : null;
+      await appendPhotoImportLog({ step: 'ios_docpicker_error', message, stack });
+      return null;
+    }
+  }, [appendPhotoImportLog]);
+
   const handleAddPhoto = useCallback(async () => {
     try {
       await appendPhotoImportLog({ step: 'start', msg: 'Add photo tapped' });
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert('Permiso requerido','Se necesita acceso a la galería.');
-        await appendPhotoImportLog({ step: 'permission_denied' });
-        return;
-      }
-      await appendPhotoImportLog({ step: 'permission_granted' });
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection:false, base64:false, quality:0.8 });
-      if (result.canceled) { await appendPhotoImportLog({ step: 'picker_canceled' }); return; }
-      const asset = result.assets?.[0];
-      await appendPhotoImportLog({ step: 'asset_selected', assetUri: asset?.uri ?? null, fileName: (asset as any)?.fileName ?? null, mimeType: (asset as any)?.mimeType ?? null });
-      if(!asset?.uri) { await appendPhotoImportLog({ step: 'asset_missing_uri' }); return; }
 
-      let pickedUri = asset.uri;
+      let pickedUri: string | null = null;
+      if (Platform.OS === 'ios') {
+        pickedUri = await pickImageUriViaDocumentPicker();
+      } else {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) { Alert.alert('Permiso requerido','Se necesita acceso a la galería.'); await appendPhotoImportLog({ step: 'permission_denied' }); return; }
+        await appendPhotoImportLog({ step: 'permission_granted' });
+        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection:false, base64:false, quality:0.8 });
+        if (result.canceled) { await appendPhotoImportLog({ step: 'picker_canceled' }); return; }
+        const asset = result.assets?.[0];
+        await appendPhotoImportLog({ step: 'asset_selected', assetUri: asset?.uri ?? null, fileName: (asset as any)?.fileName ?? null, mimeType: (asset as any)?.mimeType ?? null });
+        if(!asset?.uri) { await appendPhotoImportLog({ step: 'asset_missing_uri' }); return; }
+        pickedUri = asset.uri;
+      }
+
+      if (!pickedUri) return;
       const ext = getExtFromUri(pickedUri);
       if (Platform.OS === 'ios') {
         if (isHeic(ext)) {
@@ -453,19 +487,7 @@ const DrawingCanvas = ({
     } catch(e){ console.warn('Persist transform error', e); }
   }, [tableId]);
 
-  // Helpers iOS + logs persistentes para importación de fotos
-  const PHOTO_IMPORT_LOG_KEY = '@photoImportLog';
-  const appendPhotoImportLog = useCallback(async (entry: Record<string, any>) => {
-    try {
-      const payload = { ts: new Date().toISOString(), platform: Platform.OS, tableId, screen: 'jump', ...entry };
-      console.log('[PhotoImport]', payload);
-      const prev = await AsyncStorage.getItem(PHOTO_IMPORT_LOG_KEY);
-      const arr = prev ? JSON.parse(prev) : [];
-      arr.push(payload);
-      const MAX = 200; if (arr.length > MAX) arr.splice(0, arr.length - MAX);
-      await AsyncStorage.setItem(PHOTO_IMPORT_LOG_KEY, JSON.stringify(arr));
-    } catch (e) { console.warn('[PhotoImport] log save failed', e); }
-  }, [tableId]);
+  
 
   const ensurePhotosDir = async () => {
     const dir = FileSystem.cacheDirectory + 'photos/';
