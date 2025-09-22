@@ -604,6 +604,105 @@ const saveItems = async <T>(key: string, items: T[]): Promise<boolean> => {
   }
 };
 
+// ===================== Resilient MainTable Sharded Storage =====================
+// Problema: Un sólo registro gigante (paths enormes forzados inline) puede exceder el límite de CursorWindow en Android
+// y hace fallar la lectura completa del key MAIN_TABLES_KEY. Solución: almacenar también cada registro individualmente
+// (shards) bajo un prefijo y mantener un índice pequeño. Así si el valor agregado falla, aún podemos reconstruir la lista.
+
+const MAIN_TABLE_SHARD_PREFIX = 'MTBL__'; // Clave individual: MTBL__<id>
+const MAIN_TABLE_SHARD_INDEX_KEY = 'MTBL_INDEX'; // Lista de ids: [number, ...]
+
+type AnyMainTable = any; // evitar importar arriba; el archivo ya declara MainTable más abajo.
+
+const loadShardedMainTables = async (): Promise<AnyMainTable[]> => {
+  try {
+    const indexStr = await AsyncStorage.getItem(MAIN_TABLE_SHARD_INDEX_KEY);
+    if (!indexStr) return [];
+    const ids: number[] = JSON.parse(indexStr);
+    if (!Array.isArray(ids) || ids.length === 0) return [];
+    const keys = ids.map(id => MAIN_TABLE_SHARD_PREFIX + id);
+    const pairs = await AsyncStorage.multiGet(keys);
+    const tables: AnyMainTable[] = [];
+    for (const [, value] of pairs) {
+      if (value) {
+        try {
+          const obj = JSON.parse(value);
+          if (obj && typeof obj === 'object') tables.push(obj);
+        } catch (e) {
+          console.warn('Shard parse error ignorado', e);
+        }
+      }
+    }
+    return tables;
+  } catch (e) {
+    console.error('Error cargando shards MainTable', e);
+    return [];
+  }
+};
+
+const saveShardedMainTables = async (tables: AnyMainTable[]): Promise<void> => {
+  try {
+    const ids = tables.map(t => t?.id).filter((id: any) => typeof id === 'number');
+    await AsyncStorage.setItem(MAIN_TABLE_SHARD_INDEX_KEY, JSON.stringify(ids));
+    const ops: [string, string][] = [];
+    tables.forEach(t => {
+      if (t && typeof t === 'object' && typeof t.id === 'number') {
+        ops.push([MAIN_TABLE_SHARD_PREFIX + t.id, JSON.stringify(t)]);
+      }
+    });
+    if (ops.length) await AsyncStorage.multiSet(ops);
+    // Limpieza: eliminar shards huérfanos (ids antiguos que ya no están)
+    const allKeys = await AsyncStorage.getAllKeys();
+    const shardKeys = allKeys.filter(k => k.startsWith(MAIN_TABLE_SHARD_PREFIX));
+    const validSet = new Set(ids.map(id => MAIN_TABLE_SHARD_PREFIX + id));
+    const toRemove = shardKeys.filter(k => !validSet.has(k));
+    if (toRemove.length) await AsyncStorage.multiRemove(toRemove);
+  } catch (e) {
+    console.error('Error guardando shards MainTable', e);
+  }
+};
+
+// Persist both aggregated and sharded forms. If aggregated falla por tamaño, aún guardamos shards.
+const persistMainTables = async (tables: AnyMainTable[]): Promise<void> => {
+  let aggregatedOk = false;
+  try {
+    await AsyncStorage.setItem(MAIN_TABLES_KEY, JSON.stringify(tables));
+    aggregatedOk = true;
+  } catch (e) {
+    console.warn('Falló guardar MAIN_TABLES_KEY (posible tamaño excesivo). Continuando con shards.', e);
+  }
+  await saveShardedMainTables(tables);
+  if (!aggregatedOk) {
+    console.log('MainTables disponibles vía modo shard aun cuando el agregado falló.');
+  }
+};
+
+// Reemplazo resiliente de getMainTables que intenta primero el agregado y si falla usa shards.
+// Nota: redefiniremos más abajo export getMainTables para usar esta lógica.
+const getMainTablesResilientInternal = async (): Promise<AnyMainTable[]> => {
+  // 1. Intentar lectura agregada normal
+  try {
+    const itemsString = await AsyncStorage.getItem(MAIN_TABLES_KEY);
+    if (itemsString) {
+      try {
+        const parsed = JSON.parse(itemsString);
+        if (Array.isArray(parsed)) {
+          // Sincronizar shards en background (no await) para asegurar cobertura futura
+          saveShardedMainTables(parsed);
+          return parsed;
+        }
+      } catch (parseErr) {
+        console.warn('Error parseando MAIN_TABLES_KEY, uso shards:', parseErr);
+      }
+    }
+  } catch (e: any) {
+    console.warn('Lectura MAIN_TABLES_KEY falló, uso shards. Detalle:', e?.message || e);
+  }
+  // 2. Fallback shards
+  const shards = await loadShardedMainTables();
+  return shards;
+};
+
 // USER FUNCTIONS
 export const getUsers = async (): Promise<User[]> => {
   // Validate user objects
@@ -1336,8 +1435,8 @@ export const deleteCompetence = async (competenceId: number): Promise<boolean> =
     
     // Also delete associated main tables
     const mainTables = await getMainTables();
-    const filteredMainTables = mainTables.filter(table => table.competenceId !== competenceId);
-    await saveItems(MAIN_TABLES_KEY, filteredMainTables);
+  const filteredMainTables = mainTables.filter(table => table.competenceId !== competenceId);
+  await persistMainTables(filteredMainTables);
     
     console.log("Competence and associated items deleted successfully.");
     return true;
@@ -1349,7 +1448,7 @@ export const deleteCompetence = async (competenceId: number): Promise<boolean> =
 
 // MAIN TABLE FUNCTIONS
 export const getMainTables = async (): Promise<MainTable[]> => {
-  return getItems<MainTable>(MAIN_TABLES_KEY);
+  return getMainTablesResilientInternal() as Promise<MainTable[]>;
 };
 
 export const deleteRateGeneralByTableId = async (tableId: number): Promise<void> => {
@@ -1379,7 +1478,7 @@ export const deleteMainTableByCompetenceId = async (competenceId: number): Promi
       return;
     }
 
-    await saveItems(MAIN_TABLES_KEY, filteredMainTables);
+  await persistMainTables(filteredMainTables);
     console.log(`Deleted MainTable entries for competenceId: ${competenceId}`);
   } catch (error) {
     console.error(`Error deleting MainTable entries for competenceId: ${competenceId}`, error);
@@ -1524,8 +1623,8 @@ export const insertMainTable = async (tableData: Omit<MainTable, 'id'>): Promise
       );
       return false;
     }
-    mainTables.push(newTable);
-    await saveItems(MAIN_TABLES_KEY, mainTables);
+  mainTables.push(newTable);
+  await persistMainTables(mainTables);
     console.log("Main table added successfully. ID:", id);
     return id;
   } catch (error) {
@@ -1620,8 +1719,8 @@ export const updateMainTable = async (
       );
       return false;
     }
-    mainTables[tableIndex] = nextRecord; // solo si válido
-    await saveItems(MAIN_TABLES_KEY, mainTables);
+  mainTables[tableIndex] = nextRecord; // solo si válido
+  await persistMainTables(mainTables);
     console.log("Main table updated successfully.");
     return true;
   } catch (error) {
@@ -1640,7 +1739,7 @@ export const deleteMainTable = async (tableId: number): Promise<boolean> => {
       return false;
     }
     
-    await saveItems(MAIN_TABLES_KEY, filteredMainTables);
+  await persistMainTables(filteredMainTables);
     
     // Delete associated rate tables
     const rateGeneralTables = await getRateGeneralTables();
@@ -2957,6 +3056,27 @@ export const initializeApp = async (): Promise<void> => {
    try {
     // Run cleanup to ensure data integrity
     await cleanupData();
+
+    // Migración a almacenamiento shard para MainTables si todavía no se creó índice
+    try {
+      const shardIndex = await AsyncStorage.getItem(MAIN_TABLE_SHARD_INDEX_KEY);
+      if (!shardIndex) {
+        const aggregated = await AsyncStorage.getItem(MAIN_TABLES_KEY);
+        if (aggregated) {
+          try {
+            const parsed = JSON.parse(aggregated);
+            if (Array.isArray(parsed) && parsed.length) {
+              console.log('[MainTables][MIGRATION] Creando shards iniciales desde agregado existente. Registros:', parsed.length);
+              await saveShardedMainTables(parsed);
+            }
+          } catch (e) {
+            console.warn('[MainTables][MIGRATION] No se pudo parsear agregado existente para shards', e);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[MainTables][MIGRATION] Error general migrando a shards', e);
+    }
     
     // Check if any data exists
     const users = await getUsers();
@@ -3061,10 +3181,77 @@ export const migrateLargeInlinePaths = async (): Promise<void> => {
       }
     }
     if (modified) {
-      await saveItems(MAIN_TABLES_KEY, tables);
+  await persistMainTables(tables);
       console.log('[MIGRATE] Large inline paths externalizados / saneados.');
     }
   } catch (e) {
     console.warn('migrateLargeInlinePaths error:', e);
+  }
+};
+
+// Inserta un MainTable sin saneo ni validación (uso exclusivo de pantalla dev para probar recuperación de datos corruptos)
+// Acepta cualquier objeto, rellena campos faltantes con defaults muy básicos y NO muestra Alert de validación.
+export const insertCorruptMainTable = async (raw: any): Promise<number | false> => {
+  try {
+    const mainTables = await getMainTables();
+    const id = await getNextId(MAIN_TABLES_KEY);
+    const wantHuge = !!(raw && (raw.hugePaths || raw.__huge || raw.paths === '__HUGE__'));
+    const buildHugePathsString = (targetBytes: number = 1_050_000) => {
+      // Genera un JSON array grande de puntos para intentar exceder CursorWindow en Android
+      // Cada entrada ~18-24 bytes: {"x":123,"y":456}
+      const items: string[] = [];
+      let x = 0; let y = 0; let approx = 2; // '[' + ']'
+      while (approx < targetBytes) {
+        x = (x + 13) % 1000; y = (y + 29) % 1000;
+        const chunk = `{"x":${x},"y":${y}}`;
+        items.push(chunk);
+        approx += chunk.length + 1; // + comma
+        if (items.length > 200000) break; // safety guard
+      }
+      return '[' + items.join(',') + ']';
+    };
+    const defaults: MainTable = {
+      id,
+      competenceId: 0,
+      number: 0,
+      name: '',
+      event: '',
+      noc: '',
+      bib: '',
+      j: 0,i:0,h:0,g:0,f:0,e:0,d:0,c:0,b:0,a:0,
+      dv:0,eg:0,sb:0,nd:0,cv:0,sv:0,e2:0,d3:0,e3:0,delt:0,percentage:0,
+      stickBonus:false,
+      numberOfElements:0,
+      difficultyValues:0,
+      elementGroups1:0,elementGroups2:0,elementGroups3:0,elementGroups4:0,elementGroups5:0,
+      execution:0,eScore:0,myScore:0,compD:0,compE:0,compSd:0,compNd:0,compScore:0,
+      comments:'',paths:'[]',ded:0,dedexecution:0,vaultNumber:'',vaultDescription:'',startValue:0,description:'',score:0
+    };
+    // Mezclar sin coerción
+    const candidate: any = { ...defaults, ...raw, id };
+    // Asegurar paths string (si viene objeto/array convertir best-effort)
+    if (wantHuge) {
+      candidate.paths = buildHugePathsString();
+      candidate.__forceInlineHuge = true; // marca interna para saltar externalización
+    } else if (candidate.paths && typeof candidate.paths === 'object') {
+      try { candidate.paths = JSON.stringify(candidate.paths); } catch { candidate.paths = '[]'; }
+    }
+    if (typeof candidate.paths !== 'string') candidate.paths = '[]';
+    // Si paths muy grande, externalizar (reutilizar lógica mínima)
+    if (typeof candidate.paths === 'string' && candidate.paths.length > LARGE_FIELD_THRESHOLD && !candidate.__forceInlineHuge) {
+      try {
+        const uri = makePathsFileUri(id);
+        await writeStringToFile(uri, candidate.paths);
+        candidate.paths = uri;
+      } catch {}
+    }
+    delete candidate.__forceInlineHuge;
+  mainTables.push(candidate as MainTable);
+  await persistMainTables(mainTables);
+    console.log('[DEV][CORRUPT] insertCorruptMainTable ID=', id);
+    return id;
+  } catch (e) {
+    console.error('[DEV][CORRUPT] Error insertCorruptMainTable', e);
+    return false;
   }
 };

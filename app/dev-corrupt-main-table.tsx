@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, ScrollView, TouchableOpacity, Switch, Alert, Platform, StyleSheet } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getCompetences, getMainTables, insertMainTable, updateMainTable } from '../Database/database';
+import { getCompetences, getMainTables, insertMainTable, updateMainTable, insertCorruptMainTable } from '../Database/database';
 import { Picker } from '@react-native-picker/picker';
 
 /*
@@ -155,6 +155,62 @@ export default function DevCorruptMainTableScreen() {
     }
   };
 
+  // Inserción absolutamente sin validación usando insertCorruptMainTable
+  const insertRawBypass = async () => {
+    const compId = resolveCompetenceId();
+    if (!compId) {
+      Alert.alert('Missing competence', 'Selecciona una competencia o ingresa el ID manual.');
+      return;
+    }
+    let raw: any = {};
+    if (jsonInput.trim()) {
+      try {
+        raw = JSON.parse(sanitizeJson(jsonInput));
+      } catch (e) {
+        Alert.alert('JSON inválido', String(e));
+        return;
+      }
+    }
+    // Forzar competenceId si no viene
+    if (raw.competenceId == null) raw.competenceId = compId;
+    setIsSaving(true);
+    try {
+      const newId = await insertCorruptMainTable(raw);
+      if (newId === false) {
+        Alert.alert('Falló', 'No se pudo insertar (error interno)');
+      } else {
+        setLastId(newId);
+        Alert.alert('Insertado (bypass)', `Registro corrupto ID ${newId} insertado sin validación.`);
+      }
+    } catch (e) {
+      Alert.alert('Error', String(e));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const insertHugePaths = async () => {
+    const compId = resolveCompetenceId();
+    if (!compId) {
+      Alert.alert('Missing competence', 'Selecciona una competencia o ingresa el ID manual.');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const newId = await insertCorruptMainTable({ competenceId: compId, hugePaths: true, name: 'HUGE_PATHS_TEST' });
+      if (newId === false) {
+        Alert.alert('Falló', 'No se pudo insertar huge paths (error interno)');
+      } else {
+        setLastId(newId);
+        Alert.alert('Insertado HUGE', `Registro ID ${newId} con paths gigantes inline.`);
+      }
+    } catch (e) {
+      Alert.alert('Error', String(e));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Intenta una actualización inválida usando updateMainTable (sin tocar JSON directo)
   const corruptWithInvalidJson = async () => {
     setIsSaving(true);
@@ -262,6 +318,14 @@ export default function DevCorruptMainTableScreen() {
 
       <TouchableOpacity style={styles.button} onPress={insertCorrupt} disabled={isSaving}>
         <Text style={styles.buttonText}>{isSaving ? 'Guardando...' : 'Insertar Corrupt MainTable'}</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={[styles.button, { backgroundColor: '#7a0080' }]} onPress={insertRawBypass} disabled={isSaving}>
+        <Text style={styles.buttonText}>{isSaving ? 'Procesando...' : 'Insertar (Bypass Total)'}</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={[styles.button, { backgroundColor: '#b36b00' }]} onPress={insertHugePaths} disabled={isSaving}>
+        <Text style={styles.buttonText}>{isSaving ? 'Generando...' : 'Insertar Huge Paths (Crash Test)'}</Text>
       </TouchableOpacity>
 
       <TouchableOpacity style={[styles.button, { backgroundColor: '#b30000' }]} onPress={corruptWithInvalidJson} disabled={isSaving}>
