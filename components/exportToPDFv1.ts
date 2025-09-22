@@ -1,5 +1,5 @@
 import { Asset } from 'expo-asset';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
 import { shareAsync } from 'expo-sharing';
 import { PDFDocument } from 'pdf-lib';
@@ -162,39 +162,75 @@ const JUMP_IMAGE_FALLBACK =
 // (Android usa un hook en componentes para obtener esta imagen)
 
 
-// iOS: lógica original
+// iOS: lógica mejorada para obtener base64 de la imagen de salto incluso en fallback Expo
 const getJumpImageBase64 = async (): Promise<string> => {
-  if (Platform.OS === 'ios') {
-    let asset = null;
-    try { asset = Asset.fromModule(require('../assets/images/Jump1.png')); } catch (e) {}
-    if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump2.webp')); } catch (e) {}
-    if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump3.jpg')); } catch (e) {}
-    if (!asset) try { asset = Asset.fromModule(require('../assets/images/Jump4.jpeg')); } catch (e) {}
+  if (Platform.OS !== 'ios') throw new Error('getJumpImageBase64 solo iOS');
 
-    if (asset) {
-      try {
-        await asset.downloadAsync();
-        const imageUri = asset.localUri || asset.uri;
-        if (!imageUri) throw new Error('No image URI');
-        const fileInfo = await FileSystem.getInfoAsync(imageUri);
-        if (!fileInfo.exists || fileInfo.size === 0) throw new Error('File not found or empty');
-        const base64 = await FileSystem.readAsStringAsync(imageUri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        if (!base64 || base64.length < 100) throw new Error('Base64 empty or too short');
-        let mime = 'image/png';
-        if (imageUri.endsWith('.jpg') || imageUri.endsWith('.jpeg')) mime = 'image/jpeg';
-        if (imageUri.endsWith('.webp')) mime = 'image/webp';
+  let isFallback = false;
+  try {
+    const { isIOSUsingFallback } = require('../utils/platformFS');
+    isFallback = !!isIOSUsingFallback;
+  } catch {}
+
+  // Candidatos en orden
+  const candidateRequires = [
+    () => require('../assets/images/Jump1.png'),
+    () => require('../assets/images/Jump2.webp'),
+    () => require('../assets/images/Jump3.jpg'),
+    () => require('../assets/images/Jump4.jpeg'),
+  ];
+
+  let asset: any = null;
+  for (const fn of candidateRequires) {
+    try { asset = Asset.fromModule(fn()); break; } catch { asset = null; }
+  }
+  if (!asset) return JUMP_IMAGE_FALLBACK;
+
+  try { await asset.downloadAsync(); } catch {}
+
+  // Preferir asset.uri (normalmente http://<packager>/...) en fallback porque fetch a file:// puede fallar
+  const primaryUri = (!isFallback && asset.localUri) ? asset.localUri : asset.uri || asset.localUri;
+  if (!primaryUri) return JUMP_IMAGE_FALLBACK;
+
+  const guessMime = (u: string) => {
+    if (/\.jpe?g$/i.test(u)) return 'image/jpeg';
+    if (/\.webp$/i.test(u)) return 'image/webp';
+    return 'image/png';
+  };
+  const mime = guessMime(primaryUri);
+
+  // 1. Intentar fetch -> base64
+  try {
+    const res = await fetch(primaryUri);
+    if (res.ok) {
+      const buf = await res.arrayBuffer();
+      const base64 = Buffer.from(buf).toString('base64');
+      if (base64 && base64.length > 100) {
         return `data:${mime};base64,${base64}`;
-      } catch (error) {
-        console.error('Error loading jump image:', error);
       }
     }
-    // Si ninguno funcionó, usar fallback SVG
-    return JUMP_IMAGE_FALLBACK;
+  } catch (e) {
+    console.warn('[JumpImage] fetch fallo', e);
   }
-  // En Android, se debe usar el hook useJumpImageBase64
-  throw new Error('getJumpImageBase64 solo se debe usar en iOS. En Android, use el hook useJumpImageBase64 en un componente.');
+
+  // 2. Intentar RNFS si disponible
+  if (!isFallback) {
+    try {
+      const { PFS } = require('../utils/platformFS');
+      const base64 = await PFS.readFileBase64(primaryUri);
+      if (base64 && base64.length > 100) return `data:${mime};base64,${base64}`;
+    } catch (e) {
+      console.warn('[JumpImage] RNFS fallo', e);
+    }
+  }
+
+  // 3. Como último recurso (especialmente en Expo Go fallback) devolver la URI directa.
+  // El <image href="..."> dentro del SVG puede aceptar una URI http.
+  if (/^https?:/.test(primaryUri)) {
+    return primaryUri; // permitir que WebKit la resuelva en print
+  }
+
+  return JUMP_IMAGE_FALLBACK;
 };
 
 
@@ -683,9 +719,14 @@ export const generateComprehensivePDF = async (
   competence: Competence,
   jumpImageBase64: string | null,
   progressCb?: (msg: string, progress: number) => void,
+  control?: { cancelled?: boolean; abort?: () => void }
 ) => {
   console.log('[PDF] Inicio generateComprehensivePDF');
   progressCb?.('Inicializando…', 0);
+  if (control) {
+    control.cancelled = false;
+    control.abort = () => { control.cancelled = true; };
+  }
   
   if (!individualData || !Array.isArray(individualData) || individualData.length === 0) {
     throw new Error('No individual data provided for PDF generation');
@@ -695,6 +736,14 @@ export const generateComprehensivePDF = async (
   if (Platform.OS === 'ios') {
     jumpImageBase64 = await getJumpImageBase64();
   }
+
+  const checkCancel = () => {
+    if (control?.cancelled) {
+      console.warn('[PDF] Cancelado por el usuario');
+      throw new Error('PDF cancelado');
+    }
+  };
+  checkCancel();
 
   const isFileRef = (value?: string | null): boolean => {
     if (!value) return false;
@@ -706,10 +755,22 @@ export const generateComprehensivePDF = async (
     individualData.map(async (g) => {
       let pathsVal = g.paths || '';
       if (isFileRef(pathsVal)) {
-        try {
-          pathsVal = await FileSystem.readAsStringAsync(pathsVal);
-        } catch (e) {
-          console.warn('Failed reading externalized paths for PDF:', e);
+        let skip = false;
+        if (Platform.OS === 'ios') {
+          try {
+            const { isIOSUsingFallback } = require('../utils/platformFS');
+            if (isIOSUsingFallback) skip = true;
+          } catch {}
+        }
+        if (!skip) {
+          try {
+            pathsVal = await (FileSystem as any).readAsStringAsync(pathsVal);
+          } catch (e) {
+            console.warn('Failed reading externalized paths for PDF:', e);
+            pathsVal = '[]';
+          }
+        } else {
+          // En fallback iOS evitamos usar expo-file-system
           pathsVal = '[]';
         }
       }
@@ -746,14 +807,52 @@ export const generateComprehensivePDF = async (
     Image.getSize(uri, (w, h) => resolve({ width: w, height: h }), () => resolve({ width: DEFAULT_EXPORT_PHOTO_WIDTH, height: DEFAULT_EXPORT_PHOTO_HEIGHT }));
   });
 
+  const __photoCache: Record<string, string> = {};
   const encodePhotoUri = async (uri: string): Promise<string> => {
+    if (!uri) return '';
     if (uri.startsWith('data:image')) return uri;
-    try {
-      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-      return `data:${inferMimeFromExt(uri)};base64,${base64}`;
-    } catch (e) {
-      console.warn('Fallo lectura directa imagen (encodePhotoUri)', e);
-      return 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60"><rect width="60" height="60" fill="#ccc"/><text x="50%" y="50%" font-size="8" text-anchor="middle" dominant-baseline="middle">IMG</text></svg>');
+    if (__photoCache[uri]) return __photoCache[uri];
+    const mime = inferMimeFromExt(uri);
+    const build = (b64: string) => `data:${mime};base64,${b64}`;
+    const placeholder = (light = false) => 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60"><rect width="60" height="60" fill="${light ? '#ddd' : '#ccc'}"/><text x="50%" y="50%" font-size="8" text-anchor="middle" dominant-baseline="middle">IMG</text></svg>`);
+    const tryFetch = async () => {
+      try {
+        const res = await fetch(uri);
+        if (!res.ok) return null;
+        const buf = await res.arrayBuffer();
+        const base64 = Buffer.from(buf).toString('base64');
+        if (base64 && base64.length > 40) return build(base64);
+      } catch {}
+      return null;
+    };
+    if (Platform.OS === 'ios') {
+      let isFallback = false;
+      try { const { isIOSUsingFallback } = require('../utils/platformFS'); if (isIOSUsingFallback) isFallback = true; } catch {}
+      // Siempre intentar fetch primero (funciona para assets y fotos seleccionadas en Expo Go)
+      const fetched = await tryFetch();
+      if (fetched) { __photoCache[uri] = fetched; return fetched; }
+      if (!isFallback) {
+        // Intentar RNFS wrapper solo si no es fallback
+        try {
+          const { PFS } = require('../utils/platformFS');
+          const b64 = await PFS.readFileBase64(uri);
+          if (b64 && b64.length > 40) { const d = build(b64); __photoCache[uri] = d; return d; }
+        } catch {}
+      }
+      const ph = placeholder(isFallback);
+      __photoCache[uri] = ph;
+      return ph;
+    } else {
+      const fetched = await tryFetch();
+      if (fetched) { __photoCache[uri] = fetched; return fetched; }
+      // Último recurso fuera iOS: FileSystem (no prohibido)
+      try {
+        const b64 = await (FileSystem as any).readAsStringAsync(uri, { encoding: 'base64' });
+        if (b64 && b64.length > 40) { const d = build(b64); __photoCache[uri] = d; return d; }
+      } catch {}
+      const ph = placeholder();
+      __photoCache[uri] = ph;
+      return ph;
     }
   };
 
@@ -764,6 +863,7 @@ export const generateComprehensivePDF = async (
 
   await Promise.all(
     resolvedData.map(async (g, idx) => {
+      checkCancel();
       try {
     const items = await getPhotoItemsForMainTable(g.id);
         if (!items || !items.length) return;
@@ -1521,7 +1621,7 @@ export const generateComprehensivePDF = async (
   // Si existe al menos una imagen en toda la competencia, usar chunks de 1 (más seguro de memoria).
   // Si no hay imágenes, podemos agrupar en chunks de 15 para acelerar.
   const hasAnyPhotos = Object.values(gymnastPhotosMap).some(arr => (arr?.length ?? 0) > 0);
-  const MAX_PAGES_PER_CHUNK = hasAnyPhotos ? 2 : 20;
+  const MAX_PAGES_PER_CHUNK = hasAnyPhotos ? 2 : 15;
   const MAX_HTML_CHARS = 750_000; // fallback por tamaño
   const pagesCount = pagesArray.length;
   console.log(`[PDF] Total páginas individuales: ${pagesCount}`);
@@ -1568,6 +1668,7 @@ export const generateComprehensivePDF = async (
           box-shadow: 0 2px 4px rgba(0,0,0,0.1);
           page-break-after: always;
         }
+        .page:last-child { page-break-after: auto; }
         
         .final-table-page {
           background: #f0f4f8 !important;
@@ -2153,7 +2254,8 @@ export const generateComprehensivePDF = async (
   console.log(`[PDF] needsChunk = ${needsChunk}`);
   if (needsChunk) {
     progressCb?.('Dividiendo en chunks…', 0.05);
-    const chunkUris: string[] = [];
+  const chunkUris: string[] = [];
+  const chunkBase64: string[] = []; // almacenar base64 para merge sin filesystem
     const totalChunks = Math.ceil(pagesCount / MAX_PAGES_PER_CHUNK);
 
     const isOOMMessage = (msg: string) => /OutOfMemory|Failed to allocate/i.test(msg);
@@ -2178,6 +2280,8 @@ export const generateComprehensivePDF = async (
     };
 
     for (let i = 0; i < pagesCount; i += MAX_PAGES_PER_CHUNK) {
+      checkCancel();
+      console.log(`[PDF][ChunkLoop] Inicio iteración i=${i} pagesCount=${pagesCount} MAX_PAGES_PER_CHUNK=${MAX_PAGES_PER_CHUNK}`);
       const chunkStart = i;
       const chunkEnd = Math.min(i + MAX_PAGES_PER_CHUNK, pagesCount);
       const pageIndices = Array.from({ length: chunkEnd - chunkStart }, (_, k) => chunkStart + k);
@@ -2190,18 +2294,31 @@ export const generateComprehensivePDF = async (
           pageIndices.forEach(pi => { pagesArray[pi] = buildGymnastPageHTML(resolvedData[pi]); });
           rebuilt = false;
         }
-        const slice = pagesArray.slice(chunkStart, chunkEnd);
+        let slice = pagesArray.slice(chunkStart, chunkEnd);
+        // Remover page-break de la última página del slice para evitar página en blanco extra
+        if (slice.length > 0) {
+          const lastIndex = slice.length - 1;
+          slice[lastIndex] = slice[lastIndex].replace(/page-break-after:\s*always;?/g, '');
+        }
         const includeFinal = chunkEnd >= pagesCount; // última chunk incluye tabla final
         const chunkHtml = buildFullHTML(slice, includeFinal);
         try {
           console.log(`[PDF] Generando chunk ${Math.floor(chunkStart / MAX_PAGES_PER_CHUNK) + 1}/${totalChunks} páginas ${chunkStart + 1}-${chunkEnd} intento ${attempt + 1} length=${chunkHtml.length}`);
           progressCb?.(`Chunk ${(Math.floor(chunkStart / MAX_PAGES_PER_CHUNK) + 1)}/${totalChunks}`, 0.1 + 0.35 * (chunkStart / pagesCount));
-          const { uri } = await Print.printToFileAsync({ html: chunkHtml, base64: false });
+          checkCancel();
+          const { uri, base64 } = await Print.printToFileAsync({ html: chunkHtml, base64: true });
           chunkUris.push(uri);
+          if (base64) chunkBase64.push(base64); else console.warn('[PDF] chunk sin base64 (omitido en merge)');
+          console.log(`[PDF][ChunkLoop] Chunk completado start=${chunkStart} end=${chunkEnd} totalChunks=${totalChunks} uri=${uri}`);
           break; // éxito
         } catch (err: any) {
           const msg = String(err?.message || err);
           const isOOM = isOOMMessage(msg);
+          console.warn(`[PDF][ChunkLoop] Error en chunk start=${chunkStart} end=${chunkEnd} intento=${attempt + 1} msg=${msg}`);
+          if (control?.cancelled) {
+            console.warn('[PDF] Cancel detectado durante error de chunk');
+            throw new Error('PDF cancelado');
+          }
           // contar fotos en el chunk
           const totalPhotosInChunk = gymnastIdsInChunk.reduce((sum, gid) => sum + ((gymnastPhotosMap[gid]?.length) || 0), 0);
           if (isOOM || totalPhotosInChunk > 0) {
@@ -2224,11 +2341,14 @@ export const generateComprehensivePDF = async (
             for (const pi of pageIndices) {
               let singleAttempts = 0;
               while (true) {
+                checkCancel();
                 try {
                   const includeFinalSingle = includeFinal && pi === pagesCount - 1;
                   const singleHtml = buildFullHTML(pagesArray[pi], includeFinalSingle);
-                  const { uri } = await Print.printToFileAsync({ html: singleHtml, base64: false });
+                  const { uri, base64 } = await Print.printToFileAsync({ html: singleHtml, base64: true });
                   chunkUris.push(uri);
+                  if (base64) chunkBase64.push(base64); else console.warn('[PDF] página individual sin base64');
+                  console.log(`[PDF][ChunkLoop] Página individual OK index=${pi} uri=${uri}`);
                   break;
                 } catch (singleErr: any) {
                   const smsg = String(singleErr?.message || singleErr);
@@ -2255,67 +2375,148 @@ export const generateComprehensivePDF = async (
                     }
                   }
                   console.error('Fallo página individual sin recuperación posible', singleErr);
+                  if (control?.cancelled) throw new Error('PDF cancelado');
                   break; // abandonamos esa página para no bloquear restantes
                 }
               }
             }
+            console.log(`[PDF][ChunkLoop] Finalizada división en páginas individuales para rango start=${chunkStart} end=${chunkEnd}`);
             break; // salir del while chunk; seguimos con el siguiente chunk
           }
           console.error('Error generando chunk no recuperable', err);
           throw err;
         }
       }
+      console.log(`[PDF][ChunkLoop] Salida de while para chunk start=${chunkStart} -> preparando siguiente chunk`);
     }
 
-    // Merge chunks
+    // Merge chunks (siempre fusionar en memoria y crear un archivo nuevo si es posible; si no, compartir base64)
     if (chunkUris.length === 1) {
       finalUri = chunkUris[0];
     } else {
-      try {
-        const merged = await PDFDocument.create();
-        console.log('[PDF] Iniciando merge de', chunkUris.length, 'chunks');
-        progressCb?.('Fusionando chunks…', 0.55);
-        for (const u of chunkUris) {
-          try {
-            const base64Data = await FileSystem.readAsStringAsync(u, { encoding: FileSystem.EncodingType.Base64 });
-            const pdf = await PDFDocument.load(Buffer.from(base64Data, 'base64'));
-            const pages = await merged.copyPages(pdf, pdf.getPageIndices());
-            pages.forEach(p => merged.addPage(p));
-            console.log('[PDF] Chunk fusionado', u, 'páginas añadidas:', pages.length);
-          } catch (e) {
-            console.warn('Fallo al fusionar chunk PDF:', e);
-          }
-          const idx = chunkUris.indexOf(u);
-            progressCb?.(`Fusionando chunk ${idx + 1}/${chunkUris.length}`, 0.55 + 0.35 * ((idx + 1) / chunkUris.length));
+      const merged = await PDFDocument.create();
+      console.log('[PDF] Iniciando merge de', chunkUris.length, 'chunks');
+      progressCb?.('Fusionando chunks…', 0.55);
+      for (let i = 0; i < chunkBase64.length; i++) {
+        checkCancel();
+        const b64 = chunkBase64[i];
+        try {
+          const pdf = await PDFDocument.load(Buffer.from(b64, 'base64'));
+          const pages = await merged.copyPages(pdf, pdf.getPageIndices());
+          pages.forEach(p => merged.addPage(p));
+          console.log('[PDF] Chunk fusionado (memoria)', i, 'páginas añadidas:', pages.length);
+        } catch (e) {
+          console.warn('Fallo al fusionar chunk (memoria) index', i, e);
         }
-        const mergedBytes = await merged.save();
-        finalUri = `${FileSystem.documentDirectory}${competence.name}-${competence.date.split('T')[0]}-merged.pdf`;
-        await FileSystem.writeAsStringAsync(finalUri, Buffer.from(mergedBytes).toString('base64'), { encoding: FileSystem.EncodingType.Base64 });
-        console.log('[PDF] Merge completo. URI final:', finalUri);
-      } catch (mergeError) {
-        console.warn('Error en merge, usando primer chunk', mergeError);
-        finalUri = chunkUris[0];
+        progressCb?.(`Fusionando chunk ${i + 1}/${chunkBase64.length}`, 0.55 + 0.35 * ((i + 1) / chunkBase64.length));
+      }
+      const mergedBytes = await merged.save();
+      const expectedPages = pagesArray.length + 1; // +1 final table (incluída en pagesArray? ajustar si ya incluida)
+      let realPages = 0;
+      try {
+        const verifyDoc = await PDFDocument.load(mergedBytes);
+        realPages = verifyDoc.getPageCount();
+      } catch (e) {
+        console.warn('[PDF] No se pudo verificar conteo de páginas merged', e);
+      }
+      if (realPages && realPages < expectedPages) {
+        console.warn(`[PDF] Mismatch páginas merged real=${realPages} esperado≈${expectedPages}. Intentando reconstrucción incremental.`);
+        try {
+          const rebuilt = await PDFDocument.create();
+          for (let i = 0; i < chunkBase64.length; i++) {
+            try {
+              const pdf = await PDFDocument.load(Buffer.from(chunkBase64[i], 'base64'));
+              const idxs = pdf.getPageIndices();
+              const pages = await rebuilt.copyPages(pdf, idxs);
+              pages.forEach(p=>rebuilt.addPage(p));
+            } catch (e) { console.warn('[PDF] Falla reconstrucción chunk', i, e); }
+          }
+          const rbBytes = await rebuilt.save();
+          const rbDoc = await PDFDocument.load(rbBytes);
+          const rbCount = rbDoc.getPageCount();
+            if (rbCount >= realPages) {
+              console.log('[PDF] Reconstrucción exitosa páginas=', rbCount);
+              // Reasignar mergedBytes
+              (mergedBytes as any).set?.(rbBytes) // noop si no existe
+              // Usar copia reconstruida
+              // Simplemente reusar variable
+              // @ts-ignore
+              mergedBytes = rbBytes;
+              realPages = rbCount;
+            }
+        } catch (e) { console.warn('[PDF] Reconstrucción fallida', e); }
+      }
+      const mergedB64 = Buffer.from(mergedBytes).toString('base64');
+      // Intentar persistir si hay FS; si no, generar un data URL y usar Print para obtener un file temporal
+      let wrote = false;
+      try {
+  const hasRNFS = Platform.OS === 'ios' && (function(){ try { return !!require('../utils/platformFS').PFS; } catch { return false; } })();
+  const expoFS: any = FileSystem as any;
+  const docDirPrimary = hasRNFS ? require('../utils/platformFS').PFS.documentDir() : (expoFS.documentDirectory || '');
+  const docDirFallback = expoFS.cacheDirectory || '';
+  const docDir = docDirPrimary || docDirFallback;
+        if (docDir) {
+          const out = `${docDir}${competence.name}-${competence.date.split('T')[0]}-merged.pdf`;
+          if (hasRNFS) {
+            try { await require('../utils/platformFS').PFS.writeFileBase64(out, mergedB64); finalUri = out; wrote = true; } catch (e) { console.warn('No se pudo escribir merged RNFS', e); }
+          } else {
+            try { await (FileSystem as any).writeAsStringAsync(out, mergedB64, { encoding: 'base64' }); finalUri = out; wrote = true; } catch (e) { console.warn('No se pudo escribir merged ExpoFS', e); }
+            if (!wrote && docDirFallback) {
+              const out2 = `${docDirFallback}${competence.name}-${competence.date.split('T')[0]}-merged.pdf`;
+              try { await (FileSystem as any).writeAsStringAsync(out2, mergedB64, { encoding: 'base64' }); finalUri = out2; wrote = true; } catch (e2) { console.warn('Fallback cacheDirectory falló', e2); }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Fallo al intentar escribir merged, se usará impresión temporal', e);
+      }
+      if (!wrote) {
+        // Crear un PDF temporal vía data URL (embed base64 en un iframe HTML y print de nuevo)
+        try {
+          const tempHtml = `<html><body style="margin:0"><embed width="100%" height="100%" type="application/pdf" src="data:application/pdf;base64,${mergedB64}" /></body></html>`;
+          const printed = await Print.printToFileAsync({ html: tempHtml, base64: true });
+          if (printed?.uri) { finalUri = printed.uri; }
+          else { finalUri = chunkUris[0]; console.warn('[PDF] Fallback a primer chunk por falla en impresión temporal'); }
+        } catch (e) {
+          console.warn('Fallo ruta temporal de impresión, se intenta forzar primer chunk como último recurso', e);
+          finalUri = chunkUris[0];
+        }
+      }
+      console.log('[PDF] Merge completo. URI final:', finalUri);
+      if (realPages && realPages < expectedPages) {
+        console.warn(`[PDF] Advertencia: PDF final tiene ${realPages} páginas (< esperado ${expectedPages}).`);
       }
     }
   } else {
   const html = buildFullHTML(pagesArray, true);
     console.log('[PDF] Generando PDF en único archivo length=', html.length);
     progressCb?.('Generando PDF…', 0.4);
-    const { uri } = await Print.printToFileAsync({ html, base64: false });
-    finalUri = uri;
+    const { uri, base64 } = await Print.printToFileAsync({ html, base64: true });
+    if (Platform.OS === 'ios' && (require('../utils/platformFS').PFS)) {
+      // intentar copiar a docDir
+      try {
+        const out = require('../utils/platformFS').PFS.documentDir() + `${competence.name}-${competence.date.split('T')[0]}.pdf`;
+        await require('../utils/platformFS').PFS.writeFileBase64(out, base64);
+        finalUri = out;
+      } catch (e) {
+        console.warn('[PDF] No se pudo escribir archivo único en iOS RNFS, usando uri temporal');
+        finalUri = uri;
+      }
+    } else {
+      finalUri = uri;
+    }
   }
 
   if (!finalUri) throw new Error('No se pudo generar el PDF');
 
   try {
-    const newUri = `${FileSystem.documentDirectory}${competence.name}-${competence.date.split('T')[0]}.pdf`;
-    await FileSystem.copyAsync({ from: finalUri, to: newUri });
+    // Si ya está en destino final no copiamos.
     progressCb?.('Compartiendo…', 0.95);
-    console.log('[PDF] Compartiendo archivo', newUri);
-    await shareAsync(newUri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    console.log('[PDF] Compartiendo archivo', finalUri);
+    await shareAsync(finalUri, { UTI: '.pdf', mimeType: 'application/pdf' });
     progressCb?.('Completado', 1);
     console.log('[PDF] Proceso completado');
-    return newUri;
+    return finalUri;
   } catch (shareErr) {
     console.warn('Fallback share directo', shareErr);
     progressCb?.('Compartiendo (fallback)…', 0.95);

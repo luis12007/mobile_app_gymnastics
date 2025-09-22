@@ -169,7 +169,7 @@ const GymnasticsScoreTable: React.FC = () => {
   const [pdfProgressMsg, setPdfProgressMsg] = useState<string>('');
   const [pdfProgressValue, setPdfProgressValue] = useState<number>(0);
   const [competencecurrent, setcurrentcompetence] = useState<Competence | null>(null);
-
+  const [pdfControlRef] = useState<{ obj?: { cancelled?: boolean; abort?: () => void } }>({});
 
 
   let jumpImageBase64 = useJumpImageBase64();
@@ -397,8 +397,14 @@ const GymnasticsScoreTable: React.FC = () => {
 const handleDownloadPDF = async () => {
   try {
     setPdfExporting(true);
-  setPdfProgressMsg('Preparando datos…');
-  setPdfProgressValue(0);
+    setPdfProgressMsg('Preparando datos…');
+    setPdfProgressValue(0);
+    // Forzar render del modal en el siguiente frame antes de trabajo pesado
+    await new Promise(res => {
+      requestAnimationFrame(() => {
+        setTimeout(res, Platform.OS === 'ios' ? 40 : 10);
+      });
+    });
     
     // Prepare data for comprehensive PDF
     const finalTableData = {
@@ -457,18 +463,20 @@ const handleDownloadPDF = async () => {
       throw new Error("No se pudo obtener la información de la competencia");
     }
     
+    pdfControlRef.obj = {};
     await generateComprehensivePDF(
       tables,
       finalTableData,
-      competencecurrent,
+      competencecurrent!,
       jumpImageBase64,
       (msg, p) => {
         setPdfProgressMsg(msg);
         setPdfProgressValue(p);
-      }
+      },
+      pdfControlRef.obj
     );
     
-  setPdfExporting(false);
+    setPdfExporting(false);
     setModalVisible(false);
     
     Alert.alert(
@@ -685,15 +693,27 @@ const handleDownloadPDF = async () => {
       <Modal visible={pdfExporting} transparent animationType="fade">
         <View style={styles.pdfModalBackdrop}>
           <View style={styles.pdfModalCard}>
+            <TouchableOpacity
+              onPress={() => {
+                // Si está en progreso podemos permitir cierre (cancelar primero si quiere detener)
+                if (pdfControlRef.obj && !pdfControlRef.obj.cancelled && pdfProgressValue < 1) {
+                  pdfControlRef.obj.abort?.();
+                }
+                setPdfExporting(false);
+              }}
+              style={styles.pdfModalCloseBtn}
+              accessibilityLabel="Close PDF generation modal"
+            >
+              <Text style={styles.pdfModalCloseText}>✕</Text>
+            </TouchableOpacity>
             <Text style={styles.pdfModalTitle}>Generating PDF Report</Text>
             <Text style={styles.pdfModalMsg}>{pdfProgressMsg || 'Please wait…'}</Text>
             <View style={styles.pdfProgressBarOuter}>
               <View style={[styles.pdfProgressBarInner, { width: `${Math.min(100, Math.round(pdfProgressValue * 100))}%` }]} />
             </View>
             <Text style={styles.pdfPercent}>{Math.min(100, Math.round(pdfProgressValue * 100))}%</Text>
-            <TouchableOpacity style={styles.pdfCancelBtn} disabled>
-              <Text style={styles.pdfCancelText}>Working...</Text>
-            </TouchableOpacity>
+            {/* Botones de control */}
+
           </View>
         </View>
       </Modal>
@@ -3363,6 +3383,22 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 12,
     elevation: 8
+  },
+  pdfModalCloseBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  pdfModalCloseText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333'
   },
   pdfModalTitle: {
     fontSize: 18,
