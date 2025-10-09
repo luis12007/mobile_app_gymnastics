@@ -3,7 +3,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+// Use legacy API to avoid deprecation warnings in Expo SDK 54
+import * as FileSystem from 'expo-file-system/legacy';
 import { Buffer } from 'buffer';
 import { useFonts } from "expo-font";
 import { getAllFoldersByParent, updateFolder } from "../Database/database";
@@ -1558,7 +1559,7 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
   // Crear archivo temporal ZIP
   const fileName = `folder_${folderName}_${new Date().toISOString().split('T')[0]}.zip`;
   const fileUri = FileSystem.documentDirectory + fileName;
-  // Guardar bytes en Base64 por compatibilidad con RN FS
+  // Guardar bytes en Base64
   const base64 = Buffer.from(zipBytes).toString('base64');
   await FileSystem.writeAsStringAsync(fileUri, base64, { encoding: FileSystem.EncodingType.Base64 });
       updateLoading("Preparing to share...", 99);

@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as FileSystem from 'expo-file-system';
+// Use legacy API to avoid deprecation warnings in Expo SDK 54
+import * as FileSystem from 'expo-file-system/legacy';
 import JSZip from 'jszip';
 import { Alert } from 'react-native';
 
@@ -2496,41 +2497,70 @@ export const exportFolderData = async (
       const competences = await getCompetencesByFolderId(folderId);
       const competenceData = [];
       for (const competence of competences) {
-        const tables = await getMainTablesByCompetenceId(competence.id);
-        const tablesWithRates = [];
-        for (const table of tables) {
-          // Asegurar que paths se exporta como contenido (no como file://), para portabilidad
-          let exportedPaths = typeof table.paths === 'string' ? table.paths : '[]';
-          if (isFileRef(exportedPaths)) {
+        try {
+          const tables = await getMainTablesByCompetenceId(competence.id);
+          const tablesWithRates = [];
+          for (const table of tables) {
             try {
-              exportedPaths = await readStringFromFile(exportedPaths);
-            } catch (e) {
-              console.warn('exportFolderData: no se pudo leer paths externo, exportando []', e);
-              exportedPaths = '[]';
+              // Asegurar que paths se exporta como contenido (no como file://), para portabilidad
+              let exportedPaths = typeof table.paths === 'string' ? table.paths : '[]';
+              if (isFileRef(exportedPaths)) {
+                try {
+                  exportedPaths = await readStringFromFile(exportedPaths);
+                } catch (e) {
+                  console.warn(`exportFolderData: no se pudo leer paths externo para tabla ${table.id}, exportando []`, e);
+                  exportedPaths = '[]';
+                }
+              }
+              
+              // Validar que exportedPaths sea JSON válido
+              try {
+                JSON.parse(exportedPaths);
+              } catch (jsonErr) {
+                console.warn(`exportFolderData: paths inválido para tabla ${table.id}, usando []`, jsonErr);
+                exportedPaths = '[]';
+              }
+              
+              const safeMainTable = { ...table, paths: exportedPaths };
+
+              const rateGeneral = await getRateGeneralByTableId(table.id);
+              const rateJump = await getRateJumpByTableId(table.id);
+              tablesWithRates.push({
+                mainTable: safeMainTable,
+                rateGeneral,
+                rateJump
+              });
+            } catch (tableError) {
+              console.warn(`exportFolderData: Error procesando tabla ${table?.id || 'unknown'}, saltando...`, tableError);
+              // Continuar con la siguiente tabla
+              continue;
             }
           }
-          const safeMainTable = { ...table, paths: exportedPaths };
-
-          const rateGeneral = await getRateGeneralByTableId(table.id);
-          const rateJump = await getRateJumpByTableId(table.id);
-          tablesWithRates.push({
-            mainTable: safeMainTable,
-            rateGeneral,
-            rateJump
+          
+          // Solo agregar competencia si tiene al menos una tabla válida o si está vacía
+          competenceData.push({
+            competence,
+            tables: tablesWithRates
           });
+        } catch (competenceError) {
+          console.warn(`exportFolderData: Error procesando competencia ${competence?.id || 'unknown'}, saltando...`, competenceError);
+          // Continuar con la siguiente competencia
+          continue;
         }
-        competenceData.push({
-          competence,
-          tables: tablesWithRates
-        });
       }
 
       // Obtener subcarpetas recursivamente
       const subfolders = await getSubfolders(folderId);
       const subfoldersData = [];
       for (const subfolder of subfolders) {
-        const subfolderTree = await collectFolderTree(subfolder.id);
-        if (subfolderTree) subfoldersData.push(subfolderTree);
+        try {
+          const subfolderTree = await collectFolderTree(subfolder.id);
+          if (subfolderTree) subfoldersData.push(subfolderTree);
+        } catch (subfolderError) {
+          console.warn(`exportFolderData: Error procesando subcarpeta ${subfolder?.id || 'unknown'}, saltando...`, subfolderError);
+          // Continuar con la siguiente subcarpeta
+          continue;
+        }
       }
 
       return {
@@ -2718,70 +2748,108 @@ export const importFolderData = async (
       // Importar competiciones de esta carpeta
       if (folderNode.competences) {
         for (const competenceData of folderNode.competences) {
-          const newCompetenceData = {
-            ...competenceData.competence,
-            folderId: newFolderId,
-            userId: 0
-          };
-          delete newCompetenceData.id;
-          const newCompetenceId = await insertCompetence(newCompetenceData);
-          if (!newCompetenceId) {
-            throw new Error("Failed to create competence");
-          }
-          idMappings.competences.set(competenceData.competence.id, newCompetenceId);
+          try {
+            const newCompetenceData = {
+              ...competenceData.competence,
+              folderId: newFolderId,
+              userId: 0
+            };
+            delete newCompetenceData.id;
+            const newCompetenceId = await insertCompetence(newCompetenceData);
+            if (!newCompetenceId) {
+              console.warn(`importFolderData: No se pudo crear competencia ${competenceData?.competence?.id || 'unknown'}, saltando...`);
+              continue;
+            }
+            idMappings.competences.set(competenceData.competence.id, newCompetenceId);
 
-          // Importar tablas principales y rates
-          for (const tableData of competenceData.tables) {
-            const progress = 25 + Math.floor((processedGymnasts / totalGymnasts) * 65);
-            progressCallback?.(`Importando gimnasta ${processedGymnasts + 1} de ${totalGymnasts}...`, progress);
-            // Saneamos paths: si viene como file:// de exportaciones antiguas, lo reemplazamos por []
-            const incomingPaths = tableData?.mainTable?.paths;
-            let sanitizedPaths = typeof incomingPaths === 'string'
-              ? (isFileRef(incomingPaths) ? '[]' : incomingPaths)
-              : '[]';
-            // Validación de tamaño para evitar fallo "Row too big to fit into CursorWindow"
-            if (typeof sanitizedPaths === 'string' && sanitizedPaths) {
-              const PATHS_INLINE_HARD_LIMIT = 900_000; // alineado con nueva política
-              const byteLengthUtf8 = (str: string): number => {
-                try { if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(str).length; } catch {}
-                try { return unescape(encodeURIComponent(str)).length; } catch { return str.length; }
-              };
-              const size = byteLengthUtf8(sanitizedPaths);
-              if (size > PATHS_INLINE_HARD_LIMIT) {
-                console.warn(`[Import][MainTable] paths demasiado grande (${size} bytes). Reemplazando por [] y continuando.`);
-                sanitizedPaths = '[]';
+            // Importar tablas principales y rates
+            for (const tableData of competenceData.tables) {
+              try {
+                const progress = 25 + Math.floor((processedGymnasts / totalGymnasts) * 65);
+                progressCallback?.(`Importando gimnasta ${processedGymnasts + 1} de ${totalGymnasts}...`, progress);
+                
+                // Saneamos paths: si viene como file:// de exportaciones antiguas, lo reemplazamos por []
+                const incomingPaths = tableData?.mainTable?.paths;
+                let sanitizedPaths = typeof incomingPaths === 'string'
+                  ? (isFileRef(incomingPaths) ? '[]' : incomingPaths)
+                  : '[]';
+                
+                // Validar que sea JSON válido
+                try {
+                  JSON.parse(sanitizedPaths);
+                } catch (jsonErr) {
+                  console.warn(`importFolderData: paths inválido para tabla ${tableData?.mainTable?.id || 'unknown'}, usando []`, jsonErr);
+                  sanitizedPaths = '[]';
+                }
+                
+                // Validación de tamaño para evitar fallo "Row too big to fit into CursorWindow"
+                if (typeof sanitizedPaths === 'string' && sanitizedPaths) {
+                  const PATHS_INLINE_HARD_LIMIT = 900_000; // alineado con nueva política
+                  const byteLengthUtf8 = (str: string): number => {
+                    try { if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(str).length; } catch {}
+                    try { return unescape(encodeURIComponent(str)).length; } catch { return str.length; }
+                  };
+                  const size = byteLengthUtf8(sanitizedPaths);
+                  if (size > PATHS_INLINE_HARD_LIMIT) {
+                    console.warn(`[Import][MainTable] paths demasiado grande (${size} bytes). Reemplazando por [] y continuando.`);
+                    sanitizedPaths = '[]';
+                  }
+                }
+                
+                const newMainTableData = {
+                  ...tableData.mainTable,
+                  paths: sanitizedPaths,
+                  competenceId: newCompetenceId
+                };
+                delete newMainTableData.id;
+                const newMainTableId = await insertMainTable(newMainTableData);
+                if (!newMainTableId) {
+                  console.warn(`importFolderData: No se pudo crear tabla ${tableData?.mainTable?.id || 'unknown'}, saltando...`);
+                  processedGymnasts++;
+                  continue;
+                }
+                idMappings.mainTables.set(tableData.mainTable.id, newMainTableId);
+                
+                // Importar rate general si existe
+                if (tableData.rateGeneral) {
+                  try {
+                    const newRateGeneralData = {
+                      ...tableData.rateGeneral,
+                      tableId: newMainTableId
+                    };
+                    delete newRateGeneralData.id;
+                    await insertRateGeneral(newRateGeneralData);
+                  } catch (rateGenErr) {
+                    console.warn(`importFolderData: Error importando rateGeneral para tabla ${newMainTableId}`, rateGenErr);
+                    // No bloquear por error en rates
+                  }
+                }
+                
+                // Importar rate jump si existe
+                if (tableData.rateJump) {
+                  try {
+                    const newRateJumpData = {
+                      ...tableData.rateJump,
+                      tableId: newMainTableId
+                    };
+                    delete newRateJumpData.id;
+                    await insertRateJump(newRateJumpData);
+                  } catch (rateJumpErr) {
+                    console.warn(`importFolderData: Error importando rateJump para tabla ${newMainTableId}`, rateJumpErr);
+                    // No bloquear por error en rates
+                  }
+                }
+                
+                processedGymnasts++;
+              } catch (tableError) {
+                console.warn(`importFolderData: Error procesando tabla ${tableData?.mainTable?.id || 'unknown'}, saltando...`, tableError);
+                processedGymnasts++; // Contar como procesada aunque falle
+                continue;
               }
             }
-            const newMainTableData = {
-              ...tableData.mainTable,
-              paths: sanitizedPaths,
-              competenceId: newCompetenceId
-            };
-            delete newMainTableData.id;
-            const newMainTableId = await insertMainTable(newMainTableData);
-            if (!newMainTableId) {
-              throw new Error("Failed to create main table");
-            }
-            idMappings.mainTables.set(tableData.mainTable.id, newMainTableId);
-            // Importar rate general si existe
-            if (tableData.rateGeneral) {
-              const newRateGeneralData = {
-                ...tableData.rateGeneral,
-                tableId: newMainTableId
-              };
-              delete newRateGeneralData.id;
-              await insertRateGeneral(newRateGeneralData);
-            }
-            // Importar rate jump si existe
-            if (tableData.rateJump) {
-              const newRateJumpData = {
-                ...tableData.rateJump,
-                tableId: newMainTableId
-              };
-              delete newRateJumpData.id;
-              await insertRateJump(newRateJumpData);
-            }
-            processedGymnasts++;
+          } catch (competenceError) {
+            console.warn(`importFolderData: Error procesando competencia ${competenceData?.competence?.id || 'unknown'}, saltando...`, competenceError);
+            continue;
           }
         }
       }

@@ -129,7 +129,7 @@ interface MainTableWithRateGeneral extends MainTable {
   rateGeneral?: MainRateGeneral;
 }
 
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useImage } from "@shopify/react-native-skia";
 
 export function useJumpImageBase64(): string | null {
