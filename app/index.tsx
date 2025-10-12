@@ -1,4 +1,3 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFonts } from "expo-font";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as DocumentPicker from 'expo-document-picker';
@@ -20,7 +19,7 @@ import {
   View,
   ScrollView
 } from "react-native";
-import { getUserById, getFoldersByUserId, exportFolderData, importFolderData } from "../Database/database";
+import { getUserById, getFoldersByUserId, exportFolderData, importFolderData, initDatabase, getDefaultDiscipline, saveDefaultDiscipline } from "../Database/database";
 
 const { width, height } = Dimensions.get("window");
 var isLargeDevice = false;
@@ -37,8 +36,6 @@ if (width >= 1368 ) {
 } else if (width < 960) {
   isTinyDevice = true;
 }
-
-const DEFAULT_DISCIPLINE_KEY = "defaultDiscipline";
 
 export default function SelectSex() {
   const router = useRouter();
@@ -60,6 +57,8 @@ export default function SelectSex() {
   // Estados para disciplina por defecto
   const [defaultDiscipline, setDefaultDiscipline] = useState<boolean | null>(null); // true = MAG, false = WAG, null = no default
   const [isLoadingDefault, setIsLoadingDefault] = useState(true);
+  const [isDatabaseInitialized, setIsDatabaseInitialized] = useState(false);
+  const [hasCheckedAutoRoute, setHasCheckedAutoRoute] = useState(false); // Para evitar auto-route en toggles manuales
 
   // Estados para importar/exportar
   const [showExportModal, setShowExportModal] = useState(false);
@@ -84,13 +83,13 @@ export default function SelectSex() {
   const adminButtonOpacity = useRef(new Animated.Value(0)).current;
   const toggleButtonOpacity = useRef(new Animated.Value(0)).current;
 
-  // Cargar disciplina por defecto
-  const loadDefaultDiscipline = async () => {
+  // Cargar disciplina por defecto desde la base de datos
+  const loadDefaultDisciplineFromDB = async () => {
     try {
-      const storedDefault = await AsyncStorage.getItem(DEFAULT_DISCIPLINE_KEY);
-      if (storedDefault !== null) {
-        setDefaultDiscipline(storedDefault === 'true');
-      }
+      console.log('📖 Loading default discipline from database...');
+      const discipline = await getDefaultDiscipline();
+      setDefaultDiscipline(discipline);
+      console.log('📖 Loaded default discipline from DB:', discipline, '→ State updated');
     } catch (error) {
       console.error("Error loading default discipline:", error);
     } finally {
@@ -98,30 +97,84 @@ export default function SelectSex() {
     }
   };
 
-  // Guardar disciplina por defecto
-  const saveDefaultDiscipline = async (discipline: boolean | null) => {
+  // Guardar disciplina por defecto en la base de datos
+  const saveDefaultDisciplineToDB = async (discipline: boolean | null) => {
     try {
-      if (discipline === null) {
-        await AsyncStorage.removeItem(DEFAULT_DISCIPLINE_KEY);
+      console.log('💾 Attempting to save default discipline:', discipline);
+      const success = await saveDefaultDiscipline(discipline);
+      if (success) {
+        setDefaultDiscipline(discipline);
+        console.log('💾 Saved default discipline to DB and updated state:', discipline);
       } else {
-        await AsyncStorage.setItem(DEFAULT_DISCIPLINE_KEY, discipline.toString());
+        Alert.alert('Error', 'Failed to save default discipline');
       }
-      setDefaultDiscipline(discipline);
     } catch (error) {
       console.error("Error saving default discipline:", error);
+      Alert.alert('Error', 'Failed to save default discipline');
     }
   };
 
-  // Auto-route si no hay changeDis y hay disciplina por defecto
-  const checkAutoRoute = async () => {
-    if (!changeDis && !isLoadingDefault && defaultDiscipline !== null) {
-      // Auto-route con la disciplina por defecto
-      router.replace(`/main-menu?discipline=${defaultDiscipline}&userId=${0}`);
-    }
-  };
-
+  // Cargar configuración inicial al montar
   useEffect(() => {
-    loadDefaultDiscipline();
+    // Si viene con changeDis=true, significa que el usuario quiere cambiar la disciplina manualmente
+    // por lo tanto, marcar que ya chequeamos auto-route para evitar redirección
+    if (changeDis) {
+      setHasCheckedAutoRoute(true);
+    }
+  }, [changeDis]);
+
+  // Cargar disciplina por defecto cuando la base de datos esté lista
+  useEffect(() => {
+    if (isDatabaseInitialized) {
+      loadDefaultDisciplineFromDB();
+    }
+  }, [isDatabaseInitialized]);
+
+  // Auto-route si no hay changeDis y hay disciplina por defecto (solo en la carga inicial)
+  useEffect(() => {
+    // Solo ejecutar cuando termine de cargar todo Y aún no hayamos chequeado
+    if (!isLoadingDefault && isDatabaseInitialized && !hasCheckedAutoRoute) {
+      // Marcar que ya verificamos el auto-route PRIMERO
+      setHasCheckedAutoRoute(true);
+      
+      // Si no es cambio manual y hay disciplina por defecto, hacer auto-route
+      if (!changeDis && defaultDiscipline !== null) {
+        console.log('🔄 Auto-routing to main-menu with discipline:', defaultDiscipline);
+        router.replace(`/main-menu?discipline=${defaultDiscipline}&userId=${0}`);
+      } else {
+        console.log('📋 Showing discipline selection screen');
+      }
+    }
+  }, [isLoadingDefault, isDatabaseInitialized, hasCheckedAutoRoute, defaultDiscipline]);
+
+  // Inicializar la base de datos al montar el componente
+  useEffect(() => {
+    const initializeDatabase = async () => {
+      try {
+        console.log('🔧 Initializing database from index.tsx...');
+        await initDatabase();
+        setIsDatabaseInitialized(true);
+        console.log('✅ Database initialized successfully');
+      } catch (error) {
+        console.error('❌ Error initializing database:', error);
+        Alert.alert(
+          'Database Error',
+          'Failed to initialize database. Please restart the app.',
+          [
+            { 
+              text: 'Retry', 
+              onPress: () => initializeDatabase() 
+            },
+            { 
+              text: 'OK', 
+              style: 'cancel' 
+            }
+          ]
+        );
+      }
+    };
+
+    initializeDatabase();
   }, []);
 
     const createDefaultUsers = async () => {
@@ -138,21 +191,37 @@ export default function SelectSex() {
     
     // Crear cada usuario solo si no existe
     for (const user of defaultUsers) {
-      // Verificar si el usuario ya existe
-      const exists = await checkUserExists(user.username);
-      
-      if (exists) {
-        console.log(`El usuario ${user.username} ya existe, no se creará nuevamente`);
-        continue; // Saltar al siguiente usuario
-      }
-      
-      // Crear usuario sin validación de dispositivo para usuarios por defecto
-      const userId = await insertUserWithoutValidation(user.username, user.password, "null", "null", user.rol);
-      
-      if (userId) {
-        console.log(`Usuario por defecto creado: ${user.username} (${user.rol})`);
-      } else {
-        console.error(`Error al crear usuario por defecto: ${user.username}`);
+      try {
+        // Verificar si el usuario ya existe
+        const exists = await checkUserExists(user.username);
+        
+        if (exists) {
+          console.log(`El usuario ${user.username} ya existe, no se creará nuevamente`);
+          continue; // Saltar al siguiente usuario
+        }
+        
+        // Crear usuario sin validación de dispositivo para usuarios por defecto
+        const userId = await insertUserWithoutValidation(user.username, user.password, user.rol);
+        
+        if (!userId) {
+          throw new Error(`No se pudo crear el usuario ${user.username}`);
+        }
+        
+        console.log(`✅ Usuario por defecto creado: ${user.username} (${user.rol})`);
+      } catch (error) {
+        console.error(`❌ Error al crear usuario por defecto ${user.username}:`, error);
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+        
+        Alert.alert(
+          'Error al crear usuario',
+          `No se pudo crear el usuario ${user.username}: ${errorMessage}`,
+          [
+            {
+              text: 'Continuar',
+              style: 'cancel'
+            }
+          ]
+        );
       }
     }
     
@@ -163,34 +232,9 @@ export default function SelectSex() {
   }
 };
 
-  useEffect(() => {
-    createDefaultUsers();
-    checkAutoRoute();
-  }, [changeDis, isLoadingDefault, defaultDiscipline]);
-
-
 
   useEffect(() => {
     // Verificar información del usuario actual
-    const checkUserPermissions = async () => {
-      try {
-        if (userId) {
-          const user = await getUserById(userId);
-          if (user) {
-            setCurrentUser(user);
-            console.log("Usuario actual:", user);
-            // Verificar si es Bernabe con rol admin
-            if (user.username === "Bernabe") {
-              setShowKeysButton(true);
-            }
-          }
-        }
-      } catch (error) {
-        console.error("Error checking user permissions:", error);
-      }
-    };
-
-    checkUserPermissions();
 
     // Solo mostrar animaciones si changeDis es true o no hay disciplina por defecto
     if (changeDis || defaultDiscipline === null) {
@@ -265,13 +309,13 @@ export default function SelectSex() {
   const toggleDefaultDiscipline = () => {
     if (defaultDiscipline === null) {
       // Si no hay default, establecer MAG como default
-      saveDefaultDiscipline(true);
+      saveDefaultDisciplineToDB(true);
     } else if (defaultDiscipline === true) {
       // Si es MAG, cambiar a WAG
-      saveDefaultDiscipline(false);
+      saveDefaultDisciplineToDB(false);
     } else {
       // Si es WAG, quitar default
-      saveDefaultDiscipline(null);
+      saveDefaultDisciplineToDB(null);
     }
   };
 
@@ -362,7 +406,7 @@ export default function SelectSex() {
     }
   };
 
-  // Función para exportar folder
+  // Función para exportar folder con patrón transaccional
   const handleExportFolder = async () => {
     if (!selectedFolder) {
       Alert.alert("Error", "Por favor selecciona un folder para exportar");
@@ -397,18 +441,34 @@ export default function SelectSex() {
           [{ text: "OK", onPress: () => setShowExportModal(false) }]
         );
       } else {
-        Alert.alert("Error", "No se puede compartir archivos en este dispositivo");
+        throw new Error("No se puede compartir archivos en este dispositivo");
       }
 
     } catch (error: any) {
-      console.error("Error exporting folder:", error);
-      Alert.alert("Error", `No se pudo exportar el folder: ${error.message || error}`);
+      console.error("❌ Error exporting folder:", error);
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      
+      Alert.alert(
+        "Error al exportar", 
+        `No se pudo exportar el folder: ${errorMessage}`,
+        [
+          {
+            text: 'Reintentar',
+            onPress: () => handleExportFolder()
+          },
+          {
+            text: 'Cancelar',
+            style: 'cancel',
+            onPress: () => setShowExportModal(false)
+          }
+        ]
+      );
     } finally {
       setIsExporting(false);
     }
   };
 
-  // Función para importar folder
+  // Función para importar folder con patrón transaccional
   const handleImportFolder = async () => {
     setIsImporting(true);
     try {
@@ -429,19 +489,35 @@ export default function SelectSex() {
       // ✨ ACTUALIZADO: Importar en carpeta raíz (parentId = 0) para nueva estructura de carpetas anidadas
       const success = await importFolderData(fileContent, 0);
       
-      if (success) {
-        Alert.alert(
-          "Éxito", 
-          "Folder importado correctamente. Los datos se han agregado a la carpeta raíz.",
-          [{ text: "OK", onPress: () => setShowImportModal(false) }]
-        );
-      } else {
+      if (!success) {
         throw new Error("Error al procesar el archivo de importación");
       }
+      
+      Alert.alert(
+        "Éxito", 
+        "Folder importado correctamente. Los datos se han agregado a la carpeta raíz.",
+        [{ text: "OK", onPress: () => setShowImportModal(false) }]
+      );
 
     } catch (error: any) {
-      console.error("Error importing folder:", error);
-      Alert.alert("Error", `No se pudo importar el folder: ${error.message || error}`);
+      console.error("❌ Error importing folder:", error);
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      
+      Alert.alert(
+        "Error al importar", 
+        `No se pudo importar el folder: ${errorMessage}`,
+        [
+          {
+            text: 'Reintentar',
+            onPress: () => handleImportFolder()
+          },
+          {
+            text: 'Cancelar',
+            style: 'cancel',
+            onPress: () => setShowImportModal(false)
+          }
+        ]
+      );
     } finally {
       setIsImporting(false);
     }
@@ -458,14 +534,27 @@ export default function SelectSex() {
     setShowImportModal(true);
   };
 
-  // Si está cargando o debe auto-route, mostrar loading o nada
-  if (isLoadingDefault || (!changeDis && defaultDiscipline !== null)) {
+  // Mostrar loading mientras se inicializa la base de datos
+  if (!isDatabaseInitialized) {
+    console.log('🔄 Database not initialized yet...');
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={{ fontSize: 18, color: '#004aad' }}>Initializing database...</Text>
+      </View>
+    );
+  }
+
+  // Si está cargando la configuración por defecto, mostrar loading
+  if (isLoadingDefault) {
+    console.log('🔄 Loading default discipline...');
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
         <Text style={{ fontSize: 18, color: '#004aad' }}>Loading...</Text>
       </View>
     );
   }
+
+  console.log('📋 Rendering discipline selection. defaultDiscipline:', defaultDiscipline, 'hasCheckedAutoRoute:', hasCheckedAutoRoute, 'changeDis:', changeDis);
 
 return (
     <View style={styles.container}>

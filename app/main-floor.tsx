@@ -226,7 +226,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     setNdInputcomp(value);
   }
 
-  function handleNdCompClose(finalValue: string) {
+  async function handleNdCompClose(finalValue: string) {
     console.log("ndInputcomp:", finalValue);
     if (!finalValue || finalValue === "" || finalValue === ".") {
       Alert.alert("Invalid Input", "Please enter a ND value.", [
@@ -254,7 +254,40 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       const dedInterval = getDeductionIntervalValue(Number(newded));
       const percentageValue = getPercentageFromTable(dedInterval, newdelt);
       setpercentage(percentageValue);
-      updateMainTable(gymnastid, { delt: newdelt, percentage: percentageValue, compNd: rounded, compScore: finalScore });
+      
+      try {
+        const success = await updateMainTable(gymnastid, { 
+          delt: newdelt, 
+          percentage: percentageValue, 
+          compNd: rounded, 
+          compScore: finalScore 
+        });
+        
+        if (!success) {
+          throw new Error('No se pudo actualizar la tabla principal');
+        }
+        
+        console.log('✅ ND competition actualizado correctamente');
+      } catch (error) {
+        console.error('❌ Error actualizando ND competition:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+        
+        Alert.alert(
+          'Error al guardar',
+          `No se pudo guardar ND competition: ${errorMessage}`,
+          [
+            {
+              text: 'Reintentar',
+              onPress: () => handleNdCompClose(finalValue)
+            },
+            {
+              text: 'Cancelar',
+              style: 'cancel'
+            }
+          ]
+        );
+        return;
+      }
         
     } else {
       Alert.alert("Invalid Input", "Please enter a valid ND value.", [{ text: "OK" }]);
@@ -267,7 +300,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     setEInput(value);
   }
 
-  function handleEClose(finalValue: string) {
+  async function handleEClose(finalValue: string) {
     console.log("eInput:", finalValue);
     if (!finalValue || finalValue === "" || finalValue === ".") {
       Alert.alert("Invalid Input", "Please enter an E value.", [
@@ -294,7 +327,41 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       const dedInterval = getDeductionIntervalValue(Number(newded));
       const percentageValue = getPercentageFromTable(dedInterval, newdelt);
       setpercentage(percentageValue);
-      updateMainTable(gymnastid, { delt: newdelt, percentage: percentageValue, compE: rounded, compScore: finalScore, ded: newded });
+      
+      try {
+        const success = await updateMainTable(gymnastid, { 
+          delt: newdelt, 
+          percentage: percentageValue, 
+          compE: rounded, 
+          compScore: finalScore, 
+          ded: newded 
+        });
+        
+        if (!success) {
+          throw new Error('No se pudo actualizar la tabla principal');
+        }
+        
+        console.log('✅ E competition actualizado correctamente');
+      } catch (error) {
+        console.error('❌ Error actualizando E competition:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+        
+        Alert.alert(
+          'Error al guardar',
+          `No se pudo guardar E competition: ${errorMessage}`,
+          [
+            {
+              text: 'Reintentar',
+              onPress: () => handleEClose(finalValue)
+            },
+            {
+              text: 'Cancelar',
+              style: 'cancel'
+            }
+          ]
+        );
+        return;
+      }
       
     } else {
       Alert.alert("Invalid Input", "Please enter a valid E value.", [{ text: "OK" }]);
@@ -307,7 +374,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     setDInput(value);
   }
 
-  function handleDClose(finalValue: string) {
+  async function handleDClose(finalValue: string) {
     console.log("dInput:", finalValue);
     if (!finalValue || finalValue === "" || finalValue === ".") {
       Alert.alert("Invalid Input", "Please enter a D value.", [
@@ -334,7 +401,41 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       const dedInterval = getDeductionIntervalValue(Number(newded));
       const percentageValue = getPercentageFromTable(dedInterval, newdelt);
       setpercentage(percentageValue);
-      updateMainTable(gymnastid, { delt: newdelt, percentage: percentageValue, compD: rounded, compScore: finalScore, ded: newded });
+      
+      try {
+        const success = await updateMainTable(gymnastid, { 
+          delt: newdelt, 
+          percentage: percentageValue, 
+          compD: rounded, 
+          compScore: finalScore, 
+          ded: newded 
+        });
+        
+        if (!success) {
+          throw new Error('No se pudo actualizar la tabla principal');
+        }
+        
+        console.log('✅ D competition actualizado correctamente');
+      } catch (error) {
+        console.error('❌ Error actualizando D competition:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+        
+        Alert.alert(
+          'Error al guardar',
+          `No se pudo guardar D competition: ${errorMessage}`,
+          [
+            {
+              text: 'Reintentar',
+              onPress: () => handleDClose(finalValue)
+            },
+            {
+              text: 'Cancelar',
+              style: 'cancel'
+            }
+          ]
+        );
+        return;
+      }
       
     } else {
       Alert.alert("Invalid Input", "Please enter a valid D value.", [{ text: "OK" }]);
@@ -347,7 +448,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     setNdInput(value);
   }
 
-  function handleNdClose(finalValue: string) {
+  async function handleNdClose(finalValue: string) {
     console.log("ndInput:", finalValue);
     if (!finalValue || finalValue === "" || finalValue === ".") {
       Alert.alert("Invalid Input", "Please enter a ND value.", [
@@ -367,17 +468,35 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
   let newmyscore = eScore + sv + (stickbonus ? getStickBonusValue() : 0) - rounded;
       const finalScore = Math.round(newmyscore * 1000) / 1000;
       setMyScore(finalScore);
-      updateMainTable(gymnastid, { nd: rounded })
-        .then((success) => {
-          if (success) {
-            console.log(`Saved nd = ${rounded} in MainTable.`);
-          } else {
-            console.error(`Failed to save nd in MainTable.`);
-          }
-        })
-        .catch((error) => {
-          console.error("Error saving nd to MainTable:", error);
-        });
+      
+      try {
+        const success = await updateMainTable(gymnastid, { nd: rounded });
+        
+        if (!success) {
+          throw new Error('No se pudo actualizar ND en la tabla principal');
+        }
+        
+        console.log(`✅ Guardado nd = ${rounded} en MainTable`);
+      } catch (error) {
+        console.error('❌ Error guardando nd en MainTable:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+        
+        Alert.alert(
+          'Error al guardar',
+          `No se pudo guardar ND: ${errorMessage}`,
+          [
+            {
+              text: 'Reintentar',
+              onPress: () => handleNdClose(finalValue)
+            },
+            {
+              text: 'Cancelar',
+              style: 'cancel'
+            }
+          ]
+        );
+        return;
+      }
     } else {
       Alert.alert("Invalid Input", "Please enter a valid ND value.", [{ text: "OK" }]);
       return;
@@ -389,7 +508,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     setExecutionInput(value);
   }
 
-  function handleExecutionClose(finalValue: string) {
+  async function handleExecutionClose(finalValue: string) {
     console.log("executionInput:", finalValue);
     if (!finalValue || finalValue === "" || finalValue === ".") {
       Alert.alert("Invalid Input", "Please enter an Execution value.", [
@@ -417,17 +536,42 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
       const dedInterval = getDeductionIntervalValue(Number(newded));
       const percentageValue = getPercentageFromTable(dedInterval, newdelt);
       setpercentage(percentageValue);
-      updateMainTable(gymnastid, { delt: newdelt, percentage: percentageValue, execution: rounded, eScore: newEScore, myScore: finalScore, ded: newded })
-        .then((mainTableSuccess) => {
-          if (mainTableSuccess) {
-            console.log(`Successfully saved delt = ${newdelt} and percentage = ${percentageValue} to MainTable from execution modal.`);
-          } else {
-            console.error(`Failed to save delt and percentage to MainTable from execution modal.`);
-          }
-        })
-        .catch((error) => {
-          console.error("Error saving to MainTable from execution modal:", error);
+      
+      try {
+        const success = await updateMainTable(gymnastid, { 
+          delt: newdelt, 
+          percentage: percentageValue, 
+          execution: rounded, 
+          eScore: newEScore, 
+          myScore: finalScore, 
+          ded: newded 
         });
+        
+        if (!success) {
+          throw new Error('No se pudo actualizar execution en la tabla principal');
+        }
+        
+        console.log(`✅ Guardado delt = ${newdelt} y percentage = ${percentageValue} en MainTable desde modal de execution`);
+      } catch (error) {
+        console.error('❌ Error guardando en MainTable desde modal de execution:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+        
+        Alert.alert(
+          'Error al guardar',
+          `No se pudo guardar execution: ${errorMessage}`,
+          [
+            {
+              text: 'Reintentar',
+              onPress: () => handleExecutionClose(finalValue)
+            },
+            {
+              text: 'Cancelar',
+              style: 'cancel'
+            }
+          ]
+        );
+        return;
+      }
       
     } else {
       Alert.alert("Invalid Input", "Please enter a valid Execution value.", [{ text: "OK" }]);
@@ -802,26 +946,39 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
     // You might want to update this in your state or database
     console.log("Element groups total:", total);
 
-    // Save the total to the database
+    // Save the total to the database with transactional pattern
     const saveElementGroupsTotal = async () => {
       try {
-        const success = await updateMainTable(gymnastid, {elementGroups1: elementGroupValues.I,
+        const success = await updateMainTable(gymnastid, {
+          elementGroups1: elementGroupValues.I,
           elementGroups2: elementGroupValues.II,
           elementGroups3: elementGroupValues.III,
-          elementGroups4: elementGroupValues.IV,});
+          elementGroups4: elementGroupValues.IV,
+        });
         trackSaveAttempt(success, "element groups total");
 
-        if (success) {
-          console.log(`Saved element groups total in MainRateGeneral.`);
-        } else {
-          console.error(
-            `Failed to save element groups total in MainRateGeneral.`
-          );
+        if (!success) {
+          throw new Error('No se pudieron guardar los grupos de elementos');
         }
+        
+        console.log(`✅ Guardados grupos de elementos en MainTable`);
       } catch (error) {
-        console.error(
-          "Error saving element groups total to MainRateGeneral:",
-          error
+        console.error('❌ Error guardando grupos de elementos en MainTable:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+        
+        Alert.alert(
+          'Error al guardar',
+          `No se pudieron guardar los grupos de elementos: ${errorMessage}`,
+          [
+            {
+              text: 'Reintentar',
+              onPress: () => saveElementGroupsTotal()
+            },
+            {
+              text: 'Cancelar',
+              style: 'cancel'
+            }
+          ]
         );
       }
     };
@@ -1098,7 +1255,43 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         comments: comments,
       ded: ded,
       };
-      await updateMainTable(gymnastid, mainTableUpdate);
+      
+      try {
+        const success = await updateMainTable(gymnastid, mainTableUpdate);
+        
+        if (!success) {
+          throw new Error('No se pudo guardar la información en la tabla principal');
+        }
+        
+        console.log('✅ Datos guardados correctamente en MainTable');
+      } catch (error) {
+        console.error('❌ Error guardando en MainTable:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+        
+        Alert.alert(
+          'Error al guardar',
+          `No se pudieron guardar los datos: ${errorMessage}\n\n¿Desea continuar de todos modos?`,
+          [
+            {
+              text: 'Reintentar',
+              onPress: () => handleSelect()
+            },
+            {
+              text: 'Continuar sin guardar',
+              onPress: () => {
+                router.replace(
+                  `/final-table?competenceId=${competenceId}&gymnastId=${discipline}&event=${event}&discipline=${discipline}&gymnast=${gymnastid}&number=${number}&participants=${participants}&folderId=${folderId}`
+                );
+              }
+            },
+            {
+              text: 'Cancelar',
+              style: 'cancel'
+            }
+          ]
+        );
+        return;
+      }
 /* 
       // 2. Guardar RateGeneral (todos los valores relevantes)
       const rateGeneralUpdate = {
@@ -1168,7 +1361,43 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         comments: comments,
       ded: ded,
       };
-      await updateMainTable(gymnastid, mainTableUpdate);
+      
+      try {
+        const success = await updateMainTable(gymnastid, mainTableUpdate);
+        
+        if (!success) {
+          throw new Error('No se pudo guardar la información en la tabla principal');
+        }
+        
+        console.log('✅ Datos guardados correctamente en MainTable');
+      } catch (error) {
+        console.error('❌ Error guardando en MainTable:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+        
+        Alert.alert(
+          'Error al guardar',
+          `No se pudieron guardar los datos: ${errorMessage}\n\n¿Desea volver de todos modos?`,
+          [
+            {
+              text: 'Reintentar',
+              onPress: () => handlegobacklist()
+            },
+            {
+              text: 'Volver sin guardar',
+              onPress: () => {
+                router.replace(
+                  `/start-gudging?id=${competenceId}&discipline=${discipline}&participants=${participants}&number=${number}&gymnast=${gymnastid}&folderId=${folderId}`
+                );
+              }
+            },
+            {
+              text: 'Cancelar',
+              style: 'cancel'
+            }
+          ]
+        );
+        return;
+      }
 
       /* // 2. Guardar RateGeneral (todos los valores relevantes)
       const rateGeneralUpdate = {
@@ -1241,7 +1470,14 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         comments: comments,
       ded: ded,
       };
-      await updateMainTable(gymnastid, mainTableUpdate);
+      
+      const success = await updateMainTable(gymnastid, mainTableUpdate);
+      
+      if (!success) {
+        throw new Error('No se pudo guardar la información en la tabla principal');
+      }
+      
+      console.log('✅ Datos guardados correctamente en MainTable');
 
       /* // 2. Guardar RateGeneral (todos los valores relevantes)
       const rateGeneralUpdate = {
@@ -1308,7 +1544,23 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         );
       }
     } catch (error) {
-      console.error("Error navigating to the next gymnast:", error);
+      console.error("❌ Error navegando al siguiente gimnasta:", error);
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      
+      Alert.alert(
+        'Error',
+        `Error al navegar: ${errorMessage}`,
+        [
+          {
+            text: 'Reintentar',
+            onPress: () => handleGoForward()
+          },
+          {
+            text: 'Cancelar',
+            style: 'cancel'
+          }
+        ]
+      );
     }
   };
 
@@ -1352,7 +1604,14 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         comments: comments,
       ded: ded,
       };
-      await updateMainTable(gymnastid, mainTableUpdate);
+      
+      const success = await updateMainTable(gymnastid, mainTableUpdate);
+      
+      if (!success) {
+        throw new Error('No se pudo guardar la información en la tabla principal');
+      }
+      
+      console.log('✅ Datos guardados correctamente en MainTable');
 
       /* // 2. Guardar RateGeneral (todos los valores relevantes)
       const rateGeneralUpdate = {
@@ -1412,7 +1671,23 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
         alert("No previous gymnast found.");
       }
     } catch (error) {
-      console.error("Error navigating to the previous gymnast:", error);
+      console.error("❌ Error navegando al gimnasta anterior:", error);
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      
+      Alert.alert(
+        'Error',
+        `Error al navegar al gimnasta anterior: ${errorMessage}`,
+        [
+          {
+            text: 'Reintentar',
+            onPress: () => handleGoBack()
+          },
+          {
+            text: 'Cancelar',
+            style: 'cancel'
+          }
+        ]
+      );
     }
   };
 

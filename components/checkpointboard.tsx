@@ -1,9 +1,8 @@
 import { useRef, useState, Children, useCallback, useEffect } from "react";
-import { View, StyleSheet, Dimensions, TouchableOpacity, Text, Animated } from "react-native";
+import { View, StyleSheet, Dimensions, TouchableOpacity, Text, Animated, Alert } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
 import { Path, SkPath, Skia, Canvas } from "@shopify/react-native-skia";
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateRateGeneral, getRateGeneralByTableId } from '../Database/database';
 
 // Obtener dimensiones de la pantalla para responsividad
@@ -15,7 +14,7 @@ const BUTTON_GAP = 0; // Separación entre botones (más cercanos)
 const BUTTON_START_X = 0; // Posición inicial X
 const STROKE_BAR_WIDTH = 120; // Ancho de la barra de stroke
 
-// Configuración global del pen (AsyncStorage keys)
+// Configuración global del pen (en memoria, se resetea al cerrar app)
 const PEN_CONFIG_KEY = '@whiteboard_pen_config';
 
 // Configuración por defecto del pen
@@ -28,35 +27,19 @@ const DEFAULT_PEN_CONFIG = {
 // Variable global para mantener la configuración en memoria
 let globalPenConfig = { ...DEFAULT_PEN_CONFIG };
 
-// Funciones utilitarias para manejar la configuración global del pen
-const loadGlobalPenConfig = async () => {
-  try {
-    const configString = await AsyncStorage.getItem(PEN_CONFIG_KEY);
-    if (configString) {
-      const config = JSON.parse(configString);
-      globalPenConfig = { ...DEFAULT_PEN_CONFIG, ...config };
-      console.log('Loaded pen config:', globalPenConfig);
-    }
-  } catch (error) {
-    console.warn('Error loading pen config:', error);
-    globalPenConfig = { ...DEFAULT_PEN_CONFIG };
-  }
+// Funciones utilitarias para manejar la configuración global del pen (solo en memoria)
+const loadGlobalPenConfig = () => {
   return globalPenConfig;
 };
 
-const saveGlobalPenConfig = async (config: typeof DEFAULT_PEN_CONFIG) => {
-  try {
-    globalPenConfig = { ...config };
-    await AsyncStorage.setItem(PEN_CONFIG_KEY, JSON.stringify(config));
-    console.log('Saved pen config:', config);
-  } catch (error) {
-    console.warn('Error saving pen config:', error);
-  }
+const saveGlobalPenConfig = (config: typeof DEFAULT_PEN_CONFIG) => {
+  globalPenConfig = { ...config };
+  console.log('Saved pen config:', config);
 };
 
-const updateGlobalPenConfig = async (updates: Partial<typeof DEFAULT_PEN_CONFIG>) => {
+const updateGlobalPenConfig = (updates: Partial<typeof DEFAULT_PEN_CONFIG>) => {
   const newConfig = { ...globalPenConfig, ...updates };
-  await saveGlobalPenConfig(newConfig);
+  saveGlobalPenConfig(newConfig);
   return newConfig;
 };
 
@@ -111,6 +94,10 @@ const DrawingCanvas = ({
   const isDrawingRef = useRef(false);
   const lastPoint = useRef<{ x: number; y: number } | null>(null);
   const saveTimeoutRef = useRef<number | null>(null);
+
+  // Estados para el indicador de guardado
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
 
   // Estados para los botones con límites de memoria
   const [undoStack, setUndoStack] = useState<PathData[]>([]);
@@ -216,6 +203,16 @@ const DrawingCanvas = ({
     };
   }, [tableId]);
 
+  // Auto-hide del indicador de guardado después de 3 segundos
+  useEffect(() => {
+    if (lastSaved) {
+      const timer = setTimeout(() => {
+        setLastSaved(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [lastSaved]);
+
   // Función para limpiar memoria mejorada
   const cleanup = useCallback(() => {
     // Limpiar arrays para liberar memoria
@@ -271,8 +268,9 @@ const DrawingCanvas = ({
     }
   }, [tableId]);
 
-  // Guardar paths de manera eficiente con debounce
+  // Guardar paths de manera eficiente con debounce y transaccional
   const savePaths = useCallback(async (newPathsData: PathData[]) => {
+    setIsSaving(true);
     try {
       // Limitar el número de paths para evitar problemas de memoria (máximo 1000)
       const limitedPaths = newPathsData.slice(-1000);
@@ -280,13 +278,38 @@ const DrawingCanvas = ({
       const pathsString = JSON.stringify(limitedPaths);
       
       const rateData = await getRateGeneralByTableId(tableId);
-      if (rateData) {
-        await updateRateGeneral(rateData.id, { paths: pathsString });
+      if (!rateData) {
+        throw new Error('No se encontró el registro de RateGeneral');
       }
+
+      const success = await updateRateGeneral(rateData.id, { paths: pathsString });
       
-      console.log(`Saved ${limitedPaths.length} paths efficiently`);
+      if (!success) {
+        throw new Error('Error al guardar los trazos en la base de datos');
+      }
+
+      setLastSaved(new Date());
+      console.log(`✅ Guardados ${limitedPaths.length} trazos correctamente`);
     } catch (error) {
-      console.error('Error saving paths:', error);
+      console.error('❌ Error al guardar trazos:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido al guardar';
+      
+      Alert.alert(
+        'Error al guardar',
+        `No se pudieron guardar los trazos: ${errorMessage}`,
+        [
+          {
+            text: 'Reintentar',
+            onPress: () => savePaths(newPathsData)
+          },
+          {
+            text: 'Cancelar',
+            style: 'cancel'
+          }
+        ]
+      );
+    } finally {
+      setIsSaving(false);
     }
   }, [tableId]);
 
@@ -1053,6 +1076,15 @@ const DrawingCanvas = ({
 
       {/* Percentage display */}
       <Text style={styles.percentageText}>{percentage}</Text>
+
+      {/* Indicador de guardado */}
+      {(isSaving || lastSaved) && (
+        <View style={styles.saveIndicator}>
+          <Text style={styles.saveIndicatorText}>
+            {isSaving ? '💾 Guardando...' : '✅ Guardado'}
+          </Text>
+        </View>
+      )}
     </View>
   );
 };
@@ -1367,6 +1399,22 @@ const styles = StyleSheet.create({
   },
   strokePreview: {
     borderRadius: 10,
+  },
+  // Estilos para el indicador de guardado
+  saveIndicator: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    zIndex: 1000,
+  },
+  saveIndicatorText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
 

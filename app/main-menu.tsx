@@ -2222,7 +2222,7 @@ const performDelete = async () => {
   };
 
   const goBack = () => {
-    router.replace(`/select-sex?userId=${userIdparams}&changeDis=${true}`);
+    router.replace(`/?userId=${userIdparams}&changeDis=${true}`);
   };
 
   useEffect(() => {

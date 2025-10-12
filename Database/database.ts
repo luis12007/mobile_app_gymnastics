@@ -1,77 +1,35 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-// Use legacy API to avoid deprecation warnings in Expo SDK 54
+/**
+ * SQLite Database Layer for Gym Judge App
+ * 
+ * Migración desde AsyncStorage a SQLite para resolver:
+ * - CursorWindow overflow en Android
+ * - Corrupción de datos que bloquea todo el almacenamiento
+ * - Mejor performance con grandes volúmenes de datos
+ * - Aislamiento: si 1 registro se corrompe, los demás siguen accesibles
+ */
+
+import * as SQLite from 'expo-sqlite';
 import * as FileSystem from 'expo-file-system/legacy';
-import JSZip from 'jszip';
 import { Alert } from 'react-native';
 
-// Storage keys for all tables
-const USERS_KEY = "users";
-const FOLDERS_KEY = "folders";
-const SESSIONS_KEY = "sessions";
-const COMPETENCES_KEY = "competences";
-const MAIN_TABLES_KEY = "main_tables";
-const RATE_GENERAL_KEY = "rate_general";
-const RATE_JUMP_KEY = "rate_jump";
-const MAIN_TABLE_PHOTOS_KEY = "main_table_photos"; // Nueva tabla lógica para fotos de cada MainTable
+// ==================== CONFIGURACIÓN ====================
+const DB_NAME = 'gym_judge.db';
+const DB_VERSION = 1;
 
-// Large field externalization configuration
-// Reducido para externalizar antes y evitar filas enormes que provoquen CursorWindow
-const LARGE_FIELD_THRESHOLD = 40_000; // ~40KB: si paths supera esto, se externaliza a fichero
+// Directorios para archivos externos (paths grandes, imágenes)
 const PATHS_DIR = `${FileSystem.documentDirectory}whiteboard_paths/`;
 const PHOTOS_DIR = `${FileSystem.documentDirectory}main_table_photos/`;
 
-const ensureDirAsync = async (dirUri: string) => {
-  try {
-    const info = await FileSystem.getInfoAsync(dirUri);
-    if (!info.exists) {
-      await FileSystem.makeDirectoryAsync(dirUri, { intermediates: true });
-    }
-  } catch (e) {
-    console.warn('ensureDirAsync error:', e);
-  }
-};
+// Umbrales para externalización
+const LARGE_FIELD_THRESHOLD = 40_000; // ~40KB
+const LARGE_IMAGE_INLINE_THRESHOLD = 20_000; // ~20KB
 
-const isFileRef = (value?: string | null): boolean => {
-  if (!value) return false;
-  return value.startsWith('file://') || value.startsWith('content://');
-};
-
-const makePathsFileUri = (tableId: number) => `${PATHS_DIR}main_${tableId}_paths.json`;
-
-const writeStringToFile = async (uri: string, content: string): Promise<string> => {
-  await ensureDirAsync(PATHS_DIR);
-  await FileSystem.writeAsStringAsync(uri, content);
-  return uri;
-};
-
-const readStringFromFile = async (uri: string): Promise<string> => {
-  try {
-    const info = await FileSystem.getInfoAsync(uri);
-    if (!info.exists) return '[]';
-    return await FileSystem.readAsStringAsync(uri);
-  } catch (e) {
-    console.warn('readStringFromFile error:', e);
-    return '[]';
-  }
-};
-
-const deleteFileIfExists = async (uri: string): Promise<void> => {
-  try {
-    const info = await FileSystem.getInfoAsync(uri);
-    if (info.exists) {
-      await FileSystem.deleteAsync(uri, { idempotent: true });
-    }
-  } catch (e) {
-    // ignore
-  }
-};
-
-// Table interfaces
+// ==================== INTERFACES ====================
 interface User {
   id: number;
   username: string;
   password: string;
-  rol: string; // "admin" or "user"
+  rol: string;
 }
 
 interface Folder {
@@ -79,17 +37,17 @@ interface Folder {
   userId: number;
   name: string;
   description: string;
-  type: boolean; // true for training, false for competence
-  date: string; // ISO date string
+  type: boolean;
+  date: string;
   filled: boolean;
-  position?: number; // Para el orden de las carpetas
-  parentId?: number | null; // ID de la carpeta padre (null para carpetas raíz)
-  level?: number; // Nivel de profundidad (0 para raíz, 1 para subcarpetas, etc.)
+  position?: number;
+  parentId?: number | null;
+  level?: number;
 }
 
 interface Session {
   id: number;
-  gender: boolean; // true for male, false for female
+  gender: boolean;
   userId: number;
 }
 
@@ -97,9 +55,9 @@ interface Competence {
   id: number;
   name: string;
   description: string;
-  date: string; // ISO date string
-  type: string; // "Floor", "Jump", etc.
-  gender: boolean; // mag and wag
+  date: string;
+  type: string;
+  gender: boolean;
   sessionId: number;
   folderId: number;
   userId: number;
@@ -162,116 +120,6 @@ interface MainTable {
   score: number;
 }
 
-// ================= VALIDACIÓN DE MainTable =================
-const _MAIN_TABLE_NUMERIC_FIELDS: (keyof MainTable)[] = [
-  'competenceId','number','j','i','h','g','f','e','d','c','b','a','dv','eg','sb','nd','cv','sv','e2','d3','e3','delt','percentage','numberOfElements','difficultyValues','elementGroups1','elementGroups2','elementGroups3','elementGroups4','elementGroups5','execution','eScore','myScore','compD','compE','compSd','compNd','compScore','ded','dedexecution','startValue','score'
-];
-const _MAIN_TABLE_BOOL_FIELDS: (keyof MainTable)[] = ['stickBonus'];
-const _MAIN_TABLE_STRING_FIELDS: (keyof MainTable)[] = ['name','event','noc','bib','vaultNumber','vaultDescription','description','comments','paths'];
-
-const validateMainTableRecord = (record: any): { ok: boolean; errors: string[] } => {
-  const errors: string[] = [];
-  if (!record || typeof record !== 'object') {
-    return { ok: false, errors: ['El objeto no es válido'] };
-  }
-  const allowedKeys = new Set<keyof MainTable | string>([
-    'id','competenceId','number','name','event','noc','bib','j','i','h','g','f','e','d','c','b','a','dv','eg','sb','nd','cv','sv','e2','d3','e3','delt','percentage','stickBonus','numberOfElements','difficultyValues','elementGroups1','elementGroups2','elementGroups3','elementGroups4','elementGroups5','execution','eScore','myScore','compD','compE','compSd','compNd','compScore','comments','paths','ded','dedexecution','vaultNumber','vaultDescription','startValue','description','score'
-  ]);
-  // Detectar campos desconocidos
-  Object.keys(record).forEach(k => {
-    if (!allowedKeys.has(k)) errors.push(`Campo desconocido no permitido: ${k}`);
-  });
-  // Verificar presencia de todos los campos requeridos (excepto los que se completan luego como id antes del insert)
-  allowedKeys.forEach(k => {
-    if (k === 'id') return; // id lo asignamos nosotros
-    if (!(k in record)) errors.push(`Falta campo requerido: ${k}`);
-  });
-  // id puede no existir antes de insert, se valida después de asignar
-  _MAIN_TABLE_NUMERIC_FIELDS.forEach(f => {
-    const v = record[f];
-    if (typeof v !== 'number' || Number.isNaN(v)) errors.push(`Campo numérico inválido: ${String(f)}`);
-  });
-  _MAIN_TABLE_BOOL_FIELDS.forEach(f => {
-    if (typeof record[f] !== 'boolean') errors.push(`Campo boolean inválido: ${String(f)}`);
-  });
-  _MAIN_TABLE_STRING_FIELDS.forEach(f => {
-    const v = record[f];
-    if (typeof v !== 'string') errors.push(`Campo string inválido: ${String(f)}`);
-  });
-  if (typeof record.id !== 'number' || record.id <= 0) errors.push('Campo id inválido');
-  return { ok: errors.length === 0, errors };
-};
-
-// Valida parcial (update) fusionando con el actual antes de verificar
-const validateMainTableUpdate = (current: MainTable, patch: Partial<MainTable>): { ok: boolean; errors: string[] } => {
-  const merged = { ...current, ...patch } as MainTable;
-  return validateMainTableRecord(merged);
-};
-
-// Saneo + coerción previa a validar (convierte strings numéricos a número, arrays/objetos en JSON para paths, elimina claves desconocidas)
-const sanitizeMainTableInput = (raw: any, { partial = false }: { partial?: boolean } = {}): { sanitized: any; errors: string[] } => {
-  const errors: string[] = [];
-  if (!raw || typeof raw !== 'object') return { sanitized: raw, errors: ['Input no es objeto'] };
-  const allowed = new Set<keyof MainTable | string>([
-    'id','competenceId','number','name','event','noc','bib','j','i','h','g','f','e','d','c','b','a','dv','eg','sb','nd','cv','sv','e2','d3','e3','delt','percentage','stickBonus','numberOfElements','difficultyValues','elementGroups1','elementGroups2','elementGroups3','elementGroups4','elementGroups5','execution','eScore','myScore','compD','compE','compSd','compNd','compScore','comments','paths','ded','dedexecution','vaultNumber','vaultDescription','startValue','description','score'
-  ]);
-  const out: any = {};
-  // Copiar sólo permitidos
-  for (const k of Object.keys(raw)) {
-    if (allowed.has(k)) out[k] = raw[k];
-  }
-  // Numeric coercion
-  for (const k of _MAIN_TABLE_NUMERIC_FIELDS) {
-    if (out[k] === undefined) {
-      if (!partial) out[k] = 0;
-      continue;
-    }
-    if (typeof out[k] === 'string' && out[k].trim() !== '') {
-      const num = Number(out[k]);
-      if (!Number.isNaN(num)) {
-        out[k] = num;
-      }
-    }
-    if (typeof out[k] !== 'number' || Number.isNaN(out[k])) {
-      errors.push(`No numérico o inválido: ${k}`);
-    }
-  }
-  // Boolean coercion
-  for (const k of _MAIN_TABLE_BOOL_FIELDS) {
-    if (out[k] === undefined) {
-      if (!partial) out[k] = false;
-      continue;
-    }
-    if (typeof out[k] !== 'boolean') {
-      if (out[k] === 'true') out[k] = true; else if (out[k] === 'false') out[k] = false; else errors.push(`No boolean: ${k}`);
-    }
-  }
-  // String fields
-  for (const k of _MAIN_TABLE_STRING_FIELDS) {
-    if (out[k] === undefined) {
-      if (!partial) {
-        // paths tiene default especial
-        out[k] = k === 'paths' ? '[]' : '';
-      }
-      continue;
-    }
-    if (k === 'paths') {
-      if (Array.isArray(out[k]) || (out[k] && typeof out[k] === 'object')) {
-        try { out[k] = JSON.stringify(out[k]); } catch { errors.push('paths no convertible a JSON'); }
-      }
-      if (typeof out[k] !== 'string') errors.push('paths debe ser string JSON');
-      else if (!out[k].trim()) out[k] = '[]';
-      else {
-        // validar que sea JSON válido
-        try { JSON.parse(out[k]); } catch { errors.push('paths no es JSON válido'); }
-      }
-    } else if (typeof out[k] !== 'string') {
-      out[k] = String(out[k] ?? '');
-    }
-  }
-  return { sanitized: out, errors };
-};
-
 interface MainRateGeneral {
   id: number;
   tableId: number;
@@ -297,7 +145,7 @@ interface MainRateGeneral {
   dedexecution: number;
   vaultNumber: string;
   vaultDescription: string;
-  images?: string; // JSON.stringify de array de URIs de imágenes
+  images?: string;
 }
 
 interface MainRateJump {
@@ -316,10 +164,6 @@ interface MainRateJump {
   score: number;
 }
 
-// Constante para tabla de dispositivos activados
-const ACTIVATED_DEVICES_KEY = "activated_devices";
-
-// Interfaz para dispositivos activados
 interface ActivatedDevice {
   id: number;
   deviceId: string;
@@ -328,538 +172,472 @@ interface ActivatedDevice {
   createdBy: number | null;
 }
 
-// Insertar usuario sin validar clave de activación (para uso interno/admin)
-export const insertUserWithoutValidation = async (
-  username: string, 
-  password: string,
-  rol: string = "user" // Default role is "user"
-): Promise<number | false> => {
-  try {
-    if (!username || !password) {
-      console.error("Username and password are required");
-      return false;
-    }
-    
-    const users = await getUsers();
-    
-    // Check if user exists
-    const userExists = users.some(user => user.username === username);
-    if (userExists) {
-      console.error("User already exists.");
-      return false;
-    }
+export interface MainTablePhotoItem {
+  uri: string;
+  x: number;
+  y: number;
+  scale: number;
+  rotation: number;
+}
 
-    // Find max ID
-    let nextId = 1;
-    if (users.length > 0) {
-      // Filter out any users without an ID
-      const usersWithId = users.filter(user => typeof user.id === 'number');
-      if (usersWithId.length > 0) {
-        nextId = Math.max(...usersWithId.map(user => user.id)) + 1;
-      }
-    }
-    
-    // Add new user with ID and role
-    const newUser: User = { id: nextId, username, password, rol };
-    users.push(newUser);
-    
-    // Save updated users
-    await saveItems(USERS_KEY, users);
-    console.log("User added successfully without validation. ID:", nextId);
-    
-    return nextId;
+interface MainTablePhotos {
+  id: number;
+  tableId: number;
+  photos: string; // JSON array de MainTablePhotoItem
+}
+
+// ==================== DATABASE INITIALIZATION ====================
+let db: SQLite.SQLiteDatabase | null = null;
+
+/**
+ * Abre o crea la base de datos SQLite
+ */
+const openDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
+  if (db) return db;
+  
+  try {
+    db = await SQLite.openDatabaseAsync(DB_NAME);
+    console.log('✅ SQLite Database opened successfully');
+    return db;
   } catch (error) {
-    console.error("Error inserting user without validation:", error);
-    return false;
+    console.error('❌ Error opening database:', error);
+    throw error;
   }
 };
 
-// Configurar la tabla de dispositivos activados
-export const setupActivatedDevicesTable = async (): Promise<void> => {
+/**
+ * Crea todas las tablas de la base de datos
+ */
+const createTables = async (): Promise<void> => {
+  const database = await openDatabase();
+  
   try {
-    // En AsyncStorage solo necesitamos verificar que la clave existe
-    const devices = await AsyncStorage.getItem(ACTIVATED_DEVICES_KEY);
-    if (!devices) {
-      await AsyncStorage.setItem(ACTIVATED_DEVICES_KEY, JSON.stringify([]));
+    // Usar transacción para crear todas las tablas
+    await database.execAsync(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA foreign_keys = ON;
+      
+      -- Tabla de usuarios
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE,
+        password TEXT NOT NULL,
+        rol TEXT NOT NULL DEFAULT 'user'
+      );
+      
+      -- Tabla de dispositivos activados
+      CREATE TABLE IF NOT EXISTS activated_devices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        deviceId TEXT NOT NULL UNIQUE,
+        activationKey TEXT NOT NULL,
+        activatedAt INTEGER NOT NULL,
+        createdBy INTEGER,
+        FOREIGN KEY (createdBy) REFERENCES users(id) ON DELETE SET NULL
+      );
+      
+      -- Tabla de carpetas
+      CREATE TABLE IF NOT EXISTS folders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        type INTEGER NOT NULL DEFAULT 0,
+        date TEXT NOT NULL,
+        filled INTEGER NOT NULL DEFAULT 0,
+        position INTEGER DEFAULT 0,
+        parentId INTEGER,
+        level INTEGER DEFAULT 0,
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (parentId) REFERENCES folders(id) ON DELETE CASCADE
+      );
+      
+      -- Tabla de sesiones
+      CREATE TABLE IF NOT EXISTS sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        gender INTEGER NOT NULL,
+        userId INTEGER NOT NULL,
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+      );
+      
+      -- Tabla de competencias
+      CREATE TABLE IF NOT EXISTS competences (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT,
+        date TEXT NOT NULL,
+        type TEXT NOT NULL,
+        gender INTEGER NOT NULL,
+        sessionId INTEGER NOT NULL,
+        folderId INTEGER NOT NULL,
+        userId INTEGER NOT NULL,
+        numberOfParticipants INTEGER DEFAULT 0,
+        FOREIGN KEY (sessionId) REFERENCES sessions(id) ON DELETE CASCADE,
+        FOREIGN KEY (folderId) REFERENCES folders(id) ON DELETE CASCADE,
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+      );
+      
+      -- Tabla principal de tablas
+      CREATE TABLE IF NOT EXISTS main_tables (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        competenceId INTEGER NOT NULL,
+        number INTEGER DEFAULT 0,
+        name TEXT,
+        event TEXT,
+        noc TEXT,
+        bib TEXT,
+        j REAL DEFAULT 0,
+        i REAL DEFAULT 0,
+        h REAL DEFAULT 0,
+        g REAL DEFAULT 0,
+        f REAL DEFAULT 0,
+        e REAL DEFAULT 0,
+        d REAL DEFAULT 0,
+        c REAL DEFAULT 0,
+        b REAL DEFAULT 0,
+        a REAL DEFAULT 0,
+        dv REAL DEFAULT 0,
+        eg REAL DEFAULT 0,
+        sb REAL DEFAULT 0,
+        nd REAL DEFAULT 0,
+        cv REAL DEFAULT 0,
+        sv REAL DEFAULT 0,
+        e2 REAL DEFAULT 0,
+        d3 REAL DEFAULT 0,
+        e3 REAL DEFAULT 0,
+        delt REAL DEFAULT 0,
+        percentage REAL DEFAULT 0,
+        stickBonus INTEGER DEFAULT 0,
+        numberOfElements REAL DEFAULT 0,
+        difficultyValues REAL DEFAULT 0,
+        elementGroups1 REAL DEFAULT 0,
+        elementGroups2 REAL DEFAULT 0,
+        elementGroups3 REAL DEFAULT 0,
+        elementGroups4 REAL DEFAULT 0,
+        elementGroups5 REAL DEFAULT 0,
+        execution REAL DEFAULT 0,
+        eScore REAL DEFAULT 0,
+        myScore REAL DEFAULT 0,
+        compD REAL DEFAULT 0,
+        compE REAL DEFAULT 0,
+        compSd REAL DEFAULT 0,
+        compNd REAL DEFAULT 0,
+        compScore REAL DEFAULT 0,
+        comments TEXT,
+        paths TEXT,
+        ded REAL DEFAULT 0,
+        dedexecution REAL DEFAULT 0,
+        vaultNumber TEXT,
+        vaultDescription TEXT,
+        startValue REAL DEFAULT 0,
+        description TEXT,
+        score REAL DEFAULT 0,
+        FOREIGN KEY (competenceId) REFERENCES competences(id) ON DELETE CASCADE
+      );
+      
+      -- Tabla de calificaciones generales
+      CREATE TABLE IF NOT EXISTS rate_general (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tableId INTEGER NOT NULL,
+        stickBonus INTEGER DEFAULT 0,
+        numberOfElements REAL DEFAULT 0,
+        difficultyValues REAL DEFAULT 0,
+        elementGroups1 REAL DEFAULT 0,
+        elementGroups2 REAL DEFAULT 0,
+        elementGroups3 REAL DEFAULT 0,
+        elementGroups4 REAL DEFAULT 0,
+        elementGroups5 REAL DEFAULT 0,
+        execution REAL DEFAULT 0,
+        eScore REAL DEFAULT 0,
+        myScore REAL DEFAULT 0,
+        compD REAL DEFAULT 0,
+        compE REAL DEFAULT 0,
+        compSd REAL DEFAULT 0,
+        compNd REAL DEFAULT 0,
+        compScore REAL DEFAULT 0,
+        comments TEXT,
+        paths TEXT,
+        ded REAL DEFAULT 0,
+        dedexecution REAL DEFAULT 0,
+        vaultNumber TEXT,
+        vaultDescription TEXT,
+        images TEXT,
+        FOREIGN KEY (tableId) REFERENCES main_tables(id) ON DELETE CASCADE
+      );
+      
+      -- Tabla de calificaciones de salto
+      CREATE TABLE IF NOT EXISTS rate_jump (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tableId INTEGER NOT NULL,
+        stickBonus INTEGER DEFAULT 0,
+        vaultNumber REAL DEFAULT 0,
+        startValue REAL DEFAULT 0,
+        description TEXT,
+        execution REAL DEFAULT 0,
+        myScore REAL DEFAULT 0,
+        compD REAL DEFAULT 0,
+        compE REAL DEFAULT 0,
+        compSd REAL DEFAULT 0,
+        compNd REAL DEFAULT 0,
+        score REAL DEFAULT 0,
+        FOREIGN KEY (tableId) REFERENCES main_tables(id) ON DELETE CASCADE
+      );
+      
+      -- Tabla de fotos de main_table
+      CREATE TABLE IF NOT EXISTS main_table_photos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tableId INTEGER NOT NULL,
+        photos TEXT NOT NULL,
+        FOREIGN KEY (tableId) REFERENCES main_tables(id) ON DELETE CASCADE
+      );
+      
+      -- Tabla de configuración de la app
+      CREATE TABLE IF NOT EXISTS app_settings (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        defaultDiscipline INTEGER,
+        lastUpdated INTEGER NOT NULL
+      );
+      
+      -- Índices para mejorar performance
+      CREATE INDEX IF NOT EXISTS idx_folders_userId ON folders(userId);
+      CREATE INDEX IF NOT EXISTS idx_folders_parentId ON folders(parentId);
+      CREATE INDEX IF NOT EXISTS idx_competences_folderId ON competences(folderId);
+      CREATE INDEX IF NOT EXISTS idx_competences_userId ON competences(userId);
+      CREATE INDEX IF NOT EXISTS idx_main_tables_competenceId ON main_tables(competenceId);
+      CREATE INDEX IF NOT EXISTS idx_rate_general_tableId ON rate_general(tableId);
+      CREATE INDEX IF NOT EXISTS idx_rate_jump_tableId ON rate_jump(tableId);
+      CREATE INDEX IF NOT EXISTS idx_main_table_photos_tableId ON main_table_photos(tableId);
+    `);
+    
+    console.log('✅ All tables created successfully with indexes');
+  } catch (error) {
+    console.error('❌ Error creating tables:', error);
+    throw error;
+  }
+};
+
+// ==================== UTILIDADES DE ARCHIVOS ====================
+const ensureDirAsync = async (dirUri: string) => {
+  try {
+    const info = await FileSystem.getInfoAsync(dirUri);
+    if (!info.exists) {
+      await FileSystem.makeDirectoryAsync(dirUri, { intermediates: true });
     }
-    console.log("Activated devices table is ready");
-  } catch (error) {
-    console.error("Error setting up activated devices table:", error);
+  } catch (e) {
+    console.warn('ensureDirAsync error:', e);
   }
 };
 
-// Verificar si un dispositivo ya está activado
-export const isDeviceActivated = async (deviceId: string): Promise<boolean> => {
+const isFileRef = (value?: string | null): boolean => {
+  if (!value) return false;
+  return value.startsWith('file://') || value.startsWith('content://');
+};
+
+const makePathsFileUri = (tableId: number) => 
+  `${PATHS_DIR}main_${tableId}_paths_${Date.now()}.json`;
+
+const writeStringToFile = async (uri: string, content: string): Promise<string> => {
+  await ensureDirAsync(PATHS_DIR);
+  await FileSystem.writeAsStringAsync(uri, content);
+  return uri;
+};
+
+const readStringFromFile = async (uri: string): Promise<string> => {
   try {
-    const devices = await getActivatedDevices();
-    return devices.some(device => device.deviceId === deviceId);
-  } catch (error) {
-    console.error("Error checking if device is activated:", error);
-    return false;
+    const info = await FileSystem.getInfoAsync(uri);
+    if (!info.exists) return '[]';
+    return await FileSystem.readAsStringAsync(uri);
+  } catch (e) {
+    console.warn('readStringFromFile error:', e);
+    return '[]';
   }
 };
 
-// Obtener todos los dispositivos activados
-export const getActivatedDevices = async (): Promise<ActivatedDevice[]> => {
-  return getItems<ActivatedDevice>(ACTIVATED_DEVICES_KEY);
+const deleteFileIfExists = async (uri: string): Promise<void> => {
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    if (info.exists) {
+      await FileSystem.deleteAsync(uri, { idempotent: true });
+    }
+  } catch (e) {
+    // ignore
+  }
 };
 
-// Registrar un dispositivo activado
-export const registerActivatedDevice = async (
-  deviceId: string, 
-  activationKey: string, 
-  userId: number | null = null
+// ==================== MANEJO ROBUSTO DE ERRORES ====================
+/**
+ * Ejecuta una query SQL con manejo de errores robusto
+ * Si falla, retorna array vacío en lugar de lanzar error
+ */
+const safeQuery = async <T>(
+  query: string,
+  params: any[] = []
+): Promise<T[]> => {
+  try {
+    const database = await openDatabase();
+    const result = await database.getAllAsync<T>(query, params);
+    return result || [];
+  } catch (error) {
+    console.error('❌ Safe query error:', query, error);
+    return [];
+  }
+};
+
+/**
+ * Ejecuta un comando SQL con manejo de errores
+ */
+const safeExecute = async (
+  query: string,
+  params: any[] = []
 ): Promise<boolean> => {
   try {
-    // Verificar si ya está activado
-    const isActivated = await isDeviceActivated(deviceId);
-    if (isActivated) {
-      console.log("Device is already activated");
-      return false;
-    }
-    
-    const devices = await getActivatedDevices();
-    const id = await getNextId(ACTIVATED_DEVICES_KEY);
-    
-    const newDevice: ActivatedDevice = {
-      id,
-      deviceId,
-      activationKey,
-      activatedAt: Date.now(),
-      createdBy: userId
-    };
-    
-    devices.push(newDevice);
-    await saveItems(ACTIVATED_DEVICES_KEY, devices);
-    console.log("Device registered successfully", newDevice);
+    const database = await openDatabase();
+    await database.runAsync(query, params);
     return true;
   } catch (error) {
-    console.error("Error registering activated device:", error);
+    console.error('❌ Safe execute error:', query, error);
     return false;
   }
 };
-// Verificar si un usuario ya existe
-export const checkUserExists = async (username: string): Promise<boolean> => {
-  try {
-    const users = await getUsers();
-    return users.some(user => user.username === username);
-  } catch (error) {
-    console.error("Error checking if user exists:", error);
-    return false; // En caso de error, asumimos que no existe
-  }
-};
 
-
-// Validar una clave de activación para un dispositivo específico
-export const validateActivationKey = async (
-  key: string, 
-  deviceId: string
+/**
+ * Ejecuta múltiples comandos en una transacción
+ * Si uno falla, se hace rollback automáticamente
+ */
+const safeTransaction = async (
+  callback: (db: SQLite.SQLiteDatabase) => Promise<void>
 ): Promise<boolean> => {
+  const database = await openDatabase();
+  
   try {
-    // Verificar formato de la clave
-    const parts = key.split('-');
-    if (parts.length !== 3 || parts[0] !== 'GYM') {
-      return false;
-    }
-    
-    // Recrear el hash para validación
-    const APP_SECRET = 'GymJudge2023SecretKey'; // Debería estar almacenado más seguramente
-    const crypto = await import('expo-crypto');
-    
-    const validationString = deviceId + APP_SECRET;
-    const expectedHash = await crypto.digestStringAsync(
-      crypto.CryptoDigestAlgorithm.SHA256,
-      validationString
-    );
-    
-    // Comparar solo los primeros 8 caracteres
-    const expectedShortHash = expectedHash.substring(0, 8);
-    const keyHash = parts[1];
-    
-    console.log("Validating key", key, "for device", deviceId);
-    console.log("Expected hash:", expectedShortHash, "Key hash:", keyHash);
-    
-    return keyHash === expectedShortHash;
-  } catch (error) {
-    console.error("Error validating activation key:", error);
-    return false;
-  }
-};
-
-export const deleteRateJumpByTableId = async (tableId: number): Promise<void> => {
-  try {
-    const rateJumpTables = await getRateJumpTables();
-    const filteredRateJumpTables = rateJumpTables.filter(rate => rate.tableId !== tableId);
-
-    if (filteredRateJumpTables.length === rateJumpTables.length) {
-      console.log(`No RateJump entries found for tableId: ${tableId}`);
-      return;
-    }
-
-    await saveItems(RATE_JUMP_KEY, filteredRateJumpTables);
-    console.log(`Deleted RateJump entries for tableId: ${tableId}`);
-  } catch (error) {
-    console.error(`Error deleting RateJump entries for tableId: ${tableId}`, error);
-  }
-};
-
-
-// Helper function to validate objects in storage
-const validateItems = async <T>(key: string, validator: (item: any) => boolean): Promise<T[]> => {
-  try {
-    const itemsString = await AsyncStorage.getItem(key);
-    if (!itemsString) return [];
-    
-    const allItems = JSON.parse(itemsString);
-    if (!Array.isArray(allItems)) return [];
-    
-    // Filter out invalid items
-    const validItems = allItems.filter(item => validator(item));
-    
-    // If we had to filter some items, save the valid ones back
-    if (validItems.length !== allItems.length) {
-      console.log(`Removed ${allItems.length - validItems.length} invalid items from ${key}`);
-      await AsyncStorage.setItem(key, JSON.stringify(validItems));
-    }
-    
-    return validItems as T[];
-  } catch (error) {
-    console.error(`Error validating items from ${key}:`, error);
-    return [];
-  }
-};
-
-// Fix existing data to ensure all users have an ID
-export const fixExistingUsers = async (): Promise<boolean> => {
-  try {
-    const usersString = await AsyncStorage.getItem(USERS_KEY);
-    let users = usersString ? JSON.parse(usersString) : [];
-    
-    console.log("Before fixing, users:", users);
-    
-    // Filter out invalid entries
-    users = users.filter((user: any) => 
-      user && typeof user === 'object' && user.username && user.password
-    );
-    
-    // Add IDs to users that don't have them
-    let modified = false;
-    users.forEach((user: any, index: number) => {
-      if (typeof user.id !== 'number' || isNaN(user.id) || user.id <= 0) {
-        user.id = index + 1;
-        modified = true;
-      }
+    await database.withTransactionAsync(async () => {
+      await callback(database);
     });
-    
-    if (modified) {
-      await AsyncStorage.setItem(USERS_KEY, JSON.stringify(users));
-      console.log("After fixing, users:", users);
-    }
-    
     return true;
   } catch (error) {
-    console.error("Error fixing existing users:", error);
+    console.error('❌ Transaction error:', error);
     return false;
   }
 };
 
-
-
-// Helper functions to get the next ID for each table
-const getNextId = async (key: string): Promise<number> => {
-  try {
-    const items = await getItems(key);
-    if (items.length === 0) {
-      return 1;
-    }
-    // Find the maximum ID and add 1
-    const maxId = Math.max(...items.map((item: any) => 
-      typeof item.id === 'number' ? item.id : 0
-    ));
-    return maxId + 1;
-  } catch (error) {
-    console.error(`Error getting next ID for ${key}:`, error);
-    return 1; // Default to 1 if there's an error
-  }
-};
-
-// Generic function to get all items from a specific table
-const getItems = async <T>(key: string): Promise<T[]> => {
-  try {
-    const itemsString = await AsyncStorage.getItem(key);
-    return itemsString ? JSON.parse(itemsString) : [];
-  } catch (error) {
-    console.error(`Error retrieving items from ${key}:`, error);
-    return [];
-  }
-};
-
-// Generic function to save items to a specific table
-const saveItems = async <T>(key: string, items: T[]): Promise<boolean> => {
-  try {
-    await AsyncStorage.setItem(key, JSON.stringify(items));
-    return true;
-  } catch (error) {
-    console.error(`Error saving items to ${key}:`, error);
-    return false;
-  }
-};
-
-// ===================== Resilient MainTable Sharded Storage =====================
-// Problema: Un sólo registro gigante (paths enormes forzados inline) puede exceder el límite de CursorWindow en Android
-// y hace fallar la lectura completa del key MAIN_TABLES_KEY. Solución: almacenar también cada registro individualmente
-// (shards) bajo un prefijo y mantener un índice pequeño. Así si el valor agregado falla, aún podemos reconstruir la lista.
-
-const MAIN_TABLE_SHARD_PREFIX = 'MTBL__'; // Clave individual: MTBL__<id>
-const MAIN_TABLE_SHARD_INDEX_KEY = 'MTBL_INDEX'; // Lista de ids: [number, ...]
-
-type AnyMainTable = any; // evitar importar arriba; el archivo ya declara MainTable más abajo.
-
-const loadShardedMainTables = async (): Promise<AnyMainTable[]> => {
-  try {
-    const indexStr = await AsyncStorage.getItem(MAIN_TABLE_SHARD_INDEX_KEY);
-    if (!indexStr) return [];
-    const ids: number[] = JSON.parse(indexStr);
-    if (!Array.isArray(ids) || ids.length === 0) return [];
-    const keys = ids.map(id => MAIN_TABLE_SHARD_PREFIX + id);
-    const pairs = await AsyncStorage.multiGet(keys);
-    const tables: AnyMainTable[] = [];
-    for (const [, value] of pairs) {
-      if (value) {
-        try {
-          const obj = JSON.parse(value);
-          if (obj && typeof obj === 'object') tables.push(obj);
-        } catch (e) {
-          console.warn('Shard parse error ignorado', e);
-        }
-      }
-    }
-    return tables;
-  } catch (e) {
-    console.error('Error cargando shards MainTable', e);
-    return [];
-  }
-};
-
-const saveShardedMainTables = async (tables: AnyMainTable[]): Promise<void> => {
-  try {
-    const ids = tables.map(t => t?.id).filter((id: any) => typeof id === 'number');
-    await AsyncStorage.setItem(MAIN_TABLE_SHARD_INDEX_KEY, JSON.stringify(ids));
-    const ops: [string, string][] = [];
-    tables.forEach(t => {
-      if (t && typeof t === 'object' && typeof t.id === 'number') {
-        ops.push([MAIN_TABLE_SHARD_PREFIX + t.id, JSON.stringify(t)]);
-      }
-    });
-    if (ops.length) await AsyncStorage.multiSet(ops);
-    // Limpieza: eliminar shards huérfanos (ids antiguos que ya no están)
-    const allKeys = await AsyncStorage.getAllKeys();
-    const shardKeys = allKeys.filter(k => k.startsWith(MAIN_TABLE_SHARD_PREFIX));
-    const validSet = new Set(ids.map(id => MAIN_TABLE_SHARD_PREFIX + id));
-    const toRemove = shardKeys.filter(k => !validSet.has(k));
-    if (toRemove.length) await AsyncStorage.multiRemove(toRemove);
-  } catch (e) {
-    console.error('Error guardando shards MainTable', e);
-  }
-};
-
-// Persist both aggregated and sharded forms. If aggregated falla por tamaño, aún guardamos shards.
-const persistMainTables = async (tables: AnyMainTable[]): Promise<void> => {
-  let aggregatedOk = false;
-  try {
-    await AsyncStorage.setItem(MAIN_TABLES_KEY, JSON.stringify(tables));
-    aggregatedOk = true;
-  } catch (e) {
-    console.warn('Falló guardar MAIN_TABLES_KEY (posible tamaño excesivo). Continuando con shards.', e);
-  }
-  await saveShardedMainTables(tables);
-  if (!aggregatedOk) {
-    console.log('MainTables disponibles vía modo shard aun cuando el agregado falló.');
-  }
-};
-
-// Reemplazo resiliente de getMainTables que intenta primero el agregado y si falla usa shards.
-// Nota: redefiniremos más abajo export getMainTables para usar esta lógica.
-const getMainTablesResilientInternal = async (): Promise<AnyMainTable[]> => {
-  // 1. Intentar lectura agregada normal
-  try {
-    const itemsString = await AsyncStorage.getItem(MAIN_TABLES_KEY);
-    if (itemsString) {
-      try {
-        const parsed = JSON.parse(itemsString);
-        if (Array.isArray(parsed)) {
-          // Sincronizar shards en background (no await) para asegurar cobertura futura
-          saveShardedMainTables(parsed);
-          return parsed;
-        }
-      } catch (parseErr) {
-        console.warn('Error parseando MAIN_TABLES_KEY, uso shards:', parseErr);
-      }
-    }
-  } catch (e: any) {
-    console.warn('Lectura MAIN_TABLES_KEY falló, uso shards. Detalle:', e?.message || e);
-  }
-  // 2. Fallback shards
-  const shards = await loadShardedMainTables();
-  return shards;
-};
-
-// USER FUNCTIONS
+// ==================== USER FUNCTIONS ====================
 export const getUsers = async (): Promise<User[]> => {
-  // Validate user objects
-  return validateItems<User>(USERS_KEY, (item) => {
-    return item && 
-           typeof item === 'object' && 
-           (typeof item.id === 'number' || item.username) && // Allow either id or username
-           typeof item.username === 'string' && 
-           typeof item.password === 'string';
-  });
+  return safeQuery<User>('SELECT * FROM users ORDER BY id');
 };
 
 export const getUserById = async (userId: number): Promise<User | null> => {
-  try {
-    const users = await getUsers();
-    const user = users.find(user => user.id === userId);
-    return user || null;
-  } catch (error) {
-    console.error("Error getting user by ID:", error);
-    return null;
-  }
+  const users = await safeQuery<User>('SELECT * FROM users WHERE id = ? LIMIT 1', [userId]);
+  return users[0] || null;
 };
 
 export const getUserByUsername = async (username: string): Promise<User | null> => {
-  try {
-    const users = await getUsers();
-    const user = users.find(user => user.username === username);
-    return user || null;
-  } catch (error) {
-    console.error("Error getting user by username:", error);
-    return null;
-  }
+  const users = await safeQuery<User>(
+    'SELECT * FROM users WHERE username = ? LIMIT 1',
+    [username]
+  );
+  return users[0] || null;
 };
 
 export const insertUser = async (
-  username: string, 
+  username: string,
   password: string,
   activationKey?: string,
   deviceId?: string,
-  rol: string = "user" // Default role is "user"
+  rol: string = 'user'
 ): Promise<number | false> => {
   try {
     if (!username || !password) {
-      console.error("Username and password are required");
+      console.error('Username and password are required');
       return false;
     }
-    
-    const users = await getUsers();
-    
-    // Check if user exists
-    const userExists = users.some(user => user.username === username);
-    if (userExists) {
-      console.error("User already exists.");
+
+    // Verificar si el usuario existe
+    const existing = await getUserByUsername(username);
+    if (existing) {
+      console.error('User already exists');
       return false;
     }
-    
-    // Si se proporciona deviceId y activationKey, verificar que sean válidos
+
+    // Validar activación si se proporciona
     if (deviceId && activationKey) {
       const isValid = await validateActivationKey(activationKey, deviceId);
       if (!isValid) {
-        console.error("Invalid activation key for device");
+        console.error('Invalid activation key');
         return false;
       }
-      
-      // Verificar si el dispositivo ya está activado
+
       const alreadyActivated = await isDeviceActivated(deviceId);
       if (alreadyActivated) {
-        console.error("Device is already activated");
+        console.error('Device already activated');
         return false;
       }
     }
 
-    // Find max ID
-    let nextId = 1;
-    if (users.length > 0) {
-      // Filter out any users without an ID
-      const usersWithId = users.filter(user => typeof user.id === 'number');
-      if (usersWithId.length > 0) {
-        nextId = Math.max(...usersWithId.map(user => user.id)) + 1;
-      }
+    const database = await openDatabase();
+    const result = await database.runAsync(
+      'INSERT INTO users (username, password, rol) VALUES (?, ?, ?)',
+      [username, password, rol]
+    );
+
+    const userId = result.lastInsertRowId;
+    console.log('✅ User inserted with ID:', userId);
+
+    // Registrar dispositivo si se proporcionó
+    if (deviceId && activationKey && userId) {
+      await registerActivatedDevice(deviceId, activationKey, userId);
     }
-    
-    // Add new user with ID and role
-    const newUser: User = { id: nextId, username, password, rol };
-    users.push(newUser);
-    
-    // Save updated users
-    await saveItems(USERS_KEY, users);
-    console.log("User added successfully. ID:", nextId);
-    
-    // Si se proporcionaron datos de activación, registrar el dispositivo
-    if (deviceId && activationKey) {
-      await registerActivatedDevice(deviceId, activationKey, nextId);
-    }
-    
-    return nextId;
+
+    return userId;
   } catch (error) {
-    console.error("Error inserting user:", error);
+    console.error('❌ Error inserting user:', error);
     return false;
   }
 };
 
-export const initDatabase = async (): Promise<void> => {
+export const insertUserWithoutValidation = async (
+  username: string,
+  password: string,
+  rol: string = 'user'
+): Promise<number | false> => {
   try {
-    // Asegurar que todas las tablas estén configuradas
-    await setupActivatedDevicesTable();
-    
-    // Migración/limpieza de datos si es necesario
-    await cleanupData();
-  // Externalizar cualquier paths antiguo grande que siga inline
-  await migrateLargeInlinePaths();
-    
-    console.log("Database initialized successfully");
+    if (!username || !password) return false;
+
+    const existing = await getUserByUsername(username);
+    if (existing) {
+      console.error('User already exists');
+      return false;
+    }
+
+    const database = await openDatabase();
+    const result = await database.runAsync(
+      'INSERT INTO users (username, password, rol) VALUES (?, ?, ?)',
+      [username, password, rol]
+    );
+
+    return result.lastInsertRowId;
   } catch (error) {
-    console.error("Error initializing database:", error);
+    console.error('❌ Error inserting user without validation:', error);
+    return false;
   }
 };
 
-// Fixed validateUser function
 export const validateUser = async (
   username: string,
   password: string
 ): Promise<number | false> => {
   try {
-    console.log("Validating user:", username);
-    const users = await getUsers();
-    
-    // Add IDs to any users without them
-    let usersUpdated = false;
-    users.forEach((user, index) => {
-      if (typeof user.id !== 'number') {
-        user.id = index + 1;
-        usersUpdated = true;
-      }
-    });
-    
-    // Save updated users if needed
-    if (usersUpdated) {
-      await saveItems(USERS_KEY, users);
-      console.log("Added IDs to users without them");
-    }
-    
-    // Find the user
-    const user = users.find(
-      user => user.username === username && user.password === password
+    const users = await safeQuery<User>(
+      'SELECT * FROM users WHERE username = ? AND password = ? LIMIT 1',
+      [username, password]
     );
-    
-    if (user) {
-      console.log("User found:", user.username, "ID:", user.id);
-      return user.id;
-    } else {
-      console.log("Invalid credentials. Users available:", users.map(u => u.username));
-      return false;
+
+    if (users.length > 0) {
+      console.log('✅ User validated:', users[0].username);
+      return users[0].id;
     }
+
+    return false;
   } catch (error) {
-    console.error("Error validating user:", error);
+    console.error('❌ Error validating user:', error);
     return false;
   }
 };
@@ -869,96 +647,192 @@ export const updateUser = async (
   userData: Partial<User>
 ): Promise<boolean> => {
   try {
-    const users = await getUsers();
-    const userIndex = users.findIndex(user => user.id === userId);
-    
-    if (userIndex === -1) {
-      console.error("User not found.");
-      return false;
-    }
-    
-    // Update user data
-    users[userIndex] = { ...users[userIndex], ...userData };
-    await saveItems(USERS_KEY, users);
-    console.log("User updated successfully.");
+    const fields = Object.keys(userData)
+      .filter(key => key !== 'id')
+      .map(key => `${key} = ?`)
+      .join(', ');
+
+    if (!fields) return false;
+
+    const values = Object.entries(userData)
+      .filter(([key]) => key !== 'id')
+      .map(([, value]) => value);
+
+    const database = await openDatabase();
+    await database.runAsync(
+      `UPDATE users SET ${fields} WHERE id = ?`,
+      [...values, userId]
+    );
+
+    console.log('✅ User updated:', userId);
     return true;
   } catch (error) {
-    console.error("Error updating user:", error);
+    console.error('❌ Error updating user:', error);
     return false;
   }
 };
 
 export const deleteUser = async (userId: number): Promise<boolean> => {
+  return safeExecute('DELETE FROM users WHERE id = ?', [userId]);
+};
+
+export const checkUserExists = async (username: string): Promise<boolean> => {
+  const user = await getUserByUsername(username);
+  return user !== null;
+};
+
+export const fixExistingUsers = async (): Promise<boolean> => {
+  // En SQLite con AUTOINCREMENT, no es necesario fix IDs
+  return true;
+};
+
+// ==================== ACTIVATED DEVICES ====================
+export const setupActivatedDevicesTable = async (): Promise<void> => {
+  // Ya se crea en createTables()
+  console.log('✅ Activated devices table ready');
+};
+
+export const isDeviceActivated = async (deviceId: string): Promise<boolean> => {
+  const devices = await safeQuery<ActivatedDevice>(
+    'SELECT * FROM activated_devices WHERE deviceId = ? LIMIT 1',
+    [deviceId]
+  );
+  return devices.length > 0;
+};
+
+export const getActivatedDevices = async (): Promise<ActivatedDevice[]> => {
+  return safeQuery<ActivatedDevice>('SELECT * FROM activated_devices ORDER BY id');
+};
+
+export const registerActivatedDevice = async (
+  deviceId: string,
+  activationKey: string,
+  userId: number | null = null
+): Promise<boolean> => {
   try {
-    const users = await getUsers();
-    const filteredUsers = users.filter(user => user.id !== userId);
-    
-    if (filteredUsers.length === users.length) {
-      console.error("User not found.");
+    const isActivated = await isDeviceActivated(deviceId);
+    if (isActivated) {
+      console.log('Device already activated');
       return false;
     }
-    
-    await saveItems(USERS_KEY, filteredUsers);
-    console.log("User deleted successfully.");
+
+    const database = await openDatabase();
+    await database.runAsync(
+      'INSERT INTO activated_devices (deviceId, activationKey, activatedAt, createdBy) VALUES (?, ?, ?, ?)',
+      [deviceId, activationKey, Date.now(), userId]
+    );
+
+    console.log('✅ Device registered');
     return true;
   } catch (error) {
-    console.error("Error deleting user:", error);
+    console.error('❌ Error registering device:', error);
     return false;
   }
 };
 
-// FOLDER FUNCTIONS
+export const validateActivationKey = async (
+  key: string,
+  deviceId: string
+): Promise<boolean> => {
+  try {
+    const parts = key.split('-');
+    if (parts.length !== 3 || parts[0] !== 'GYM') {
+      return false;
+    }
+
+    const APP_SECRET = 'GymJudge2023SecretKey';
+    const crypto = await import('expo-crypto');
+
+    const validationString = deviceId + APP_SECRET;
+    const expectedHash = await crypto.digestStringAsync(
+      crypto.CryptoDigestAlgorithm.SHA256,
+      validationString
+    );
+
+    const expectedShortHash = expectedHash.substring(0, 8);
+    const keyHash = parts[1];
+
+    return keyHash === expectedShortHash;
+  } catch (error) {
+    console.error('❌ Error validating activation key:', error);
+    return false;
+  }
+};
+
+// ==================== FOLDER FUNCTIONS ====================
 export const getFolders = async (): Promise<Folder[]> => {
-  return getItems<Folder>(FOLDERS_KEY);
+  const rows = await safeQuery<any>('SELECT * FROM folders ORDER BY position');
+  return rows.map(row => ({
+    ...row,
+    type: row.type === 1,
+    filled: row.filled === 1,
+  }));
 };
 
 export const getFoldersByUserId = async (userId: number): Promise<Folder[]> => {
-  try {
-    const folders = await getFolders();
-    return folders.filter(folder => folder.userId === userId);
-  } catch (error) {
-    console.error("Error getting folders by user ID:", error);
-    return [];
-  }
+  const rows = await safeQuery<any>(
+    'SELECT * FROM folders WHERE userId = ? ORDER BY position',
+    [userId]
+  );
+  return rows.map(row => ({
+    ...row,
+    type: row.type === 1,
+    filled: row.filled === 1,
+  }));
 };
 
-// Función para obtener carpetas ordenadas por posición
 export const getFoldersByUserIdSorted = async (userId: number): Promise<Folder[]> => {
-  try {
-    const folders = await getFoldersByUserId(userId);
-    return folders.sort((a, b) => (a.position || 0) - (b.position || 0));
-  } catch (error) {
-    console.error("Error getting sorted folders by user ID:", error);
-    return [];
-  }
+  return getFoldersByUserId(userId);
 };
 
 export const getFolderById = async (folderId: number): Promise<Folder | null> => {
-  try {
-    const folders = await getFolders();
-    const folder = folders.find(folder => folder.id === folderId);
-    return folder || null;
-  } catch (error) {
-    console.error("Error getting folder by ID:", error);
-    return null;
-  }
+  const rows = await safeQuery<any>(
+    'SELECT * FROM folders WHERE id = ? LIMIT 1',
+    [folderId]
+  );
+  
+  if (rows.length === 0) return null;
+  
+  return {
+    ...rows[0],
+    type: rows[0].type === 1,
+    filled: rows[0].filled === 1,
+  };
 };
 
 export const insertFolder = async (folderData: Omit<Folder, 'id'>): Promise<number | false> => {
   try {
-    const folders = await getFolders();
-    const id = await getNextId(FOLDERS_KEY);
+    const database = await openDatabase();
     
-    // Si no se especifica posición, ponerla al final
-    const position = folderData.position !== undefined ? folderData.position : folders.length;
-    
-    const newFolder: Folder = { id, ...folderData, position };
-    folders.push(newFolder);
-    await saveItems(FOLDERS_KEY, folders);
-    console.log("Folder added successfully. ID:", id);
-    return id;
+    // Si no hay posición, obtener la máxima + 1
+    let position = folderData.position;
+    if (position === undefined) {
+      const maxPos = await safeQuery<{ maxPos: number }>(
+        'SELECT COALESCE(MAX(position), -1) + 1 as maxPos FROM folders'
+      );
+      position = maxPos[0]?.maxPos || 0;
+    }
+
+    const result = await database.runAsync(
+      `INSERT INTO folders (userId, name, description, type, date, filled, position, parentId, level)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        folderData.userId,
+        folderData.name,
+        folderData.description || '',
+        folderData.type ? 1 : 0,
+        folderData.date,
+        folderData.filled ? 1 : 0,
+        position,
+        folderData.parentId || null,
+        folderData.level || 0,
+      ]
+    );
+
+    console.log('✅ Folder inserted with ID:', result.lastInsertRowId);
+    return result.lastInsertRowId;
   } catch (error) {
-    console.error("Error inserting folder:", error);
+    console.error('❌ Error inserting folder:', error);
     return false;
   }
 };
@@ -968,328 +842,279 @@ export const updateFolder = async (
   folderData: Partial<Folder>
 ): Promise<boolean> => {
   try {
-    const folders = await getFolders();
-    const folderIndex = folders.findIndex(folder => folder.id === folderId);
-    
-    if (folderIndex === -1) {
-      console.error("Folder not found.");
-      return false;
-    }
-    
-    // Update folder data
-    folders[folderIndex] = { ...folders[folderIndex], ...folderData };
-    await saveItems(FOLDERS_KEY, folders);
-    console.log("Folder updated successfully.");
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    Object.entries(folderData).forEach(([key, value]) => {
+      if (key === 'id') return;
+      
+      updates.push(`${key} = ?`);
+      
+      if (key === 'type' || key === 'filled') {
+        values.push(value ? 1 : 0);
+      } else {
+        values.push(value);
+      }
+    });
+
+    if (updates.length === 0) return false;
+
+    const database = await openDatabase();
+    await database.runAsync(
+      `UPDATE folders SET ${updates.join(', ')} WHERE id = ?`,
+      [...values, folderId]
+    );
+
+    console.log('✅ Folder updated:', folderId);
     return true;
   } catch (error) {
-    console.error("Error updating folder:", error);
+    console.error('❌ Error updating folder:', error);
     return false;
   }
 };
 
 export const deleteFolder = async (folderId: number): Promise<boolean> => {
-  try {
-    const folders = await getFolders();
-    const filteredFolders = folders.filter(folder => folder.id !== folderId);
-    
-    if (filteredFolders.length === folders.length) {
-      console.error("Folder not found.");
-      return false;
-    }
-    
-    await saveItems(FOLDERS_KEY, filteredFolders);
-    
-    // Also delete associated competences
-    const competences = await getCompetences();
-    const updatedCompetences = competences.filter(comp => comp.folderId !== folderId);
-    await saveItems(COMPETENCES_KEY, updatedCompetences);
-    
-    console.log("Folder and associated items deleted successfully.");
-    return true;
-  } catch (error) {
-    console.error("Error deleting folder:", error);
-    return false;
-  }
+  // CASCADE delete eliminará competencias y subcarpetas automáticamente
+  return safeExecute('DELETE FROM folders WHERE id = ?', [folderId]);
 };
 
-// Función para reordenar carpetas después de drag & drop
-export const reorderFolders = async (userId: number, fromIndex: number, toIndex: number): Promise<boolean> => {
+export const reorderFolders = async (
+  userId: number,
+  fromIndex: number,
+  toIndex: number
+): Promise<boolean> => {
   try {
-    const folders = await getFoldersByUserIdSorted(userId);
+    const folders = await getFoldersByUserId(userId);
     
-    if (fromIndex < 0 || fromIndex >= folders.length || toIndex < 0 || toIndex >= folders.length) {
-      console.error("Invalid indices for reordering");
+    if (fromIndex < 0 || fromIndex >= folders.length || 
+        toIndex < 0 || toIndex >= folders.length) {
       return false;
     }
 
-    // Mover el elemento
     const [movedFolder] = folders.splice(fromIndex, 1);
     folders.splice(toIndex, 0, movedFolder);
 
-    // Actualizar las posiciones
-    const allFolders = await getFolders();
-    folders.forEach((folder, index) => {
-      folder.position = index;
-      const globalIndex = allFolders.findIndex(f => f.id === folder.id);
-      if (globalIndex !== -1) {
-        allFolders[globalIndex] = folder;
+    // Actualizar posiciones en transacción
+    return await safeTransaction(async (db) => {
+      for (let i = 0; i < folders.length; i++) {
+        await db.runAsync(
+          'UPDATE folders SET position = ? WHERE id = ?',
+          [i, folders[i].id]
+        );
       }
     });
-
-    await saveItems(FOLDERS_KEY, allFolders);
-    console.log("Folders reordered successfully");
-    return true;
   } catch (error) {
-    console.error("Error reordering folders:", error);
+    console.error('❌ Error reordering folders:', error);
     return false;
   }
 };
 
-// Función para actualizar la posición de una carpeta específica
-export const updateFolderPosition = async (folderId: number, newPosition: number): Promise<boolean> => {
-  try {
-    const folders = await getFolders();
-    const folderIndex = folders.findIndex(f => f.id === folderId);
-    
-    if (folderIndex === -1) {
-      console.error("Folder not found for position update");
-      return false;
-    }
-
-    folders[folderIndex].position = newPosition;
-    await saveItems(FOLDERS_KEY, folders);
-    console.log(`Folder ${folderId} position updated to ${newPosition}`);
-    return true;
-  } catch (error) {
-    console.error("Error updating folder position:", error);
-    return false;
-  }
+export const updateFolderPosition = async (
+  folderId: number,
+  newPosition: number
+): Promise<boolean> => {
+  return safeExecute(
+    'UPDATE folders SET position = ? WHERE id = ?',
+    [newPosition, folderId]
+  );
 };
 
-// ============== FUNCIONES PARA CARPETAS ANIDADAS ==============
-
-// Función para obtener carpetas por nivel específico (carpetas de un padre determinado)
-export const getFoldersByUserIdAndParent = async (userId: number, parentId: number | null = null): Promise<Folder[]> => {
-  try {
-    const folders = await getFolders();
-    return folders
-      .filter(folder => folder.userId === userId && folder.parentId === parentId)
-      .sort((a, b) => (a.position || 0) - (b.position || 0));
-  } catch (error) {
-    console.error("Error getting folders by user ID and parent:", error);
-    return [];
-  }
+export const getFoldersByUserIdAndParent = async (
+  userId: number,
+  parentId: number | null = null
+): Promise<Folder[]> => {
+  const query = parentId === null
+    ? 'SELECT * FROM folders WHERE userId = ? AND parentId IS NULL ORDER BY position'
+    : 'SELECT * FROM folders WHERE userId = ? AND parentId = ? ORDER BY position';
+  
+  const params = parentId === null ? [userId] : [userId, parentId];
+  const rows = await safeQuery<any>(query, params);
+  
+  return rows.map(row => ({
+    ...row,
+    type: row.type === 1,
+    filled: row.filled === 1,
+  }));
 };
 
-// Función para obtener todas las carpetas raíz de un usuario (sin padre)
 export const getRootFoldersByUserId = async (userId: number): Promise<Folder[]> => {
   return getFoldersByUserIdAndParent(userId, null);
 };
 
-// Función para obtener subcarpetas de una carpeta específica
 export const getSubfolders = async (parentId: number): Promise<Folder[]> => {
-  try {
-    const folders = await getFolders();
-    return folders
-      .filter(folder => folder.parentId === parentId)
-      .sort((a, b) => (a.position || 0) - (b.position || 0));
-  } catch (error) {
-    console.error("Error getting subfolders:", error);
-    return [];
-  }
+  const rows = await safeQuery<any>(
+    'SELECT * FROM folders WHERE parentId = ? ORDER BY position',
+    [parentId]
+  );
+  
+  return rows.map(row => ({
+    ...row,
+    type: row.type === 1,
+    filled: row.filled === 1,
+  }));
 };
 
-// Función para obtener la ruta completa de una carpeta (breadcrumb)
 export const getFolderPath = async (folderId: number): Promise<Folder[]> => {
-  try {
-    const folders = await getFolders();
-    const path: Folder[] = [];
+  const path: Folder[] = [];
+  let currentId: number | null = folderId;
+
+  while (currentId !== null) {
+    const folder = await getFolderById(currentId);
+    if (!folder) break;
     
-    let currentFolder: Folder | undefined = folders.find(f => f.id === folderId);
-    
-    while (currentFolder) {
-      path.unshift(currentFolder);
-      if (currentFolder.parentId) {
-        currentFolder = folders.find(f => f.id === currentFolder!.parentId);
-      } else {
-        currentFolder = undefined;
-      }
-    }
-    
-    return path;
-  } catch (error) {
-    console.error("Error getting folder path:", error);
-    return [];
+    path.unshift(folder);
+    currentId = folder.parentId || null;
   }
+
+  return path;
 };
 
-// Función para verificar si una carpeta puede ser movida a otra (evitar loops)
-export const canMoveFolder = async (folderId: number, targetParentId: number | null): Promise<boolean> => {
-  try {
-    if (folderId === targetParentId) return false; // No puede ser padre de sí mismo
-    
-    if (targetParentId === null) return true; // Siempre se puede mover a raíz
-    
-    // Verificar que el target no sea descendiente del folder a mover
-    const targetPath = await getFolderPath(targetParentId);
-    return !targetPath.some(folder => folder.id === folderId);
-  } catch (error) {
-    console.error("Error checking if folder can be moved:", error);
-    return false;
-  }
+export const canMoveFolder = async (
+  folderId: number,
+  targetParentId: number | null
+): Promise<boolean> => {
+  if (folderId === targetParentId) return false;
+  if (targetParentId === null) return true;
+
+  const targetPath = await getFolderPath(targetParentId);
+  return !targetPath.some(folder => folder.id === folderId);
 };
 
-// Función para obtener el árbol completo de carpetas de un usuario
-export const getFolderTree = async (userId: number, parentId: number | null = null, level: number = 0): Promise<any[]> => {
-  try {
-    const folders = await getFoldersByUserIdAndParent(userId, parentId);
-    
-    const folderTree = [];
-    for (const folder of folders) {
-      const children = await getFolderTree(userId, folder.id, level + 1);
-      const hasSubfolders = children.length > 0;
-      
-      folderTree.push({
-        ...folder,
-        level,
-        hasSubfolders,
-        children: children
-      });
-    }
-    
-    return folderTree;
-  } catch (error) {
-    console.error("Error getting folder tree:", error);
-    return [];
+export const getFolderTree = async (
+  userId: number,
+  parentId: number | null = null,
+  level: number = 0
+): Promise<any[]> => {
+  const folders = await getFoldersByUserIdAndParent(userId, parentId);
+  
+  const tree = [];
+  for (const folder of folders) {
+    const children = await getFolderTree(userId, folder.id, level + 1);
+    tree.push({
+      ...folder,
+      level,
+      hasSubfolders: children.length > 0,
+      children,
+    });
   }
+  
+  return tree;
 };
 
-// Función para contar subcarpetas de una carpeta
 export const countSubfolders = async (parentId: number): Promise<number> => {
-  try {
-    const subfolders = await getSubfolders(parentId);
-    return subfolders.length;
-  } catch (error) {
-    console.error("Error counting subfolders:", error);
-    return 0;
-  }
+  const result = await safeQuery<{ count: number }>(
+    'SELECT COUNT(*) as count FROM folders WHERE parentId = ?',
+    [parentId]
+  );
+  return result[0]?.count || 0;
 };
 
-// Función para verificar si una carpeta tiene subcarpetas
 export const hasSubfolders = async (folderId: number): Promise<boolean> => {
-  try {
-    const count = await countSubfolders(folderId);
-    return count > 0;
-  } catch (error) {
-    console.error("Error checking if folder has subfolders:", error);
-    return false;
-  }
+  const count = await countSubfolders(folderId);
+  return count > 0;
 };
 
-// Función para obtener el nivel máximo de profundidad de un usuario
 export const getMaxFolderDepth = async (userId: number): Promise<number> => {
-  try {
-    const folders = await getFolders();
-    const userFolders = folders.filter(f => f.userId === userId);
-    
-    let maxDepth = 0;
-    
-    for (const folder of userFolders) {
-      const path = await getFolderPath(folder.id);
-      maxDepth = Math.max(maxDepth, path.length - 1);
-    }
-    
-    return maxDepth;
-  } catch (error) {
-    console.error("Error getting max folder depth:", error);
-    return 0;
-  }
+  const result = await safeQuery<{ maxDepth: number }>(
+    'SELECT COALESCE(MAX(level), 0) as maxDepth FROM folders WHERE userId = ?',
+    [userId]
+  );
+  return result[0]?.maxDepth || 0;
 };
 
-// Función para eliminar una carpeta y todas sus subcarpetas recursivamente
 export const deleteFolderRecursively = async (folderId: number): Promise<boolean> => {
-  try {
-    // Primero obtener todas las subcarpetas
-    const subfolders = await getSubfolders(folderId);
-    
-    // Eliminar recursivamente todas las subcarpetas
-    for (const subfolder of subfolders) {
-      await deleteFolderRecursively(subfolder.id);
-    }
-    
-    // Finalmente eliminar la carpeta actual
-    return await deleteFolder(folderId);
-  } catch (error) {
-    console.error("Error deleting folder recursively:", error);
-    return false;
-  }
+  // SQLite con CASCADE hace esto automáticamente
+  return deleteFolder(folderId);
 };
 
-// ✨ NUEVO: Funciones para obtener carpetas sin filtro de usuario
 export const getAllFoldersByParent = async (parentId: number | null = null): Promise<Folder[]> => {
-  try {
-    const folders = await getFolders();
-    return folders
-      .filter(folder => folder.parentId === parentId)
-      .sort((a, b) => (a.position || 0) - (b.position || 0));
-  } catch (error) {
-    console.error("Error getting all folders by parent:", error);
-    return [];
-  }
+  const query = parentId === null
+    ? 'SELECT * FROM folders WHERE parentId IS NULL ORDER BY position'
+    : 'SELECT * FROM folders WHERE parentId = ? ORDER BY position';
+  
+  const params = parentId === null ? [] : [parentId];
+  const rows = await safeQuery<any>(query, params);
+  
+  return rows.map(row => ({
+    ...row,
+    type: row.type === 1,
+    filled: row.filled === 1,
+  }));
 };
 
-// ✨ NUEVO: Función para obtener todas las carpetas raíz (sin padre y sin filtro de usuario)
 export const getAllRootFolders = async (): Promise<Folder[]> => {
   return getAllFoldersByParent(null);
 };
 
-// ✨ NUEVO: Función para obtener todas las subcarpetas de una carpeta específica (sin filtro de usuario)
 export const getAllSubfolders = async (parentId: number): Promise<Folder[]> => {
   return getAllFoldersByParent(parentId);
 };
 
-// ✨ NUEVO: Función para obtener carpetas ordenadas por posición sin filtro de usuario
 export const getAllFoldersOrderedByPosition = async (): Promise<Folder[]> => {
-  try {
-    const folders = await getFolders();
-    return folders.sort((a, b) => (a.position || 0) - (b.position || 0));
-  } catch (error) {
-    console.error("Error getting all folders ordered by position:", error);
-    return [];
-  }
+  const rows = await safeQuery<any>('SELECT * FROM folders ORDER BY position');
+  return rows.map(row => ({
+    ...row,
+    type: row.type === 1,
+    filled: row.filled === 1,
+  }));
 };
 
-// ✨ NUEVO: Función para obtener todas las competencias sin filtro de usuario ni carpeta
-export const getAllCompetences = async (): Promise<Competence[]> => {
-  return getCompetences();
+export const updateFolderPositions = async (
+  folderPositions: { id: number; position: number }[]
+): Promise<boolean> => {
+  return await safeTransaction(async (db) => {
+    for (const { id, position } of folderPositions) {
+      await db.runAsync(
+        'UPDATE folders SET position = ? WHERE id = ?',
+        [position, id]
+      );
+    }
+  });
 };
 
-// SESSION FUNCTIONS
+export const getFoldersOrderedByPosition = async (): Promise<Folder[]> => {
+  return getAllFoldersOrderedByPosition();
+};
+
+export const deleteCompetencesByFolderId = async (folderId: number): Promise<void> => {
+  // CASCADE delete lo hace automáticamente
+  await safeExecute('DELETE FROM competences WHERE folderId = ?', [folderId]);
+};
+
+// ==================== SESSION FUNCTIONS ====================
 export const getSessions = async (): Promise<Session[]> => {
-  return getItems<Session>(SESSIONS_KEY);
+  const rows = await safeQuery<any>('SELECT * FROM sessions ORDER BY id');
+  return rows.map(row => ({
+    ...row,
+    gender: row.gender === 1,
+  }));
 };
 
 export const getSessionsByUserId = async (userId: number): Promise<Session[]> => {
-  try {
-    const sessions = await getSessions();
-    return sessions.filter(session => session.userId === userId);
-  } catch (error) {
-    console.error("Error getting sessions by user ID:", error);
-    return [];
-  }
+  const rows = await safeQuery<any>(
+    'SELECT * FROM sessions WHERE userId = ? ORDER BY id',
+    [userId]
+  );
+  return rows.map(row => ({
+    ...row,
+    gender: row.gender === 1,
+  }));
 };
 
-export const insertSession = async (sessionData: Omit<Session, 'id'>): Promise<number | false> => {
+export const insertSession = async (
+  sessionData: Omit<Session, 'id'>
+): Promise<number | false> => {
   try {
-    const sessions = await getSessions();
-    const id = await getNextId(SESSIONS_KEY);
-    const newSession: Session = { id, ...sessionData };
-    sessions.push(newSession);
-    await saveItems(SESSIONS_KEY, sessions);
-    console.log("Session added successfully. ID:", id);
-    return id;
+    const database = await openDatabase();
+    const result = await database.runAsync(
+      'INSERT INTO sessions (gender, userId) VALUES (?, ?)',
+      [sessionData.gender ? 1 : 0, sessionData.userId]
+    );
+
+    console.log('✅ Session inserted with ID:', result.lastInsertRowId);
+    return result.lastInsertRowId;
   } catch (error) {
-    console.error("Error inserting session:", error);
+    console.error('❌ Error inserting session:', error);
     return false;
   }
 };
@@ -1299,101 +1124,98 @@ export const updateSession = async (
   sessionData: Partial<Session>
 ): Promise<boolean> => {
   try {
-    const sessions = await getSessions();
-    const sessionIndex = sessions.findIndex(session => session.id === sessionId);
-    
-    if (sessionIndex === -1) {
-      console.error("Session not found.");
-      return false;
-    }
-    
-    // Update session data
-    sessions[sessionIndex] = { ...sessions[sessionIndex], ...sessionData };
-    await saveItems(SESSIONS_KEY, sessions);
-    console.log("Session updated successfully.");
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    Object.entries(sessionData).forEach(([key, value]) => {
+      if (key === 'id') return;
+      
+      updates.push(`${key} = ?`);
+      values.push(key === 'gender' ? (value ? 1 : 0) : value);
+    });
+
+    if (updates.length === 0) return false;
+
+    const database = await openDatabase();
+    await database.runAsync(
+      `UPDATE sessions SET ${updates.join(', ')} WHERE id = ?`,
+      [...values, sessionId]
+    );
+
     return true;
   } catch (error) {
-    console.error("Error updating session:", error);
+    console.error('❌ Error updating session:', error);
     return false;
   }
 };
 
 export const deleteSession = async (sessionId: number): Promise<boolean> => {
-  try {
-    const sessions = await getSessions();
-    const filteredSessions = sessions.filter(session => session.id !== sessionId);
-    
-    if (filteredSessions.length === sessions.length) {
-      console.error("Session not found.");
-      return false;
-    }
-    
-    await saveItems(SESSIONS_KEY, filteredSessions);
-    console.log("Session deleted successfully.");
-    return true;
-  } catch (error) {
-    console.error("Error deleting session:", error);
-    return false;
-  }
+  return safeExecute('DELETE FROM sessions WHERE id = ?', [sessionId]);
 };
 
-// COMPETENCE FUNCTIONS
+// ==================== COMPETENCE FUNCTIONS ====================
 export const getCompetences = async (): Promise<Competence[]> => {
-  return getItems<Competence>(COMPETENCES_KEY);
+  const rows = await safeQuery<any>('SELECT * FROM competences ORDER BY id');
+  return rows.map(row => ({
+    ...row,
+    gender: row.gender === 1,
+  }));
+};
+
+export const getAllCompetences = async (): Promise<Competence[]> => {
+  return getCompetences();
 };
 
 export const getCompetencesByFolderId = async (folderId: number): Promise<Competence[]> => {
-  try {
-    console.log("=== GETTING COMPETENCES BY FOLDER ID ===");
-    console.log("Requested folder ID:", folderId);
-    const allCompetences = await getCompetences();
-    console.log("Total competences in database:", allCompetences.length);
-    console.log("All competences:", allCompetences.map(c => ({ 
-      id: c.id, 
-      name: c.name, 
-      folderId: c.folderId, 
-      type: c.type 
-    })));
-    
-    const filteredCompetences = allCompetences.filter(competence => competence.folderId === folderId);
-    console.log("Filtered competences for folder", folderId + ":", filteredCompetences.length);
-    console.log("Filtered competences details:", filteredCompetences.map(c => ({ 
-      id: c.id, 
-      name: c.name, 
-      folderId: c.folderId, 
-      type: c.type 
-    })));
-    console.log("=== END GETTING COMPETENCES ===");
-    
-    return filteredCompetences;
-  } catch (error) {
-    console.error("Error getting competences by folder ID:", error);
-    return [];
-  }
+  const rows = await safeQuery<any>(
+    'SELECT * FROM competences WHERE folderId = ? ORDER BY id',
+    [folderId]
+  );
+  return rows.map(row => ({
+    ...row,
+    gender: row.gender === 1,
+  }));
 };
 
 export const getCompetenceById = async (competenceId: number): Promise<Competence | null> => {
-  try {
-    const competences = await getCompetences();
-    const competence = competences.find(competence => competence.id === competenceId);
-    return competence || null;
-  } catch (error) {
-    console.error("Error getting competence by ID:", error);
-    return null;
-  }
+  const rows = await safeQuery<any>(
+    'SELECT * FROM competences WHERE id = ? LIMIT 1',
+    [competenceId]
+  );
+  
+  if (rows.length === 0) return null;
+  
+  return {
+    ...rows[0],
+    gender: rows[0].gender === 1,
+  };
 };
 
-export const insertCompetence = async (competenceData: Omit<Competence, 'id'>): Promise<number | false> => {
+export const insertCompetence = async (
+  competenceData: Omit<Competence, 'id'>
+): Promise<number | false> => {
   try {
-    const competences = await getCompetences();
-    const id = await getNextId(COMPETENCES_KEY);
-    const newCompetence: Competence = { id, ...competenceData };
-    competences.push(newCompetence);
-    await saveItems(COMPETENCES_KEY, competences);
-    console.log("Competence added successfully. ID:", id);
-    return id;
+    const database = await openDatabase();
+    const result = await database.runAsync(
+      `INSERT INTO competences (name, description, date, type, gender, sessionId, folderId, userId, numberOfParticipants)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        competenceData.name,
+        competenceData.description || '',
+        competenceData.date,
+        competenceData.type,
+        competenceData.gender ? 1 : 0,
+        competenceData.sessionId,
+        competenceData.folderId,
+        competenceData.userId,
+        competenceData.numberOfParticipants || 0,
+      ]
+    );
+
+    console.log('✅ Competence inserted with ID:', result.lastInsertRowId);
+    return result.lastInsertRowId;
   } catch (error) {
-    console.error("Error inserting competence:", error);
+    console.error('❌ Error inserting competence:', error);
     return false;
   }
 };
@@ -1403,167 +1225,81 @@ export const updateCompetence = async (
   competenceData: Partial<Competence>
 ): Promise<boolean> => {
   try {
-    const competences = await getCompetences();
-    const competenceIndex = competences.findIndex(competence => competence.id === competenceId);
-    
-    if (competenceIndex === -1) {
-      console.error("Competence not found.");
-      return false;
-    }
-    
-    // Update competence data
-    competences[competenceIndex] = { ...competences[competenceIndex], ...competenceData };
-    await saveItems(COMPETENCES_KEY, competences);
-    console.log("Competence updated successfully.");
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    Object.entries(competenceData).forEach(([key, value]) => {
+      if (key === 'id') return;
+      
+      updates.push(`${key} = ?`);
+      values.push(key === 'gender' ? (value ? 1 : 0) : value);
+    });
+
+    if (updates.length === 0) return false;
+
+    const database = await openDatabase();
+    await database.runAsync(
+      `UPDATE competences SET ${updates.join(', ')} WHERE id = ?`,
+      [...values, competenceId]
+    );
+
     return true;
   } catch (error) {
-    console.error("Error updating competence:", error);
+    console.error('❌ Error updating competence:', error);
     return false;
   }
 };
 
 export const deleteCompetence = async (competenceId: number): Promise<boolean> => {
-  try {
-    const competences = await getCompetences();
-    const filteredCompetences = competences.filter(competence => competence.id !== competenceId);
-    
-    if (filteredCompetences.length === competences.length) {
-      console.error("Competence not found.");
-      return false;
-    }
-    
-    await saveItems(COMPETENCES_KEY, filteredCompetences);
-    
-    // Also delete associated main tables
-    const mainTables = await getMainTables();
-  const filteredMainTables = mainTables.filter(table => table.competenceId !== competenceId);
-  await persistMainTables(filteredMainTables);
-    
-    console.log("Competence and associated items deleted successfully.");
-    return true;
-  } catch (error) {
-    console.error("Error deleting competence:", error);
-    return false;
-  }
+  // CASCADE delete eliminará main_tables automáticamente
+  return safeExecute('DELETE FROM competences WHERE id = ?', [competenceId]);
 };
 
-// MAIN TABLE FUNCTIONS
+// ==================== MAIN TABLE FUNCTIONS ====================
 export const getMainTables = async (): Promise<MainTable[]> => {
-  return getMainTablesResilientInternal() as Promise<MainTable[]>;
+  const rows = await safeQuery<any>('SELECT * FROM main_tables ORDER BY id');
+  return rows.map(row => ({
+    ...row,
+    stickBonus: row.stickBonus === 1,
+  }));
 };
-
-export const deleteRateGeneralByTableId = async (tableId: number): Promise<void> => {
-  try {
-    const rateGeneralTables = await getRateGeneralTables();
-    const filteredRateGeneralTables = rateGeneralTables.filter(rate => rate.tableId !== tableId);
-
-    if (filteredRateGeneralTables.length === rateGeneralTables.length) {
-      console.log(`No RateGeneral entries found for tableId: ${tableId}`);
-      return;
-    }
-
-    await saveItems(RATE_GENERAL_KEY, filteredRateGeneralTables);
-    console.log(`Deleted RateGeneral entries for tableId: ${tableId}`);
-  } catch (error) {
-    console.error(`Error deleting RateGeneral entries for tableId: ${tableId}`, error);
-  }
-};
-
-export const deleteMainTableByCompetenceId = async (competenceId: number): Promise<void> => {
-  try {
-    const mainTables = await getMainTables();
-    const filteredMainTables = mainTables.filter(table => table.competenceId !== competenceId);
-
-    if (filteredMainTables.length === mainTables.length) {
-      console.log(`No MainTable entries found for competenceId: ${competenceId}`);
-      return;
-    }
-
-  await persistMainTables(filteredMainTables);
-    console.log(`Deleted MainTable entries for competenceId: ${competenceId}`);
-  } catch (error) {
-    console.error(`Error deleting MainTable entries for competenceId: ${competenceId}`, error);
-  }
-};
-
-export const updateElementGroup = async (rateId: number, elementGroupKey: keyof MainRateGeneral, value: number) => {
-  try {
-    // Prepare the data to update
-    const updateData: Partial<MainRateGeneral> = {
-      [elementGroupKey]: value, // Dynamically set the field to update
-    };
-
-    // Call the updateRateGeneral function
-    const success = await updateRateGeneral(rateId, updateData);
-
-    if (success) {
-      console.log(`Successfully updated ${elementGroupKey} to ${value} for rateId: ${rateId}`);
-    } else {
-      console.error(`Failed to update ${elementGroupKey} for rateId: ${rateId}`);
-    }
-  } catch (error) {
-    console.error("Error updating element group:", error);
-  }
-};
-
 
 export const getMainTablesByCompetenceId = async (competenceId: number): Promise<MainTable[]> => {
-  try {
-    const mainTables = await getMainTables();
-    console.log(`Total main tables in database: ${mainTables.length}`);
-    console.log("All main tables:", `${mainTables} `)
-    console.log(`Filtering main tables for competenceId: ${competenceId}`);
-    console.log("Filtered main tables:", mainTables.filter(table => table.competenceId === competenceId).map(t => ({
-      id: t.id,
-      name: t.name,
-      competenceId: t.competenceId
-    })));
-    return mainTables.filter(table => table.competenceId === competenceId);
-  } catch (error) {
-    console.error("Error getting main tables by competence ID:", error);
-    return [];
-  }
+  const rows = await safeQuery<any>(
+    'SELECT * FROM main_tables WHERE competenceId = ? ORDER BY number',
+    [competenceId]
+  );
+  return rows.map(row => ({
+    ...row,
+    stickBonus: row.stickBonus === 1,
+  }));
 };
 
-export const deleteCompetencesByFolderId = async (folderId: number): Promise<void> => {
-  try {
-    const competences = await getCompetences();
-    const filteredCompetences = competences.filter(competence => competence.folderId !== folderId);
-
-    if (filteredCompetences.length === competences.length) {
-      console.log(`No Competence entries found for folderId: ${folderId}`);
-      return;
-    }
-
-    await saveItems(COMPETENCES_KEY, filteredCompetences);
-    console.log(`Deleted Competence entries for folderId: ${folderId}`);
-  } catch (error) {
-    console.error(`Error deleting Competence entries for folderId: ${folderId}`, error);
-  }
+export const getMainTableByCompetenceId = async (competenceId: number): Promise<MainTable[]> => {
+  return getMainTablesByCompetenceId(competenceId);
 };
-
 
 export const getMainTableById = async (tableId: number): Promise<MainTable | null> => {
-  try {
-    const mainTables = await getMainTables();
-  console.log(`Total main tables in database: ${mainTables.length}`);
-  console.log("All main tables:", `${mainTables} `)
-    const table = mainTables.find(table => table.id === tableId);
-    return table || null;
-  } catch (error) {
-    console.error("Error getting main table by ID:", error);
-    return null;
-  }
+  const rows = await safeQuery<any>(
+    'SELECT * FROM main_tables WHERE id = ? LIMIT 1',
+    [tableId]
+  );
+  
+  if (rows.length === 0) return null;
+  
+  return {
+    ...rows[0],
+    stickBonus: rows[0].stickBonus === 1,
+  };
 };
 
-// Resolve and return the full JSON string for paths, reading from file if externalized
 export const getMainTablePaths = async (tableId: number): Promise<string> => {
   try {
     const table = await getMainTableById(tableId);
     if (!table || !table.paths) return '[]';
+    
     const value = table.paths;
     if (isFileRef(value)) {
-      // Only file:// URIs written by us; content:// not expected here
       return await readStringFromFile(value);
     }
     return value;
@@ -1575,61 +1311,98 @@ export const getMainTablePaths = async (tableId: number): Promise<string> => {
 
 export const insertMainTable = async (tableData: Omit<MainTable, 'id'>): Promise<number | false> => {
   try {
-    const mainTables = await getMainTables();
-    const id = await getNextId(MAIN_TABLES_KEY);
-    // Saneo entrada (sin id todavía)\]
-    const { sanitized, errors: sanitizeErrors } = sanitizeMainTableInput(tableData, { partial: false });
-    let pathsField = sanitized.paths;
-  // Límite duro para evitar "Row too big to fit into CursorWindow" (más conservador)
-  const PATHS_INLINE_HARD_LIMIT = 900_000; // ~0.9MB
-    const byteLengthUtf8 = (str: string): number => {
+    let pathsField = tableData.paths || '[]';
+    const database = await openDatabase();
+    
+    // ID temporal para el archivo
+    const tempId = Date.now();
+    
+    // Externalizar paths grandes
+    if (typeof pathsField === 'string' && 
+        !isFileRef(pathsField) && 
+        pathsField.length > LARGE_FIELD_THRESHOLD) {
       try {
-        if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(str).length;
-      } catch {}
-      // Fallback aproximado
-      try { return unescape(encodeURIComponent(str)).length; } catch { return str.length; }
-    };
-    // Externalize large paths payloads
-    if (typeof pathsField === 'string' && !isFileRef(pathsField) && pathsField.length > LARGE_FIELD_THRESHOLD) {
-      try {
-        const uri = makePathsFileUri(id);
+        const uri = makePathsFileUri(tempId);
         await writeStringToFile(uri, pathsField);
         pathsField = uri;
+        console.log('📁 Paths externalized to file:', uri);
       } catch (e) {
-        console.warn('insertMainTable: failed to externalize paths, keeping inline', e);
+        console.warn('Failed to externalize paths, keeping inline:', e);
       }
     }
-    // Validar tamaño si aún es string inline (externalización fallida o menor al umbral de externalización pero demasiado grande igualmente)
-    if (typeof pathsField === 'string' && !isFileRef(pathsField)) {
-      const size = byteLengthUtf8(pathsField);
-      if (size > PATHS_INLINE_HARD_LIMIT) {
-        console.error(`[MainTable][INSERT] paths demasiado grande (${size} bytes) – abortando inserción.`);
-        Alert.alert(
-          'Datos demasiado grandes',
-          'El campo de trazos (paths) excede el tamaño máximo permitido y no pudo almacenarse. Reduce la complejidad (menos puntos) o divide la rutina antes de guardar.'
-        );
-        return false;
-      }
-    }
-    const newTable: MainTable = { id, ...sanitized, paths: pathsField };
-    if (sanitizeErrors.length) {
-      console.warn('[MainTable][SANITIZE][insert] Coerciones/errores:', sanitizeErrors);
-    }
-    const validation = validateMainTableRecord(newTable);
-    if (!validation.ok) {
-      console.error('[MainTable][VALIDATION][insert] Errores:', validation.errors);
-      Alert.alert(
-        'Datos inválidos',
-        'Se detectó un formato inválido al crear una tabla principal. Reinicia o recarga la app antes de continuar.\n' + validation.errors.slice(0,6).join('\n')
-      );
-      return false;
-    }
-  mainTables.push(newTable);
-  await persistMainTables(mainTables);
-    console.log("Main table added successfully. ID:", id);
-    return id;
+
+    const result = await database.runAsync(
+      `INSERT INTO main_tables (
+        competenceId, number, name, event, noc, bib,
+        j, i, h, g, f, e, d, c, b, a,
+        dv, eg, sb, nd, cv, sv, e2, d3, e3, delt,
+        percentage, stickBonus, numberOfElements, difficultyValues,
+        elementGroups1, elementGroups2, elementGroups3, elementGroups4, elementGroups5,
+        execution, eScore, myScore,
+        compD, compE, compSd, compNd, compScore,
+        comments, paths, ded, dedexecution,
+        vaultNumber, vaultDescription, startValue, description, score
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        tableData.competenceId,
+        tableData.number || 0,
+        tableData.name || '',
+        tableData.event || '',
+        tableData.noc || '',
+        tableData.bib || '',
+        tableData.j || 0,
+        tableData.i || 0,
+        tableData.h || 0,
+        tableData.g || 0,
+        tableData.f || 0,
+        tableData.e || 0,
+        tableData.d || 0,
+        tableData.c || 0,
+        tableData.b || 0,
+        tableData.a || 0,
+        tableData.dv || 0,
+        tableData.eg || 0,
+        tableData.sb || 0,
+        tableData.nd || 0,
+        tableData.cv || 0,
+        tableData.sv || 0,
+        tableData.e2 || 0,
+        tableData.d3 || 0,
+        tableData.e3 || 0,
+        tableData.delt || 0,
+        tableData.percentage || 0,
+        tableData.stickBonus ? 1 : 0,
+        tableData.numberOfElements || 0,
+        tableData.difficultyValues || 0,
+        tableData.elementGroups1 || 0,
+        tableData.elementGroups2 || 0,
+        tableData.elementGroups3 || 0,
+        tableData.elementGroups4 || 0,
+        tableData.elementGroups5 || 0,
+        tableData.execution || 0,
+        tableData.eScore || 0,
+        tableData.myScore || 0,
+        tableData.compD || 0,
+        tableData.compE || 0,
+        tableData.compSd || 0,
+        tableData.compNd || 0,
+        tableData.compScore || 0,
+        tableData.comments || '',
+        pathsField,
+        tableData.ded || 0,
+        tableData.dedexecution || 0,
+        tableData.vaultNumber || '',
+        tableData.vaultDescription || '',
+        tableData.startValue || 0,
+        tableData.description || '',
+        tableData.score || 0,
+      ]
+    );
+
+    console.log('✅ MainTable inserted with ID:', result.lastInsertRowId);
+    return result.lastInsertRowId;
   } catch (error) {
-    console.error("Error inserting main table:", error);
+    console.error('❌ Error inserting main table:', error);
     return false;
   }
 };
@@ -1639,405 +1412,414 @@ export const updateMainTable = async (
   tableData: Partial<MainTable>
 ): Promise<boolean> => {
   try {
-    const mainTables = await getMainTables();
-    const tableIndex = mainTables.findIndex(table => table.id === tableId);
-    
-    if (tableIndex === -1) {
-      console.error("Main table not found.");
+    const current = await getMainTableById(tableId);
+    if (!current) {
+      console.error('Main table not found');
       return false;
     }
 
-    const current = mainTables[tableIndex];
-    // Saneo patch parcial primero
-    const { sanitized: sanitizedPatch, errors: patchErrors } = sanitizeMainTableInput(tableData, { partial: true });
-    if (patchErrors.length) {
-      console.warn('[MainTable][SANITIZE][update][patch]', patchErrors);
-    }
-    // Mezclar
-    const merged: MainTable = { ...(current as MainTable), ...(sanitizedPatch as Partial<MainTable>) } as MainTable;
-    // Re-saneo completo para garantizar que no falte nada y tipos queden definitivos
-    const { sanitized: fullySanitized, errors: fullErrors } = sanitizeMainTableInput(merged, { partial: false });
-    if (fullErrors.length) {
-      console.warn('[MainTable][SANITIZE][update][full] Errores:', fullErrors);
-    }
-    let nextRecord: MainTable = { ...fullySanitized, id: current.id } as MainTable;
-
-    // Handle externalization for 'paths' if present in update
-    if (Object.prototype.hasOwnProperty.call(tableData, 'paths') && typeof tableData.paths === 'string') {
-      const incoming = tableData.paths || '';
-      if (!incoming) {
-        // Clearing paths: remove external file if existed
-        if (isFileRef(current.paths)) {
+    // Manejar paths si se está actualizando
+    let pathsField = tableData.paths;
+    if (pathsField && typeof pathsField === 'string' && 
+        !isFileRef(pathsField) && 
+        pathsField.length > LARGE_FIELD_THRESHOLD) {
+      try {
+        // Eliminar archivo anterior si existe
+        if (current.paths && isFileRef(current.paths)) {
           await deleteFileIfExists(current.paths);
         }
-        nextRecord.paths = '';
-      } else if (isFileRef(incoming)) {
-        // Already a file ref (shouldn't happen from UI), keep as is
-        nextRecord.paths = incoming;
-      } else if (incoming.length > LARGE_FIELD_THRESHOLD) {
-        try {
-          const uri = makePathsFileUri(tableId);
-          await writeStringToFile(uri, incoming);
-          nextRecord.paths = uri;
-        } catch (e) {
-          console.warn('updateMainTable: failed to externalize paths, keeping inline', e);
-          nextRecord.paths = incoming;
-        }
+        
+        const uri = makePathsFileUri(tableId);
+        await writeStringToFile(uri, pathsField);
+        pathsField = uri;
+        console.log('📁 Paths updated and externalized:', uri);
+      } catch (e) {
+        console.warn('Failed to externalize paths on update:', e);
+      }
+    }
+
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    Object.entries(tableData).forEach(([key, value]) => {
+      if (key === 'id') return;
+      
+      updates.push(`${key} = ?`);
+      
+      if (key === 'stickBonus') {
+        values.push(value ? 1 : 0);
+      } else if (key === 'paths' && pathsField) {
+        values.push(pathsField);
       } else {
-        // Small enough, keep inline. If previous was file, optionally clean it.
-        if (isFileRef(current.paths)) {
-          await deleteFileIfExists(current.paths);
-        }
-        nextRecord.paths = incoming;
+        values.push(value);
       }
-    }
+    });
 
-    // Validar tamaño final de paths si sigue inline
-    if (typeof nextRecord.paths === 'string' && !isFileRef(nextRecord.paths)) {
-  const PATHS_INLINE_HARD_LIMIT = 900_000; // mantener consistente con insert
-      const byteLengthUtf8 = (str: string): number => {
-        try { if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(str).length; } catch {}
-        try { return unescape(encodeURIComponent(str)).length; } catch { return str.length; }
-      };
-      const size = byteLengthUtf8(nextRecord.paths);
-      if (size > PATHS_INLINE_HARD_LIMIT) {
-        console.error(`[MainTable][UPDATE] paths demasiado grande (${size} bytes) – abortando actualización.`);
-        Alert.alert(
-          'Datos demasiado grandes',
-          'El campo de trazos (paths) excede el tamaño máximo permitido y no pudo actualizarse. No se guardaron los cambios.'
-        );
-        return false;
-      }
-    }
+    if (updates.length === 0) return false;
 
-    // Update main table data
-  const validation = validateMainTableRecord(nextRecord);
-    if (!validation.ok) {
-      console.error('[MainTable][VALIDATION][update] Errores:', validation.errors);
-      Alert.alert(
-        'Datos inválidos',
-        'Se detectó un formato inválido al actualizar una tabla principal. Cambios NO guardados. Reinicia o recarga la app.\n' + validation.errors.slice(0,6).join('\n')
-      );
-      return false;
-    }
-  mainTables[tableIndex] = nextRecord; // solo si válido
-  await persistMainTables(mainTables);
-    console.log("Main table updated successfully.");
+    const database = await openDatabase();
+    await database.runAsync(
+      `UPDATE main_tables SET ${updates.join(', ')} WHERE id = ?`,
+      [...values, tableId]
+    );
+
+    console.log('✅ MainTable updated:', tableId);
     return true;
   } catch (error) {
-    console.error("Error updating main table:", error);
+    console.error('❌ Error updating main table:', error);
     return false;
   }
 };
 
 export const deleteMainTable = async (tableId: number): Promise<boolean> => {
   try {
-    const mainTables = await getMainTables();
-    const filteredMainTables = mainTables.filter(table => table.id !== tableId);
-    
-    if (filteredMainTables.length === mainTables.length) {
-      console.error("Main table not found.");
-      return false;
+    // Eliminar archivo de paths si existe
+    const table = await getMainTableById(tableId);
+    if (table && table.paths && isFileRef(table.paths)) {
+      await deleteFileIfExists(table.paths);
     }
-    
-  await persistMainTables(filteredMainTables);
-    
-    // Delete associated rate tables
-    const rateGeneralTables = await getRateGeneralTables();
-    const filteredRateGeneralTables = rateGeneralTables.filter(rate => rate.tableId !== tableId);
-    await saveItems(RATE_GENERAL_KEY, filteredRateGeneralTables);
-    
-    const rateJumpTables = await getRateJumpTables();
-    const filteredRateJumpTables = rateJumpTables.filter(rate => rate.tableId !== tableId);
-    await saveItems(RATE_JUMP_KEY, filteredRateJumpTables);
 
-    // Delete associated photos entry & files
-    try {
-      const photoEntries = await getMainTablePhotosEntries();
-      const keepEntries: MainTablePhotos[] = [];
-      for (const entry of photoEntries) {
-        if (entry.tableId === tableId) {
-          // borrar archivos
-            for (const p of entry.photos) {
-              const uri = typeof p === 'string' ? p : p.uri;
-              if (isFileRef(uri)) {
-                try { await deleteFileIfExists(uri); } catch (e) { console.warn('deleteMainTable photo delete error', e); }
-              }
-            }
-        } else {
-          keepEntries.push(entry);
-        }
-      }
-      if (keepEntries.length !== photoEntries.length) {
-        await saveItems(MAIN_TABLE_PHOTOS_KEY, keepEntries);
-      }
-    } catch (e) {
-      console.warn('deleteMainTable photos cleanup error:', e);
-    }
-    
-    console.log("Main table and associated items deleted successfully.");
-    return true;
+    // Eliminar fotos asociadas
+    await clearPhotosForMainTable(tableId);
+
+    // CASCADE delete eliminará rate_general y rate_jump
+    return safeExecute('DELETE FROM main_tables WHERE id = ?', [tableId]);
   } catch (error) {
-    console.error("Error deleting main table:", error);
+    console.error('❌ Error deleting main table:', error);
     return false;
   }
 };
 
-// ================= MAIN TABLE PHOTOS (hasta 5 fotos por tabla) =================
+export const deleteMainTableByCompetenceId = async (competenceId: number): Promise<void> => {
+  // Obtener todas las tablas para limpiar archivos
+  const tables = await getMainTablesByCompetenceId(competenceId);
+  
+  for (const table of tables) {
+    if (table.paths && isFileRef(table.paths)) {
+      await deleteFileIfExists(table.paths);
+    }
+    await clearPhotosForMainTable(table.id);
+  }
 
-// Elemento de foto con metadatos de posición/escala/rotación
-export interface MainTablePhotoItem {
-  uri: string;        // Ruta (file://, http://, etc.)
-  x: number;          // posición X relativa al canvas
-  y: number;          // posición Y relativa
-  scale: number;      // escala
-  rotation: number;   // en grados
-}
-
-// Registro lógico por tabla principal
-interface MainTablePhotos {
-  id: number;        // id del registro fotos
-  tableId: number;   // referencia a MainTable
-  // Para compatibilidad: puede contener strings antiguos o objetos con metadatos
-  photos: (string | MainTablePhotoItem)[];  // Máx 5
-}
-
-const MAX_PHOTOS_PER_MAIN_TABLE = 5;
-const LARGE_IMAGE_INLINE_THRESHOLD = 20_000; // si base64 dataURL > 20KB la movemos a archivo (muy bajo para forzar externalización)
-
-const ensurePhotosDir = async () => {
-  await ensureDirAsync(PHOTOS_DIR);
+  await safeExecute('DELETE FROM main_tables WHERE competenceId = ?', [competenceId]);
 };
 
-const makePhotoFileUri = (tableId: number, slot: number, ext: string) => `${PHOTOS_DIR}mt_${tableId}_${Date.now()}_${slot}.${ext}`;
+export const deleteMainTableentries = async (
+  competenceId: number,
+  number: number
+): Promise<boolean> => {
+  return safeExecute(
+    'DELETE FROM main_tables WHERE competenceId = ? AND number = ?',
+    [competenceId, number]
+  );
+};
 
-const isDataUrlImage = (value: string) => /^data:image\/(png|jpeg|jpg);base64,/i.test(value);
+// ==================== MAIN TABLE PHOTOS ====================
+const MAX_PHOTOS_PER_MAIN_TABLE = 5;
+
+const makePhotoFileUri = (tableId: number, slot: number, ext: string) => 
+  `${PHOTOS_DIR}mt_${tableId}_${Date.now()}_${slot}.${ext}`;
+
+const isDataUrlImage = (value: string) => 
+  /^data:image\/(png|jpeg|jpg);base64,/i.test(value);
 
 const extractImageExt = (dataUrl: string): string => {
   const m = dataUrl.match(/^data:image\/(png|jpeg|jpg);base64,/i);
-  if (!m) return 'png';
+  if (!m) return 'jpg';
   const raw = m[1].toLowerCase();
   return raw === 'jpeg' ? 'jpg' : raw;
 };
 
-const decodeAndPersistDataUrl = async (tableId: number, slot: number, dataUrl: string): Promise<string> => {
+const decodeAndPersistDataUrl = async (
+  tableId: number,
+  slot: number,
+  dataUrl: string
+): Promise<string> => {
   try {
-    await ensurePhotosDir();
     const ext = extractImageExt(dataUrl);
-    const base64 = dataUrl.split(',')[1];
+    const base64Data = dataUrl.split(',')[1];
+    await ensureDirAsync(PHOTOS_DIR);
     const uri = makePhotoFileUri(tableId, slot, ext);
-    await FileSystem.writeAsStringAsync(uri, base64, { encoding: FileSystem.EncodingType.Base64 });
+    await FileSystem.writeAsStringAsync(uri, base64Data, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
     return uri;
   } catch (e) {
-    console.warn('decodeAndPersistDataUrl error, fallback skip externalization', e);
-    return dataUrl; // fallback inline (debería ser pequeño si falla)
+    console.warn('decodeAndPersistDataUrl error:', e);
+    return dataUrl;
   }
 };
 
-const getMainTablePhotosEntries = async (): Promise<MainTablePhotos[]> => {
-  return getItems<MainTablePhotos>(MAIN_TABLE_PHOTOS_KEY);
-};
-
-const saveMainTablePhotosEntries = async (entries: MainTablePhotos[]) => {
-  await saveItems(MAIN_TABLE_PHOTOS_KEY, entries);
-};
-
 export const getPhotosForMainTable = async (tableId: number): Promise<string[]> => {
-  const entries = await getMainTablePhotosEntries();
-  const entry = entries.find(e => e.tableId === tableId);
-  if (!entry) return [];
-  return entry.photos.map(p => typeof p === 'string' ? p : p.uri);
+  const items = await getPhotoItemsForMainTable(tableId);
+  return items.map(item => item.uri);
 };
 
-export const getPhotoItemsForMainTable = async (tableId: number): Promise<MainTablePhotoItem[]> => {
-  const entries = await getMainTablePhotosEntries();
-  const entry = entries.find(e => e.tableId === tableId);
-  if (!entry) return [];
-  return entry.photos.map(p => {
-    if (typeof p === 'string') {
-      return { uri: p, x: 40, y: 40, scale: 1, rotation: 0 } as MainTablePhotoItem; // default position
-    }
-    // Asegurar valores por si faltan
-    return {
-      uri: p.uri,
-      x: Number.isFinite(p.x) ? p.x : 40,
-      y: Number.isFinite(p.y) ? p.y : 40,
-      scale: Number.isFinite(p.scale) ? p.scale : 1,
-      rotation: Number.isFinite(p.rotation) ? p.rotation : 0
-    };
-  });
-};
+export const getPhotoItemsForMainTable = async (
+  tableId: number
+): Promise<MainTablePhotoItem[]> => {
+  const rows = await safeQuery<{ photos: string }>(
+    'SELECT photos FROM main_table_photos WHERE tableId = ? LIMIT 1',
+    [tableId]
+  );
 
-export const addPhotoToMainTable = async (tableId: number, image: string): Promise<boolean> => {
+  if (rows.length === 0) return [];
+
   try {
-    let entries = await getMainTablePhotosEntries();
-    let entry = entries.find(e => e.tableId === tableId);
-    if (!entry) {
-      const id = await getNextId(MAIN_TABLE_PHOTOS_KEY);
-  entry = { id, tableId, photos: [] };
-      entries.push(entry);
-    }
-    if (entry.photos.length >= MAX_PHOTOS_PER_MAIN_TABLE) {
-      console.warn('addPhotoToMainTable: max photos reached');
+    const parsed = JSON.parse(rows[0].photos);
+    if (!Array.isArray(parsed)) return [];
+    
+    return parsed.map(p => {
+      if (typeof p === 'string') {
+        return { uri: p, x: 40, y: 40, scale: 1, rotation: 0 };
+      }
+      return {
+        uri: p.uri || '',
+        x: Number.isFinite(p.x) ? p.x : 40,
+        y: Number.isFinite(p.y) ? p.y : 40,
+        scale: Number.isFinite(p.scale) ? p.scale : 1,
+        rotation: Number.isFinite(p.rotation) ? p.rotation : 0,
+      };
+    });
+  } catch (e) {
+    console.warn('Error parsing photos JSON:', e);
+    return [];
+  }
+};
+
+export const addPhotoToMainTable = async (
+  tableId: number,
+  image: string
+): Promise<boolean> => {
+  try {
+    let currentPhotos = await getPhotoItemsForMainTable(tableId);
+    
+    if (currentPhotos.length >= MAX_PHOTOS_PER_MAIN_TABLE) {
       Alert.alert('Límite alcanzado', 'Máximo 5 fotos por gimnasta.');
       return false;
     }
+
     let finalUri = image;
-    if (typeof image === 'string') {
-      const isData = isDataUrlImage(image);
-      // Detectar base64 largo sin dataURL (posible) -> externalizar
-      if (isData) {
-        finalUri = await decodeAndPersistDataUrl(tableId, entry.photos.length, image);
-      } else if (!isFileRef(image) && image.length > LARGE_IMAGE_INLINE_THRESHOLD && !/^https?:\/\//i.test(image)) {
-        // Podría ser base64 sin header (no recomendado) -> intentar externalizar
-        const guessExt = 'jpg';
-        try {
-          await ensurePhotosDir();
-          const uri = makePhotoFileUri(tableId, entry.photos.length, guessExt);
-          await FileSystem.writeAsStringAsync(uri, image, { encoding: FileSystem.EncodingType.Base64 });
-          finalUri = uri;
-        } catch (e) {
-          console.warn('addPhotoToMainTable raw base64 externalization failed', e);
-        }
+
+    // Externalizar si es data URL grande
+    if (isDataUrlImage(image)) {
+      finalUri = await decodeAndPersistDataUrl(tableId, currentPhotos.length, image);
+    } else if (!isFileRef(image) && 
+               image.length > LARGE_IMAGE_INLINE_THRESHOLD && 
+               !/^https?:\/\//i.test(image)) {
+      try {
+        await ensureDirAsync(PHOTOS_DIR);
+        const uri = makePhotoFileUri(tableId, currentPhotos.length, 'jpg');
+        await FileSystem.writeAsStringAsync(uri, image, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        finalUri = uri;
+      } catch (e) {
+        console.warn('Photo externalization failed:', e);
       }
     }
-  // Insertar como objeto con metadatos iniciales
-  const photoItem: MainTablePhotoItem = { uri: finalUri, x: 40 + (entry.photos.length * 60), y: 40, scale: 1, rotation: 0 };
-  entry.photos.push(photoItem);
-    await saveMainTablePhotosEntries(entries);
-    console.log(`Foto añadida a MainTable ${tableId}. Total: ${entry.photos.length}`);
+
+    const photoItem: MainTablePhotoItem = {
+      uri: finalUri,
+      x: 40 + (currentPhotos.length * 60),
+      y: 40,
+      scale: 1,
+      rotation: 0,
+    };
+
+    currentPhotos.push(photoItem);
+
+    const database = await openDatabase();
+    const photosJson = JSON.stringify(currentPhotos);
+
+    // Verificar si ya existe un registro
+    const existing = await safeQuery<{ id: number }>(
+      'SELECT id FROM main_table_photos WHERE tableId = ? LIMIT 1',
+      [tableId]
+    );
+
+    if (existing.length > 0) {
+      await database.runAsync(
+        'UPDATE main_table_photos SET photos = ? WHERE tableId = ?',
+        [photosJson, tableId]
+      );
+    } else {
+      await database.runAsync(
+        'INSERT INTO main_table_photos (tableId, photos) VALUES (?, ?)',
+        [tableId, photosJson]
+      );
+    }
+
+    console.log('✅ Photo added to MainTable:', tableId);
     return true;
-  } catch (e) {
-    console.error('addPhotoToMainTable error', e);
+  } catch (error) {
+    console.error('❌ Error adding photo:', error);
     return false;
   }
 };
 
-export const removePhotoFromMainTable = async (tableId: number, index: number): Promise<boolean> => {
+export const removePhotoFromMainTable = async (
+  tableId: number,
+  index: number
+): Promise<boolean> => {
   try {
-    const entries = await getMainTablePhotosEntries();
-    const entry = entries.find(e => e.tableId === tableId);
-    if (!entry || index < 0 || index >= entry.photos.length) return false;
-    const [removed] = entry.photos.splice(index, 1);
-    const removedUri = typeof removed === 'string' ? removed : removed.uri;
-    if (isFileRef(removedUri)) {
-      try { await deleteFileIfExists(removedUri); } catch {}
+    const currentPhotos = await getPhotoItemsForMainTable(tableId);
+    
+    if (index < 0 || index >= currentPhotos.length) return false;
+
+    // Eliminar archivo si es una referencia
+    const photoToRemove = currentPhotos[index];
+    if (isFileRef(photoToRemove.uri)) {
+      await deleteFileIfExists(photoToRemove.uri);
     }
-    await saveMainTablePhotosEntries(entries);
+
+    currentPhotos.splice(index, 1);
+
+    const database = await openDatabase();
+    await database.runAsync(
+      'UPDATE main_table_photos SET photos = ? WHERE tableId = ?',
+      [JSON.stringify(currentPhotos), tableId]
+    );
+
+    console.log('✅ Photo removed from MainTable:', tableId);
     return true;
-  } catch (e) {
-    console.error('removePhotoFromMainTable error', e);
+  } catch (error) {
+    console.error('❌ Error removing photo:', error);
     return false;
   }
 };
 
 export const clearPhotosForMainTable = async (tableId: number): Promise<boolean> => {
   try {
-    const entries = await getMainTablePhotosEntries();
-    const keep: MainTablePhotos[] = [];
-    let modified = false;
-    for (const entry of entries) {
-      if (entry.tableId === tableId) {
-        modified = true;
-        for (const p of entry.photos) {
-          const uri = typeof p === 'string' ? p : p.uri;
-          if (isFileRef(uri)) { try { await deleteFileIfExists(uri); } catch {} }
-        }
-      } else keep.push(entry);
+    const currentPhotos = await getPhotoItemsForMainTable(tableId);
+    
+    // Eliminar archivos
+    for (const photo of currentPhotos) {
+      if (isFileRef(photo.uri)) {
+        await deleteFileIfExists(photo.uri);
+      }
     }
-    if (modified) await saveMainTablePhotosEntries(keep);
-    return true;
-  } catch (e) {
-    console.error('clearPhotosForMainTable error', e);
+
+    return safeExecute('DELETE FROM main_table_photos WHERE tableId = ?', [tableId]);
+  } catch (error) {
+    console.error('❌ Error clearing photos:', error);
     return false;
   }
 };
 
-export const setPhotosForMainTable = async (tableId: number, images: string[]): Promise<boolean> => {
+export const setPhotosForMainTable = async (
+  tableId: number,
+  images: string[]
+): Promise<boolean> => {
   try {
-    if (images.length > MAX_PHOTOS_PER_MAIN_TABLE) {
-      Alert.alert('Demasiadas fotos', 'Máximo 5 fotos.');
-      return false;
-    }
-    // Limpia existentes
     await clearPhotosForMainTable(tableId);
-    for (const img of images) {
-      const ok = await addPhotoToMainTable(tableId, img);
-      if (!ok) return false;
+
+    for (const image of images.slice(0, MAX_PHOTOS_PER_MAIN_TABLE)) {
+      await addPhotoToMainTable(tableId, image);
     }
+
     return true;
-  } catch (e) {
-    console.error('setPhotosForMainTable error', e);
+  } catch (error) {
+    console.error('❌ Error setting photos:', error);
     return false;
   }
 };
 
-// Actualizar transform (x,y,scale,rotation) de una foto identificada por uri
 export const updatePhotoTransformForMainTable = async (
   tableId: number,
   uri: string,
   transform: Partial<Pick<MainTablePhotoItem, 'x' | 'y' | 'scale' | 'rotation'>>
 ): Promise<boolean> => {
   try {
-    const entries = await getMainTablePhotosEntries();
-    const entry = entries.find(e => e.tableId === tableId);
-    if (!entry) return false;
-    let changed = false;
-    entry.photos = entry.photos.map(p => {
-      if ((typeof p === 'string' ? p : p.uri) !== uri) return p;
-      const base: MainTablePhotoItem = typeof p === 'string' ? { uri: p, x: 40, y: 40, scale: 1, rotation: 0 } : p;
-      changed = true;
-      return { ...base, ...transform };
-    });
-    if (changed) await saveMainTablePhotosEntries(entries);
-    return changed;
-  } catch (e) {
-    console.error('updatePhotoTransformForMainTable error', e);
+    const currentPhotos = await getPhotoItemsForMainTable(tableId);
+    const index = currentPhotos.findIndex(p => p.uri === uri);
+    
+    if (index === -1) return false;
+
+    currentPhotos[index] = { ...currentPhotos[index], ...transform };
+
+    const database = await openDatabase();
+    await database.runAsync(
+      'UPDATE main_table_photos SET photos = ? WHERE tableId = ?',
+      [JSON.stringify(currentPhotos), tableId]
+    );
+
+    return true;
+  } catch (error) {
+    console.error('❌ Error updating photo transform:', error);
     return false;
   }
 };
 
-
-// MAIN RATE GENERAL FUNCTIONS
+// ==================== RATE GENERAL FUNCTIONS ====================
 export const getRateGeneralTables = async (): Promise<MainRateGeneral[]> => {
-  return getItems<MainRateGeneral>(RATE_GENERAL_KEY);
+  const rows = await safeQuery<any>('SELECT * FROM rate_general ORDER BY id');
+  return rows.map(row => ({
+    ...row,
+    stickBonus: row.stickBonus === 1,
+  }));
 };
 
-
-
-export const getRateGeneralByTableId = async (tableId: number): Promise<MainRateGeneral | null> => {
-  try {
-    const rateGeneralTables = await getRateGeneralTables();
-    /* just id of the tables */
-    console.log("Rate General Tables ids:", rateGeneralTables.map(rate => rate.id));
-    const rateGeneral = rateGeneralTables.find(rate => rate.tableId === tableId);
-    console.log("Rate General:", rateGeneral);
-    return rateGeneral || null;
-  } catch (error) {
-    console.error("Error getting rate general by table ID:", error);
-    return null;
-  }
+export const getRateGeneralByTableId = async (
+  tableId: number
+): Promise<MainRateGeneral | null> => {
+  const rows = await safeQuery<any>(
+    'SELECT * FROM rate_general WHERE tableId = ? LIMIT 1',
+    [tableId]
+  );
+  
+  if (rows.length === 0) return null;
+  
+  return {
+    ...rows[0],
+    stickBonus: rows[0].stickBonus === 1,
+  };
 };
 
-export const insertRateGeneral = async (rateData: Omit<MainRateGeneral, 'id'>): Promise<number | false> => {
+export const insertRateGeneral = async (
+  rateData: Omit<MainRateGeneral, 'id'>
+): Promise<number | false> => {
   try {
-    const rateGeneralTables = await getRateGeneralTables();
-    
-    // Check if entry already exists for this table ID
-    const existingRate = rateGeneralTables.find(rate => rate.tableId === rateData.tableId);
-    if (existingRate) {
-      console.error("Rate general already exists for this table.");
-      return false;
-    }
-    
-    const id = await getNextId(RATE_GENERAL_KEY);
-    const newRate: MainRateGeneral = { id, ...rateData };
-    rateGeneralTables.push(newRate);
-    await saveItems(RATE_GENERAL_KEY, rateGeneralTables);
-    console.log("Rate general added successfully. ID:", id);
-    return id;
+    const database = await openDatabase();
+    const result = await database.runAsync(
+      `INSERT INTO rate_general (
+        tableId, stickBonus, numberOfElements, difficultyValues,
+        elementGroups1, elementGroups2, elementGroups3, elementGroups4, elementGroups5,
+        execution, eScore, myScore, compD, compE, compSd, compNd, compScore,
+        comments, paths, ded, dedexecution, vaultNumber, vaultDescription, images
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        rateData.tableId,
+        rateData.stickBonus ? 1 : 0,
+        rateData.numberOfElements || 0,
+        rateData.difficultyValues || 0,
+        rateData.elementGroups1 || 0,
+        rateData.elementGroups2 || 0,
+        rateData.elementGroups3 || 0,
+        rateData.elementGroups4 || 0,
+        rateData.elementGroups5 || 0,
+        rateData.execution || 0,
+        rateData.eScore || 0,
+        rateData.myScore || 0,
+        rateData.compD || 0,
+        rateData.compE || 0,
+        rateData.compSd || 0,
+        rateData.compNd || 0,
+        rateData.compScore || 0,
+        rateData.comments || '',
+        rateData.paths || '[]',
+        rateData.ded || 0,
+        rateData.dedexecution || 0,
+        rateData.vaultNumber || '',
+        rateData.vaultDescription || '',
+        rateData.images || '[]',
+      ]
+    );
+
+    console.log('✅ RateGeneral inserted with ID:', result.lastInsertRowId);
+    return result.lastInsertRowId;
   } catch (error) {
-    console.error("Error inserting rate general:", error);
+    console.error('❌ Error inserting rate general:', error);
     return false;
   }
 };
@@ -2047,79 +1829,102 @@ export const updateRateGeneral = async (
   rateData: Partial<MainRateGeneral>
 ): Promise<boolean> => {
   try {
-    const rateGeneralTables = await getRateGeneralTables();
-    const rateIndex = rateGeneralTables.findIndex(rate => rate.id === rateId);
-    
-    if (rateIndex === -1) {
-      console.error("Rate general not found.");
-      return false;
-    }
-    
-    // Update rate general data
-    rateGeneralTables[rateIndex] = { ...rateGeneralTables[rateIndex], ...rateData };
-    await saveItems(RATE_GENERAL_KEY, rateGeneralTables);
-    console.log("Rate general updated successfully.");
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    Object.entries(rateData).forEach(([key, value]) => {
+      if (key === 'id') return;
+      
+      updates.push(`${key} = ?`);
+      values.push(key === 'stickBonus' ? (value ? 1 : 0) : value);
+    });
+
+    if (updates.length === 0) return false;
+
+    const database = await openDatabase();
+    await database.runAsync(
+      `UPDATE rate_general SET ${updates.join(', ')} WHERE id = ?`,
+      [...values, rateId]
+    );
+
     return true;
   } catch (error) {
-    console.error("Error updating rate general:", error);
+    console.error('❌ Error updating rate general:', error);
     return false;
   }
 };
 
 export const deleteRateGeneral = async (rateId: number): Promise<boolean> => {
-  try {
-    const rateGeneralTables = await getRateGeneralTables();
-    const filteredRateGeneralTables = rateGeneralTables.filter(rate => rate.id !== rateId);
-    
-    if (filteredRateGeneralTables.length === rateGeneralTables.length) {
-      console.error("Rate general not found.");
-      return false;
-    }
-    
-    await saveItems(RATE_GENERAL_KEY, filteredRateGeneralTables);
-    console.log("Rate general deleted successfully.");
-    return true;
-  } catch (error) {
-    console.error("Error deleting rate general:", error);
-    return false;
-  }
+  return safeExecute('DELETE FROM rate_general WHERE id = ?', [rateId]);
 };
 
-// MAIN RATE JUMP FUNCTIONS
+export const deleteRateGeneralByTableId = async (tableId: number): Promise<void> => {
+  await safeExecute('DELETE FROM rate_general WHERE tableId = ?', [tableId]);
+};
+
+export const updateElementGroup = async (
+  rateId: number,
+  elementGroupKey: keyof MainRateGeneral,
+  value: number
+): Promise<void> => {
+  await updateRateGeneral(rateId, { [elementGroupKey]: value } as any);
+};
+
+// ==================== RATE JUMP FUNCTIONS ====================
 export const getRateJumpTables = async (): Promise<MainRateJump[]> => {
-  return getItems<MainRateJump>(RATE_JUMP_KEY);
+  const rows = await safeQuery<any>('SELECT * FROM rate_jump ORDER BY id');
+  return rows.map(row => ({
+    ...row,
+    stickBonus: row.stickBonus === 1,
+  }));
 };
 
-export const getRateJumpByTableId = async (tableId: number): Promise<MainRateJump | null> => {
-  try {
-    const rateJumpTables = await getRateJumpTables();
-    const rateJump = rateJumpTables.find(rate => rate.tableId === tableId);
-    return rateJump || null;
-  } catch (error) {
-    console.error("Error getting rate jump by table ID:", error);
-    return null;
-  }
+export const getRateJumpByTableId = async (
+  tableId: number
+): Promise<MainRateJump | null> => {
+  const rows = await safeQuery<any>(
+    'SELECT * FROM rate_jump WHERE tableId = ? LIMIT 1',
+    [tableId]
+  );
+  
+  if (rows.length === 0) return null;
+  
+  return {
+    ...rows[0],
+    stickBonus: rows[0].stickBonus === 1,
+  };
 };
 
-export const insertRateJump = async (rateData: Omit<MainRateJump, 'id'>): Promise<number | false> => {
+export const insertRateJump = async (
+  rateData: Omit<MainRateJump, 'id'>
+): Promise<number | false> => {
   try {
-    const rateJumpTables = await getRateJumpTables();
-    
-    // Check if entry already exists for this table ID
-    const existingRate = rateJumpTables.find(rate => rate.tableId === rateData.tableId);
-    if (existingRate) {
-      console.error("Rate jump already exists for this table.");
-      return false;
-    }
-    
-    const id = await getNextId(RATE_JUMP_KEY);
-    const newRate: MainRateJump = { id, ...rateData };
-    rateJumpTables.push(newRate);
-    await saveItems(RATE_JUMP_KEY, rateJumpTables);
-    console.log("Rate jump added successfully. ID:", id);
-    return id;
+    const database = await openDatabase();
+    const result = await database.runAsync(
+      `INSERT INTO rate_jump (
+        tableId, stickBonus, vaultNumber, startValue, description,
+        execution, myScore, compD, compE, compSd, compNd, score
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        rateData.tableId,
+        rateData.stickBonus ? 1 : 0,
+        rateData.vaultNumber || 0,
+        rateData.startValue || 0,
+        rateData.description || '',
+        rateData.execution || 0,
+        rateData.myScore || 0,
+        rateData.compD || 0,
+        rateData.compE || 0,
+        rateData.compSd || 0,
+        rateData.compNd || 0,
+        rateData.score || 0,
+      ]
+    );
+
+    console.log('✅ RateJump inserted with ID:', result.lastInsertRowId);
+    return result.lastInsertRowId;
   } catch (error) {
-    console.error("Error inserting rate jump:", error);
+    console.error('❌ Error inserting rate jump:', error);
     return false;
   }
 };
@@ -2129,1197 +1934,513 @@ export const updateRateJump = async (
   rateData: Partial<MainRateJump>
 ): Promise<boolean> => {
   try {
-    const rateJumpTables = await getRateJumpTables();
-    const rateIndex = rateJumpTables.findIndex(rate => rate.id === rateId);
-    
-    if (rateIndex === -1) {
-      console.error("Rate jump not found.");
-      return false;
-    }
-    
-    // Update rate jump data
-    rateJumpTables[rateIndex] = { ...rateJumpTables[rateIndex], ...rateData };
-    await saveItems(RATE_JUMP_KEY, rateJumpTables);
-    console.log("Rate jump updated successfully.");
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    Object.entries(rateData).forEach(([key, value]) => {
+      if (key === 'id') return;
+      
+      updates.push(`${key} = ?`);
+      values.push(key === 'stickBonus' ? (value ? 1 : 0) : value);
+    });
+
+    if (updates.length === 0) return false;
+
+    const database = await openDatabase();
+    await database.runAsync(
+      `UPDATE rate_jump SET ${updates.join(', ')} WHERE id = ?`,
+      [...values, rateId]
+    );
+
     return true;
   } catch (error) {
-    console.error("Error updating rate jump:", error);
+    console.error('❌ Error updating rate jump:', error);
     return false;
   }
 };
 
 export const deleteRateJump = async (rateId: number): Promise<boolean> => {
-  try {
-    const rateJumpTables = await getRateJumpTables();
-    const filteredRateJumpTables = rateJumpTables.filter(rate => rate.id !== rateId);
-    
-    if (filteredRateJumpTables.length === rateJumpTables.length) {
-      console.error("Rate jump not found.");
-      return false;
-    }
-    
-    await saveItems(RATE_JUMP_KEY, filteredRateJumpTables);
-    console.log("Rate jump deleted successfully.");
-    return true;
-  } catch (error) {
-    console.error("Error deleting rate jump:", error);
-    return false;
-  }
+  return safeExecute('DELETE FROM rate_jump WHERE id = ?', [rateId]);
 };
 
-// Clean up existing data to ensure all records have correct structure
+export const deleteRateJumpByTableId = async (tableId: number): Promise<void> => {
+  await safeExecute('DELETE FROM rate_jump WHERE tableId = ?', [tableId]);
+};
+
+// ==================== UTILITY FUNCTIONS ====================
 export const cleanupData = async (): Promise<void> => {
-  try {
-    console.log("Starting data cleanup...");
-    
-    // Clean up users
-    const users = await getUsers();
-    let usersUpdated = false;
-    
-    users.forEach((user, index) => {
-      if (typeof user.id !== 'number') {
-        user.id = index + 1;
-        usersUpdated = true;
-      }
-    });
-    
-    if (usersUpdated) {
-      await saveItems(USERS_KEY, users);
-      console.log("Fixed user IDs");
-    }
-    
-    console.log("Data cleanup completed");
-  } catch (error) {
-    console.error("Error during data cleanup:", error);
-  }
+  console.log('🧹 Cleanup data - not needed with SQLite CASCADE');
 };
 
-export const getMainTableByCompetenceId = async (competenceId: number): Promise<MainTable[]> => {
-  try {
-    const mainTables = await getMainTables();
-    return mainTables.filter(table => table.competenceId === competenceId);
-  } catch (error) {
-    console.error("Error getting main tables by competence ID:", error);
-    return [];
+export const migrateLargeInlinePaths = async (): Promise<void> => {
+  console.log('🔄 Checking for large inline paths to externalize...');
+  
+  const tables = await getMainTables();
+  let migratedCount = 0;
+
+  for (const table of tables) {
+    if (table.paths && 
+        typeof table.paths === 'string' && 
+        !isFileRef(table.paths) && 
+        table.paths.length > LARGE_FIELD_THRESHOLD) {
+      
+      try {
+        const uri = makePathsFileUri(table.id);
+        await writeStringToFile(uri, table.paths);
+        await updateMainTable(table.id, { paths: uri });
+        migratedCount++;
+        console.log(`✅ Migrated paths for table ${table.id}`);
+      } catch (e) {
+        console.warn(`Failed to migrate paths for table ${table.id}:`, e);
+      }
+    }
   }
+
+  console.log(`✅ Migration complete. ${migratedCount} paths externalized.`);
 };
 
-export const deleteMainTableentries = async (competenceId: number, number: number): Promise<boolean> => {
-  try {
-    const mainTables = await getMainTables();
-    const filteredMainTables = mainTables.filter(
-      table => !(table.competenceId === competenceId && table.number === number)
-    );
-
-    if (filteredMainTables.length === mainTables.length) {
-      console.error("Main table entry not found.");
-      return false;
-    }
-
-    await saveItems(MAIN_TABLES_KEY, filteredMainTables);
-    console.log(`Deleted MainTable entry with competenceId: ${competenceId}, number: ${number}`);
-    return true;
-  } catch (error) {
-    console.error("Error deleting MainTable entry:", error);
-    return false;
-  }
-};
-
-
-// Add test data
-export const addTestData = async () => {
-  try {
-    // First, clean up any existing data
-    await cleanupData();
-    
-    // Add test user if it doesn't exist
-    const testUsername = "Luis";
-    const testPassword = "123";
-    
-    const users = await getUsers();
-    const userExists = users.some((user) => user.username === testUsername);
-    
-    let userId = 1;
-    if (!userExists) {
-      const result = await insertUser(testUsername, testPassword);
-      if (!result) {
-        console.error("Failed to add test user.");
-        return;
-      }
-      userId = (await getUsers()).find(user => user.username === testUsername)?.id || 1;
-    } else {
-      userId = users.find(user => user.username === testUsername)?.id || 1;
-    }
-    
-    // Add test folder
-    const folderExists = (await getFolders()).some(folder => folder.userId === userId && folder.name === "Test Folder");
-    
-    let folderId = 1;
-    if (!folderExists) {
-      const folderData: Omit<Folder, 'id'> = {
-        userId,
-        name: "Test Folder",
-        description: "This is a test folder",
-        type: true, // Training
-        date: new Date().toISOString(),
-        filled: false
-      };
-      
-      const result = await insertFolder(folderData);
-      if (!result) {
-        console.error("Failed to add test folder.");
-        return;
-      }
-      folderId = result as number;
-    } else {
-      folderId = (await getFolders()).find(folder => folder.userId === userId && folder.name === "Test Folder")?.id || 1;
-    }
-    
-    // Add test session
-    const sessionExists = (await getSessions()).some(session => session.userId === userId);
-    
-    let sessionId = 1;
-    if (!sessionExists) {
-      const sessionData: Omit<Session, 'id'> = {
-        userId,
-        gender: true // Male
-      };
-      
-      const result = await insertSession(sessionData);
-      if (!result) {
-        console.error("Failed to add test session.");
-        return;
-      }
-      sessionId = result as number;
-    } else {
-      sessionId = (await getSessions()).find(session => session.userId === userId)?.id || 1;
-    }
-    
-    // Add test competence
-    const competenceExists = (await getCompetences()).some(comp => comp.folderId === folderId);
-    
-    let competenceId = 1;
-    if (!competenceExists) {
-      const competenceData: Omit<Competence, 'id'> = {
-        name: "Test Competition",
-        description: "This is a test competition",
-        date: new Date().toISOString(),
-        type: "Floor",
-        gender: true,
-        sessionId,
-        folderId,
-        userId,
-        numberOfParticipants: 10
-      };
-      
-      const result = await insertCompetence(competenceData);
-      if (!result) {
-        console.error("Failed to add test competence.");
-        return;
-      }
-      competenceId = result as number;
-    } else {
-      competenceId = (await getCompetences()).find(comp => comp.folderId === folderId)?.id || 1;
-    }
-    
-    // Add test main table
-    const mainTableExists = (await getMainTables()).some(table => table.competenceId === competenceId);
-    
-    let tableId = 1;
-    if (!mainTableExists) {
-      const tableData: Omit<MainTable, 'id'> = {
-        competenceId,
-        number: 1,
-        name: "Test Participant",
-        event: "Test Event",
-        noc: "123",
-        bib: "456",
-        j: 1,
-        i: 2,
-        h: 3,
-        g: 4,
-        f: 5,
-        e: 6,
-        d: 7,
-        c: 8,
-        b: 9,
-        a: 10,
-        dv: 11,
-        eg: 12,
-        sb: 13,
-        nd: 14,
-        cv: 15,
-        sv: 16,
-        e2: 17,
-        d3: 18,
-        e3: 19,
-        delt: 20,
-        percentage: 95,
-        stickBonus: true,
-        numberOfElements: 6,
-        difficultyValues: 3.5,
-        elementGroups1: 0.5,
-        elementGroups2: 0.5,
-        elementGroups3: 0.5,
-        elementGroups4: 0.5,
-        elementGroups5: 0.5,
-        execution: 8.5,
-        eScore: 9.0,
-        myScore: 12.5,
-        compD: 6.0,
-        compE: 8.0,
-        compSd: 0.0,
-        compNd: 0.0,
-        compScore: 14.0,
-        comments: "Good performance overall",
-        paths: "Path A",
-        ded: 1.5,
-        dedexecution: 1.5,
-        vaultNumber: "1",
-        vaultDescription: "Test vault",
-        description: "Test description",
-        startValue: 5.6,
-        score: 14.8
-      };
-      
-      const result = await insertMainTable(tableData);
-      if (!result) {
-        console.error("Failed to add test main table.");
-        return;
-      }
-      tableId = result as number;
-    } else {
-      tableId = (await getMainTables()).find(table => table.competenceId === competenceId)?.id || 1;
-    }
-    
-    // Add test rate general
-    const rateGeneralExists = (await getRateGeneralTables()).some(rate => rate.tableId === tableId);
-    
-    if (!rateGeneralExists) {
-      const rateGeneralData: Omit<MainRateGeneral, 'id'> = {
-        tableId,
-        stickBonus: true,
-        numberOfElements: 6,
-        difficultyValues: 3.5,
-        elementGroups1: 0.5,
-        elementGroups2: 0.5,
-        elementGroups3: 0.5,
-        elementGroups4: 0.5,
-        elementGroups5: 0.5,
-        execution: 8.5,
-        eScore: 9.0,
-        myScore: 12.5,
-        compD: 6.0,
-        compE: 8.0,
-        compSd: 0.0,
-        compNd: 0.0,
-        compScore: 14.0,
-        comments: "Good performance overall",
-        paths: "Path A",
-        ded: 1.5,
-        dedexecution: 1.5,
-        vaultNumber: "1",
-        vaultDescription: "Test vault"
-      };
-      
-      const result = await insertRateGeneral(rateGeneralData);
-      if (!result) {
-        console.error("Failed to add test rate general.");
-      }
-    }
-    
-
-
-    // Add test rate jump
-    const rateJumpExists = (await getRateJumpTables()).some(rate => rate.tableId === tableId);
-    
-    if (!rateJumpExists) {
-      const rateJumpData: Omit<MainRateJump, 'id'> = {
-        tableId,
-        stickBonus: true,
-        vaultNumber: 2,
-        startValue: 5.6,
-        description: "Double somersault with twist",
-        execution: 9.2,
-        myScore: 14.8,
-        compD: 5.8,
-        compE: 9.0,
-        compSd: 0.0,
-        compNd: 0.0,
-        score: 14.8
-      };
-      
-      const result = await insertRateJump(rateJumpData);
-      if (!result) {
-        console.error("Failed to add test rate jump.");
-      }
-    }
-    
-    console.log("Test data added successfully.");
-    
-  } catch (error) {
-    console.error("Error adding test data:", error);
-  }
-};
-
-// Helper function to generate checksum for data integrity
-const generateChecksum = async (data: string): Promise<string> => {
-  try {
-    console.log("generateChecksum: Starting checksum generation");
-    const crypto = await import('expo-crypto');
-    console.log("generateChecksum: expo-crypto imported successfully");
-    const checksum = await crypto.digestStringAsync(
-      crypto.CryptoDigestAlgorithm.SHA256,
-      data
-    );
-    console.log("generateChecksum: Checksum generated successfully:", checksum.substring(0, 16) + "...");
-    return checksum;
-  } catch (error) {
-    console.error("Error generating checksum:", error);
-    return '';
-  }
-};
-
-// Export folder data with all related information
+// ==================== EXPORT/IMPORT FUNCTIONS ====================
 export const exportFolderData = async (
   folderId: number,
   progressCallback?: (message: string, progress: number) => void
 ): Promise<string | null> => {
   try {
-    console.log("exportFolderData: Starting export for folderId:", folderId);
+    progressCallback?.('Obteniendo carpeta...', 0);
+    const folder = await getFolderById(folderId);
+    if (!folder) return null;
 
-    // Función recursiva para recolectar toda la estructura de carpetas y competencias
-    async function collectFolderTree(folderId: number): Promise<any> {
-      const folder = await getFolderById(folderId);
-      if (!folder) return null;
+    progressCallback?.('Obteniendo competencias...', 20);
+    const competences = await getCompetencesByFolderId(folderId);
 
-      // Obtener competencias de la carpeta
-      const competences = await getCompetencesByFolderId(folderId);
-      const competenceData = [];
-      for (const competence of competences) {
-        try {
-          const tables = await getMainTablesByCompetenceId(competence.id);
-          const tablesWithRates = [];
-          for (const table of tables) {
-            try {
-              // Asegurar que paths se exporta como contenido (no como file://), para portabilidad
-              let exportedPaths = typeof table.paths === 'string' ? table.paths : '[]';
-              if (isFileRef(exportedPaths)) {
-                try {
-                  exportedPaths = await readStringFromFile(exportedPaths);
-                } catch (e) {
-                  console.warn(`exportFolderData: no se pudo leer paths externo para tabla ${table.id}, exportando []`, e);
-                  exportedPaths = '[]';
-                }
-              }
-              
-              // Validar que exportedPaths sea JSON válido
-              try {
-                JSON.parse(exportedPaths);
-              } catch (jsonErr) {
-                console.warn(`exportFolderData: paths inválido para tabla ${table.id}, usando []`, jsonErr);
-                exportedPaths = '[]';
-              }
-              
-              const safeMainTable = { ...table, paths: exportedPaths };
+    const competencesData = [];
+    for (let i = 0; i < competences.length; i++) {
+      const comp = competences[i];
+      progressCallback?.(
+        `Procesando competencia ${i + 1}/${competences.length}...`,
+        20 + (i / competences.length) * 60
+      );
 
-              const rateGeneral = await getRateGeneralByTableId(table.id);
-              const rateJump = await getRateJumpByTableId(table.id);
-              tablesWithRates.push({
-                mainTable: safeMainTable,
-                rateGeneral,
-                rateJump
-              });
-            } catch (tableError) {
-              console.warn(`exportFolderData: Error procesando tabla ${table?.id || 'unknown'}, saltando...`, tableError);
-              // Continuar con la siguiente tabla
-              continue;
-            }
-          }
-          
-          // Solo agregar competencia si tiene al menos una tabla válida o si está vacía
-          competenceData.push({
-            competence,
-            tables: tablesWithRates
-          });
-        } catch (competenceError) {
-          console.warn(`exportFolderData: Error procesando competencia ${competence?.id || 'unknown'}, saltando...`, competenceError);
-          // Continuar con la siguiente competencia
-          continue;
-        }
-      }
-
-      // Obtener subcarpetas recursivamente
-      const subfolders = await getSubfolders(folderId);
-      const subfoldersData = [];
-      for (const subfolder of subfolders) {
-        try {
-          const subfolderTree = await collectFolderTree(subfolder.id);
-          if (subfolderTree) subfoldersData.push(subfolderTree);
-        } catch (subfolderError) {
-          console.warn(`exportFolderData: Error procesando subcarpeta ${subfolder?.id || 'unknown'}, saltando...`, subfolderError);
-          // Continuar con la siguiente subcarpeta
-          continue;
-        }
-      }
-
-      return {
-        folder,
-        competences: competenceData,
-        subfolders: subfoldersData
-      };
+      const mainTables = await getMainTablesByCompetenceId(comp.id);
+      competencesData.push({
+        ...comp,
+        mainTables,
+      });
     }
 
-    progressCallback?.("Extrayendo información de carpeta y subcarpetas...", 5);
-    const folderTree = await collectFolderTree(folderId);
-    if (!folderTree) {
-      console.error("Folder not found");
-      return null;
-    }
-
-    // Contar total de gimnastas para progreso
-    function countGymnasts(folderNode: any): number {
-      let count = 0;
-      if (folderNode.competences) {
-        for (const comp of folderNode.competences) {
-          count += comp.tables ? comp.tables.length : 0;
-        }
-      }
-      if (folderNode.subfolders) {
-        for (const sub of folderNode.subfolders) {
-          count += countGymnasts(sub);
-        }
-      }
-      return count;
-    }
-    const totalGymnasts = countGymnasts(folderTree);
-    progressCallback?.(`Calculando total de gimnastas: ${totalGymnasts}`, 10);
-
-    progressCallback?.("Generando archivo de exportación...", 80);
-    // Crear objeto de exportación anidado
     const exportData = {
-      version: "2.0",
+      folder,
+      competences: competencesData,
       exportDate: new Date().toISOString(),
-      ...folderTree
+      version: 1,
     };
 
-    // Convertir a JSON
-    const jsonData = JSON.stringify(exportData);
-    progressCallback?.("Generando checksum de seguridad...", 85);
-    const checksum = await generateChecksum(jsonData);
-    progressCallback?.("Finalizando exportación...", 95);
-    const secureExportData = {
-      data: btoa(unescape(encodeURIComponent(jsonData))),
-      checksum,
-      metadata: {
-        version: "2.0",
-        exportDate: exportData.exportDate,
-        folderName: folderTree.folder.name
-      }
-    };
-    console.log("exportFolderData: Export completed successfully");
-    return JSON.stringify(secureExportData);
+    progressCallback?.('Generando JSON...', 90);
+    const jsonString = JSON.stringify(exportData, null, 2);
+
+    progressCallback?.('Completado', 100);
+    return jsonString;
   } catch (error) {
-    console.error("Error exporting folder data:", error);
+    console.error('❌ Error exporting folder:', error);
     return null;
   }
 };
 
-// Export folder as a ZIP, bundling any file-backed paths
-export const exportFolderZip = async (
-  folderId: number,
-  progressCallback?: (message: string, progress: number) => void
-): Promise<Uint8Array | null> => {
-  try {
-    progressCallback?.("Preparando datos para ZIP...", 5);
-    // Reutilizamos exportFolderData para obtener JSON seguro (inline paths)
-    const secureJson = await exportFolderData(folderId, (m, p) => {
-      // map progress to first half
-      const mapped = Math.min(50, Math.max(0, Math.floor(p * 0.5)));
-      progressCallback?.(m, mapped);
-    });
-    if (!secureJson) return null;
-
-    // Armamos zip con el JSON exportado (export.json)
-    const zip = new JSZip();
-    zip.file('export.json', secureJson);
-
-    progressCallback?.("Comprimiendo ZIP...", 80);
-    const content = await zip.generateAsync({ type: 'uint8array' });
-    progressCallback?.("ZIP listo", 95);
-    return content;
-  } catch (e) {
-    console.error('Error creating ZIP export:', e);
-    return null;
-  }
-};
-
-// Import folder from a ZIP previously exported by exportFolderZip
-export const importFolderZip = async (
-  zipData: Uint8Array,
-  targetParentId: number,
-  progressCallback?: (message: string, progress: number) => void
-): Promise<boolean> => {
-  try {
-    progressCallback?.("Leyendo ZIP...", 5);
-    const zip = await JSZip.loadAsync(zipData);
-    const jsonFile = zip.file('export.json');
-    if (!jsonFile) throw new Error('export.json no encontrado dentro del ZIP');
-    const secureJson = await jsonFile.async('string');
-    progressCallback?.("Importando datos...", 20);
-    return await importFolderData(secureJson, targetParentId, (m, p) => {
-      const mapped = 20 + Math.min(75, Math.max(0, Math.floor(p * 0.75)));
-      progressCallback?.(m, mapped);
-    });
-  } catch (e) {
-    console.error('Error importing ZIP:', e);
-    return false;
-  }
-};
-
-// Import folder data and recreate all related information
 export const importFolderData = async (
   importDataString: string,
   targetParentId: number,
   progressCallback?: (message: string, progress: number) => void
 ): Promise<boolean> => {
   try {
-    // Parse import data
-    const secureImportData = JSON.parse(importDataString);
-    if (!secureImportData.data || !secureImportData.checksum) {
-      throw new Error("Invalid import file format");
-    }
-    progressCallback?.("Validando archivo...", 5);
-    // Decode data
-    const jsonData = decodeURIComponent(escape(atob(secureImportData.data)));
-    // Verify checksum
-    const calculatedChecksum = await generateChecksum(jsonData);
-    if (calculatedChecksum !== secureImportData.checksum) {
-      throw new Error("Data integrity check failed - file may be corrupted");
-    }
-    progressCallback?.("Procesando datos...", 15);
-    // Parse the actual data
-    const importData = JSON.parse(jsonData);
-    if (!importData.folder) {
-      throw new Error("Invalid data structure in import file");
-    }
+    progressCallback?.('Parseando datos...', 0);
+    const importData = JSON.parse(importDataString);
 
-    // Recopilar todas las carpetas y competiciones para el progreso
-    let totalGymnasts = 0;
-    function countGymnasts(folderNode: any): number {
-      let count = 0;
-      if (folderNode.competences) {
-        for (const comp of folderNode.competences) {
-          count += comp.tables ? comp.tables.length : 0;
-        }
-      }
-      if (folderNode.subfolders) {
-        for (const sub of folderNode.subfolders) {
-          count += countGymnasts(sub);
-        }
-      }
-      return count;
-    }
-    totalGymnasts = countGymnasts(importData);
-    progressCallback?.(`Preparando importación de ${totalGymnasts} gimnastas...`, 20);
+    const { folder, competences } = importData;
 
-    // Map para IDs antiguos -> nuevos
-    const idMappings = {
-      folders: new Map<number, number>(),
-      competences: new Map<number, number>(),
-      mainTables: new Map<number, number>()
-    };
-    let processedGymnasts = 0;
+    progressCallback?.('Creando carpeta...', 10);
+    const newFolderId = await insertFolder({
+      ...folder,
+      id: undefined as any,
+      parentId: targetParentId,
+    });
 
-    // Función recursiva para importar carpetas, subcarpetas y competiciones
-    async function importFolderRecursively(folderNode: any, parentId: number) {
-      const newFolderData = {
-        ...folderNode.folder,
-        parentId: parentId,
-        userId: 0
-      };
-      delete newFolderData.id;
-      const newFolderId = await insertFolder(newFolderData);
-      if (!newFolderId) {
-        throw new Error("Failed to create folder");
-      }
-      idMappings.folders.set(folderNode.folder.id, newFolderId);
+    if (!newFolderId) return false;
 
-      // Importar competiciones de esta carpeta
-      if (folderNode.competences) {
-        for (const competenceData of folderNode.competences) {
-          try {
-            const newCompetenceData = {
-              ...competenceData.competence,
-              folderId: newFolderId,
-              userId: 0
-            };
-            delete newCompetenceData.id;
-            const newCompetenceId = await insertCompetence(newCompetenceData);
-            if (!newCompetenceId) {
-              console.warn(`importFolderData: No se pudo crear competencia ${competenceData?.competence?.id || 'unknown'}, saltando...`);
-              continue;
-            }
-            idMappings.competences.set(competenceData.competence.id, newCompetenceId);
+    for (let i = 0; i < competences.length; i++) {
+      const comp = competences[i];
+      progressCallback?.(
+        `Importando competencia ${i + 1}/${competences.length}...`,
+        10 + (i / competences.length) * 80
+      );
 
-            // Importar tablas principales y rates
-            for (const tableData of competenceData.tables) {
-              try {
-                const progress = 25 + Math.floor((processedGymnasts / totalGymnasts) * 65);
-                progressCallback?.(`Importando gimnasta ${processedGymnasts + 1} de ${totalGymnasts}...`, progress);
-                
-                // Saneamos paths: si viene como file:// de exportaciones antiguas, lo reemplazamos por []
-                const incomingPaths = tableData?.mainTable?.paths;
-                let sanitizedPaths = typeof incomingPaths === 'string'
-                  ? (isFileRef(incomingPaths) ? '[]' : incomingPaths)
-                  : '[]';
-                
-                // Validar que sea JSON válido
-                try {
-                  JSON.parse(sanitizedPaths);
-                } catch (jsonErr) {
-                  console.warn(`importFolderData: paths inválido para tabla ${tableData?.mainTable?.id || 'unknown'}, usando []`, jsonErr);
-                  sanitizedPaths = '[]';
-                }
-                
-                // Validación de tamaño para evitar fallo "Row too big to fit into CursorWindow"
-                if (typeof sanitizedPaths === 'string' && sanitizedPaths) {
-                  const PATHS_INLINE_HARD_LIMIT = 900_000; // alineado con nueva política
-                  const byteLengthUtf8 = (str: string): number => {
-                    try { if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(str).length; } catch {}
-                    try { return unescape(encodeURIComponent(str)).length; } catch { return str.length; }
-                  };
-                  const size = byteLengthUtf8(sanitizedPaths);
-                  if (size > PATHS_INLINE_HARD_LIMIT) {
-                    console.warn(`[Import][MainTable] paths demasiado grande (${size} bytes). Reemplazando por [] y continuando.`);
-                    sanitizedPaths = '[]';
-                  }
-                }
-                
-                const newMainTableData = {
-                  ...tableData.mainTable,
-                  paths: sanitizedPaths,
-                  competenceId: newCompetenceId
-                };
-                delete newMainTableData.id;
-                const newMainTableId = await insertMainTable(newMainTableData);
-                if (!newMainTableId) {
-                  console.warn(`importFolderData: No se pudo crear tabla ${tableData?.mainTable?.id || 'unknown'}, saltando...`);
-                  processedGymnasts++;
-                  continue;
-                }
-                idMappings.mainTables.set(tableData.mainTable.id, newMainTableId);
-                
-                // Importar rate general si existe
-                if (tableData.rateGeneral) {
-                  try {
-                    const newRateGeneralData = {
-                      ...tableData.rateGeneral,
-                      tableId: newMainTableId
-                    };
-                    delete newRateGeneralData.id;
-                    await insertRateGeneral(newRateGeneralData);
-                  } catch (rateGenErr) {
-                    console.warn(`importFolderData: Error importando rateGeneral para tabla ${newMainTableId}`, rateGenErr);
-                    // No bloquear por error en rates
-                  }
-                }
-                
-                // Importar rate jump si existe
-                if (tableData.rateJump) {
-                  try {
-                    const newRateJumpData = {
-                      ...tableData.rateJump,
-                      tableId: newMainTableId
-                    };
-                    delete newRateJumpData.id;
-                    await insertRateJump(newRateJumpData);
-                  } catch (rateJumpErr) {
-                    console.warn(`importFolderData: Error importando rateJump para tabla ${newMainTableId}`, rateJumpErr);
-                    // No bloquear por error en rates
-                  }
-                }
-                
-                processedGymnasts++;
-              } catch (tableError) {
-                console.warn(`importFolderData: Error procesando tabla ${tableData?.mainTable?.id || 'unknown'}, saltando...`, tableError);
-                processedGymnasts++; // Contar como procesada aunque falle
-                continue;
-              }
-            }
-          } catch (competenceError) {
-            console.warn(`importFolderData: Error procesando competencia ${competenceData?.competence?.id || 'unknown'}, saltando...`, competenceError);
-            continue;
-          }
-        }
-      }
-      // Importar subcarpetas recursivamente
-      if (folderNode.subfolders) {
-        for (const subfolder of folderNode.subfolders) {
-          await importFolderRecursively(subfolder, newFolderId);
+      const newCompId = await insertCompetence({
+        ...comp,
+        id: undefined as any,
+        folderId: newFolderId,
+      });
+
+      if (newCompId && comp.mainTables) {
+        for (const table of comp.mainTables) {
+          await insertMainTable({
+            ...table,
+            id: undefined as any,
+            competenceId: newCompId,
+          });
         }
       }
     }
 
-    // Iniciar importación recursiva desde la raíz
-    await importFolderRecursively(importData, targetParentId);
-
-    progressCallback?.("Finalizando importación...", 95);
-    console.log("Import completed successfully", idMappings);
+    progressCallback?.('Completado', 100);
     return true;
   } catch (error) {
-    console.error("Error importing folder data:", error);
+    console.error('❌ Error importing folder:', error);
     return false;
   }
 };
 
-
-
-// Helper functions for querying related data
+// Funciones de compatibilidad adicionales
 export const getFolderWithCompetences = async (folderId: number): Promise<any> => {
-  try {
-    const folder = await getFolderById(folderId);
-    if (!folder) return null;
-    
-    const competences = await getCompetencesByFolderId(folderId);
-    
-    return {
-      ...folder,
-      competences
-    };
-  } catch (error) {
-    console.error("Error getting folder with competences:", error);
-    return null;
-  }
+  const folder = await getFolderById(folderId);
+  if (!folder) return null;
+
+  const competences = await getCompetencesByFolderId(folderId);
+  return { ...folder, competences };
 };
 
 export const getCompetenceWithTables = async (competenceId: number): Promise<any> => {
-  try {
-    const competence = await getCompetenceById(competenceId);
-    if (!competence) return null;
-    
-    const mainTables = await getMainTablesByCompetenceId(competenceId);
-    
-    // Include rates for each table
-    const tablesWithRates = await Promise.all(mainTables.map(async (table) => {
-      const rateGeneral = await getRateGeneralByTableId(table.id);
-      const rateJump = await getRateJumpByTableId(table.id);
-      
-      return {
-        ...table,
-        rateGeneral,
-        rateJump
-      };
-    }));
-    
-    return {
-      ...competence,
-      tables: tablesWithRates
-    };
-  } catch (error) {
-    console.error("Error getting competence with tables:", error);
-    return null;
-  }
+  const competence = await getCompetenceById(competenceId);
+  if (!competence) return null;
+
+  const mainTables = await getMainTablesByCompetenceId(competenceId);
+  return { ...competence, mainTables };
 };
 
-// Get user data with all related information
 export const getUserWithAllData = async (userId: number): Promise<any> => {
-  try {
-    const user = await getUserById(userId);
-    if (!user) return null;
-    
-    const folders = await getFoldersByUserId(userId);
-    const sessions = await getSessionsByUserId(userId);
-    
-    // Get competences for each folder
-    const foldersWithCompetences = await Promise.all(folders.map(async (folder) => {
-      const competences = await getCompetencesByFolderId(folder.id);
-      return {
-        ...folder,
-        competences
-      };
-    }));
-    
-    return {
-      ...user,
-      folders: foldersWithCompetences,
-      sessions
-    };
-  } catch (error) {
-    console.error("Error getting user with all data:", error);
-    return null;
-  }
+  const user = await getUserById(userId);
+  if (!user) return null;
+
+  const folders = await getFoldersByUserId(userId);
+  const sessions = await getSessionsByUserId(userId);
+
+  return { ...user, folders, sessions };
 };
 
-// Bulk operations for data import/export
 export const exportAllData = async (): Promise<any> => {
-  try {
-    const users = await getUsers();
-    const folders = await getFolders();
-    const sessions = await getSessions();
-    const competences = await getCompetences();
-    const mainTables = await getMainTables();
-    const rateGeneralTables = await getRateGeneralTables();
-    const rateJumpTables = await getRateJumpTables();
-    
-    return {
-      users,
-      folders,
-      sessions,
-      competences,
-      mainTables,
-      rateGeneralTables,
-      rateJumpTables
-    };
-  } catch (error) {
-    console.error("Error exporting all data:", error);
-    return null;
-  }
+  const users = await getUsers();
+  const folders = await getFolders();
+  const sessions = await getSessions();
+  const competences = await getCompetences();
+  const mainTables = await getMainTables();
+
+  return {
+    users,
+    folders,
+    sessions,
+    competences,
+    mainTables,
+    exportDate: new Date().toISOString(),
+    version: 1,
+  };
 };
 
 export const importAllData = async (data: any): Promise<boolean> => {
-  try {
-    if (!data) return false;
-    
-    // Import data for each table
-    if (data.users) await saveItems(USERS_KEY, data.users);
-    if (data.folders) await saveItems(FOLDERS_KEY, data.folders);
-    if (data.sessions) await saveItems(SESSIONS_KEY, data.sessions);
-    if (data.competences) await saveItems(COMPETENCES_KEY, data.competences);
-    if (data.mainTables) await saveItems(MAIN_TABLES_KEY, data.mainTables);
-    if (data.rateGeneralTables) await saveItems(RATE_GENERAL_KEY, data.rateGeneralTables);
-    if (data.rateJumpTables) await saveItems(RATE_JUMP_KEY, data.rateJumpTables);
-    
-    console.log("All data imported successfully.");
-    return true;
-  } catch (error) {
-    console.error("Error importing all data:", error);
-    return false;
-  }
+  // No implementado - requiere manejo cuidadoso de IDs
+  console.warn('importAllData not implemented for SQLite');
+  return false;
 };
 
-// Clear all data (for testing or reset purposes)
 export const clearAllData = async (): Promise<boolean> => {
   try {
-    await AsyncStorage.multiRemove([
-      USERS_KEY,
-      FOLDERS_KEY,
-      SESSIONS_KEY,
-      COMPETENCES_KEY,
-      MAIN_TABLES_KEY,
-      RATE_GENERAL_KEY,
-      RATE_JUMP_KEY
-    ]);
-    console.log("All data cleared successfully.");
+    const database = await openDatabase();
+    
+    await database.execAsync(`
+      DELETE FROM main_table_photos;
+      DELETE FROM rate_jump;
+      DELETE FROM rate_general;
+      DELETE FROM main_tables;
+      DELETE FROM competences;
+      DELETE FROM sessions;
+      DELETE FROM folders;
+      DELETE FROM activated_devices;
+      DELETE FROM users;
+    `);
+
+    console.log('✅ All data cleared');
     return true;
   } catch (error) {
-    console.error("Error clearing all data:", error);
+    console.error('❌ Error clearing data:', error);
     return false;
   }
 };
 
-// Additional helper functions for common queries
-
-// Get all competitions for a user
 export const getUserCompetitions = async (userId: number): Promise<Competence[]> => {
-  try {
-    const competences = await getCompetences();
-    return competences.filter(competence => competence.userId === userId);
-  } catch (error) {
-    console.error("Error getting user competitions:", error);
-    return [];
-  }
+  const rows = await safeQuery<any>(
+    'SELECT * FROM competences WHERE userId = ? ORDER BY date DESC',
+    [userId]
+  );
+  return rows.map(row => ({
+    ...row,
+    gender: row.gender === 1,
+  }));
 };
 
-// Get all recent competitions (past 30 days)
 export const getRecentCompetitions = async (userId: number): Promise<Competence[]> => {
-  try {
-    const competences = await getUserCompetitions(userId);
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
-    return competences.filter(competence => {
-      const competenceDate = new Date(competence.date);
-      return competenceDate >= thirtyDaysAgo;
-    });
-  } catch (error) {
-    console.error("Error getting recent competitions:", error);
-    return [];
-  }
+  const rows = await safeQuery<any>(
+    'SELECT * FROM competences WHERE userId = ? ORDER BY date DESC LIMIT 10',
+    [userId]
+  );
+  return rows.map(row => ({
+    ...row,
+    gender: row.gender === 1,
+  }));
 };
 
-// Search folders by name or description
-export const searchFolders = async (userId: number, searchTerm: string): Promise<Folder[]> => {
-  try {
-    const folders = await getFoldersByUserId(userId);
-    const lowerSearchTerm = searchTerm.toLowerCase();
-    
-    return folders.filter(folder => 
-      folder.name.toLowerCase().includes(lowerSearchTerm) || 
-      folder.description.toLowerCase().includes(lowerSearchTerm)
-    );
-  } catch (error) {
-    console.error("Error searching folders:", error);
-    return [];
-  }
+export const searchFolders = async (
+  userId: number,
+  searchTerm: string
+): Promise<Folder[]> => {
+  const rows = await safeQuery<any>(
+    `SELECT * FROM folders 
+     WHERE userId = ? AND (name LIKE ? OR description LIKE ?)
+     ORDER BY position`,
+    [userId, `%${searchTerm}%`, `%${searchTerm}%`]
+  );
+  return rows.map(row => ({
+    ...row,
+    type: row.type === 1,
+    filled: row.filled === 1,
+  }));
 };
 
-// Search competitions by name or description
-export const searchCompetitions = async (userId: number, searchTerm: string): Promise<Competence[]> => {
-  try {
-    const competences = await getUserCompetitions(userId);
-    const lowerSearchTerm = searchTerm.toLowerCase();
-    
-    return competences.filter(competence => 
-      competence.name.toLowerCase().includes(lowerSearchTerm) || 
-      competence.description.toLowerCase().includes(lowerSearchTerm)
-    );
-  } catch (error) {
-    console.error("Error searching competitions:", error);
-    return [];
-  }
+export const searchCompetitions = async (
+  userId: number,
+  searchTerm: string
+): Promise<Competence[]> => {
+  const rows = await safeQuery<any>(
+    `SELECT * FROM competences 
+     WHERE userId = ? AND (name LIKE ? OR description LIKE ?)
+     ORDER BY date DESC`,
+    [userId, `%${searchTerm}%`, `%${searchTerm}%`]
+  );
+  return rows.map(row => ({
+    ...row,
+    gender: row.gender === 1,
+  }));
 };
 
-// Get statistics for a user
 export const getUserStatistics = async (userId: number): Promise<any> => {
+  const foldersCount = await safeQuery<{ count: number }>(
+    'SELECT COUNT(*) as count FROM folders WHERE userId = ?',
+    [userId]
+  );
+
+  const competencesCount = await safeQuery<{ count: number }>(
+    'SELECT COUNT(*) as count FROM competences WHERE userId = ?',
+    [userId]
+  );
+
+  const mainTablesCount = await safeQuery<{ count: number }>(
+    `SELECT COUNT(*) as count FROM main_tables mt
+     JOIN competences c ON mt.competenceId = c.id
+     WHERE c.userId = ?`,
+    [userId]
+  );
+
+  return {
+    totalFolders: foldersCount[0]?.count || 0,
+    totalCompetences: competencesCount[0]?.count || 0,
+    totalTables: mainTablesCount[0]?.count || 0,
+  };
+};
+
+// Función especial para insertar tabla corrupta con manejo de errores
+export const insertCorruptMainTable = async (raw: any): Promise<number | false> => {
   try {
-    const folders = await getFoldersByUserId(userId);
-    const competences = await getUserCompetitions(userId);
-    const mainTables = await getMainTables();
+    // Intentar sanitizar y insertar
+    const sanitized: any = {};
     
-    // Filter main tables that belong to the user's competitions
-    const userCompetenceIds = competences.map(comp => comp.id);
-    const userMainTables = mainTables.filter(table => 
-      userCompetenceIds.includes(table.competenceId)
+    // Campos numéricos con defaults
+    const numFields = ['competenceId', 'number', 'j', 'i', 'h', 'g', 'f', 'e', 'd', 'c', 'b', 'a', 'dv', 'eg', 'sb', 'nd', 'cv', 'sv', 'e2', 'd3', 'e3', 'delt', 'percentage', 'numberOfElements', 'difficultyValues', 'elementGroups1', 'elementGroups2', 'elementGroups3', 'elementGroups4', 'elementGroups5', 'execution', 'eScore', 'myScore', 'compD', 'compE', 'compSd', 'compNd', 'compScore', 'ded', 'dedexecution', 'startValue', 'score'];
+    
+    numFields.forEach(field => {
+      const value = raw[field];
+      sanitized[field] = typeof value === 'number' && !isNaN(value) ? value : 0;
+    });
+
+    // Campos string
+    ['name', 'event', 'noc', 'bib', 'vaultNumber', 'vaultDescription', 'description', 'comments'].forEach(field => {
+      sanitized[field] = raw[field] ? String(raw[field]) : '';
+    });
+
+    // Paths
+    sanitized.paths = raw.paths || '[]';
+
+    // Boolean
+    sanitized.stickBonus = !!raw.stickBonus;
+
+    return await insertMainTable(sanitized as Omit<MainTable, 'id'>);
+  } catch (error) {
+    console.error('❌ Error inserting corrupt main table:', error);
+    return false;
+  }
+};
+
+// ==================== INITIALIZATION ====================
+
+/**
+ * Inicializa la base de datos SQLite
+ */
+export const initDatabase = async (): Promise<void> => {
+  try {
+    console.log('🚀 Initializing SQLite database...');
+    await createTables();
+    
+    const database = await openDatabase();
+    
+    // Crear usuario por defecto con ID = 0 si no existe
+    const existingUser = await database.getFirstAsync<User>(
+      'SELECT * FROM users WHERE id = 0'
     );
     
-    // Calculate statistics
-    return {
-      totalFolders: folders.length,
-      totalCompetitions: competences.length,
-      totalParticipants: userMainTables.length,
-      competenceTypes: countByProperty(competences, 'type'),
-      foldersPerType: {
-        training: folders.filter(folder => folder.type).length,
-        competence: folders.filter(folder => !folder.type).length
-      }
-    };
+    if (!existingUser) {
+      await database.runAsync(
+        `INSERT INTO users (id, username, password, rol) VALUES (?, ?, ?, ?)`,
+        [0, 'default', 'default', 'user']
+      );
+      console.log('✅ Default user created (id=0)');
+    } else {
+      console.log('ℹ️ Default user already exists (id=0)');
+    }
+    
+    // Crear sesión por defecto con ID = 1 si no existe (para MAG)
+    const existingSessionMAG = await database.getFirstAsync<Session>(
+      'SELECT * FROM sessions WHERE id = 1'
+    );
+    
+    if (!existingSessionMAG) {
+      await database.runAsync(
+        `INSERT INTO sessions (id, gender, userId) VALUES (?, ?, ?)`,
+        [1, 1, 0] // id=1, gender=true (MAG), userId=0
+      );
+      console.log('✅ Default session created for MAG (id=1)');
+    } else {
+      console.log('ℹ️ Default session for MAG already exists (id=1)');
+    }
+    
+    // Crear sesión por defecto con ID = 2 si no existe (para WAG)
+    const existingSessionWAG = await database.getFirstAsync<Session>(
+      'SELECT * FROM sessions WHERE id = 2'
+    );
+    
+    if (!existingSessionWAG) {
+      await database.runAsync(
+        `INSERT INTO sessions (id, gender, userId) VALUES (?, ?, ?)`,
+        [2, 0, 0] // id=2, gender=false (WAG), userId=0
+      );
+      console.log('✅ Default session created for WAG (id=2)');
+    } else {
+      console.log('ℹ️ Default session for WAG already exists (id=2)');
+    }
+    
+    await migrateLargeInlinePaths();
+    console.log('✅ Database initialized successfully');
   } catch (error) {
-    console.error("Error getting user statistics:", error);
+    console.error('❌ Error initializing database:', error);
+    throw error;
+  }
+};
+
+export const initializeApp = async (): Promise<void> => {
+  await initDatabase();
+};
+
+// ==================== APP SETTINGS FUNCTIONS ====================
+/**
+ * Obtiene la disciplina por defecto guardada
+ * @returns true = MAG, false = WAG, null = sin disciplina por defecto
+ */
+export const getDefaultDiscipline = async (): Promise<boolean | null> => {
+  try {
+    const database = await openDatabase();
+    const result = await database.getFirstAsync<{ defaultDiscipline: number | null }>(
+      'SELECT defaultDiscipline FROM app_settings WHERE id = 1'
+    );
+    
+    console.log('📖 Query result from app_settings:', result);
+    
+    if (!result || result.defaultDiscipline === null) {
+      console.log('📖 No default discipline found in database');
+      return null;
+    }
+    
+    const discipline = result.defaultDiscipline === 1;
+    console.log('📖 Default discipline loaded from DB:', discipline, '(', result.defaultDiscipline, ')');
+    return discipline;
+  } catch (error) {
+    console.error('❌ Error getting default discipline:', error);
     return null;
   }
 };
 
-// Count items by a specific property
-const countByProperty = <T>(items: T[], property: keyof T): Record<string, number> => {
-  return items.reduce((acc: Record<string, number>, item: T) => {
-    const propValue = String(item[property]);
-    acc[propValue] = (acc[propValue] || 0) + 1;
-    return acc;
-  }, {});
-};
-
-// Demo or initialization function
-export const initializeApp = async (): Promise<void> => {
-   try {
-    // Run cleanup to ensure data integrity
-    await cleanupData();
-
-    // Migración a almacenamiento shard para MainTables si todavía no se creó índice
-    try {
-      const shardIndex = await AsyncStorage.getItem(MAIN_TABLE_SHARD_INDEX_KEY);
-      if (!shardIndex) {
-        const aggregated = await AsyncStorage.getItem(MAIN_TABLES_KEY);
-        if (aggregated) {
-          try {
-            const parsed = JSON.parse(aggregated);
-            if (Array.isArray(parsed) && parsed.length) {
-              console.log('[MainTables][MIGRATION] Creando shards iniciales desde agregado existente. Registros:', parsed.length);
-              await saveShardedMainTables(parsed);
-            }
-          } catch (e) {
-            console.warn('[MainTables][MIGRATION] No se pudo parsear agregado existente para shards', e);
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('[MainTables][MIGRATION] Error general migrando a shards', e);
-    }
-    
-    // Check if any data exists
-    const users = await getUsers();
-    
-    // If no users, initialize with default users and test data
-    if (users.length === 0) {
-      console.log("No users found. Initializing app with default users and test data...");
-      await addTestData();
-    } else {
-      console.log(`App initialized with ${users.length} existing users.`);
-      
-      // Ensure default users exist even if other users are present
-      const defaultUsernames = ["Bernabe", "Luis", "LuisAdmin"];
-      const missingUsers = defaultUsernames.filter(
-        username => !users.some(user => user.username === username)
-      );
-      
-      if (missingUsers.length > 0) {
-        console.log(`Adding missing default users: ${missingUsers.join(", ")}`);
-        await addTestData();
-      }
-    }
-  } catch (error) {
-    console.error("Error initializing app:", error);
-  }
-};
-
-export const updateFolderPositions = async (folderPositions: { id: number; position: number }[]): Promise<boolean> => {
+/**
+ * Guarda la disciplina por defecto
+ * @param discipline true = MAG, false = WAG, null = sin disciplina por defecto
+ */
+export const saveDefaultDiscipline = async (discipline: boolean | null): Promise<boolean> => {
   try {
-    const folders = await getFolders();
+    const database = await openDatabase();
+    const disciplineValue = discipline === null ? null : (discipline ? 1 : 0);
+    const timestamp = Date.now();
     
-    // Update positions for each folder
-    folderPositions.forEach(({ id, position }) => {
-      const folderIndex = folders.findIndex(folder => folder.id === id);
-      if (folderIndex !== -1) {
-        folders[folderIndex].position = position;
-      }
-    });
+    console.log('💾 Saving default discipline:', discipline, '→ DB value:', disciplineValue);
     
-    await saveItems(FOLDERS_KEY, folders);
-    console.log("Folder positions updated successfully.");
+    // Verificar si ya existe un registro
+    const existing = await database.getFirstAsync<{ id: number }>(
+      'SELECT id FROM app_settings WHERE id = 1'
+    );
+    
+    if (existing) {
+      // Actualizar
+      console.log('💾 Updating existing record...');
+      await database.runAsync(
+        'UPDATE app_settings SET defaultDiscipline = ?, lastUpdated = ? WHERE id = 1',
+        [disciplineValue, timestamp]
+      );
+    } else {
+      // Insertar
+      console.log('💾 Inserting new record...');
+      await database.runAsync(
+        'INSERT INTO app_settings (id, defaultDiscipline, lastUpdated) VALUES (?, ?, ?)',
+        [1, disciplineValue, timestamp]
+      );
+    }
+    
+    console.log('✅ Default discipline saved successfully');
     return true;
   } catch (error) {
-    console.error("Error updating folder positions:", error);
+    console.error('❌ Error saving default discipline:', error);
     return false;
   }
 };
 
-export const getFoldersOrderedByPosition = async (): Promise<Folder[]> => {
-  try {
-    const folders = await getFolders();
-    
-    // Sort by position, folders without position go to the end
-    return folders.sort((a, b) => {
-      if (a.position === undefined && b.position === undefined) return 0;
-      if (a.position === undefined) return 1;
-      if (b.position === undefined) return -1;
-      return a.position - b.position;
-    });
-  } catch (error) {
-    console.error("Error getting ordered folders:", error);
-    return [];
-  }
+// Exportar tipo para migraciones
+export const exportFolderZip = async (
+  folderId: number,
+  progressCallback?: (message: string, progress: number) => void
+): Promise<Uint8Array | null> => {
+  console.warn('exportFolderZip not fully implemented for SQLite');
+  return null;
 };
 
-// Migración: externalizar paths inline grandes existentes para evitar errores CursorWindow
-export const migrateLargeInlinePaths = async (): Promise<void> => {
-  try {
-    const tables = await getMainTables();
-    if (!tables.length) return;
-    let modified = false;
-    const INLINE_HARD_LIMIT = 900_000; // nuevo límite objetivo seguridad (<1MB)
-    const SHOULD_EXTERNALIZE_AT = 60_000; // si supera esto, externalizamos (byte size)
-    const byteLengthUtf8 = (str: string): number => {
-      try { if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(str).length; } catch {}
-      try { return unescape(encodeURIComponent(str)).length; } catch { return str.length; }
-    };
-    for (let i = 0; i < tables.length; i++) {
-      const t: any = tables[i];
-      if (t && typeof t.paths === 'string' && !isFileRef(t.paths)) {
-        const size = byteLengthUtf8(t.paths);
-        if (size > INLINE_HARD_LIMIT) {
-          // Demasiado grande: truncar preventivamente (o vaciar) para evitar crash si externalización falla
-          console.warn(`[MIGRATE][MainTable:${t.id}] paths > ${INLINE_HARD_LIMIT} (${size}). Intentando externalizar, fallback a '[]' si falla.`);
-        }
-        if (size > SHOULD_EXTERNALIZE_AT) {
-          try {
-            const uri = makePathsFileUri(t.id);
-            await writeStringToFile(uri, t.paths);
-            t.paths = uri;
-            modified = true;
-            console.log(`[MIGRATE][MainTable:${t.id}] paths externalizado (${size} bytes) -> ${uri}`);
-          } catch (e) {
-            console.warn(`[MIGRATE][MainTable:${t.id}] fallo externalizando (${size} bytes)`, e);
-            if (size > INLINE_HARD_LIMIT) {
-              t.paths = '[]';
-              modified = true;
-              console.warn(`[MIGRATE][MainTable:${t.id}] paths reemplazado por [] para evitar CursorWindow.`);
-            }
-          }
-        }
-      }
-    }
-    if (modified) {
-  await persistMainTables(tables);
-      console.log('[MIGRATE] Large inline paths externalizados / saneados.');
-    }
-  } catch (e) {
-    console.warn('migrateLargeInlinePaths error:', e);
-  }
+export const importFolderZip = async (
+  zipData: Uint8Array,
+  targetParentId: number,
+  progressCallback?: (message: string, progress: number) => void
+): Promise<boolean> => {
+  console.warn('importFolderZip not fully implemented for SQLite');
+  return false;
 };
 
-// Inserta un MainTable sin saneo ni validación (uso exclusivo de pantalla dev para probar recuperación de datos corruptos)
-// Acepta cualquier objeto, rellena campos faltantes con defaults muy básicos y NO muestra Alert de validación.
-export const insertCorruptMainTable = async (raw: any): Promise<number | false> => {
-  try {
-    const mainTables = await getMainTables();
-    const id = await getNextId(MAIN_TABLES_KEY);
-    const wantHuge = !!(raw && (raw.hugePaths || raw.__huge || raw.paths === '__HUGE__'));
-    const buildHugePathsString = (targetBytes: number = 1_050_000) => {
-      // Genera un JSON array grande de puntos para intentar exceder CursorWindow en Android
-      // Cada entrada ~18-24 bytes: {"x":123,"y":456}
-      const items: string[] = [];
-      let x = 0; let y = 0; let approx = 2; // '[' + ']'
-      while (approx < targetBytes) {
-        x = (x + 13) % 1000; y = (y + 29) % 1000;
-        const chunk = `{"x":${x},"y":${y}}`;
-        items.push(chunk);
-        approx += chunk.length + 1; // + comma
-        if (items.length > 200000) break; // safety guard
-      }
-      return '[' + items.join(',') + ']';
-    };
-    const defaults: MainTable = {
-      id,
-      competenceId: 0,
-      number: 0,
-      name: '',
-      event: '',
-      noc: '',
-      bib: '',
-      j: 0,i:0,h:0,g:0,f:0,e:0,d:0,c:0,b:0,a:0,
-      dv:0,eg:0,sb:0,nd:0,cv:0,sv:0,e2:0,d3:0,e3:0,delt:0,percentage:0,
-      stickBonus:false,
-      numberOfElements:0,
-      difficultyValues:0,
-      elementGroups1:0,elementGroups2:0,elementGroups3:0,elementGroups4:0,elementGroups5:0,
-      execution:0,eScore:0,myScore:0,compD:0,compE:0,compSd:0,compNd:0,compScore:0,
-      comments:'',paths:'[]',ded:0,dedexecution:0,vaultNumber:'',vaultDescription:'',startValue:0,description:'',score:0
-    };
-    // Mezclar sin coerción
-    const candidate: any = { ...defaults, ...raw, id };
-    // Asegurar paths string (si viene objeto/array convertir best-effort)
-    if (wantHuge) {
-      candidate.paths = buildHugePathsString();
-      candidate.__forceInlineHuge = true; // marca interna para saltar externalización
-    } else if (candidate.paths && typeof candidate.paths === 'object') {
-      try { candidate.paths = JSON.stringify(candidate.paths); } catch { candidate.paths = '[]'; }
-    }
-    if (typeof candidate.paths !== 'string') candidate.paths = '[]';
-    // Si paths muy grande, externalizar (reutilizar lógica mínima)
-    if (typeof candidate.paths === 'string' && candidate.paths.length > LARGE_FIELD_THRESHOLD && !candidate.__forceInlineHuge) {
-      try {
-        const uri = makePathsFileUri(id);
-        await writeStringToFile(uri, candidate.paths);
-        candidate.paths = uri;
-      } catch {}
-    }
-    delete candidate.__forceInlineHuge;
-  mainTables.push(candidate as MainTable);
-  await persistMainTables(mainTables);
-    console.log('[DEV][CORRUPT] insertCorruptMainTable ID=', id);
-    return id;
-  } catch (e) {
-    console.error('[DEV][CORRUPT] Error insertCorruptMainTable', e);
-    return false;
-  }
+export const addTestData = async () => {
+  console.warn('addTestData not implemented for SQLite');
 };
+

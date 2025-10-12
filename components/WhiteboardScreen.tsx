@@ -3,7 +3,6 @@ import { View, StyleSheet, Dimensions, TouchableOpacity, Text, Animated, Platfor
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
 import { Path, SkPath, Skia, Canvas, Image as SkiaImage, Group, useImage } from "@shopify/react-native-skia";
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateRateGeneral, getRateGeneralByTableId, getMainTableById, updateMainTable, getMainTablePaths, getPhotosForMainTable, addPhotoToMainTable, getPhotoItemsForMainTable, updatePhotoTransformForMainTable, removePhotoFromMainTable } from '../Database/database';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -33,7 +32,7 @@ const BUTTON_SIZE = 50; // Tamaño reducido de botones
 const BUTTON_GAP = 5; // Separación entre botones
 const BUTTON_START_X = 0; // Posición inicial X
 
-// Configuración global del pen (AsyncStorage keys)
+// Configuración global del pen (en memoria, se resetea al cerrar app)
 const PEN_CONFIG_KEY = '@whiteboard_pen_config';
 
 // Configuración por defecto del pen
@@ -45,36 +44,21 @@ const DEFAULT_PEN_CONFIG = {
 
 // Variable global para mantener la configuración en memoria
 let globalPenConfig = { ...DEFAULT_PEN_CONFIG };
+let globalInputMode = '';
 
-// Funciones utilitarias para manejar la configuración global del pen
-const loadGlobalPenConfig = async () => {
-  try {
-    const configString = await AsyncStorage.getItem(PEN_CONFIG_KEY);
-    if (configString) {
-      const config = JSON.parse(configString);
-      globalPenConfig = { ...DEFAULT_PEN_CONFIG, ...config };
-      console.log('Loaded pen config:', globalPenConfig);
-    }
-  } catch (error) {
-    console.warn('Error loading pen config:', error);
-    globalPenConfig = { ...DEFAULT_PEN_CONFIG };
-  }
+// Funciones utilitarias para manejar la configuración global del pen (solo en memoria)
+const loadGlobalPenConfig = () => {
   return globalPenConfig;
 };
 
-const saveGlobalPenConfig = async (config: typeof DEFAULT_PEN_CONFIG) => {
-  try {
-    globalPenConfig = { ...config };
-    await AsyncStorage.setItem(PEN_CONFIG_KEY, JSON.stringify(config));
-    console.log('Saved pen config:', config);
-  } catch (error) {
-    console.warn('Error saving pen config:', error);
-  }
+const saveGlobalPenConfig = (config: typeof DEFAULT_PEN_CONFIG) => {
+  globalPenConfig = { ...config };
+  console.log('Saved pen config:', config);
 };
 
-const updateGlobalPenConfig = async (updates: Partial<typeof DEFAULT_PEN_CONFIG>) => {
+const updateGlobalPenConfig = (updates: Partial<typeof DEFAULT_PEN_CONFIG>) => {
   const newConfig = { ...globalPenConfig, ...updates };
-  await saveGlobalPenConfig(newConfig);
+  saveGlobalPenConfig(newConfig);
   return newConfig;
 };
 
@@ -143,6 +127,10 @@ const DrawingCanvas = ({
   const [undoStack, setUndoStack] = useState<PathData[]>([]);
   const [isEraser, setIsEraser] = useState<boolean>(false);
   const [menuOpen, setMenuOpen] = useState<boolean>(false);
+  
+  // Estado de guardado para indicador visual
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
   
   // Estados para configuración de pen/eraser
   const [currentColor, setCurrentColor] = useState<string>(globalPenConfig.color); // Usar configuración global
@@ -331,6 +319,16 @@ const findPhotoAtPoint = (x: number, y: number): string | null => {
     };
   }, [tableId]);
 
+  // Auto-ocultar indicador de guardado después de 3 segundos
+  useEffect(() => {
+    if (lastSaved && !isSaving) {
+      const timer = setTimeout(() => {
+        setLastSaved(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [lastSaved, isSaving]);
+
   // Cargar fotos simples (solo URIs)
   const loadPhotos = useCallback( async () => {
     try {
@@ -355,26 +353,15 @@ const findPhotoAtPoint = (x: number, y: number): string | null => {
   }, [tableId]);
 
   // Helpers iOS: asegurar archivo accesible y formato soportado
-  const PHOTO_IMPORT_LOG_KEY = '@photoImportLog';
-
-  const appendPhotoImportLog = useCallback(async (entry: Record<string, any>) => {
-    try {
-      const payload = {
-        ts: new Date().toISOString(),
-        platform: Platform.OS,
-        tableId,
-        ...entry,
-      };
-      console.log('[PhotoImport]', payload);
-      const prev = await AsyncStorage.getItem(PHOTO_IMPORT_LOG_KEY);
-      const arr = prev ? JSON.parse(prev) : [];
-      arr.push(payload);
-      const MAX = 200;
-      if (arr.length > MAX) arr.splice(0, arr.length - MAX);
-      await AsyncStorage.setItem(PHOTO_IMPORT_LOG_KEY, JSON.stringify(arr));
-    } catch (e) {
-      console.warn('[PhotoImport] log save failed', e);
-    }
+  // Log simplificado solo en consola (sin persistencia)
+  const appendPhotoImportLog = useCallback((entry: Record<string, any>) => {
+    const payload = {
+      ts: new Date().toISOString(),
+      platform: Platform.OS,
+      tableId,
+      ...entry,
+    };
+    console.log('[PhotoImport]', payload);
   }, [tableId]);
 
   const ensurePhotosDir = async () => {
@@ -494,27 +481,49 @@ const findPhotoAtPoint = (x: number, y: number): string | null => {
         await appendPhotoImportLog({ step: 'file_info_ok', size: info.size, uri: pickedUri });
       } catch {}
 
-      const ok = await addPhotoToMainTable(tableId, pickedUri);
-      await appendPhotoImportLog({ step: 'db_add_result', ok, uri: pickedUri });
-      if (ok) {
-        // Calcular centro basándonos en el ancho de pantalla y altura de canvas
-  const photoSize = 120; // base centrar (independiente de escala)
-        const centerX = Math.round((width - photoSize) / 2);
-        const centerY = Math.round((canvasHeight - photoSize) / 2);
-        // Actualizar transform inicial para centrar
-  await updatePhotoTransformForMainTable(tableId, pickedUri, { x: centerX, y: centerY, scale: 0.5 });
-        await appendPhotoImportLog({ step: 'transform_initialized', x: centerX, y: centerY, scale: 0.5, uri: pickedUri });
-        await loadPhotos();
-        await loadPhotoItems();
-        setActivePhoto(pickedUri);
-        await appendPhotoImportLog({ step: 'success', uri: pickedUri });
+      // Operación transaccional completa: agregar foto y configurar transformación
+      const success = await addPhotoToMainTable(tableId, pickedUri);
+      appendPhotoImportLog({ step: 'db_add_result', success, uri: pickedUri });
+      
+      if (!success) {
+        throw new Error('No se pudo agregar la foto a la base de datos');
       }
+      
+      // Calcular centro basándonos en el ancho de pantalla y altura de canvas
+      const photoSize = 120; // base centrar (independiente de escala)
+      const centerX = Math.round((width - photoSize) / 2);
+      const centerY = Math.round((canvasHeight - photoSize) / 2);
+      
+      // Actualizar transform inicial para centrar (operación transaccional)
+      const transformSuccess = await updatePhotoTransformForMainTable(
+        tableId, 
+        pickedUri, 
+        { x: centerX, y: centerY, scale: 0.5 }
+      );
+      
+      if (!transformSuccess) {
+        throw new Error('No se pudo inicializar la transformación de la foto');
+      }
+      
+      appendPhotoImportLog({ step: 'transform_initialized', x: centerX, y: centerY, scale: 0.5, uri: pickedUri });
+      
+      // Recargar datos de la base de datos
+      await loadPhotos();
+      await loadPhotoItems();
+      setActivePhoto(pickedUri);
+      
+      appendPhotoImportLog({ step: 'success', uri: pickedUri });
+      console.log('✅ Foto agregada exitosamente:', pickedUri);
     } catch (e) {
-    console.error('handleAddPhoto error', e);
-    const message = (typeof e === 'object' && e && 'message' in e) ? String((e as any).message) : String(e);
-    const stack = (typeof e === 'object' && e && 'stack' in e) ? String((e as any).stack) : null;
-    await appendPhotoImportLog({ step: 'error', message, stack });
-      Alert.alert('Error', 'No se pudo añadir la imagen');
+      console.error('❌ handleAddPhoto error', e);
+      const message = (typeof e === 'object' && e && 'message' in e) ? String((e as any).message) : String(e);
+      const stack = (typeof e === 'object' && e && 'stack' in e) ? String((e as any).stack) : null;
+      appendPhotoImportLog({ step: 'error', message, stack });
+      Alert.alert(
+        'Error al Agregar Imagen',
+        `No se pudo añadir la imagen:\n${message}`,
+        [{ text: 'OK' }]
+      );
     }
   }, [tableId, loadPhotos]);
 
@@ -525,47 +534,85 @@ const findPhotoAtPoint = (x: number, y: number): string | null => {
   useEffect(() => { photoItemsRef.current = photoItems as PhotoItem[]; }, [photoItems]);
 
   const onUpdatePhotoTransform = useCallback(async (uri: string, data: {x?: number; y?: number; scale?: number; rotation?: number}) => {
+    // Guardar estado anterior para posible rollback
+    const previousState = photoItemsRef.current.find(p => p.uri === uri);
+    
+    // Actualizar estado UI inmediatamente
     setPhotoItems(prev => prev.map(p => p.uri === uri ? { ...p, ...data } : p));
+    
     try {
       const existing = photoItemsRef.current.find(p => p.uri === uri);
       const merged: PhotoItem = existing ? { ...existing, ...data } : { uri, x: 0, y: 0, scale: 1, rotation: 0, ...data } as PhotoItem;
       if (merged.scale <= 0) merged.scale = 1;
-      await updatePhotoTransformForMainTable(tableId, uri, { x: merged.x, y: merged.y, scale: merged.scale, rotation: merged.rotation });
+      
+      // Operación transaccional con manejo de errores
+      const success = await updatePhotoTransformForMainTable(
+        tableId, 
+        uri, 
+        { x: merged.x, y: merged.y, scale: merged.scale, rotation: merged.rotation }
+      );
+      
+      if (!success) {
+        throw new Error('La operación de actualización retornó false');
+      }
+      
       photoItemsRef.current = photoItemsRef.current.map(p => p.uri === uri ? merged : p);
-    } catch (e) {
-      console.warn('Persist transform error', e);
+      console.log('✅ Transformación de foto guardada:', { uri, ...data });
+    } catch (error) {
+      console.error('❌ Error al guardar transformación de foto:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      Alert.alert(
+        'Error al Guardar',
+        `No se pudo guardar la transformación de la imagen:\n${errorMessage}`,
+        [{ text: 'OK' }]
+      );
+      // Revertir estado UI en caso de error
+      if (previousState) {
+        setPhotoItems(prev => prev.map(p => p.uri === uri ? previousState : p));
+      }
     }
   }, [tableId]);
 
   const handleDeletePhoto = useCallback(async (uri: string) => {
     const idx = photoItems.findIndex(p => p.uri === uri);
-    if (idx === -1) return;
-    const ok = await removePhotoFromMainTable(tableId, idx);
-    if (ok) { await loadPhotos(); await loadPhotoItems(); setActivePhoto(null); }
+    if (idx === -1) {
+      Alert.alert('Error', 'No se encontró la imagen a eliminar');
+      return;
+    }
+    
+    try {
+      const success = await removePhotoFromMainTable(tableId, idx);
+      
+      if (!success) {
+        throw new Error('La operación de eliminación retornó false');
+      }
+      
+      await loadPhotos();
+      await loadPhotoItems();
+      setActivePhoto(null);
+      console.log('✅ Foto eliminada exitosamente');
+    } catch (error) {
+      console.error('❌ Error al eliminar foto:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      Alert.alert(
+        'Error al Eliminar',
+        `No se pudo eliminar la imagen:\n${errorMessage}`,
+        [{ text: 'OK' }]
+      );
+    }
   }, [tableId, photoItems, loadPhotos, loadPhotoItems]);
 
     // Estado para el modo de entrada: 'pen' o 'finger'
-  const [inputMode, setInputMode] = useState('pen');
-  useEffect(() => {
-    const loadInputMode = async () => {
-      try {
-        const saved = await AsyncStorage.getItem('inputMode');
-        if (saved) {
-          setInputMode(saved);
-        } else {
-          setInputMode(isTinyDevice ? 'finger' : 'pen');
-        }
-      } catch (e) {
-        setInputMode(isTinyDevice ? 'finger' : 'pen');
-      }
-    };
-    loadInputMode();
-  }, [isTinyDevice]);
+  const [inputMode, setInputMode] = useState(() => {
+    // Inicializar desde variable global o por tamaño de dispositivo
+    if (globalInputMode) return globalInputMode;
+    return isTinyDevice ? 'finger' : 'pen';
+  });
 
-  const toggleInputMode = async () => {
+  const toggleInputMode = () => {
     const newMode = inputMode === 'pen' ? 'finger' : 'pen';
     setInputMode(newMode);
-    await AsyncStorage.setItem('inputMode', newMode);
+    globalInputMode = newMode; // Guardar en memoria global
   };
 
   
@@ -626,8 +673,9 @@ const findPhotoAtPoint = (x: number, y: number): string | null => {
     }
   }, [tableId]);
 
-  // Guardar paths de manera eficiente con debounce
+  // Guardar paths de manera eficiente con debounce y manejo transaccional
   const savePaths = useCallback(async (newPathsData: PathData[]) => {
+    setIsSaving(true);
     try {
       // Limitar el número de paths para evitar problemas de memoria (máximo 1000)
       const limitedPaths = newPathsData.slice(-1000);
@@ -641,20 +689,44 @@ const findPhotoAtPoint = (x: number, y: number): string | null => {
       };
       const size = byteLengthUtf8(pathsString);
       if (size > INLINE_HARD_LIMIT) {
-        Alert.alert('Whiteboard cap reached', 'Has reached the maximum drawing capacity. Please erase some strokes before continuing.');
+        setIsSaving(false);
+        Alert.alert(
+          'Límite alcanzado', 
+          'Has alcanzado el límite máximo de trazos. Por favor borra algunos antes de continuar.',
+          [{ text: 'OK' }]
+        );
         console.warn(`[Whiteboard] Save blocked. paths size=${size} bytes > ${INLINE_HARD_LIMIT}`);
         return; // No guardamos para evitar intento de fila gigante
       }
       
+      // Operación transaccional con SQLite
       const mainTable = await getMainTableById(tableId);
 
-      if (mainTable) {
-        await updateMainTable(mainTable.id, { paths: pathsString });
+      if (!mainTable) {
+        throw new Error(`No se encontró la tabla con ID ${tableId}`);
       }
 
-      console.log(`Saved ${limitedPaths.length} paths efficiently`);
+      const success = await updateMainTable(mainTable.id, { paths: pathsString });
+      
+      if (!success) {
+        throw new Error('No se pudo actualizar los paths en la base de datos');
+      }
+
+      setLastSaved(new Date());
+      console.log(`✅ Guardados ${limitedPaths.length} trazos exitosamente`);
     } catch (error) {
-      console.error('Error saving paths:', error);
+      console.error('❌ Error saving paths:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      Alert.alert(
+        'Error al Guardar',
+        `No se pudieron guardar los trazos del whiteboard:\n${errorMessage}`,
+        [
+          { text: 'Reintentar', onPress: () => savePaths(newPathsData) },
+          { text: 'Cancelar', style: 'cancel' }
+        ]
+      );
+    } finally {
+      setIsSaving(false);
     }
   }, [tableId]);
 
@@ -1576,6 +1648,23 @@ const findPhotoAtPoint = (x: number, y: number): string | null => {
         </Animated.View>
       )}
 
+      {/* Indicador de guardado - top right */}
+      {(isSaving || lastSaved) && (
+        <View style={styles.saveIndicatorContainer}>
+          {isSaving ? (
+            <View style={styles.saveIndicator}>
+              <Text style={styles.saveIndicatorText}>💾 Guardando...</Text>
+            </View>
+          ) : lastSaved && (
+            <View style={styles.saveIndicator}>
+              <Text style={styles.saveIndicatorTextSuccess}>
+                ✅ Guardado {new Date().getTime() - lastSaved.getTime() < 3000 ? 'ahora' : 'hace un momento'}
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+
       {/* Percentage display */}
       <Text style={styles.percentageText}>{percentage}</Text>
 
@@ -2080,6 +2169,34 @@ const styles = StyleSheet.create({
     height: canvasHeight,
     zIndex: 500, // debajo de controles (1200) encima del canvas
     backgroundColor: 'transparent'
+  },
+  // Indicador de guardado
+  saveIndicatorContainer: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    zIndex: 1100,
+  },
+  saveIndicator: {
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  saveIndicatorText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  saveIndicatorTextSuccess: {
+    color: '#4CAF50',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });
 

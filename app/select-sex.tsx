@@ -1,4 +1,3 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFonts } from "expo-font";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
@@ -36,6 +35,9 @@ if (width >= 1368 ) {
 
 const DEFAULT_DISCIPLINE_KEY = "defaultDiscipline";
 
+// Almacenamiento en memoria para la disciplina por defecto (se pierde al cerrar la app)
+let memoryDefaultDiscipline: boolean | null = null;
+
 export default function SelectSex() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -72,13 +74,10 @@ export default function SelectSex() {
   const adminButtonOpacity = useRef(new Animated.Value(0)).current;
   const toggleButtonOpacity = useRef(new Animated.Value(0)).current;
 
-  // Cargar disciplina por defecto
-  const loadDefaultDiscipline = async () => {
+  // Cargar disciplina por defecto desde memoria
+  const loadDefaultDiscipline = () => {
     try {
-      const storedDefault = await AsyncStorage.getItem(DEFAULT_DISCIPLINE_KEY);
-      if (storedDefault !== null) {
-        setDefaultDiscipline(storedDefault === 'true');
-      }
+      setDefaultDiscipline(memoryDefaultDiscipline);
     } catch (error) {
       console.error("Error loading default discipline:", error);
     } finally {
@@ -86,14 +85,10 @@ export default function SelectSex() {
     }
   };
 
-  // Guardar disciplina por defecto
-  const saveDefaultDiscipline = async (discipline: boolean | null) => {
+  // Guardar disciplina por defecto en memoria
+  const saveDefaultDiscipline = (discipline: boolean | null) => {
     try {
-      if (discipline === null) {
-        await AsyncStorage.removeItem(DEFAULT_DISCIPLINE_KEY);
-      } else {
-        await AsyncStorage.setItem(DEFAULT_DISCIPLINE_KEY, discipline.toString());
-      }
+      memoryDefaultDiscipline = discipline;
       setDefaultDiscipline(discipline);
     } catch (error) {
       console.error("Error saving default discipline:", error);
