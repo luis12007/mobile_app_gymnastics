@@ -2272,50 +2272,21 @@ const performDelete = async () => {
     
     if (isLoadingOperation) return; // Prevent multiple submissions
 
-    // ✨ LÓGICA CORREGIDA: Crear competencia EN la carpeta actual donde está navegando
-    let targetFolderId: number;
+    // ✨ SIMPLIFICADO: Como el botón solo se habilita dentro de una carpeta,
+    // siempre usamos currentParentId como targetFolderId
+    if (currentParentId === null) {
+      Alert.alert("Error", "You must be inside a folder to create a competition.");
+      return;
+    }
 
-    if (currentParentId !== null) {
-      // Si estamos dentro de una carpeta, crear la competencia EN esa carpeta
-      targetFolderId = currentParentId;
-      console.log("Creating competition IN current folder:", targetFolderId);
-    } else {
-      // Si estamos en el nivel raíz, necesitamos seleccionar una carpeta
-      if (folders.length === 0) {
-        Alert.alert("Info", "No folders found at this level. Create a folder first.");
-        return;
-      }
-      
-      if (folders.length === 1) {
-        // Si solo hay una carpeta en el nivel raíz, usarla automáticamente
-        targetFolderId = folders[0].id;
-        console.log("Auto-selecting single root folder:", targetFolderId);
-      } else if (selectedFolders.length === 1) {
-        // Si el usuario ha seleccionado una carpeta específica en el nivel raíz, usarla
-        targetFolderId = selectedFolders[0];
-        console.log("Using user-selected root folder:", targetFolderId);
-      } else {
-        // Si hay múltiples carpetas y ninguna seleccionada, pedir selección
-        Alert.alert(
-          "Select Folder", 
-          `There are ${folders.length} folders available. Please select a folder to create the competition.`,
-          [
-            { text: "Cancel", style: "cancel" },
-            { 
-              text: "Select", 
-              onPress: () => {
-                setFolderSelectionForCompetition(true);
-                setSelectionMode(true);
-                setSelectionAction('select');
-                setSelectedFolders([]);
-                /* hide modal create */
-                setAddCompetitionModalVisible(false); 
-              }
-            }
-          ]
-        );
-        return;
-      }
+    const targetFolderId = currentParentId;
+    console.log("Creating competition IN current folder:", targetFolderId);
+    
+    // Validación final: asegurar que tenemos un folderId válido
+    if (!targetFolderId || targetFolderId <= 0) {
+      console.error("❌ Invalid targetFolderId:", targetFolderId);
+      Alert.alert("Error", "Cannot create competition: Invalid folder ID.");
+      return;
     }
 
     const numberOfParticipants = parseInt(competitionParticipants);
@@ -2329,7 +2300,11 @@ const performDelete = async () => {
       showLoading("Creating competition...", 0);
       setIsLoadingAddCompetition(true);
       
+      console.log("=== CREATING COMPETITION ===");
       console.log("Creating competition in folder ID:", targetFolderId, "at navigation level:", currentLevel);
+      console.log("Competition name:", competitionName);
+      console.log("Competition type:", competitionType);
+      console.log("Number of participants:", numberOfParticipants);
       
       const competenceData = {
         folderId: targetFolderId,
@@ -2342,6 +2317,8 @@ const performDelete = async () => {
         sessionId: 1, // Default session ID
         userId: userId, // Use current user ID
       };
+      
+      console.log("Competition data to insert:", competenceData);
       
       // Ejecutar la creación asíncrona
       createCompetitionAsync(competenceData, numberOfParticipants, targetFolderId);
@@ -2913,10 +2890,20 @@ const confirmFolderForCompetition = () => {
               isMediumLargeDevice ? styles.addButtonMediumLarge : null,
               isSmallDevice ? styles.addButtonSmall : null,
               isTinyDevice ? styles.addButtonTiny : null,
-              (isLoadingOperation || isRefreshing) && { opacity: 0.6 } // Visual feedback when loading
+              (isLoadingOperation || isRefreshing || currentParentId === null) && { opacity: 0.6 } // Disabled when loading or at root level
             ]} 
-            onPress={() => setAddCompetitionModalVisible(true)}
-            disabled={isLoadingOperation || isRefreshing} // Disable when loading
+            onPress={() => {
+              if (currentParentId === null) {
+                Alert.alert(
+                  "Navigate into a Folder",
+                  "To create a competition, please tap on a folder to navigate inside it first.",
+                  [{ text: "OK", style: "default" }]
+                );
+              } else {
+                setAddCompetitionModalVisible(true);
+              }
+            }}
+            disabled={isLoadingOperation || isRefreshing || currentParentId === null} // Disable when loading or at root
           >
             <Text style={[
               isLargeDevice ? styles.addButtonTextLarge : null,

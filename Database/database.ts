@@ -10,6 +10,7 @@
 
 import * as SQLite from 'expo-sqlite';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as Crypto from 'expo-crypto';
 import { Alert } from 'react-native';
 
 // ==================== CONFIGURACIÓN ====================
@@ -741,11 +742,10 @@ export const validateActivationKey = async (
     }
 
     const APP_SECRET = 'GymJudge2023SecretKey';
-    const crypto = await import('expo-crypto');
 
     const validationString = deviceId + APP_SECRET;
-    const expectedHash = await crypto.digestStringAsync(
-      crypto.CryptoDigestAlgorithm.SHA256,
+    const expectedHash = await Crypto.digestStringAsync(
+      Crypto.CryptoDigestAlgorithm.SHA256,
       validationString
     );
 

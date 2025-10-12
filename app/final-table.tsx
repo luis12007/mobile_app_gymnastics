@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  InteractionManager,
   Modal,
   Platform,
   SafeAreaView,
@@ -171,6 +172,13 @@ const GymnasticsScoreTable: React.FC = () => {
   const [competencecurrent, setcurrentcompetence] = useState<Competence | null>(null);
   const [pdfControlRef] = useState<{ obj?: { cancelled?: boolean; abort?: () => void } }>({});
 
+  // ✅ Monitor pdfExporting state changes for debugging
+  useEffect(() => {
+    console.log('🔔 [PDF Modal] pdfExporting changed to:', pdfExporting);
+    if (pdfExporting) {
+      console.log('🔔 [PDF Modal] Modal SHOULD BE VISIBLE NOW!');
+    }
+  }, [pdfExporting]);
 
   let jumpImageBase64 = useJumpImageBase64();
   // Fetch data on component mount
@@ -396,15 +404,33 @@ const GymnasticsScoreTable: React.FC = () => {
 
 const handleDownloadPDF = async () => {
   try {
+    console.log('🎯 [PDF Download] Starting - Platform:', Platform.OS);
+    
+    // ✅ Establecer estados PRIMERO
     setPdfExporting(true);
     setPdfProgressMsg('Preparando datos…');
     setPdfProgressValue(0);
-    // Forzar render del modal en el siguiente frame antes de trabajo pesado
-    await new Promise(res => {
-      requestAnimationFrame(() => {
-        setTimeout(res, Platform.OS === 'ios' ? 40 : 10);
-      });
+    
+    console.log('🎯 [PDF Download] States set, waiting for UI to update...');
+    
+    // ✅ CRÍTICO iOS: Usar InteractionManager para asegurar que el UI se renderice
+    // Esto garantiza que todas las animaciones y actualizaciones de UI se completen
+    await new Promise(resolve => {
+      if (Platform.OS === 'ios') {
+        // iOS: Esperar a que todas las interacciones se completen
+        InteractionManager.runAfterInteractions(() => {
+          // Dar tiempo adicional para que el modal se renderice completamente
+          setTimeout(resolve, 150);
+        });
+      } else {
+        // Android: Método más simple es suficiente
+        requestAnimationFrame(() => {
+          setTimeout(resolve, 50);
+        });
+      }
     });
+    
+    console.log('🎯 [PDF Download] UI updated, modal should be visible now!');
     
     // Prepare data for comprehensive PDF
     const finalTableData = {
@@ -690,7 +716,13 @@ const handleDownloadPDF = async () => {
       )}
 
       {/* PDF Export Progress Modal */}
-      <Modal visible={pdfExporting} transparent animationType="fade">
+      <Modal 
+        visible={pdfExporting} 
+        transparent 
+        animationType="fade"
+        statusBarTranslucent={Platform.OS === 'ios'} // ✅ iOS: Asegurar que el modal cubra todo
+        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined} // ✅ iOS: Full screen
+      >
         <View style={styles.pdfModalBackdrop}>
           <View style={styles.pdfModalCard}>
             <TouchableOpacity
@@ -706,6 +738,12 @@ const handleDownloadPDF = async () => {
             >
               <Text style={styles.pdfModalCloseText}>✕</Text>
             </TouchableOpacity>
+            
+            {/* ✅ Indicador visual prominente */}
+            <View style={{ alignItems: 'center', marginBottom: 15 }}>
+              <ActivityIndicator size="large" color="#0052b4" />
+            </View>
+            
             <Text style={styles.pdfModalTitle}>Generating PDF Report</Text>
             <Text style={styles.pdfModalMsg}>{pdfProgressMsg || 'Please wait…'}</Text>
             <View style={styles.pdfProgressBarOuter}>
@@ -3369,9 +3407,10 @@ const styles = StyleSheet.create({
   // PDF Export Modal Styles
   pdfModalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0,0,0,0.7)', // ✅ Más oscuro para mejor visibilidad
     justifyContent: 'center',
-    alignItems: 'center'
+    alignItems: 'center',
+    ...(Platform.OS === 'ios' ? { zIndex: 9999 } : {}), // ✅ iOS: z-index alto
   },
   pdfModalCard: {
     width: '85%',
@@ -3380,9 +3419,10 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 20,
     shadowColor: '#000',
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.3, // ✅ Sombra más fuerte
     shadowRadius: 12,
-    elevation: 8
+    shadowOffset: { width: 0, height: 4 }, // ✅ Agregar offset
+    elevation: 12, // ✅ Elevación más alta
   },
   pdfModalCloseBtn: {
     position: 'absolute',

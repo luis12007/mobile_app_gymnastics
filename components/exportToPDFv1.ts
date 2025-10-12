@@ -6,7 +6,7 @@ import { PDFDocument } from 'pdf-lib';
 import { Buffer } from 'buffer';
 import { Dimensions, Platform, Image } from "react-native";
 // Integración de fotos del whiteboard
-import { getPhotoItemsForMainTable } from '../Database/database';
+import { getPhotoItemsForMainTable, getMainTableById, getMainTablePaths } from '../Database/database';
 
 
 const { width, height } = Dimensions.get("window");
@@ -753,27 +753,58 @@ export const generateComprehensivePDF = async (
   // Resolve externalized whiteboard paths if needed
   const resolvedData: MainTableWithRateGeneral[] = await Promise.all(
     individualData.map(async (g) => {
+      console.log('🔍 Resolving paths for gymnast:', g.name);
+      console.log('🔍 Original g.paths:', g.paths ? (g.paths.substring(0, 100) + '...') : 'EMPTY');
+      console.log('🔍 Original g.paths length:', g.paths?.length || 0);
+      
       let pathsVal = g.paths || '';
       if (isFileRef(pathsVal)) {
-        let skip = false;
-        if (Platform.OS === 'ios') {
-          try {
-            const { isIOSUsingFallback } = require('../utils/platformFS');
-            if (isIOSUsingFallback) skip = true;
-          } catch {}
+        console.log('🔍 Paths is a file reference:', pathsVal);
+        
+        // ✅ INTENTA LEER EL ARCHIVO PRIMERO (incluso en iOS)
+        let fileReadSuccess = false;
+        try {
+          console.log('🔍 Attempting to read paths file...');
+          
+          // Intenta con la función de database que maneja la lógica correctamente
+          const mainTable = await getMainTableById(g.id);
+          if (mainTable) {
+            const pathsFromDb = await getMainTablePaths(mainTable.id);
+            if (pathsFromDb && pathsFromDb !== '[]') {
+              pathsVal = pathsFromDb;
+              fileReadSuccess = true;
+              console.log('🔍 ✅ Paths read via getMainTablePaths, length:', pathsVal.length);
+              console.log('🔍 Paths content preview:', pathsVal.substring(0, 200) + '...');
+            }
+          }
+        } catch (dbError) {
+          console.warn('🔍 getMainTablePaths failed, trying FileSystem...', dbError);
         }
-        if (!skip) {
+        
+        // Si getMainTablePaths falló, intentar FileSystem directo
+        if (!fileReadSuccess) {
           try {
             pathsVal = await (FileSystem as any).readAsStringAsync(pathsVal);
-          } catch (e) {
-            console.warn('Failed reading externalized paths for PDF:', e);
-            pathsVal = '[]';
+            fileReadSuccess = true;
+            console.log('🔍 ✅ Paths read via FileSystem, length:', pathsVal.length);
+            console.log('🔍 Paths content preview:', pathsVal.substring(0, 200) + '...');
+          } catch (fsError) {
+            console.warn('🔍 FileSystem read failed:', fsError);
           }
-        } else {
-          // En fallback iOS evitamos usar expo-file-system
+        }
+        
+        // Si ambos fallaron, usar array vacío
+        if (!fileReadSuccess) {
+          console.warn('🔍 ⚠️ All methods failed - using empty paths');
           pathsVal = '[]';
         }
+      } else {
+        console.log('🔍 Paths is NOT a file reference - using direct value');
       }
+      
+      console.log('🔍 Final pathsVal for', g.name, ':', pathsVal ? (pathsVal.substring(0, 100) + '...') : 'EMPTY');
+      console.log('🔍 Final pathsVal length:', pathsVal?.length || 0);
+      
       return { ...g, paths: pathsVal } as MainTableWithRateGeneral;
     })
   );

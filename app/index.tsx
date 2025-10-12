@@ -19,7 +19,7 @@ import {
   View,
   ScrollView
 } from "react-native";
-import { getUserById, getFoldersByUserId, exportFolderData, importFolderData, initDatabase, getDefaultDiscipline, saveDefaultDiscipline } from "../Database/database";
+import { getUserById, getFoldersByUserId, exportFolderData, importFolderData, initDatabase, getDefaultDiscipline, saveDefaultDiscipline, checkUserExists, insertUserWithoutValidation } from "../Database/database";
 
 const { width, height } = Dimensions.get("window");
 var isLargeDevice = false;
@@ -185,9 +185,6 @@ export default function SelectSex() {
       { username: "Luis", password: "TestDev1", rol: "user" },
       { username: "LuisAdmin", password: "TestDev2", rol: "admin" }
     ];
-    
-    // Importar la función para verificar si un usuario existe
-    const { checkUserExists, insertUserWithoutValidation } = await import("../Database/database");
     
     // Crear cada usuario solo si no existe
     for (const user of defaultUsers) {

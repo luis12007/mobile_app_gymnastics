@@ -4,6 +4,7 @@ import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-g
 import { runOnJS } from "react-native-reanimated";
 import { Path, SkPath, Skia, Canvas, useImage, Image as SkiaImage, Group } from "@shopify/react-native-skia";
 import { updateRateGeneral, getRateGeneralByTableId, getMainTableById, updateMainTable, getMainTablePaths, getPhotosForMainTable, addPhotoToMainTable, getPhotoItemsForMainTable, updatePhotoTransformForMainTable, removePhotoFromMainTable } from '../Database/database';
+import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -88,8 +89,8 @@ interface WhiteboardProps {
 
 interface PhotoItem { uri: string; x: number; y: number; scale: number; rotation: number }
 
-// Controles flotantes para foto activa
-const PhotoControls = ({
+// Controles flotantes para foto activa - MEMOIZADOS para evitar re-renders innecesarios
+const PhotoControls = memo(({
   activeItem,
   onScale,
   onRotate,
@@ -99,19 +100,83 @@ const PhotoControls = ({
   if (!activeItem) return null;
   const top = Math.max(0, activeItem.y + 4);
   const left = activeItem.x + 8;
+  
+  // Ajustar tamaños según dispositivo - más pequeño en tiny
+  const buttonStyle = isTinyDevice ? styles.photoControlBtnTiny : styles.photoControlBtn;
+  const textStyle = isTinyDevice ? styles.photoControlTextTiny : styles.photoControlText;
+  const hitSlopSize = isTinyDevice ? 8 : 10; // Menos hitSlop en tiny para ahorrar espacio
+  
   return (
     <View style={[styles.photoControlsFloating, { top, left }]} pointerEvents="box-none">
-      <View style={styles.photoControls}>
-        <TouchableOpacity style={styles.photoControlBtn} onPress={onClose}><Text style={styles.photoControlText}>✕</Text></TouchableOpacity>
-        <TouchableOpacity style={styles.photoControlBtn} onPress={() => onScale(-0.1)}><Text style={styles.photoControlText}>－</Text></TouchableOpacity>
-        <TouchableOpacity style={styles.photoControlBtn} onPress={() => onScale(+0.1)}><Text style={styles.photoControlText}>＋</Text></TouchableOpacity>
-        <TouchableOpacity style={styles.photoControlBtn} onPress={() => onRotate(-15)}><Text style={styles.photoControlText}>⟲</Text></TouchableOpacity>
-        <TouchableOpacity style={styles.photoControlBtn} onPress={() => onRotate(15)}><Text style={styles.photoControlText}>⟳</Text></TouchableOpacity>
-        <TouchableOpacity style={[styles.photoControlBtn, styles.photoDeleteCtrl]} onPress={onDelete}><Text style={styles.photoControlText}>🗑</Text></TouchableOpacity>
+      <View style={isTinyDevice ? styles.photoControlsTiny : styles.photoControls}>
+        <TouchableOpacity 
+          style={buttonStyle} 
+          onPress={onClose}
+          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
+          activeOpacity={0.7}
+        >
+          <Text style={textStyle}>✕</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={buttonStyle} 
+          onPress={() => onScale(-0.1)}
+          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
+          activeOpacity={0.7}
+        >
+          <Text style={textStyle}>－</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={buttonStyle} 
+          onPress={() => onScale(+0.1)}
+          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
+          activeOpacity={0.7}
+        >
+          <Text style={textStyle}>＋</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={buttonStyle} 
+          onPress={() => onRotate(-15)}
+          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
+          activeOpacity={0.7}
+        >
+          <Text style={textStyle}>⟲</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={buttonStyle} 
+          onPress={() => onRotate(15)}
+          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
+          activeOpacity={0.7}
+        >
+          <Text style={textStyle}>⟳</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[buttonStyle, styles.photoDeleteCtrl]} 
+          onPress={onDelete}
+          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
+          activeOpacity={0.7}
+        >
+          <Text style={textStyle}>🗑</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
-};
+}, (prev, next) => {
+  // Comparación personalizada para evitar re-renders innecesarios
+  if (!prev.activeItem && !next.activeItem) return true;
+  if (!prev.activeItem || !next.activeItem) return false;
+  
+  return (
+    prev.activeItem.uri === next.activeItem.uri &&
+    prev.activeItem.x === next.activeItem.x &&
+    prev.activeItem.y === next.activeItem.y &&
+    prev.activeItem.scale === next.activeItem.scale &&
+    prev.activeItem.rotation === next.activeItem.rotation &&
+    prev.onScale === next.onScale &&
+    prev.onRotate === next.onRotate &&
+    prev.onDelete === next.onDelete &&
+    prev.onClose === next.onClose
+  );
+});
 
 // Imagen Skia memoizada
 const SkiaPhoto = memo(({ item, active, registerMeta }: { item: PhotoItem; active: boolean; registerMeta: (uri: string, w: number, h: number) => void }) => {
@@ -357,10 +422,69 @@ const DrawingCanvas = ({
     try { const list = await getPhotosForMainTable(tableId); setPhotos(list); } catch(e){ console.warn('Error loading photos', e);} }, [tableId]);
   const loadPhotoItems = useCallback(async () => {
     try {
+      console.log('📸 [loadPhotoItems] Loading photo items for tableId:', tableId);
       const items = await getPhotoItemsForMainTable(tableId);
-      const normalized = items.map((it:any)=> ({ ...it, scale: it.scale && it.scale>0? it.scale:1, rotation: typeof it.rotation==='number'? it.rotation:0 }));
+      console.log('📸 [loadPhotoItems] Loaded', items?.length || 0, 'photo items from DB');
+      
+      const normalized = items.map((it: any, idx) => {
+        const item = { 
+          ...it, 
+          scale: it.scale && it.scale > 0 ? it.scale : 1, 
+          rotation: typeof it.rotation === 'number' ? it.rotation : 0 
+        };
+        console.log(`📸 [loadPhotoItems] Photo ${idx}:`, {
+          uri: item.uri?.substring(0, 50) + '...',
+          x: item.x,
+          y: item.y,
+          scale: item.scale,
+          rotation: item.rotation
+        });
+        return item;
+      });
+      
       setPhotoItems(normalized);
-    } catch(e){ console.warn('Error loading photo items', e);} }, [tableId]);
+      console.log('✅ [loadPhotoItems] Photo items state updated with', normalized.length, 'items');
+    } catch (e) { 
+      console.error('❌ [loadPhotoItems] Error loading photo items:', e);
+    }
+  }, [tableId]);
+
+  // ✅ FIX iOS: Recargar fotos cuando la pantalla vuelve al foco
+  // Esto asegura que las imágenes se carguen correctamente cuando:
+  // 1. Vuelves de otra pantalla
+  // 2. Cambias de gimnasta
+  // 3. La app vuelve al foreground después de estar en background
+  useFocusEffect(
+    useCallback(() => {
+      console.log('🔄 [useFocusEffect] Jump screen focused - reloading photos');
+      let isMounted = true;
+      
+      const reloadPhotos = async () => {
+        try {
+          console.log('📸 [useFocusEffect] Reloading photo items...');
+          await loadPhotoItems();
+          if (isMounted) {
+            console.log('✅ [useFocusEffect] Photo items reloaded successfully');
+          }
+        } catch (error) {
+          console.error('❌ [useFocusEffect] Error reloading photos:', error);
+        }
+      };
+      
+      // Ejecutar recarga con un pequeño delay para asegurar que el componente esté listo
+      const timer = setTimeout(() => {
+        if (isMounted) {
+          reloadPhotos();
+        }
+      }, 100);
+      
+      return () => {
+        isMounted = false;
+        clearTimeout(timer);
+        console.log('🔄 [useFocusEffect] Jump screen unfocused - cleanup');
+      };
+    }, [loadPhotoItems])
+  );
 
   // Helpers iOS + logs simplificados en consola (sin persistencia)
   const appendPhotoImportLog = useCallback((entry: Record<string, any>) => {
@@ -389,28 +513,123 @@ const DrawingCanvas = ({
       await appendPhotoImportLog({ step: 'start', msg: 'Add photo tapped' });
 
       let pickedUri: string | null = null;
-      if (Platform.OS === 'ios') {
+      
+      // Mostrar diálogo de selección de origen en Android
+      if (Platform.OS === 'android') {
+        await appendPhotoImportLog({ step: 'android_show_picker_options' });
+        
+        // Usar Alert con opciones para elegir entre Galería o Archivos (OneDrive, etc.)
+        const pickerChoice = await new Promise<'gallery' | 'files' | null>((resolve) => {
+          Alert.alert(
+            'Seleccionar imagen',
+            '¿De dónde deseas seleccionar la imagen?',
+            [
+              {
+                text: 'Galería',
+                onPress: () => resolve('gallery'),
+              },
+              {
+                text: 'Archivos (OneDrive, Drive, etc.)',
+                onPress: () => resolve('files'),
+              },
+              {
+                text: 'Cancelar',
+                onPress: () => resolve(null),
+                style: 'cancel',
+              },
+            ],
+            { cancelable: true, onDismiss: () => resolve(null) }
+          );
+        });
+
+        if (!pickerChoice) {
+          await appendPhotoImportLog({ step: 'picker_choice_canceled' });
+          return;
+        }
+
+        if (pickerChoice === 'gallery') {
+          // Usar ImagePicker para galería
+          await appendPhotoImportLog({ step: 'android_gallery_selected' });
+          const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (!perm.granted) {
+            Alert.alert('Permiso requerido', 'Se necesita acceso a la galería.');
+            await appendPhotoImportLog({ step: 'permission_denied' });
+            return;
+          }
+          await appendPhotoImportLog({ step: 'permission_granted' });
+          const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsMultipleSelection: false,
+            base64: false,
+            quality: 0.8
+          });
+          if (result.canceled) {
+            await appendPhotoImportLog({ step: 'picker_canceled' });
+            return;
+          }
+          const asset = result.assets?.[0];
+          await appendPhotoImportLog({ step: 'asset_selected', assetUri: asset?.uri ?? null, fileName: (asset as any)?.fileName ?? null, mimeType: (asset as any)?.mimeType ?? null });
+          if (!asset?.uri) {
+            await appendPhotoImportLog({ step: 'asset_missing_uri' });
+            return;
+          }
+          pickedUri = asset.uri;
+        } else {
+          // Usar DocumentPicker para archivos (OneDrive, Drive, etc.)
+          await appendPhotoImportLog({ step: 'android_files_selected' });
+          pickedUri = await pickImageUriViaDocumentPicker();
+        }
+      } else if (Platform.OS === 'ios') {
+        // iOS: usar DocumentPicker por estabilidad
         pickedUri = await pickImageUriViaDocumentPicker();
       } else {
+        // Web: usar ImagePicker
         const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (!perm.granted) { Alert.alert('Permiso requerido','Se necesita acceso a la galería.'); await appendPhotoImportLog({ step: 'permission_denied' }); return; }
+        if (!perm.granted) {
+          Alert.alert('Permiso requerido', 'Se necesita acceso a la galería.');
+          await appendPhotoImportLog({ step: 'permission_denied' });
+          return;
+        }
         await appendPhotoImportLog({ step: 'permission_granted' });
-        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection:false, base64:false, quality:0.8 });
-        if (result.canceled) { await appendPhotoImportLog({ step: 'picker_canceled' }); return; }
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsMultipleSelection: false,
+          base64: false,
+          quality: 0.8
+        });
+        if (result.canceled) {
+          await appendPhotoImportLog({ step: 'picker_canceled' });
+          return;
+        }
         const asset = result.assets?.[0];
         await appendPhotoImportLog({ step: 'asset_selected', assetUri: asset?.uri ?? null, fileName: (asset as any)?.fileName ?? null, mimeType: (asset as any)?.mimeType ?? null });
-        if(!asset?.uri) { await appendPhotoImportLog({ step: 'asset_missing_uri' }); return; }
+        if (!asset?.uri) {
+          await appendPhotoImportLog({ step: 'asset_missing_uri' });
+          return;
+        }
         pickedUri = asset.uri;
       }
 
+      // Pre-validaciones y normalización de URI
       if (!pickedUri) return;
       const ext = getExtFromUri(pickedUri);
-      if (Platform.OS === 'ios') {
-        if (isHeic(ext)) {
-          Alert.alert('Formato no soportado','Las imágenes HEIC/HEIF no son compatibles para exportar. Por favor, selecciona una imagen JPEG o PNG.');
-          await appendPhotoImportLog({ step: 'blocked_heic_heif', ext, uri: pickedUri });
-          return;
-        }
+      
+      // Bloquear HEIC/HEIF en todos los sistemas
+      if (isHeic(ext)) {
+        Alert.alert('Formato no soportado', 'Las imágenes HEIC/HEIF no son compatibles para exportar. Por favor, selecciona una imagen JPEG o PNG.');
+        await appendPhotoImportLog({ step: 'blocked_heic_heif', ext, uri: pickedUri });
+        return;
+      }
+      
+      // Copiar a cache para archivos externos (iOS siempre, Android solo si es de DocumentPicker)
+      const needsCopy = Platform.OS === 'ios' || 
+                        pickedUri.startsWith('content://') || 
+                        pickedUri.includes('onedrive') || 
+                        pickedUri.includes('drive.google') ||
+                        pickedUri.includes('com.microsoft.skydrive') ||
+                        !pickedUri.startsWith('file://');
+      
+      if (needsCopy) {
         const before = pickedUri;
         pickedUri = await copyToAppCache(pickedUri);
         await appendPhotoImportLog({ step: 'copied_to_cache', from: before, to: pickedUri, changed: before !== pickedUri });
@@ -466,7 +685,12 @@ const DrawingCanvas = ({
     // Guardar estado anterior para posible rollback
     const previousState = photoItemsRef.current.find(p => p.uri === uri);
     
-    // Actualizar estado UI inmediatamente
+    // IMPORTANTE: Actualizar ref INMEDIATAMENTE (antes de setState) para evitar race conditions
+    photoItemsRef.current = photoItemsRef.current.map(p => 
+      p.uri === uri ? { ...p, ...data } : p
+    );
+    
+    // Actualizar estado UI inmediatamente (optimistic update)
     setPhotoItems(prev=> prev.map(p=> p.uri===uri? {...p,...data}: p));
     
     try {
@@ -589,6 +813,42 @@ const DrawingCanvas = ({
     const widthRect = 240; // ancho aproximado (6 botones * ~32 + padding)
     return x >= left && x <= left + widthRect && y >= top && y <= top + heightRect;
   }, [activePhoto]);
+
+  // --- Callbacks Memoizados para PhotoControls (evita re-renders innecesarios) ---
+  
+  // Memoizar activeItem para evitar recálculos en cada render
+  const activeItem = useMemo(() => {
+    if (!activePhoto) return null;
+    return photoItems.find(p => p.uri === activePhoto) || null;
+  }, [activePhoto, photoItems]);
+
+  // Callback memoizado para escalar
+  const handlePhotoScale = useCallback((d: number) => {
+    if (!activePhoto) return;
+    const item = photoItemsRef.current.find(p => p.uri === activePhoto);
+    if (!item) return;
+    const ns = Math.min(4, Math.max(0.2, parseFloat(((item.scale || 1) + d).toFixed(3))));
+    onUpdatePhotoTransform(activePhoto, { scale: ns });
+  }, [activePhoto, onUpdatePhotoTransform]);
+
+  // Callback memoizado para rotar
+  const handlePhotoRotate = useCallback((deg: number) => {
+    if (!activePhoto) return;
+    const item = photoItemsRef.current.find(p => p.uri === activePhoto);
+    if (!item) return;
+    const nr = ((item.rotation || 0) + deg) % 360;
+    onUpdatePhotoTransform(activePhoto, { rotation: nr });
+  }, [activePhoto, onUpdatePhotoTransform]);
+
+  // Callback memoizado para eliminar
+  const handlePhotoDelete = useCallback(() => {
+    if (activePhoto) handleDeletePhoto(activePhoto);
+  }, [activePhoto, handleDeletePhoto]);
+
+  // Callback memoizado para cerrar
+  const handlePhotoClose = useCallback(() => {
+    setActivePhoto(null);
+  }, []);
 
   // Guardar paths de manera eficiente con debounce y manejo transaccional
   const savePaths = useCallback(async (newPathsData: PathData[]) => {
@@ -1177,11 +1437,11 @@ const DrawingCanvas = ({
         </Animated.View>
       </GestureHandlerRootView>
       <PhotoControls
-        activeItem={activePhoto ? photoItems.find(p=> p.uri===activePhoto) || null : null}
-        onScale={(d)=>{ if(!activePhoto) return; const item = photoItemsRef.current.find(p=> p.uri===activePhoto); if(!item) return; const ns = Math.min(4, Math.max(0.2, parseFloat(((item.scale||1)+d).toFixed(3)))); onUpdatePhotoTransform(activePhoto,{scale:ns}); }}
-        onRotate={(deg)=>{ if(!activePhoto) return; const item = photoItemsRef.current.find(p=> p.uri===activePhoto); if(!item) return; const nr = ((item.rotation||0)+deg)%360; onUpdatePhotoTransform(activePhoto,{rotation:nr}); }}
-        onDelete={()=>{ if(activePhoto) handleDeletePhoto(activePhoto); }}
-        onClose={()=> setActivePhoto(null)}
+        activeItem={activeItem}
+        onScale={handlePhotoScale}
+        onRotate={handlePhotoRotate}
+        onDelete={handlePhotoDelete}
+        onClose={handlePhotoClose}
       />
 
       {/* Menu button */}
@@ -1494,31 +1754,71 @@ const styles = StyleSheet.create({
   },
   photoControls: {
     position: 'absolute',
-    top: -40,
+    top: -48, // Ajustado para botones más grandes
     left: 0,
     flexDirection: 'row',
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-    borderRadius: 8,
-    gap: 4,
-    alignItems: 'center'
+    backgroundColor: 'rgba(0,0,0,0.7)', // Más opaco para mejor visibilidad
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 10,
+    gap: 6, // Mayor separación entre botones
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5, // Sombra en Android
   },
   photoControlBtn: {
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 4,
-    minWidth: 28,
-    alignItems: 'center'
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 6,
+    minWidth: 44, // Aumentado de 28 a 44 (cerca del estándar de 48dp)
+    minHeight: 44, // Añadido para altura mínima
+    alignItems: 'center',
+    justifyContent: 'center', // Centrar contenido verticalmente
   },
   photoControlText: {
     color: '#fff',
-    fontWeight: '600',
-    fontSize: 14
+    fontWeight: '700', // Más bold para mejor legibilidad
+    fontSize: 16, // Aumentado de 14 a 16
   },
   photoDeleteCtrl: {
-    backgroundColor: 'rgba(220,53,69,0.85)'
+    backgroundColor: 'rgba(220,53,69,0.9)' // Más opaco para destacar
+  },
+  // Estilos específicos para dispositivos tiny (< 960px)
+  photoControlsTiny: {
+    position: 'absolute',
+    top: -38, // Más compacto para tiny
+    left: 0,
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 4, // Menos padding
+    paddingVertical: 4,
+    borderRadius: 8,
+    gap: 3, // Menos espacio entre botones
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  photoControlBtnTiny: {
+    paddingHorizontal: 5, // Más compacto
+    paddingVertical: 5,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 5,
+    minWidth: 32, // Más pequeño para tiny (32px en lugar de 44px)
+    minHeight: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoControlTextTiny: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 13, // Más pequeño para tiny (13px en lugar de 16px)
   },
   photoButtonContainer: {
     position: 'absolute',
