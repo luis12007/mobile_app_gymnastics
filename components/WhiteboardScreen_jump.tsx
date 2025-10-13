@@ -1,6 +1,6 @@
 import { useRef, useState, Children, useCallback, useEffect, memo, useMemo } from "react";
 import { View, StyleSheet, Dimensions, TouchableOpacity, Text, Animated, Image, Platform, Alert } from "react-native";
-import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
+import { Gesture, GestureDetector, GestureHandlerRootView, GestureType } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
 import { Path, SkPath, Skia, Canvas, useImage, Image as SkiaImage, Group } from "@shopify/react-native-skia";
 import { updateRateGeneral, getRateGeneralByTableId, getMainTableById, updateMainTable, getMainTablePaths, getPhotosForMainTable, addPhotoToMainTable, getPhotoItemsForMainTable, updatePhotoTransformForMainTable, removePhotoFromMainTable } from '../Database/database';
@@ -89,124 +89,41 @@ interface WhiteboardProps {
 
 interface PhotoItem { uri: string; x: number; y: number; scale: number; rotation: number }
 
-// Controles flotantes para foto activa - MEMOIZADOS para evitar re-renders innecesarios
-const PhotoControls = memo(({
-  activeItem,
-  onScale,
-  onRotate,
-  onDelete,
-  onClose
-}: { activeItem: PhotoItem | null; onScale: (d:number)=>void; onRotate:(d:number)=>void; onDelete:()=>void; onClose:()=>void }) => {
-  if (!activeItem) return null;
-  const top = Math.max(0, activeItem.y + 4);
-  const left = activeItem.x + 8;
-  
-  // Ajustar tamaños según dispositivo - más pequeño en tiny
-  const buttonStyle = isTinyDevice ? styles.photoControlBtnTiny : styles.photoControlBtn;
-  const textStyle = isTinyDevice ? styles.photoControlTextTiny : styles.photoControlText;
-  const hitSlopSize = isTinyDevice ? 8 : 10; // Menos hitSlop en tiny para ahorrar espacio
-  
-  return (
-    <View style={[styles.photoControlsFloating, { top, left }]} pointerEvents="box-none">
-      <View style={isTinyDevice ? styles.photoControlsTiny : styles.photoControls}>
-        <TouchableOpacity 
-          style={buttonStyle} 
-          onPress={onClose}
-          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
-          activeOpacity={0.7}
-        >
-          <Text style={textStyle}>✕</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={buttonStyle} 
-          onPress={() => onScale(-0.1)}
-          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
-          activeOpacity={0.7}
-        >
-          <Text style={textStyle}>－</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={buttonStyle} 
-          onPress={() => onScale(+0.1)}
-          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
-          activeOpacity={0.7}
-        >
-          <Text style={textStyle}>＋</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={buttonStyle} 
-          onPress={() => onRotate(-15)}
-          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
-          activeOpacity={0.7}
-        >
-          <Text style={textStyle}>⟲</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={buttonStyle} 
-          onPress={() => onRotate(15)}
-          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
-          activeOpacity={0.7}
-        >
-          <Text style={textStyle}>⟳</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[buttonStyle, styles.photoDeleteCtrl]} 
-          onPress={onDelete}
-          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
-          activeOpacity={0.7}
-        >
-          <Text style={textStyle}>🗑</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-}, (prev, next) => {
-  // Comparación personalizada para evitar re-renders innecesarios
-  if (!prev.activeItem && !next.activeItem) return true;
-  if (!prev.activeItem || !next.activeItem) return false;
-  
-  return (
-    prev.activeItem.uri === next.activeItem.uri &&
-    prev.activeItem.x === next.activeItem.x &&
-    prev.activeItem.y === next.activeItem.y &&
-    prev.activeItem.scale === next.activeItem.scale &&
-    prev.activeItem.rotation === next.activeItem.rotation &&
-    prev.onScale === next.onScale &&
-    prev.onRotate === next.onRotate &&
-    prev.onDelete === next.onDelete &&
-    prev.onClose === next.onClose
-  );
-});
-
-// Imagen Skia memoizada
-const SkiaPhoto = memo(({ item, active, registerMeta }: { item: PhotoItem; active: boolean; registerMeta: (uri: string, w: number, h: number) => void }) => {
+// Componente de imagen en Skia memoizado - SIN indicador de activo, control multi-touch directo
+const SkiaPhoto = memo(({ item, registerMeta }: { item: PhotoItem; registerMeta: (uri: string, w: number, h: number) => void }) => {
   const img = useImage(item.uri);
   if (!img) return null;
   let bw = img.width();
   let bh = img.height();
-  const MAX_W = 400, MAX_H = 400; const MIN_W = 90;
+  const MAX_W = 400, MAX_H = 400;
   if (bw > MAX_W) { const f = MAX_W / bw; bw = MAX_W; bh *= f; }
   if (bh > MAX_H) { const f = MAX_H / bh; bh = MAX_H; bw *= f; }
+  const MIN_W = 90;
   if (bw < MIN_W) { const f = MIN_W / bw; bw = MIN_W; bh *= f; }
   registerMeta(item.uri, bw, bh);
   const scale = item.scale || 1;
   const rot = (item.rotation || 0) * Math.PI / 180;
   return (
-    <Group transform={[
-      { translateX: item.x + (bw * scale) / 2 },
-      { translateY: item.y + (bh * scale) / 2 },
-      { rotate: rot },
-      { scale: scale },
-      { translateX: -bw / 2 },
-      { translateY: -bh / 2 }
-    ]}>
+    <Group
+      transform={[
+        { translateX: item.x + (bw * scale) / 2 },
+        { translateY: item.y + (bh * scale) / 2 },
+        { rotate: rot },
+        { scale: scale },
+        { translateX: -bw / 2 },
+        { translateY: -bh / 2 }
+      ]}
+    >
       <SkiaImage image={img} x={0} y={0} width={bw} height={bh} fit="contain" />
-      {active && (
-        <Path path={Skia.Path.Make().addRect({ x:0, y:0, width: bw, height: bh })} color="rgba(0,150,255,0.35)" style="stroke" strokeWidth={2/scale} />
-      )}
     </Group>
   );
-}, (p,n) => p.active===n.active && p.item.uri===n.item.uri && p.item.x===n.item.x && p.item.y===n.item.y && p.item.scale===n.item.scale && p.item.rotation===n.item.rotation);
+}, (prev, next) => {
+  return prev.item.uri === next.item.uri &&
+    prev.item.x === next.item.x &&
+    prev.item.y === next.item.y &&
+    prev.item.scale === next.item.scale &&
+    prev.item.rotation === next.item.rotation;
+});
 
 // Calcular altura del canvas basado en el tamaño del dispositivo (como en jump original)
 const canvasHeight = (() => {
@@ -363,7 +280,28 @@ const DrawingCanvas = ({
   }, [lastSaved, isSaving]);
 
   // Función para limpiar memoria mejorada
-  const cleanup = useCallback(() => {
+  const cleanup = useCallback(async () => {
+    // IMPORTANTE: Guardar cambios pendientes de fotos antes de limpiar
+    if (photoSaveTimeoutRef.current) {
+      clearTimeout(photoSaveTimeoutRef.current);
+      photoSaveTimeoutRef.current = null;
+    }
+    
+    // Guardar inmediatamente cualquier cambio pendiente
+    const pendingUpdates = Array.from(pendingPhotoUpdatesRef.current.entries());
+    if (pendingUpdates.length > 0) {
+      console.log(`💾 [Cleanup] Guardando ${pendingUpdates.length} foto(s) pendientes antes de desmontar`);
+      
+      // Guardar en paralelo para ser más rápido
+      await Promise.all(
+        pendingUpdates.map(([photoUri, photoUpdates]) => 
+          onUpdatePhotoTransform(photoUri, photoUpdates)
+        )
+      );
+      
+      pendingPhotoUpdatesRef.current.clear();
+    }
+    
     // Limpiar arrays para liberar memoria
     setPaths([]);
     setPathsData([]);
@@ -374,7 +312,7 @@ const DrawingCanvas = ({
     // Limpiar undo stack para liberar memoria
     setUndoStack([]);
     
-    // Limpiar timeouts
+    // Limpiar timeouts de paths
     if (saveTimeoutRef.current) {
       window.clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
@@ -485,6 +423,26 @@ const DrawingCanvas = ({
       };
     }, [loadPhotoItems])
   );
+
+  // Cleanup al desmontar componente: guardar cambios pendientes de fotos
+  useEffect(() => {
+    return () => {
+      // Guardar cambios pendientes antes de desmontar
+      const pendingUpdates = Array.from(pendingPhotoUpdatesRef.current.entries());
+      if (pendingUpdates.length > 0) {
+        console.log(`💾 [Unmount] Guardando ${pendingUpdates.length} foto(s) pendientes`);
+        pendingUpdates.forEach(([photoUri, photoUpdates]) => {
+          updatePhotoTransformForMainTable(tableId, photoUri, photoUpdates);
+        });
+        pendingPhotoUpdatesRef.current.clear();
+      }
+      
+      // Limpiar timeout
+      if (photoSaveTimeoutRef.current) {
+        clearTimeout(photoSaveTimeoutRef.current);
+      }
+    };
+  }, [tableId]);
 
   // Helpers iOS + logs simplificados en consola (sin persistencia)
   const appendPhotoImportLog = useCallback((entry: Record<string, any>) => {
@@ -778,77 +736,96 @@ const DrawingCanvas = ({
     }
   }, [tableId, photoItems, loadPhotos, loadPhotoItems]);
 
-  // Hit test rotacional con pivote centrado
-  const findPhotoAtPoint = (x:number,y:number): string | null => {
-    for (let i = photoItems.length-1; i>=0; i--) {
-      const p = photoItems[i]; const meta = imageMeta[p.uri]; if(!meta) continue;
-      const baseW = meta.w, baseH = meta.h; const scale = p.scale||1; const rotDeg = p.rotation||0; const theta = -(rotDeg*Math.PI/180);
-      const w = baseW*scale, h=baseH*scale; const cx = p.x + w/2; const cy = p.y + h/2;
-      const dx = x - cx; const dy = y - cy;
-      const rx = dx*Math.cos(theta) - dy*Math.sin(theta); const ry = dx*Math.sin(theta) + dy*Math.cos(theta);
-      const ux = rx/scale + baseW/2; const uy = ry/scale + baseH/2;
-      if (ux>=0 && ux<=baseW && uy>=0 && uy<=baseH) return p.uri;
+  // ==================== NUEVO SISTEMA MULTI-TOUCH ====================
+  // Estados para gestos multi-touch en fotos
+  const selectedPhotoRef = useRef<string | null>(null);
+  const photoGestureStartRef = useRef<{ scale: number; rotation: number; x: number; y: number } | null>(null);
+  const lastTapTimeRef = useRef<number>(0);
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const photoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Timeout para debounce de guardado
+  const pendingPhotoUpdatesRef = useRef<Map<string, Partial<PhotoItem>>>(new Map()); // Cambios pendientes
+
+  // Helper: Encontrar foto en punto
+  const findPhotoAtPoint = useCallback((x: number, y: number): string | null => {
+    for (let i = photoItems.length - 1; i >= 0; i--) {
+      const photo = photoItems[i];
+      const meta = imageMeta[photo.uri];
+      if (!meta) continue;
+      const baseW = meta.w;
+      const baseH = meta.h;
+      const w = baseW * (photo.scale || 1);
+      const h = baseH * (photo.scale || 1);
+      if (x >= photo.x && x <= photo.x + w && y >= photo.y && y <= photo.y + h) {
+        return photo.uri;
+      }
     }
     return null;
-  };
+  }, [photoItems, imageMeta]);
 
-  const moveActivePhoto = useCallback((x:number,y:number)=>{
-    if(!activePhoto) return;
-    setPhotoItems(prev=> prev.map(p=> {
-      if (p.uri===activePhoto){ const meta = imageMeta[p.uri]; const baseW= meta?.w??200; const baseH= meta?.h??200; const w = baseW*(p.scale||1); const h= baseH*(p.scale||1); const nx = x - w/2; const ny = y - h/2; onUpdatePhotoTransform(activePhoto,{x:nx,y:ny}); return {...p,x:nx,y:ny}; }
+  // Actualizar transformaciones de foto CON DEBOUNCE de 3 segundos
+  const updatePhotoTransform = useCallback((uri: string, updates: Partial<PhotoItem>) => {
+    // 1. Actualizar UI inmediatamente (optimistic update)
+    setPhotoItems(prev => prev.map(p => {
+      if (p.uri === uri) {
+        return { ...p, ...updates };
+      }
       return p;
     }));
-  }, [activePhoto, imageMeta, onUpdatePhotoTransform]);
 
-  // --- Ignorar taps sobre controles de foto para no mover ---
-  const isPointInActivePhotoControls = useCallback((x:number,y:number)=>{
-    if(!activePhoto) return false;
-    const p = photoItemsRef.current.find(pi=> pi.uri===activePhoto);
-    if(!p) return false;
-    // Posición del contenedor flotante (anclado dentro de la imagen):
-    // topVisual = p.y + 4 - 40 (porque estilos.photoControls tiene top:-40)
-    const top = p.y + 4 - 40;
-    const left = p.x + 8;
-    const heightRect = 40; // altura aproximada de la barra
-    const widthRect = 240; // ancho aproximado (6 botones * ~32 + padding)
-    return x >= left && x <= left + widthRect && y >= top && y <= top + heightRect;
-  }, [activePhoto]);
+    // 2. Acumular cambios pendientes
+    const currentPending = pendingPhotoUpdatesRef.current.get(uri) || {};
+    pendingPhotoUpdatesRef.current.set(uri, { ...currentPending, ...updates });
 
-  // --- Callbacks Memoizados para PhotoControls (evita re-renders innecesarios) ---
-  
-  // Memoizar activeItem para evitar recálculos en cada render
-  const activeItem = useMemo(() => {
-    if (!activePhoto) return null;
-    return photoItems.find(p => p.uri === activePhoto) || null;
-  }, [activePhoto, photoItems]);
+    // 3. Cancelar timeout anterior si existe
+    if (photoSaveTimeoutRef.current) {
+      clearTimeout(photoSaveTimeoutRef.current);
+    }
 
-  // Callback memoizado para escalar
-  const handlePhotoScale = useCallback((d: number) => {
-    if (!activePhoto) return;
-    const item = photoItemsRef.current.find(p => p.uri === activePhoto);
-    if (!item) return;
-    const ns = Math.min(4, Math.max(0.2, parseFloat(((item.scale || 1) + d).toFixed(3))));
-    onUpdatePhotoTransform(activePhoto, { scale: ns });
-  }, [activePhoto, onUpdatePhotoTransform]);
+    // 4. Programar guardado después de 3 segundos de inactividad
+    photoSaveTimeoutRef.current = setTimeout(() => {
+      // Guardar todos los cambios pendientes
+      const pendingUpdates = Array.from(pendingPhotoUpdatesRef.current.entries());
+      
+      if (pendingUpdates.length > 0) {
+        console.log(`💾 Guardando ${pendingUpdates.length} foto(s) después de 3s de inactividad`);
+        
+        // Guardar cada foto con sus cambios acumulados
+        pendingUpdates.forEach(([photoUri, photoUpdates]) => {
+          onUpdatePhotoTransform(photoUri, photoUpdates);
+        });
+        
+        // Limpiar cambios pendientes
+        pendingPhotoUpdatesRef.current.clear();
+      }
+      
+      photoSaveTimeoutRef.current = null;
+    }, 3000); // 3 segundos de delay
+  }, [onUpdatePhotoTransform]);
 
-  // Callback memoizado para rotar
-  const handlePhotoRotate = useCallback((deg: number) => {
-    if (!activePhoto) return;
-    const item = photoItemsRef.current.find(p => p.uri === activePhoto);
-    if (!item) return;
-    const nr = ((item.rotation || 0) + deg) % 360;
-    onUpdatePhotoTransform(activePhoto, { rotation: nr });
-  }, [activePhoto, onUpdatePhotoTransform]);
+  // Eliminar foto
+  const deletePhoto = useCallback((uri: string) => {
+    Alert.alert(
+      "Eliminar foto",
+      "¿Estás seguro de que deseas eliminar esta foto?",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Eliminar",
+          style: "destructive",
+          onPress: () => {
+            const index = photoItems.findIndex(p => p.uri === uri);
+            if (index !== -1) {
+              setPhotoItems(prev => prev.filter(p => p.uri !== uri));
+              removePhotoFromMainTable(tableId, index);
+              selectedPhotoRef.current = null;
+            }
+          }
+        }
+      ]
+    );
+  }, [tableId, photoItems]);
 
-  // Callback memoizado para eliminar
-  const handlePhotoDelete = useCallback(() => {
-    if (activePhoto) handleDeletePhoto(activePhoto);
-  }, [activePhoto, handleDeletePhoto]);
-
-  // Callback memoizado para cerrar
-  const handlePhotoClose = useCallback(() => {
-    setActivePhoto(null);
-  }, []);
+  // ==================== FIN NUEVO SISTEMA MULTI-TOUCH ====================
 
   // Guardar paths de manera eficiente con debounce y manejo transaccional
   const savePaths = useCallback(async (newPathsData: PathData[]) => {
@@ -1272,31 +1249,93 @@ const DrawingCanvas = ({
     lastPoint.current = { x, y };
   };
 
-  // Gestos de dibujo con lógica de inputMode
-  const tapToMoveGesture = Gesture.Tap().runOnJS(true).onEnd(e => {
-    const { x, y } = e;
-  // Si tap ocurre sobre controles activos, ignorar
-  if (isPointInActivePhotoControls(x,y)) return;
-    const target = findPhotoAtPoint(x,y);
-    if (target){ setActivePhoto(prev=> prev===target? prev: target); return; }
-    if (activePhoto){ moveActivePhoto(x,y); return; }
-  });
-
-  const drawGesture = Gesture.Pan()
+  // GESTO 1: Single Tap - Seleccionar foto O iniciar dibujo
+  const singleTapGesture = Gesture.Tap()
     .runOnJS(true)
-    .minDistance(0)
+    .maxDuration(250)
+    .onStart((event) => {
+      const { x, y } = event;
+      const photoUri = findPhotoAtPoint(x, y);
+      
+      if (photoUri) {
+        // Tap en foto: seleccionar
+        selectedPhotoRef.current = photoUri;
+        const photo = photoItems.find(p => p.uri === photoUri);
+        if (photo) {
+          photoGestureStartRef.current = {
+            scale: photo.scale || 1,
+            rotation: photo.rotation || 0,
+            x: photo.x,
+            y: photo.y
+          };
+        }
+      } else {
+        // Tap fuera: deseleccionar foto
+        selectedPhotoRef.current = null;
+        photoGestureStartRef.current = null;
+      }
+    });
+
+  // GESTO 2: Double Tap - Resetear foto a transformaciones por defecto
+  const doubleTapGesture = Gesture.Tap()
+    .runOnJS(true)
+    .numberOfTaps(2)
+    .maxDuration(250)
+    .onEnd((event) => {
+      const { x, y } = event;
+      const photoUri = findPhotoAtPoint(x, y);
+      
+      if (photoUri) {
+        // Double tap en foto: resetear transformaciones
+        updatePhotoTransform(photoUri, { scale: 1, rotation: 0 });
+        console.log("✨ Foto reseteada a transformaciones por defecto");
+      }
+    });
+
+  // GESTO 3: Long Press - Eliminar foto
+  const longPressGesture = Gesture.LongPress()
+    .runOnJS(true)
+    .minDuration(500)
+    .onStart((event) => {
+      const { x, y } = event;
+      const photoUri = findPhotoAtPoint(x, y);
+      
+      if (photoUri) {
+        // Long press en foto: eliminar
+        deletePhoto(photoUri);
+      }
+    });
+
+  // GESTO 4: Pan (un dedo) - Mover foto O dibujar
+  const panGesture = Gesture.Pan()
+    .runOnJS(true)
+    .minDistance(5)
     .onStart((event) => {
       const { x, y, pointerType } = event;
-      if (activePhoto) { return; }
-      if (inputMode === 'pen') {
-        if (pointerType !== undefined && pointerType === 0) {
-          return;
+      const photoUri = findPhotoAtPoint(x, y);
+      
+      if (photoUri) {
+        // Si tocamos una foto, actualizar la referencia de inicio SIEMPRE
+        selectedPhotoRef.current = photoUri;
+        const photo = photoItems.find(p => p.uri === photoUri);
+        if (photo) {
+          // IMPORTANTE: Actualizar con la posición ACTUAL de la foto
+          photoGestureStartRef.current = {
+            scale: photo.scale || 1,
+            rotation: photo.rotation || 0,
+            x: photo.x,
+            y: photo.y
+          };
+          console.log(`📌 Pan inicio en foto: x=${photo.x}, y=${photo.y}, scale=${photo.scale}`);
         }
-      } else if (inputMode === 'finger') {
-        if (pointerType !== undefined && pointerType !== 0 && isTinyDevice) {
-          return;
-        }
+        // Preparar para mover foto, no dibujar
+        return;
       }
+      
+      // Pan fuera de foto O no hay foto seleccionada: DIBUJAR
+      if (inputMode === 'pen' && pointerType === 0) return; // Pen mode + dedo = no dibujar
+      if (inputMode === 'finger' && pointerType !== 0 && isTinyDevice) return; // Finger mode + stylus en tiny = no dibujar
+      
       isDrawingRef.current = true;
       currentPath.current = Skia.Path.Make();
       currentPath.current.moveTo(x, y);
@@ -1304,17 +1343,20 @@ const DrawingCanvas = ({
       setCurrentPathDisplay(currentPath.current.copy());
     })
     .onUpdate((event) => {
-      const { x, y, pointerType } = event;
-  if (activePhoto) { return; }
-      if (inputMode === 'pen') {
-        if (pointerType !== undefined && pointerType === 0) {
-          return;
-        }
-      } else if (inputMode === 'finger') {
-        if (pointerType !== undefined && pointerType !== 0 && isTinyDevice) {
-          return;
-        }
+      const { x, y, translationX, translationY, pointerType } = event;
+      
+      // Si hay foto seleccionada, moverla
+      if (selectedPhotoRef.current && photoGestureStartRef.current) {
+        const newX = photoGestureStartRef.current.x + translationX;
+        const newY = photoGestureStartRef.current.y + translationY;
+        updatePhotoTransform(selectedPhotoRef.current, { x: newX, y: newY });
+        return;
       }
+      
+      // Sino, dibujar
+      if (inputMode === 'pen' && pointerType === 0) return;
+      if (inputMode === 'finger' && pointerType !== 0 && isTinyDevice) return;
+      
       if (currentPath.current && isDrawingRef.current) {
         addSmoothPoint(currentPath.current, x, y, pointerType);
         setCurrentPathDisplay(currentPath.current.copy());
@@ -1322,16 +1364,24 @@ const DrawingCanvas = ({
     })
     .onEnd((event) => {
       const { pointerType } = event;
-  if (activePhoto) { return; }
-      if (inputMode === 'pen') {
-        if (pointerType !== undefined && pointerType === 0) {
-          return;
-        }
-      } else if (inputMode === 'finger') {
-        if (pointerType !== undefined && pointerType !== 0 && isTinyDevice) {
-          return;
+      
+      // Resetear inicio de gesto de foto
+      if (selectedPhotoRef.current) {
+        const photo = photoItems.find(p => p.uri === selectedPhotoRef.current);
+        if (photo) {
+          photoGestureStartRef.current = {
+            scale: photo.scale || 1,
+            rotation: photo.rotation || 0,
+            x: photo.x,
+            y: photo.y
+          };
         }
       }
+      
+      // Finalizar dibujo
+      if (inputMode === 'pen' && pointerType === 0) return;
+      if (inputMode === 'finger' && pointerType !== 0 && isTinyDevice) return;
+      
       if (currentPath.current && isDrawingRef.current) {
         runOnJS(updatePaths)(currentPath.current.copy());
         setCurrentPathDisplay(null);
@@ -1341,7 +1391,110 @@ const DrawingCanvas = ({
       }
     });
 
-  const combinedGesture = Gesture.Simultaneous(tapToMoveGesture, drawGesture);
+  // GESTO 5: Pinch - Escalar foto
+  const pinchGesture = Gesture.Pinch()
+    .runOnJS(true)
+    .onStart((event) => {
+      const { focalX, focalY } = event;
+      const photoUri = findPhotoAtPoint(focalX, focalY);
+      
+      if (photoUri) {
+        selectedPhotoRef.current = photoUri;
+        const photo = photoItems.find(p => p.uri === photoUri);
+        if (photo) {
+          // IMPORTANTE: Actualizar SIEMPRE con la posición ACTUAL de la foto
+          photoGestureStartRef.current = {
+            scale: photo.scale || 1,
+            rotation: photo.rotation || 0,
+            x: photo.x,
+            y: photo.y
+          };
+          console.log(`🤏 Pinch inicio en foto: scale=${photo.scale}`);
+        }
+      }
+    })
+    .onUpdate((event) => {
+      const { scale } = event;
+      
+      if (selectedPhotoRef.current && photoGestureStartRef.current) {
+        const newScale = Math.max(0.3, Math.min(3, photoGestureStartRef.current.scale * scale));
+        updatePhotoTransform(selectedPhotoRef.current, { scale: newScale });
+      }
+    })
+    .onEnd(() => {
+      // Actualizar el estado de inicio con la nueva escala
+      if (selectedPhotoRef.current) {
+        const photo = photoItems.find(p => p.uri === selectedPhotoRef.current);
+        if (photo) {
+          photoGestureStartRef.current = {
+            scale: photo.scale || 1,
+            rotation: photo.rotation || 0,
+            x: photo.x,
+            y: photo.y
+          };
+        }
+      }
+    });
+
+  // GESTO 6: Rotation - Rotar foto con dos dedos
+  const rotationGesture = Gesture.Rotation()
+    .runOnJS(true)
+    .onStart((event) => {
+      const { anchorX, anchorY } = event;
+      const photoUri = findPhotoAtPoint(anchorX, anchorY);
+      
+      if (photoUri) {
+        selectedPhotoRef.current = photoUri;
+        const photo = photoItems.find(p => p.uri === photoUri);
+        if (photo) {
+          // IMPORTANTE: Actualizar SIEMPRE con la posición ACTUAL de la foto
+          photoGestureStartRef.current = {
+            scale: photo.scale || 1,
+            rotation: photo.rotation || 0,
+            x: photo.x,
+            y: photo.y
+          };
+          console.log(`🔄 Rotation inicio en foto: rotation=${photo.rotation}`);
+        }
+      }
+    })
+    .onUpdate((event) => {
+      const { rotation } = event;
+      
+      if (selectedPhotoRef.current && photoGestureStartRef.current) {
+        const rotationDegrees = (rotation * 180) / Math.PI;
+        const newRotation = (photoGestureStartRef.current.rotation + rotationDegrees) % 360;
+        updatePhotoTransform(selectedPhotoRef.current, { rotation: newRotation });
+      }
+    })
+    .onEnd(() => {
+      // Actualizar el estado de inicio con la nueva rotación
+      if (selectedPhotoRef.current) {
+        const photo = photoItems.find(p => p.uri === selectedPhotoRef.current);
+        if (photo) {
+          photoGestureStartRef.current = {
+            scale: photo.scale || 1,
+            rotation: photo.rotation || 0,
+            x: photo.x,
+            y: photo.y
+          };
+        }
+      }
+    });
+
+  // Combinar todos los gestos con prioridades correctas
+  const combinedGesture = Gesture.Race(
+    doubleTapGesture,
+    longPressGesture,
+    Gesture.Simultaneous(
+      singleTapGesture,
+      Gesture.Simultaneous(
+        pinchGesture,
+        rotationGesture,
+        panGesture
+      )
+    )
+  );
 
   // Canvas memoizado para reducir flicker
   const DrawingSurface = useMemo(()=>{
@@ -1352,12 +1505,13 @@ const DrawingCanvas = ({
       let liveStrokeWidth = isEraser? currentStrokeWidth*4 : selectedPen===1? 2 : currentStrokeWidth;
       return (
         <Canvas style={[styles.canvas, { height: canvasHeight }]}>
+          {/* Imagen de fondo - PRIMERO para que quede debajo de todo */}
+          {Platform.OS === 'ios' && backgroundImage && (()=>{ const imageWidth = width*0.9; const imageX = (width - imageWidth)/2; return <SkiaImage image={backgroundImage} x={imageX} y={0} width={imageWidth} height={canvasHeight} fit="contain" />; })()}
           {Children.toArray(pathsData.filter((pd:any)=> pd.penType===0 || !pd.penType).map((pd:any)=>{ const idx=pathsData.indexOf(pd); const path=paths[idx]; if(!path) return null; const displayColor = pd.isEraser? '#e0e0e0': pd.color; return <Path key={`n-${idx}`} path={path} color={displayColor} style="stroke" strokeWidth={pd.strokeWidth} strokeCap="round" strokeJoin="round" />; }))}
-          {/* Imagen de fondo */}
-          {backgroundImage && (()=>{ const imageWidth = width*0.9; const imageX = (width - imageWidth)/2; return <SkiaImage image={backgroundImage} x={imageX} y={0} width={imageWidth} height={canvasHeight} fit="contain" />; })()}
+          {Platform.OS !== 'ios' && backgroundImage && (()=>{ const imageWidth = width*0.9; const imageX = (width - imageWidth)/2; return <SkiaImage image={backgroundImage} x={imageX} y={0} width={imageWidth} height={canvasHeight} fit="contain" />; })()}
           {Children.toArray(pathsData.filter((pd:any)=> pd.penType===1).map((pd:any)=>{ const idx=pathsData.indexOf(pd); const path=paths[idx]; if(!path) return null; return <Path key={`t-${idx}`} path={path} color={pd.color} style="stroke" strokeWidth={pd.strokeWidth} strokeCap="round" strokeJoin="round" opacity={0.8} />; }))}
           {Children.toArray(pathsData.filter((pd:any)=> pd.penType===2).map((pd:any)=>{ const idx=pathsData.indexOf(pd); const path=paths[idx]; if(!path) return null; return <Group key={`h-${idx}`}><Path path={path} color={pd.color} style="fill" opacity={0.3} /><Path path={path} color={pd.color} style="stroke" strokeWidth={pd.strokeWidth} strokeCap="round" strokeJoin="round" opacity={0.5} /></Group>; }))}
-          {photoItems.map((item:PhotoItem)=>(<SkiaPhoto key={item.uri} item={item} active={activePhoto===item.uri} registerMeta={registerImageMeta} />))}
+          {photoItems.map((item:PhotoItem)=>(<SkiaPhoto key={item.uri} item={item} registerMeta={registerImageMeta} />))}
           {currentPathDisplay && (
             <Group>
               {selectedPen===2 && !isEraser && <Path path={currentPathDisplay} color="yellow" style="fill" opacity={0.3} />}
@@ -1436,13 +1590,7 @@ const DrawingCanvas = ({
           </View>
         </Animated.View>
       </GestureHandlerRootView>
-      <PhotoControls
-        activeItem={activeItem}
-        onScale={handlePhotoScale}
-        onRotate={handlePhotoRotate}
-        onDelete={handlePhotoDelete}
-        onClose={handlePhotoClose}
-      />
+      {/* Multi-touch gestures - no necesitamos controles flotantes */}
 
       {/* Menu button */}
       <Animated.View style={[

@@ -1,11 +1,13 @@
-import { useRef, useState, Children, useCallback, useEffect, memo } from "react";
-import { View, StyleSheet, Dimensions, TouchableOpacity, Text, Animated, Platform, Alert, Image, PanResponder } from "react-native";
+import { useRef, useState, Children, useCallback, useEffect, memo, useMemo } from "react";
+import { View, StyleSheet, Dimensions, TouchableOpacity, Text, Animated, Platform, Alert } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
-import { Path, SkPath, Skia, Canvas } from "@shopify/react-native-skia";
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Path, SkPath, Skia, Canvas, Image as SkiaImage, Group, useImage } from "@shopify/react-native-skia";
 import { updateRateGeneral, getRateGeneralByTableId, getMainTableById, updateMainTable, getMainTablePaths, getPhotosForMainTable, addPhotoToMainTable, getPhotoItemsForMainTable, updatePhotoTransformForMainTable, removePhotoFromMainTable } from '../Database/database';
+import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 
 // Detectar si estamos en entorno web
 const isWeb = Platform.OS === 'web';
@@ -31,7 +33,7 @@ const BUTTON_SIZE = 50; // Tamaño reducido de botones
 const BUTTON_GAP = 5; // Separación entre botones
 const BUTTON_START_X = 0; // Posición inicial X
 
-// Configuración global del pen (AsyncStorage keys)
+// Configuración global del pen (en memoria, se resetea al cerrar app)
 const PEN_CONFIG_KEY = '@whiteboard_pen_config';
 
 // Configuración por defecto del pen
@@ -43,36 +45,21 @@ const DEFAULT_PEN_CONFIG = {
 
 // Variable global para mantener la configuración en memoria
 let globalPenConfig = { ...DEFAULT_PEN_CONFIG };
+let globalInputMode = '';
 
-// Funciones utilitarias para manejar la configuración global del pen
-const loadGlobalPenConfig = async () => {
-  try {
-    const configString = await AsyncStorage.getItem(PEN_CONFIG_KEY);
-    if (configString) {
-      const config = JSON.parse(configString);
-      globalPenConfig = { ...DEFAULT_PEN_CONFIG, ...config };
-      console.log('Loaded pen config:', globalPenConfig);
-    }
-  } catch (error) {
-    console.warn('Error loading pen config:', error);
-    globalPenConfig = { ...DEFAULT_PEN_CONFIG };
-  }
+// Funciones utilitarias para manejar la configuración global del pen (solo en memoria)
+const loadGlobalPenConfig = () => {
   return globalPenConfig;
 };
 
-const saveGlobalPenConfig = async (config: typeof DEFAULT_PEN_CONFIG) => {
-  try {
-    globalPenConfig = { ...config };
-    await AsyncStorage.setItem(PEN_CONFIG_KEY, JSON.stringify(config));
-    console.log('Saved pen config:', config);
-  } catch (error) {
-    console.warn('Error saving pen config:', error);
-  }
+const saveGlobalPenConfig = (config: typeof DEFAULT_PEN_CONFIG) => {
+  globalPenConfig = { ...config };
+  console.log('Saved pen config:', config);
 };
 
-const updateGlobalPenConfig = async (updates: Partial<typeof DEFAULT_PEN_CONFIG>) => {
+const updateGlobalPenConfig = (updates: Partial<typeof DEFAULT_PEN_CONFIG>) => {
   const newConfig = { ...globalPenConfig, ...updates };
-  await saveGlobalPenConfig(newConfig);
+  saveGlobalPenConfig(newConfig);
   return newConfig;
 };
 
@@ -142,6 +129,10 @@ const DrawingCanvas = ({
   const [isEraser, setIsEraser] = useState<boolean>(false);
   const [menuOpen, setMenuOpen] = useState<boolean>(false);
   
+  // Estado de guardado para indicador visual
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  
   // Estados para configuración de pen/eraser
   const [currentColor, setCurrentColor] = useState<string>(globalPenConfig.color); // Usar configuración global
   const [currentStrokeWidth, setCurrentStrokeWidth] = useState<number>(globalPenConfig.strokeWidth); // Usar configuración global
@@ -164,171 +155,140 @@ const DrawingCanvas = ({
   return BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * index;
 };
 
-// Nuevo enfoque de foto: PanResponder + botones para escalar/rotar (sin Reanimated en frames)
-interface DraggableScalablePhotoProps {
-  item: { uri: string; x: number; y: number; scale: number; rotation: number };
-  active: boolean;
-  onActivate: () => void;
-  onTransform: (t: { x?: number; y?: number; scale?: number; rotation?: number }) => void;
-  onDelete: () => void;
-}
+interface PhotoItem { uri: string; x: number; y: number; scale: number; rotation: number }
 
-const DraggableScalablePhoto = memo(({ item, active, onActivate, onTransform, onDelete }: DraggableScalablePhotoProps) => {
-  const [renderState, setRenderState] = useState({ x: item.x, y: item.y, scale: item.scale, rotation: item.rotation });
-  const [dims, setDims] = useState<{w:number; h:number}>({ w: 120, h: 120 });
-  const rafFlag = useRef(false);
-  const pending = useRef<{ x?: number; y?: number; scale?: number; rotation?: number }>({});
-  const startRef = useRef({ x: item.x, y: item.y });
-
-  // Sincronizar cuando cambian props externas (por ejemplo al cargar desde DB)
-  // Solo sincronizar en el primer montaje o si cambia el URI (imagen distinta)
-  const mountedRef = useRef(false);
-  useEffect(() => {
-    if (!mountedRef.current) {
-      setRenderState({ x: item.x, y: item.y, scale: item.scale, rotation: item.rotation });
-      mountedRef.current = true;
-    } else {
-      // Si cambia el URI (nueva imagen reemplaza) sincronizamos
-      // (key por uri normalmente evita esto, pero seguridad extra)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item.uri]);
-
-  // Obtener dimensiones reales una sola vez
-  useEffect(() => {
-    Image.getSize(item.uri, (w, h) => {
-      if (w && h) {
-        // Tamaño más pequeño solicitado
-        const MAX_W = 200;
-        const MAX_H = 200;
-        let rw = w; let rh = h;
-        if (rw > MAX_W) { const factor = MAX_W / rw; rw = MAX_W; rh = rh * factor; }
-        if (rh > MAX_H) { const factor = MAX_H / rh; rh = MAX_H; rw = rw * factor; }
-        setDims({ w: rw, h: rh });
-      }
-    }, () => {});
-  }, [item.uri]);
-
-  const flushRaf = () => {
-    setRenderState(prev => ({ ...prev, ...pending.current }));
-    rafFlag.current = false;
-  };
-
-  const schedule = (patch: { x?: number; y?: number }) => {
-    pending.current = { ...pending.current, ...patch };
-    if (!rafFlag.current) {
-      rafFlag.current = true;
-      requestAnimationFrame(flushRaf);
-    }
-  };
-
-  const commit = useCallback((next: Partial<typeof renderState>) => {
-    setRenderState(prev => {
-      const merged = { ...prev, ...next };
-      // Evitar llamar onTransform si no hubo cambio real
-      if (
-        merged.x !== item.x ||
-        merged.y !== item.y ||
-        merged.scale !== item.scale ||
-        merged.rotation !== item.rotation
-      ) {
-        onTransform(merged);
-      }
-      return merged;
-    });
-  }, [onTransform, item.x, item.y, item.scale, item.rotation]);
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-        onActivate();
-        startRef.current = { x: renderState.x, y: renderState.y };
-      },
-      onPanResponderMove: (_evt, gesture) => {
-        const nx = startRef.current.x + gesture.dx;
-        const ny = startRef.current.y + gesture.dy;
-        schedule({ x: nx, y: ny });
-      },
-      onPanResponderRelease: () => {
-        // Persistir sólo al final para evitar saturar
-        onTransform({ x: renderState.x, y: renderState.y, scale: renderState.scale, rotation: renderState.rotation });
-      },
-      onPanResponderTerminationRequest: () => false,
-      onPanResponderTerminate: () => {
-        onTransform({ x: renderState.x, y: renderState.y, scale: renderState.scale, rotation: renderState.rotation });
-      }
-    })
-  ).current;
-
-  const incScale = () => {
-  const ns = Math.min( parseFloat((renderState.scale + 0.1).toFixed(3)), 3 );
-    commit({ scale: ns });
-  };
-  const decScale = () => {
-  const ns = Math.max( parseFloat((renderState.scale - 0.1).toFixed(3)), 0.3 );
-    commit({ scale: ns });
-  };
-  const rotate = (deg: number) => {
-    commit({ rotation: (renderState.rotation + deg) % 360 });
-  };
-
+// Componente de imagen en Skia memoizado para evitar flicker al redibujar paths
+const SkiaPhoto = memo(({ item, active, registerMeta }: { item: PhotoItem; active: boolean; registerMeta: (uri: string, w: number, h: number) => void }) => {
+  const img = useImage(item.uri);
+  if (!img) return null;
+  let bw = img.width();
+  let bh = img.height();
+  const MAX_W = 400, MAX_H = 400;
+  if (bw > MAX_W) { const f = MAX_W / bw; bw = MAX_W; bh *= f; }
+  if (bh > MAX_H) { const f = MAX_H / bh; bh = MAX_H; bw *= f; }
+  const MIN_W = 90;
+  if (bw < MIN_W) { const f = MIN_W / bw; bw = MIN_W; bh *= f; }
+  registerMeta(item.uri, bw, bh);
+  const scale = item.scale || 1;
+  const rot = (item.rotation || 0) * Math.PI / 180;
   return (
-    <View
-      style={[
-        styles.photoWrapper,
-        {
-          transform: [
-            { translateX: renderState.x },
-            { translateY: renderState.y },
-      { rotate: `${renderState.rotation}deg` },
-      { scale: renderState.scale }
-          ]
-        }
+    <Group
+      transform={[
+        { translateX: item.x + (bw * scale) / 2 },
+        { translateY: item.y + (bh * scale) / 2 },
+        { rotate: rot },
+        { scale: scale },
+        { translateX: -bw / 2 },
+        { translateY: -bh / 2 }
       ]}
-      pointerEvents="box-none"
-      {...panResponder.panHandlers}
     >
-      <TouchableOpacity
-        activeOpacity={0.9}
-        onPress={onActivate}
-      >
-    <Image source={{ uri: item.uri }} style={[styles.photoDraggable, { width: dims.w, height: dims.h }]} />
-      </TouchableOpacity>
+      <SkiaImage image={img} x={0} y={0} width={bw} height={bh} fit="contain" />
       {active && (
-        <View style={styles.photoControls} pointerEvents="box-none">
-          <TouchableOpacity style={styles.photoControlBtn} onPress={decScale}><Text style={styles.photoControlText}>－</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.photoControlBtn} onPress={incScale}><Text style={styles.photoControlText}>＋</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.photoControlBtn} onPress={() => rotate(15)}><Text style={styles.photoControlText}>⟳</Text></TouchableOpacity>
-          <TouchableOpacity style={[styles.photoControlBtn, styles.photoDeleteCtrl]} onPress={onDelete}><Text style={styles.photoControlText}>✕</Text></TouchableOpacity>
-        </View>
+        <Path
+          path={Skia.Path.Make().addRect({ x:0, y:0, width: bw, height: bh })}
+          color="rgba(0,150,255,0.35)"
+          style="stroke"
+          strokeWidth={2 / scale}
+        />
       )}
-    </View>
+    </Group>
   );
+}, (prev, next) => {
+  return prev.active === next.active &&
+    prev.item.uri === next.item.uri &&
+    prev.item.x === next.item.x &&
+    prev.item.y === next.item.y &&
+    prev.item.scale === next.item.scale &&
+    prev.item.rotation === next.item.rotation;
 });
 
-interface PhotosLayerProps {
-  items: any[];
-  activeUri: string | null;
-  onActivate: (uri: string) => void;
-  onTransform: (uri: string, t: {x?:number;y?:number;scale?:number;rotation?:number}) => void;
-  onDelete: (uri: string) => void;
-}
-
-const PhotosLayer = memo(({ items, activeUri, onActivate, onTransform, onDelete }: PhotosLayerProps) => {
+// Controles anclados directamente a la foto activa - MEMOIZADOS para evitar re-renders innecesarios
+const PhotoControls = memo(({
+  activeItem,
+  onScale,
+  onRotate,
+  onDelete,
+  onClose
+}: { activeItem: PhotoItem | null; onScale: (d:number)=>void; onRotate:(d:number)=>void; onDelete:()=>void; onClose:()=>void }) => {
+  if (!activeItem) return null;
+  // Superponer: colocar el menú dentro/encima pegado al borde superior de la imagen
+  const top = Math.max(0, activeItem.y + 4); // 4px dentro de la imagen
+  const left = activeItem.x + 8; // pequeño margen lateral
+  
+  // Ajustar tamaños según dispositivo - más pequeño en tiny
+  const buttonStyle = isTinyDevice ? styles.photoControlBtnTiny : styles.photoControlBtn;
+  const textStyle = isTinyDevice ? styles.photoControlTextTiny : styles.photoControlText;
+  const hitSlopSize = isTinyDevice ? 8 : 10; // Menos hitSlop en tiny para ahorrar espacio
+  
   return (
-    <View style={styles.photosLayer} pointerEvents="box-none">
-      {items.map(item => (
-        <DraggableScalablePhoto
-          key={item.uri}
-            item={item}
-            active={activeUri === item.uri}
-            onActivate={() => onActivate(item.uri)}
-            onTransform={(t) => onTransform(item.uri, t)}
-            onDelete={() => onDelete(item.uri)}
-        />
-      ))}
+    <View style={[styles.photoControlsFloating, { top, left }]} pointerEvents="box-none">
+      <View style={isTinyDevice ? styles.photoControlsTiny : styles.photoControls}>
+        <TouchableOpacity 
+          style={buttonStyle} 
+          onPress={onClose}
+          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
+          activeOpacity={0.7}
+        >
+          <Text style={textStyle}>✕</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={buttonStyle} 
+          onPress={() => onScale(-0.1)}
+          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
+          activeOpacity={0.7}
+        >
+          <Text style={textStyle}>－</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={buttonStyle} 
+          onPress={() => onScale(+0.1)}
+          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
+          activeOpacity={0.7}
+        >
+          <Text style={textStyle}>＋</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={buttonStyle} 
+          onPress={() => onRotate(-15)}
+          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
+          activeOpacity={0.7}
+        >
+          <Text style={textStyle}>⟲</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={buttonStyle} 
+          onPress={() => onRotate(15)}
+          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
+          activeOpacity={0.7}
+        >
+          <Text style={textStyle}>⟳</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[buttonStyle, styles.photoDeleteCtrl]} 
+          onPress={onDelete}
+          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
+          activeOpacity={0.7}
+        >
+          <Text style={textStyle}>🗑</Text>
+        </TouchableOpacity>
+      </View>
     </View>
+  );
+}, (prev, next) => {
+  // Comparación personalizada para evitar re-renders innecesarios
+  if (!prev.activeItem && !next.activeItem) return true;
+  if (!prev.activeItem || !next.activeItem) return false;
+  
+  return (
+    prev.activeItem.uri === next.activeItem.uri &&
+    prev.activeItem.x === next.activeItem.x &&
+    prev.activeItem.y === next.activeItem.y &&
+    prev.activeItem.scale === next.activeItem.scale &&
+    prev.activeItem.rotation === next.activeItem.rotation &&
+    prev.onScale === next.onScale &&
+    prev.onRotate === next.onRotate &&
+    prev.onDelete === next.onDelete &&
+    prev.onClose === next.onClose
   );
 });
 
@@ -342,6 +302,49 @@ const bluePenButtonAnim = useRef(new Animated.Value(getButtonOffset(6))).current
 // Botón de foto ahora se posiciona absoluto bajo el toggle, sin animación horizontal
 const strokeBarAnim = useRef(new Animated.Value(getButtonOffset(7))).current; // barra corre una posición menos
 const stickButtonAnim = useRef(new Animated.Value(10)).current;
+
+// --- Skia Photo Support ---
+const [imageMeta, setImageMeta] = useState<Record<string, { w: number; h: number }>>({});
+const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
+  setImageMeta(prev => prev[uri] ? prev : { ...prev, [uri]: { w, h } });
+}, []);
+
+// ...el resto del componente usa ahora SkiaPhoto memoizado externo...
+
+// Hit test teniendo en cuenta rotación, escala y posición.
+const findPhotoAtPoint = (x: number, y: number): string | null => {
+  // Iterar desde arriba (última renderizada) hacia abajo
+  for (let i = photoItems.length - 1; i >= 0; i--) {
+    const p = photoItems[i];
+    const meta = imageMeta[p.uri];
+    if (!meta) continue;
+    const baseW = meta.w;
+    const baseH = meta.h;
+    const scale = p.scale || 1;
+    const rotDeg = p.rotation || 0;
+    const theta = -(rotDeg * Math.PI / 180); // inversa
+    // Centro actual después de escala (antes de rotación):
+    const w = baseW * scale;
+    const h = baseH * scale;
+    const cx = p.x + w / 2;
+    const cy = p.y + h / 2;
+    // Convertir punto global al sistema centrado
+    const dx = x - cx;
+    const dy = y - cy;
+    // Quitar rotación (inversa)
+    const rx = dx * Math.cos(theta) - dy * Math.sin(theta);
+    const ry = dx * Math.sin(theta) + dy * Math.cos(theta);
+    // Quitar escala y trasladar a coordenadas con origen en top-left sin rotar
+    const ux = rx / scale + baseW / 2;
+    const uy = ry / scale + baseH / 2;
+    if (ux >= 0 && ux <= baseW && uy >= 0 && uy <= baseH) {
+      return p.uri;
+    }
+  }
+  return null;
+};
+
+// Selección por ahora: se puede implementar con overlay Touchable si se necesita.
 
   // Cargar paths guardados al montar el componente
   useEffect(() => {
@@ -381,6 +384,16 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
     };
   }, [tableId]);
 
+  // Auto-ocultar indicador de guardado después de 3 segundos
+  useEffect(() => {
+    if (lastSaved && !isSaving) {
+      const timer = setTimeout(() => {
+        setLastSaved(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [lastSaved, isSaving]);
+
   // Cargar fotos simples (solo URIs)
   const loadPhotos = useCallback( async () => {
     try {
@@ -394,82 +407,448 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
   // Cargar items con metadatos
   const loadPhotoItems = useCallback( async () => {
     try {
+      console.log('📸 [loadPhotoItems] Loading photo items for tableId:', tableId);
       const items = await getPhotoItemsForMainTable(tableId);
-      setPhotoItems(items);
-    } catch (e) { console.warn('Error loading photo items', e); }
+      console.log('📸 [loadPhotoItems] Loaded', items?.length || 0, 'photo items from DB');
+      
+      const normalized = items.map((it, idx) => {
+        const item = {
+          ...it,
+          scale: (it.scale === undefined || it.scale === null || it.scale <= 0) ? 1 : it.scale,
+          rotation: typeof it.rotation === 'number' ? it.rotation : 0
+        };
+        console.log(`📸 [loadPhotoItems] Photo ${idx}:`, {
+          uri: item.uri?.substring(0, 50) + '...',
+          x: item.x,
+          y: item.y,
+          scale: item.scale,
+          rotation: item.rotation
+        });
+        return item;
+      });
+      
+      setPhotoItems(normalized);
+      console.log('✅ [loadPhotoItems] Photo items state updated with', normalized.length, 'items');
+    } catch (e) { 
+      console.error('❌ [loadPhotoItems] Error loading photo items:', e);
+    }
   }, [tableId]);
+
+  // ✅ FIX iOS: Recargar fotos cuando la pantalla vuelve al foco
+  // Esto asegura que las imágenes se carguen correctamente cuando:
+  // 1. Vuelves de otra pantalla
+  // 2. Cambias de gimnasta
+  // 3. La app vuelve al foreground después de estar en background
+  useFocusEffect(
+    useCallback(() => {
+      console.log('🔄 [useFocusEffect] Screen focused - reloading photos');
+      let isMounted = true;
+      
+      const reloadPhotos = async () => {
+        try {
+          console.log('📸 [useFocusEffect] Reloading photo items...');
+          await loadPhotoItems();
+          if (isMounted) {
+            console.log('✅ [useFocusEffect] Photo items reloaded successfully');
+          }
+        } catch (error) {
+          console.error('❌ [useFocusEffect] Error reloading photos:', error);
+        }
+      };
+      
+      // Ejecutar recarga con un pequeño delay para asegurar que el componente esté listo
+      const timer = setTimeout(() => {
+        if (isMounted) {
+          reloadPhotos();
+        }
+      }, 100);
+      
+      return () => {
+        isMounted = false;
+        clearTimeout(timer);
+        console.log('🔄 [useFocusEffect] Screen unfocused - cleanup');
+      };
+    }, [loadPhotoItems])
+  );
+
+  // Helpers iOS: asegurar archivo accesible y formato soportado
+  // Log simplificado solo en consola (sin persistencia)
+  const appendPhotoImportLog = useCallback((entry: Record<string, any>) => {
+    const payload = {
+      ts: new Date().toISOString(),
+      platform: Platform.OS,
+      tableId,
+      ...entry,
+    };
+    console.log('[PhotoImport]', payload);
+  }, [tableId]);
+
+  const ensurePhotosDir = async () => {
+    const dir = FileSystem.cacheDirectory + 'photos/';
+    try { await FileSystem.makeDirectoryAsync(dir, { intermediates: true }); } catch {}
+    return dir;
+  };
+
+  const getExtFromUri = (uri: string) => {
+    const m = uri.split('?')[0].match(/\.([a-zA-Z0-9]+)$/);
+    return m ? m[1].toLowerCase() : 'jpg';
+  };
+
+  const isHeic = (ext: string) => ext === 'heic' || ext === 'heif';
+
+  const copyToAppCache = async (srcUri: string): Promise<string> => {
+    const dir = await ensurePhotosDir();
+    const ext = getExtFromUri(srcUri);
+    const filename = `${Date.now()}_${Math.floor(Math.random()*1e6)}.${ext}`;
+    const dst = dir + filename;
+    try {
+      await FileSystem.copyAsync({ from: srcUri, to: dst });
+      const info = await FileSystem.getInfoAsync(dst);
+      if (info.exists && info.size && info.size > 0) return dst;
+    } catch (e) {
+      console.warn('copyToAppCache failed, fallback to original uri', e);
+    }
+    return srcUri;
+  };
+
+  const pickImageUriViaDocumentPicker = useCallback(async (): Promise<string | null> => {
+    try {
+      await appendPhotoImportLog({ step: 'ios_docpicker_start' });
+      const res: any = await DocumentPicker.getDocumentAsync({ type: ['image/*'], multiple: false, copyToCacheDirectory: false });
+      if ((res && 'canceled' in res && res.canceled) || res?.type === 'cancel') {
+        await appendPhotoImportLog({ step: 'ios_docpicker_canceled' });
+        return null;
+      }
+      const asset = (res as any).assets?.[0] ?? res;
+      const uri = asset?.uri ?? null;
+      await appendPhotoImportLog({ step: 'ios_docpicker_selected', assetUri: uri, fileName: asset?.name ?? null, size: asset?.size ?? null, mimeType: asset?.mimeType ?? null });
+      if (!uri) return null;
+      return uri;
+    } catch (e) {
+      const message = (typeof e === 'object' && e && 'message' in e) ? String((e as any).message) : String(e);
+      const stack = (typeof e === 'object' && e && 'stack' in e) ? String((e as any).stack) : null;
+      await appendPhotoImportLog({ step: 'ios_docpicker_error', message, stack });
+      return null;
+    }
+  }, [appendPhotoImportLog]);
 
   const handleAddPhoto = useCallback(async () => {
     try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert('Permiso requerido', 'Se necesita acceso a la galería.');
+      await appendPhotoImportLog({ step: 'start', msg: 'Add photo tapped' });
+
+      let pickedUri: string | null = null;
+      
+      // Mostrar diálogo de selección de origen en Android
+      if (Platform.OS === 'android') {
+        await appendPhotoImportLog({ step: 'android_show_picker_options' });
+        
+        // Usar Alert con opciones para elegir entre Galería o Archivos (OneDrive, etc.)
+        const pickerChoice = await new Promise<'gallery' | 'files' | null>((resolve) => {
+          Alert.alert(
+            'Seleccionar imagen',
+            '¿De dónde deseas seleccionar la imagen?',
+            [
+              {
+                text: 'Galería',
+                onPress: () => resolve('gallery'),
+              },
+              {
+                text: 'Archivos (OneDrive, Drive, etc.)',
+                onPress: () => resolve('files'),
+              },
+              {
+                text: 'Cancelar',
+                onPress: () => resolve(null),
+                style: 'cancel',
+              },
+            ],
+            { cancelable: true, onDismiss: () => resolve(null) }
+          );
+        });
+
+        if (!pickerChoice) {
+          await appendPhotoImportLog({ step: 'picker_choice_canceled' });
+          return;
+        }
+
+        if (pickerChoice === 'gallery') {
+          // Usar ImagePicker para galería
+          await appendPhotoImportLog({ step: 'android_gallery_selected' });
+          const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (!perm.granted) {
+            Alert.alert('Permiso requerido', 'Se necesita acceso a la galería.');
+            await appendPhotoImportLog({ step: 'permission_denied' });
+            return;
+          }
+          await appendPhotoImportLog({ step: 'permission_granted' });
+          const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsMultipleSelection: false,
+            base64: false,
+            quality: 0.8
+          });
+          if (result.canceled) {
+            await appendPhotoImportLog({ step: 'picker_canceled' });
+            return;
+          }
+          const asset = result.assets?.[0];
+          await appendPhotoImportLog({ step: 'asset_selected', assetUri: asset?.uri ?? null, fileName: (asset as any)?.fileName ?? null, mimeType: (asset as any)?.mimeType ?? null });
+          if (!asset?.uri) {
+            await appendPhotoImportLog({ step: 'asset_missing_uri' });
+            return;
+          }
+          pickedUri = asset.uri;
+        } else {
+          // Usar DocumentPicker para archivos (OneDrive, Drive, etc.)
+          await appendPhotoImportLog({ step: 'android_files_selected' });
+          pickedUri = await pickImageUriViaDocumentPicker();
+        }
+      } else if (Platform.OS === 'ios') {
+        // iOS: usar DocumentPicker por estabilidad
+        pickedUri = await pickImageUriViaDocumentPicker();
+      } else {
+        // Web: usar ImagePicker
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert('Permiso requerido', 'Se necesita acceso a la galería.');
+          await appendPhotoImportLog({ step: 'permission_denied' });
+          return;
+        }
+        await appendPhotoImportLog({ step: 'permission_granted' });
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsMultipleSelection: false,
+          base64: false,
+          quality: 0.8
+        });
+        if (result.canceled) {
+          await appendPhotoImportLog({ step: 'picker_canceled' });
+          return;
+        }
+        const asset = result.assets?.[0];
+        await appendPhotoImportLog({ step: 'asset_selected', assetUri: asset?.uri ?? null, fileName: (asset as any)?.fileName ?? null, mimeType: (asset as any)?.mimeType ?? null });
+        if (!asset?.uri) {
+          await appendPhotoImportLog({ step: 'asset_missing_uri' });
+          return;
+        }
+        pickedUri = asset.uri;
+      }
+
+      // Pre-validaciones y normalización de URI
+      if (!pickedUri) return;
+      const ext = getExtFromUri(pickedUri);
+      
+      // Bloquear HEIC/HEIF en todos los sistemas
+      if (isHeic(ext)) {
+        Alert.alert('Formato no soportado', 'Las imágenes HEIC/HEIF no son compatibles para exportar. Por favor, selecciona una imagen JPEG o PNG.');
+        await appendPhotoImportLog({ step: 'blocked_heic_heif', ext, uri: pickedUri });
         return;
       }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsMultipleSelection: false,
-        base64: false,
-        quality: 0.8
-      });
-      if (result.canceled) return;
-      const asset = result.assets?.[0];
-      if (!asset?.uri) return;
-      const ok = await addPhotoToMainTable(tableId, asset.uri);
-      if (ok) {
-        // Calcular centro basándonos en el ancho de pantalla y altura de canvas
-        const photoSize = 120; // coincide con styles.photoDraggable
-        const centerX = Math.round((width - photoSize) / 2);
-        const centerY = Math.round((canvasHeight - photoSize) / 2);
-        // Actualizar transform inicial para centrar
-        await updatePhotoTransformForMainTable(tableId, asset.uri, { x: centerX, y: centerY });
-        await loadPhotos();
-        await loadPhotoItems();
-        setActivePhoto(asset.uri);
+      
+      // Copiar a cache para archivos externos (iOS siempre, Android solo si es de DocumentPicker)
+      const needsCopy = Platform.OS === 'ios' || 
+                        pickedUri.startsWith('content://') || 
+                        pickedUri.includes('onedrive') || 
+                        pickedUri.includes('drive.google') ||
+                        pickedUri.includes('com.microsoft.skydrive') ||
+                        !pickedUri.startsWith('file://');
+      
+      if (needsCopy) {
+        const before = pickedUri;
+        pickedUri = await copyToAppCache(pickedUri);
+        await appendPhotoImportLog({ step: 'copied_to_cache', from: before, to: pickedUri, changed: before !== pickedUri });
       }
+
+      // Verificar existencia y tamaño razonable
+      try {
+        const info = await FileSystem.getInfoAsync(pickedUri);
+        if (!info.exists || (info.size ?? 0) === 0) {
+          Alert.alert('Error', 'No se pudo acceder a la imagen seleccionada.');
+          await appendPhotoImportLog({ step: 'file_info_invalid', uri: pickedUri, info });
+          return;
+        }
+        // Límite blando 25MB
+        if ((info.size ?? 0) > 25 * 1024 * 1024) {
+          Alert.alert('Imagen muy grande', 'La imagen supera 25MB. Selecciona otra más pequeña.');
+          await appendPhotoImportLog({ step: 'file_too_large', size: info.size, uri: pickedUri });
+          return;
+        }
+        await appendPhotoImportLog({ step: 'file_info_ok', size: info.size, uri: pickedUri });
+      } catch {}
+
+      // Operación transaccional completa: agregar foto y configurar transformación
+      const success = await addPhotoToMainTable(tableId, pickedUri);
+      appendPhotoImportLog({ step: 'db_add_result', success, uri: pickedUri });
+      
+      if (!success) {
+        throw new Error('No se pudo agregar la foto a la base de datos');
+      }
+      
+      // Calcular centro basándonos en el ancho de pantalla y altura de canvas
+      const photoSize = 120; // base centrar (independiente de escala)
+      const centerX = Math.round((width - photoSize) / 2);
+      const centerY = Math.round((canvasHeight - photoSize) / 2);
+      
+      // Actualizar transform inicial para centrar (operación transaccional)
+      const transformSuccess = await updatePhotoTransformForMainTable(
+        tableId, 
+        pickedUri, 
+        { x: centerX, y: centerY, scale: 0.5 }
+      );
+      
+      if (!transformSuccess) {
+        throw new Error('No se pudo inicializar la transformación de la foto');
+      }
+      
+      appendPhotoImportLog({ step: 'transform_initialized', x: centerX, y: centerY, scale: 0.5, uri: pickedUri });
+      
+      // Recargar datos de la base de datos
+      await loadPhotos();
+      await loadPhotoItems();
+      setActivePhoto(pickedUri);
+      
+      appendPhotoImportLog({ step: 'success', uri: pickedUri });
+      console.log('✅ Foto agregada exitosamente:', pickedUri);
     } catch (e) {
-      console.error('handleAddPhoto error', e);
-      Alert.alert('Error', 'No se pudo añadir la imagen');
+      console.error('❌ handleAddPhoto error', e);
+      const message = (typeof e === 'object' && e && 'message' in e) ? String((e as any).message) : String(e);
+      const stack = (typeof e === 'object' && e && 'stack' in e) ? String((e as any).stack) : null;
+      appendPhotoImportLog({ step: 'error', message, stack });
+      Alert.alert(
+        'Error al Agregar Imagen',
+        `No se pudo añadir la imagen:\n${message}`,
+        [{ text: 'OK' }]
+      );
     }
   }, [tableId, loadPhotos]);
 
   // Gestos para cada imagen: usaremos PanResponder manual simplificado con GestureHandler Pan + Pinch + Rotation
   // Para minimizar cambios, implementamos un wrapper simple por foto
+  // Referencia para merges completos
+  const photoItemsRef = useRef<PhotoItem[]>([]);
+  useEffect(() => { photoItemsRef.current = photoItems as PhotoItem[]; }, [photoItems]);
+
   const onUpdatePhotoTransform = useCallback(async (uri: string, data: {x?: number; y?: number; scale?: number; rotation?: number}) => {
-    await updatePhotoTransformForMainTable(tableId, uri, data);
-    // refrescar solo en memoria
+    // Guardar estado anterior para posible rollback
+    const previousState = photoItemsRef.current.find(p => p.uri === uri);
+    
+    // IMPORTANTE: Actualizar ref INMEDIATAMENTE (antes de setState) para evitar race conditions
+    photoItemsRef.current = photoItemsRef.current.map(p => 
+      p.uri === uri ? { ...p, ...data } : p
+    );
+    
+    // Actualizar estado UI inmediatamente (optimistic update)
     setPhotoItems(prev => prev.map(p => p.uri === uri ? { ...p, ...data } : p));
+    
+    try {
+      const existing = photoItemsRef.current.find(p => p.uri === uri);
+      const merged: PhotoItem = existing ? { ...existing, ...data } : { uri, x: 0, y: 0, scale: 1, rotation: 0, ...data } as PhotoItem;
+      if (merged.scale <= 0) merged.scale = 1;
+      
+      // Operación transaccional con manejo de errores
+      const success = await updatePhotoTransformForMainTable(
+        tableId, 
+        uri, 
+        { x: merged.x, y: merged.y, scale: merged.scale, rotation: merged.rotation }
+      );
+      
+      if (!success) {
+        throw new Error('La operación de actualización retornó false');
+      }
+      
+      photoItemsRef.current = photoItemsRef.current.map(p => p.uri === uri ? merged : p);
+      console.log('✅ Transformación de foto guardada:', { uri, ...data });
+    } catch (error) {
+      console.error('❌ Error al guardar transformación de foto:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      Alert.alert(
+        'Error al Guardar',
+        `No se pudo guardar la transformación de la imagen:\n${errorMessage}`,
+        [{ text: 'OK' }]
+      );
+      // Revertir estado UI en caso de error
+      if (previousState) {
+        setPhotoItems(prev => prev.map(p => p.uri === uri ? previousState : p));
+      }
+    }
   }, [tableId]);
 
   const handleDeletePhoto = useCallback(async (uri: string) => {
     const idx = photoItems.findIndex(p => p.uri === uri);
-    if (idx === -1) return;
-    const ok = await removePhotoFromMainTable(tableId, idx);
-    if (ok) { await loadPhotos(); await loadPhotoItems(); setActivePhoto(null); }
+    if (idx === -1) {
+      Alert.alert('Error', 'No se encontró la imagen a eliminar');
+      return;
+    }
+    
+    try {
+      const success = await removePhotoFromMainTable(tableId, idx);
+      
+      if (!success) {
+        throw new Error('La operación de eliminación retornó false');
+      }
+      
+      await loadPhotos();
+      await loadPhotoItems();
+      setActivePhoto(null);
+      console.log('✅ Foto eliminada exitosamente');
+    } catch (error) {
+      console.error('❌ Error al eliminar foto:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      Alert.alert(
+        'Error al Eliminar',
+        `No se pudo eliminar la imagen:\n${errorMessage}`,
+        [{ text: 'OK' }]
+      );
+    }
   }, [tableId, photoItems, loadPhotos, loadPhotoItems]);
 
-    // Estado para el modo de entrada: 'pen' o 'finger'
-  const [inputMode, setInputMode] = useState('pen');
-  useEffect(() => {
-    const loadInputMode = async () => {
-      try {
-        const saved = await AsyncStorage.getItem('inputMode');
-        if (saved) {
-          setInputMode(saved);
-        } else {
-          setInputMode(isTinyDevice ? 'finger' : 'pen');
-        }
-      } catch (e) {
-        setInputMode(isTinyDevice ? 'finger' : 'pen');
-      }
-    };
-    loadInputMode();
-  }, [isTinyDevice]);
+  // --- Callbacks Memoizados para PhotoControls (evita re-renders innecesarios) ---
+  
+  // Memoizar activeItem para evitar recálculos en cada render
+  const activeItem = useMemo(() => {
+    if (!activePhoto) return null;
+    return photoItems.find(p => p.uri === activePhoto) || null;
+  }, [activePhoto, photoItems]);
 
-  const toggleInputMode = async () => {
+  // Callback memoizado para escalar
+  const handlePhotoScale = useCallback((d: number) => {
+    if (!activePhoto) return;
+    const item = photoItemsRef.current.find(p => p.uri === activePhoto);
+    if (!item) return;
+    const ns = Math.min(4, Math.max(0.2, parseFloat((item.scale + d).toFixed(3))));
+    onUpdatePhotoTransform(activePhoto, { scale: ns });
+  }, [activePhoto, onUpdatePhotoTransform]);
+
+  // Callback memoizado para rotar
+  const handlePhotoRotate = useCallback((deg: number) => {
+    if (!activePhoto) return;
+    const item = photoItemsRef.current.find(p => p.uri === activePhoto);
+    if (!item) return;
+    const nr = (item.rotation + deg) % 360;
+    onUpdatePhotoTransform(activePhoto, { rotation: nr });
+  }, [activePhoto, onUpdatePhotoTransform]);
+
+  // Callback memoizado para eliminar
+  const handlePhotoDelete = useCallback(() => {
+    if (activePhoto) handleDeletePhoto(activePhoto);
+  }, [activePhoto, handleDeletePhoto]);
+
+  // Callback memoizado para cerrar
+  const handlePhotoClose = useCallback(() => {
+    setActivePhoto(null);
+  }, []);
+
+    // Estado para el modo de entrada: 'pen' o 'finger'
+  const [inputMode, setInputMode] = useState(() => {
+    // Inicializar desde variable global o por tamaño de dispositivo
+    if (globalInputMode) return globalInputMode;
+    return isTinyDevice ? 'finger' : 'pen';
+  });
+
+  const toggleInputMode = () => {
     const newMode = inputMode === 'pen' ? 'finger' : 'pen';
     setInputMode(newMode);
-    await AsyncStorage.setItem('inputMode', newMode);
+    globalInputMode = newMode; // Guardar en memoria global
   };
 
   
@@ -530,8 +909,9 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
     }
   }, [tableId]);
 
-  // Guardar paths de manera eficiente con debounce
+  // Guardar paths de manera eficiente con debounce y manejo transaccional
   const savePaths = useCallback(async (newPathsData: PathData[]) => {
+    setIsSaving(true);
     try {
       // Limitar el número de paths para evitar problemas de memoria (máximo 1000)
       const limitedPaths = newPathsData.slice(-1000);
@@ -545,20 +925,44 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
       };
       const size = byteLengthUtf8(pathsString);
       if (size > INLINE_HARD_LIMIT) {
-        Alert.alert('Whiteboard cap reached', 'Has reached the maximum drawing capacity. Please erase some strokes before continuing.');
+        setIsSaving(false);
+        Alert.alert(
+          'Límite alcanzado', 
+          'Has alcanzado el límite máximo de trazos. Por favor borra algunos antes de continuar.',
+          [{ text: 'OK' }]
+        );
         console.warn(`[Whiteboard] Save blocked. paths size=${size} bytes > ${INLINE_HARD_LIMIT}`);
         return; // No guardamos para evitar intento de fila gigante
       }
       
+      // Operación transaccional con SQLite
       const mainTable = await getMainTableById(tableId);
 
-      if (mainTable) {
-        await updateMainTable(mainTable.id, { paths: pathsString });
+      if (!mainTable) {
+        throw new Error(`No se encontró la tabla con ID ${tableId}`);
       }
 
-      console.log(`Saved ${limitedPaths.length} paths efficiently`);
+      const success = await updateMainTable(mainTable.id, { paths: pathsString });
+      
+      if (!success) {
+        throw new Error('No se pudo actualizar los paths en la base de datos');
+      }
+
+      setLastSaved(new Date());
+      console.log(`✅ Guardados ${limitedPaths.length} trazos exitosamente`);
     } catch (error) {
-      console.error('Error saving paths:', error);
+      console.error('❌ Error saving paths:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      Alert.alert(
+        'Error al Guardar',
+        `No se pudieron guardar los trazos del whiteboard:\n${errorMessage}`,
+        [
+          { text: 'Reintentar', onPress: () => savePaths(newPathsData) },
+          { text: 'Cancelar', style: 'cancel' }
+        ]
+      );
+    } finally {
+      setIsSaving(false);
     }
   }, [tableId]);
 
@@ -938,11 +1342,52 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
   };
 
   // Gestos de dibujo con lógica de inputMode
+  // Tap para mover foto activa
+  const moveActivePhoto = useCallback((x: number, y: number) => {
+    if (!activePhoto) return;
+    setPhotoItems(prev => prev.map(p => {
+      if (p.uri === activePhoto) {
+        const meta = imageMeta[p.uri];
+        const baseW = meta?.w ?? 200;
+        const baseH = meta?.h ?? 200;
+        const w = baseW * (p.scale || 1);
+        const h = baseH * (p.scale || 1);
+        const nx = x - w / 2;
+        const ny = y - h / 2;
+        onUpdatePhotoTransform(activePhoto, { x: nx, y: ny });
+        return { ...p, x: nx, y: ny };
+      }
+      return p;
+    }));
+  }, [activePhoto, setPhotoItems, onUpdatePhotoTransform, imageMeta]);
+
+  const tapToMoveGesture = Gesture.Tap()
+    .runOnJS(true)
+    .onEnd(e => {
+      const { x, y } = e;
+      // Prioridad: seleccionar foto si se toca
+      const target = findPhotoAtPoint(x, y);
+      if (target) {
+        setActivePhoto(prev => prev === target ? prev : target);
+        return;
+      }
+      // Si había una foto activa y se toca fuera: moverla al punto
+      if (activePhoto) {
+        moveActivePhoto(x, y);
+        return;
+      }
+      // No había foto activa y tap vacío: no hacer nada (dibujo lo maneja Pan)
+    });
+
   const drawGesture = Gesture.Pan()
     .runOnJS(true)
     .minDistance(0)
     .onStart((event) => {
       const { x, y, pointerType } = event;
+      if (activePhoto) {
+        // Hay foto activa: no iniciar dibujo; el Tap gesture se encargará
+        return;
+      }
       // Solo permitir dibujo si inputMode es 'pen', o si es tiny device y modo 'finger'
       if (inputMode === 'pen') {
         if (pointerType !== undefined && pointerType === 0) {
@@ -995,6 +1440,103 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
       }
     });
 
+  // Combinar pan (dibujo) y tap (mover foto)
+  const combinedGesture = Gesture.Simultaneous(tapToMoveGesture, drawGesture);
+
+  // --- Canvas memoizado para evitar flicker por cambios de UI externos ---
+  const DrawingSurface = useMemo(() => {
+    return memo(({
+      pathsData,
+      paths,
+      currentPathDisplay,
+      photoItems,
+      activePhoto,
+      registerImageMeta,
+      selectedPen,
+      isEraser,
+      currentColor,
+      currentStrokeWidth
+    }: any) => {
+      // Derivar estilo actual sólo si hay path en progreso
+      let liveColor = isEraser ? '#e0e0e0' : selectedPen === 1 ? 'red' : selectedPen === 2 ? 'yellow' : currentColor;
+      let liveStrokeWidth = isEraser ? currentStrokeWidth * 4 : selectedPen === 1 ? 2 : currentStrokeWidth;
+      return (
+        <Canvas style={[styles.canvas, { height: canvasHeight }]}> 
+          {Children.toArray(pathsData
+            .filter((pd: any) => pd.penType === 0 || !pd.penType)
+            .map((pd: any) => {
+              const idx = pathsData.indexOf(pd);
+              const path = paths[idx];
+              if (!path) return null;
+              const displayColor = pd.isEraser ? '#e0e0e0' : pd.color;
+              return (
+                <Path
+                  key={`n-${idx}`}
+                  path={path}
+                  color={displayColor}
+                  style="stroke"
+                  strokeWidth={pd.strokeWidth}
+                  strokeCap="round"
+                  strokeJoin="round"
+                />
+              );
+            }))}
+          {Children.toArray(pathsData
+            .filter((pd: any) => pd.penType === 1)
+            .map((pd: any) => {
+              const idx = pathsData.indexOf(pd);
+              const path = paths[idx];
+              if (!path) return null;
+              return (
+                <Path
+                  key={`t-${idx}`}
+                  path={path}
+                  color={pd.color}
+                  style="stroke"
+                  strokeWidth={pd.strokeWidth}
+                  strokeCap="round"
+                  strokeJoin="round"
+                  opacity={0.8}
+                />
+              );
+            }))}
+          {Children.toArray(pathsData
+            .filter((pd: any) => pd.penType === 2)
+            .map((pd: any) => {
+              const idx = pathsData.indexOf(pd);
+              const path = paths[idx];
+              if (!path) return null;
+              return (
+                <Group key={`h-${idx}`}>
+                  <Path path={path} color={pd.color} style="fill" opacity={0.3} />
+                  <Path path={path} color={pd.color} style="stroke" strokeWidth={pd.strokeWidth} strokeCap="round" strokeJoin="round" opacity={0.5} />
+                </Group>
+              );
+            }))}
+          {photoItems.map((item: any) => (
+            <SkiaPhoto key={item.uri} item={item} active={activePhoto === item.uri} registerMeta={registerImageMeta} />
+          ))}
+          {currentPathDisplay && (
+            <Group>
+              {selectedPen === 2 && !isEraser && (
+                <Path path={currentPathDisplay} color="yellow" style="fill" opacity={0.3} />
+              )}
+              <Path
+                path={currentPathDisplay}
+                color={liveColor}
+                style="stroke"
+                strokeWidth={liveStrokeWidth}
+                strokeCap="round"
+                strokeJoin="round"
+                opacity={isEraser ? 1 : selectedPen === 1 ? 0.8 : selectedPen === 2 ? 0.5 : 1}
+              />
+            </Group>
+          )}
+        </Canvas>
+      );
+    });
+  }, []);
+
   return (
     <View style={styles.container}>
       {isWeb ? (
@@ -1009,137 +1551,27 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
         </View>
       ) : (
         <GestureHandlerRootView style={{ flex: 1 }}>
-          <GestureDetector gesture={drawGesture}>
-            <Canvas style={[styles.canvas, { height: canvasHeight }]}>
-            {/* Normal paths (type 0) */}
-            {Children.toArray(pathsData
-              .filter(pathData => pathData.penType === 0 || !pathData.penType)
-              .map((pathData, index) => {
-                const pathIndex = pathsData.findIndex(p => p === pathData);
-                const path = paths[pathIndex];
-                if (!path) return null;
-                
-                const displayColor = pathData.isEraser ? '#e0e0e0' : pathData.color;
-                
-                return (
-                  <Path 
-                    key={`normal-${pathIndex}`}
-                    path={path} 
-                    color={displayColor}
-                    style="stroke"
-                    strokeWidth={pathData.strokeWidth}
-                    strokeCap="round"
-                    strokeJoin="round"
-                    opacity={pathData.isEraser ? 1 : 1} // Eraser y normal sin transparencia
-                  />
-                );
-              })
-            )}
-
-            {/* Telestrator paths (type 1) */}
-            {Children.toArray(pathsData
-              .filter(pathData => pathData.penType === 1)
-              .map((pathData, index) => {
-                const pathIndex = pathsData.findIndex(p => p === pathData);
-                const path = paths[pathIndex];
-                if (!path) return null;
-                
-                return (
-                  <Path 
-                    key={`telestrator-${pathIndex}`}
-                    path={path} 
-                    color={pathData.color}
-                    style="stroke"
-                    strokeWidth={pathData.strokeWidth}
-                    strokeCap="round"
-                    strokeJoin="round"
-                    opacity={0.8} // Telestrator semi-transparente
-                  />
-                );
-              })
-            )}
-
-            {/* Highlighter paths (type 2) - con relleno */}
-            {Children.toArray(pathsData
-              .filter(pathData => pathData.penType === 2)
-              .map((pathData, index) => {
-                const pathIndex = pathsData.findIndex(p => p === pathData);
-                const path = paths[pathIndex];
-                if (!path) return null;
-                
-                return (
-                  <>
-                    {/* Relleno del highlighter */}
-                    <Path 
-                      key={`highlighter-fill-${pathIndex}`}
-                      path={path} 
-                      color={pathData.color}
-                      style="fill"
-                      opacity={0.3} // Relleno más transparente
-                    />
-                    {/* Borde del highlighter */}
-                    <Path 
-                      key={`highlighter-stroke-${pathIndex}`}
-                      path={path} 
-                      color={pathData.color}
-                      style="stroke"
-                      strokeWidth={pathData.strokeWidth}
-                      strokeCap="round"
-                      strokeJoin="round"
-                      opacity={0.5} // Borde semi-transparente
-                    />
-                  </>
-                );
-              })
-            )}
-
-            {/* Current path being drawn */}
-            {currentPathDisplay && (
-              <>
-                {/* Si es highlighter, mostrar relleno + borde */}
-                {selectedPen === 2 && !isEraser && (
-                  <Path 
-                    path={currentPathDisplay} 
-                    color="yellow"
-                    style="fill"
-                    opacity={0.3} // Relleno transparente
-                  />
-                )}
-                {/* Path principal */}
-                <Path 
-                  path={currentPathDisplay} 
-                  color={
-                    isEraser ? '#e0e0e0' : 
-                    selectedPen === 1 ? 'red' : 
-                    selectedPen === 2 ? 'yellow' : 
-                    currentColor
-                  }
-                  style="stroke"
-                  strokeWidth={
-                    isEraser ? currentStrokeWidth * 4 : 
-                    selectedPen === 1 ? 2 : 
-                    currentStrokeWidth
-                  }
-                  strokeCap="round"
-                  strokeJoin="round"
-                  opacity={
-                    isEraser ? 1 : // Eraser completamente opaco
-                    selectedPen === 1 ? 0.8 : 
-                    selectedPen === 2 ? 0.5 : 
-                    1
-                  }
-                />
-              </>
-            )}
-          </Canvas>
+          <GestureDetector gesture={combinedGesture}>
+            <DrawingSurface
+              pathsData={pathsData}
+              paths={paths}
+              currentPathDisplay={currentPathDisplay}
+              photoItems={photoItems}
+              activePhoto={activePhoto}
+              registerImageMeta={registerImageMeta}
+              selectedPen={selectedPen}
+              isEraser={isEraser}
+              currentColor={currentColor}
+              currentStrokeWidth={currentStrokeWidth}
+            />
         </GestureDetector>
-        {/* Fotos posicionables sobre el canvas */}
-        <PhotosLayer
-          items={photoItems}
-          activeUri={activePhoto}
-          onActivate={(uri) => setActivePhoto(prev => prev === uri ? null : uri)}
-          onTransform={onUpdatePhotoTransform}
-          onDelete={handleDeletePhoto}
+  {/* Sin overlays: gestión de selección y movimiento via tap gesture con hit test rotacional */}
+        <PhotoControls
+          activeItem={activeItem}
+          onScale={handlePhotoScale}
+          onRotate={handlePhotoRotate}
+          onDelete={handlePhotoDelete}
+          onClose={handlePhotoClose}
         />
 
         {/* Stroke Width Control Bar con GestureDetector dentro del GestureHandlerRootView */}
@@ -1422,7 +1854,7 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
 
 
       {/* Stick Bonus button - bottom right - Only show for discipline=true and if the event is not 'PH' */}
-      {discipline && event !== 'PH' && (
+      {event !== 'PH' && (
         <Animated.View style={[
           styles.stickButtonContainer,
           { transform: [{ translateY: stickButtonAnim }] }
@@ -1435,9 +1867,26 @@ const stickButtonAnim = useRef(new Animated.Value(10)).current;
             onPress={toggleStickBonus}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Text style={styles.stickButtonText}>STICK BONUS</Text>
+            <Text style={styles.stickButtonText}>{discipline ? "STICK BONUS" : "DMT BONUS"}</Text>
           </TouchableOpacity>
         </Animated.View>
+      )}
+
+      {/* Indicador de guardado - top right */}
+      {(isSaving || lastSaved) && (
+        <View style={styles.saveIndicatorContainer}>
+          {isSaving ? (
+            <View style={styles.saveIndicator}>
+              <Text style={styles.saveIndicatorText}>💾 Guardando...</Text>
+            </View>
+          ) : lastSaved && (
+            <View style={styles.saveIndicator}>
+              <Text style={styles.saveIndicatorTextSuccess}>
+                ✅ Guardado {new Date().getTime() - lastSaved.getTime() < 3000 ? 'ahora' : 'hace un momento'}
+              </Text>
+            </View>
+          )}
+        </View>
       )}
 
       {/* Percentage display */}
@@ -1886,31 +2335,71 @@ const styles = StyleSheet.create({
   // Nuevo set de controles para foto (escala/rotación/eliminar)
   photoControls: {
     position: 'absolute',
-    top: -40,
+    top: -48, // Ajustado para botones más grandes
     left: 0,
     flexDirection: 'row',
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-    borderRadius: 8,
-    gap: 4,
-    alignItems: 'center'
+    backgroundColor: 'rgba(0,0,0,0.7)', // Más opaco para mejor visibilidad
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 10,
+    gap: 6, // Mayor separación entre botones
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5, // Sombra en Android
   },
   photoControlBtn: {
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 4,
-    minWidth: 28,
-    alignItems: 'center'
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 6,
+    minWidth: 44, // Aumentado de 28 a 44 (cerca del estándar de 48dp)
+    minHeight: 44, // Añadido para altura mínima
+    alignItems: 'center',
+    justifyContent: 'center', // Centrar contenido verticalmente
   },
   photoControlText: {
     color: '#fff',
-    fontWeight: '600',
-    fontSize: 14
+    fontWeight: '700', // Más bold para mejor legibilidad
+    fontSize: 16, // Aumentado de 14 a 16
   },
   photoDeleteCtrl: {
-    backgroundColor: 'rgba(220,53,69,0.85)'
+    backgroundColor: 'rgba(220,53,69,0.9)' // Más opaco para destacar
+  },
+  // Estilos específicos para dispositivos tiny (< 960px)
+  photoControlsTiny: {
+    position: 'absolute',
+    top: -38, // Más compacto para tiny
+    left: 0,
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 4, // Menos padding
+    paddingVertical: 4,
+    borderRadius: 8,
+    gap: 3, // Menos espacio entre botones
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  photoControlBtnTiny: {
+    paddingHorizontal: 5, // Más compacto
+    paddingVertical: 5,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 5,
+    minWidth: 32, // Más pequeño para tiny (32px en lugar de 44px)
+    minHeight: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoControlTextTiny: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 13, // Más pequeño para tiny (13px en lugar de 16px)
   },
   photoControlsColumn: {
     position: 'absolute',
@@ -1929,6 +2418,49 @@ const styles = StyleSheet.create({
     right: 0,
     height: canvasHeight,
     zIndex: 400, // debajo de botones (1000) pero encima del canvas
+  },
+  photoControlsFloating: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    zIndex: 1200,
+  },
+  deselectOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: canvasHeight,
+    zIndex: 500, // debajo de controles (1200) encima del canvas
+    backgroundColor: 'transparent'
+  },
+  // Indicador de guardado
+  saveIndicatorContainer: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    zIndex: 1100,
+  },
+  saveIndicator: {
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  saveIndicatorText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  saveIndicatorTextSuccess: {
+    color: '#4CAF50',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });
 

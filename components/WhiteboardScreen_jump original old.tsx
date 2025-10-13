@@ -3,10 +3,11 @@ import { View, StyleSheet, Dimensions, TouchableOpacity, Text, Animated, Image, 
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
 import { Path, SkPath, Skia, Canvas, useImage, Image as SkiaImage, Group } from "@shopify/react-native-skia";
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateRateGeneral, getRateGeneralByTableId, getMainTableById, updateMainTable, getMainTablePaths, getPhotosForMainTable, addPhotoToMainTable, getPhotoItemsForMainTable, updatePhotoTransformForMainTable, removePhotoFromMainTable } from '../Database/database';
+import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import VaultSelectorModal from './ModalVaultWag';
 
 // Detectar si estamos en entorno web
@@ -36,7 +37,7 @@ const BUTTON_SIZE = 50; // Tamaño reducido de botones
 const BUTTON_GAP = 5; // Separación entre botones
 const BUTTON_START_X = 0; // Posición inicial X
 
-// Configuración global del pen (AsyncStorage keys)
+// Configuración global del pen (en memoria, se resetea al cerrar app)
 const PEN_CONFIG_KEY = '@whiteboard_pen_config';
 
 // Configuración por defecto del pen
@@ -48,36 +49,21 @@ const DEFAULT_PEN_CONFIG = {
 
 // Variable global para mantener la configuración en memoria
 let globalPenConfig = { ...DEFAULT_PEN_CONFIG };
+let globalInputMode = '';
 
-// Funciones utilitarias para manejar la configuración global del pen
-const loadGlobalPenConfig = async () => {
-  try {
-    const configString = await AsyncStorage.getItem(PEN_CONFIG_KEY);
-    if (configString) {
-      const config = JSON.parse(configString);
-      globalPenConfig = { ...DEFAULT_PEN_CONFIG, ...config };
-      console.log('Loaded pen config:', globalPenConfig);
-    }
-  } catch (error) {
-    console.warn('Error loading pen config:', error);
-    globalPenConfig = { ...DEFAULT_PEN_CONFIG };
-  }
+// Funciones utilitarias para manejar la configuración global del pen (solo en memoria)
+const loadGlobalPenConfig = () => {
   return globalPenConfig;
 };
 
-const saveGlobalPenConfig = async (config: typeof DEFAULT_PEN_CONFIG) => {
-  try {
-    globalPenConfig = { ...config };
-    await AsyncStorage.setItem(PEN_CONFIG_KEY, JSON.stringify(config));
-    console.log('Saved pen config:', config);
-  } catch (error) {
-    console.warn('Error saving pen config:', error);
-  }
+const saveGlobalPenConfig = (config: typeof DEFAULT_PEN_CONFIG) => {
+  globalPenConfig = { ...config };
+  console.log('Saved pen config:', config);
 };
 
-const updateGlobalPenConfig = async (updates: Partial<typeof DEFAULT_PEN_CONFIG>) => {
+const updateGlobalPenConfig = (updates: Partial<typeof DEFAULT_PEN_CONFIG>) => {
   const newConfig = { ...globalPenConfig, ...updates };
-  await saveGlobalPenConfig(newConfig);
+  saveGlobalPenConfig(newConfig);
   return newConfig;
 };
 
@@ -103,8 +89,8 @@ interface WhiteboardProps {
 
 interface PhotoItem { uri: string; x: number; y: number; scale: number; rotation: number }
 
-// Controles flotantes para foto activa
-const PhotoControls = ({
+// Controles flotantes para foto activa - MEMOIZADOS para evitar re-renders innecesarios
+const PhotoControls = memo(({
   activeItem,
   onScale,
   onRotate,
@@ -114,19 +100,83 @@ const PhotoControls = ({
   if (!activeItem) return null;
   const top = Math.max(0, activeItem.y + 4);
   const left = activeItem.x + 8;
+  
+  // Ajustar tamaños según dispositivo - más pequeño en tiny
+  const buttonStyle = isTinyDevice ? styles.photoControlBtnTiny : styles.photoControlBtn;
+  const textStyle = isTinyDevice ? styles.photoControlTextTiny : styles.photoControlText;
+  const hitSlopSize = isTinyDevice ? 8 : 10; // Menos hitSlop en tiny para ahorrar espacio
+  
   return (
     <View style={[styles.photoControlsFloating, { top, left }]} pointerEvents="box-none">
-      <View style={styles.photoControls}>
-        <TouchableOpacity style={styles.photoControlBtn} onPress={onClose}><Text style={styles.photoControlText}>✕</Text></TouchableOpacity>
-        <TouchableOpacity style={styles.photoControlBtn} onPress={() => onScale(-0.1)}><Text style={styles.photoControlText}>－</Text></TouchableOpacity>
-        <TouchableOpacity style={styles.photoControlBtn} onPress={() => onScale(+0.1)}><Text style={styles.photoControlText}>＋</Text></TouchableOpacity>
-        <TouchableOpacity style={styles.photoControlBtn} onPress={() => onRotate(-15)}><Text style={styles.photoControlText}>⟲</Text></TouchableOpacity>
-        <TouchableOpacity style={styles.photoControlBtn} onPress={() => onRotate(15)}><Text style={styles.photoControlText}>⟳</Text></TouchableOpacity>
-        <TouchableOpacity style={[styles.photoControlBtn, styles.photoDeleteCtrl]} onPress={onDelete}><Text style={styles.photoControlText}>🗑</Text></TouchableOpacity>
+      <View style={isTinyDevice ? styles.photoControlsTiny : styles.photoControls}>
+        <TouchableOpacity 
+          style={buttonStyle} 
+          onPress={onClose}
+          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
+          activeOpacity={0.7}
+        >
+          <Text style={textStyle}>✕</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={buttonStyle} 
+          onPress={() => onScale(-0.1)}
+          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
+          activeOpacity={0.7}
+        >
+          <Text style={textStyle}>－</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={buttonStyle} 
+          onPress={() => onScale(+0.1)}
+          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
+          activeOpacity={0.7}
+        >
+          <Text style={textStyle}>＋</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={buttonStyle} 
+          onPress={() => onRotate(-15)}
+          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
+          activeOpacity={0.7}
+        >
+          <Text style={textStyle}>⟲</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={buttonStyle} 
+          onPress={() => onRotate(15)}
+          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
+          activeOpacity={0.7}
+        >
+          <Text style={textStyle}>⟳</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[buttonStyle, styles.photoDeleteCtrl]} 
+          onPress={onDelete}
+          hitSlop={{ top: hitSlopSize, bottom: hitSlopSize, left: hitSlopSize, right: hitSlopSize }}
+          activeOpacity={0.7}
+        >
+          <Text style={textStyle}>🗑</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
-};
+}, (prev, next) => {
+  // Comparación personalizada para evitar re-renders innecesarios
+  if (!prev.activeItem && !next.activeItem) return true;
+  if (!prev.activeItem || !next.activeItem) return false;
+  
+  return (
+    prev.activeItem.uri === next.activeItem.uri &&
+    prev.activeItem.x === next.activeItem.x &&
+    prev.activeItem.y === next.activeItem.y &&
+    prev.activeItem.scale === next.activeItem.scale &&
+    prev.activeItem.rotation === next.activeItem.rotation &&
+    prev.onScale === next.onScale &&
+    prev.onRotate === next.onRotate &&
+    prev.onDelete === next.onDelete &&
+    prev.onClose === next.onClose
+  );
+});
 
 // Imagen Skia memoizada
 const SkiaPhoto = memo(({ item, active, registerMeta }: { item: PhotoItem; active: boolean; registerMeta: (uri: string, w: number, h: number) => void }) => {
@@ -216,6 +266,10 @@ const DrawingCanvas = ({
   const [isEraser, setIsEraser] = useState<boolean>(false);
   const [menuOpen, setMenuOpen] = useState<boolean>(false);
   
+  // Estado de guardado para indicador visual
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  
   // Estado para el modal de vault
   const [vaultModalVisible, setVaultModalVisible] = useState<boolean>(false);
   
@@ -227,27 +281,16 @@ const DrawingCanvas = ({
   const [previousStrokeWidth, setPreviousStrokeWidth] = useState<number>(globalPenConfig.strokeWidth); // Recordar grosor antes del eraser
   
   // Estado para el modo de entrada: 'pen' o 'finger'
-  const [inputMode, setInputMode] = useState('pen');
-  useEffect(() => {
-    const loadInputMode = async () => {
-      try {
-        const saved = await AsyncStorage.getItem('inputMode');
-        if (saved) {
-          setInputMode(saved);
-        } else {
-          setInputMode(isTinyDevice ? 'finger' : 'pen');
-        }
-      } catch (e) {
-        setInputMode(isTinyDevice ? 'finger' : 'pen');
-      }
-    };
-    loadInputMode();
-  }, [isTinyDevice]);
+  const [inputMode, setInputMode] = useState(() => {
+    // Inicializar desde variable global o por tamaño de dispositivo
+    if (globalInputMode) return globalInputMode;
+    return isTinyDevice ? 'finger' : 'pen';
+  });
 
-  const toggleInputMode = async () => {
+  const toggleInputMode = () => {
     const newMode = inputMode === 'pen' ? 'finger' : 'pen';
     setInputMode(newMode);
-    await AsyncStorage.setItem('inputMode', newMode);
+    globalInputMode = newMode; // Guardar en memoria global
   };
 
   // Límites para optimización de memoria
@@ -286,18 +329,6 @@ const DrawingCanvas = ({
       setNormalPenColor(config.color);
       setPreviousStrokeWidth(config.strokeWidth);
       
-      // Cargar modo de entrada guardado
-      try {
-        const savedInputMode = await AsyncStorage.getItem('inputMode');
-        if (savedInputMode) {
-          setInputMode(savedInputMode);
-        } else {
-          setInputMode(isTinyDevice ? 'finger' : 'pen');
-        }
-      } catch (e) {
-        setInputMode(isTinyDevice ? 'finger' : 'pen');
-      }
-      
   // Cargar paths guardados + fotos
   await loadSavedPaths();
   await loadPhotos();
@@ -320,6 +351,16 @@ const DrawingCanvas = ({
       cleanup();
     };
   }, [tableId, onLoaded]);
+
+  // Auto-ocultar indicador de guardado después de 3 segundos
+  useEffect(() => {
+    if (lastSaved && !isSaving) {
+      const timer = setTimeout(() => {
+        setLastSaved(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [lastSaved, isSaving]);
 
   // Función para limpiar memoria mejorada
   const cleanup = useCallback(() => {
@@ -381,35 +422,214 @@ const DrawingCanvas = ({
     try { const list = await getPhotosForMainTable(tableId); setPhotos(list); } catch(e){ console.warn('Error loading photos', e);} }, [tableId]);
   const loadPhotoItems = useCallback(async () => {
     try {
+      console.log('📸 [loadPhotoItems] Loading photo items for tableId:', tableId);
       const items = await getPhotoItemsForMainTable(tableId);
-      const normalized = items.map((it:any)=> ({ ...it, scale: it.scale && it.scale>0? it.scale:1, rotation: typeof it.rotation==='number'? it.rotation:0 }));
+      console.log('📸 [loadPhotoItems] Loaded', items?.length || 0, 'photo items from DB');
+      
+      const normalized = items.map((it: any, idx) => {
+        const item = { 
+          ...it, 
+          scale: it.scale && it.scale > 0 ? it.scale : 1, 
+          rotation: typeof it.rotation === 'number' ? it.rotation : 0 
+        };
+        console.log(`📸 [loadPhotoItems] Photo ${idx}:`, {
+          uri: item.uri?.substring(0, 50) + '...',
+          x: item.x,
+          y: item.y,
+          scale: item.scale,
+          rotation: item.rotation
+        });
+        return item;
+      });
+      
       setPhotoItems(normalized);
-    } catch(e){ console.warn('Error loading photo items', e);} }, [tableId]);
+      console.log('✅ [loadPhotoItems] Photo items state updated with', normalized.length, 'items');
+    } catch (e) { 
+      console.error('❌ [loadPhotoItems] Error loading photo items:', e);
+    }
+  }, [tableId]);
+
+  // ✅ FIX iOS: Recargar fotos cuando la pantalla vuelve al foco
+  // Esto asegura que las imágenes se carguen correctamente cuando:
+  // 1. Vuelves de otra pantalla
+  // 2. Cambias de gimnasta
+  // 3. La app vuelve al foreground después de estar en background
+  useFocusEffect(
+    useCallback(() => {
+      console.log('🔄 [useFocusEffect] Jump screen focused - reloading photos');
+      let isMounted = true;
+      
+      const reloadPhotos = async () => {
+        try {
+          console.log('📸 [useFocusEffect] Reloading photo items...');
+          await loadPhotoItems();
+          if (isMounted) {
+            console.log('✅ [useFocusEffect] Photo items reloaded successfully');
+          }
+        } catch (error) {
+          console.error('❌ [useFocusEffect] Error reloading photos:', error);
+        }
+      };
+      
+      // Ejecutar recarga con un pequeño delay para asegurar que el componente esté listo
+      const timer = setTimeout(() => {
+        if (isMounted) {
+          reloadPhotos();
+        }
+      }, 100);
+      
+      return () => {
+        isMounted = false;
+        clearTimeout(timer);
+        console.log('🔄 [useFocusEffect] Jump screen unfocused - cleanup');
+      };
+    }, [loadPhotoItems])
+  );
+
+  // Helpers iOS + logs simplificados en consola (sin persistencia)
+  const appendPhotoImportLog = useCallback((entry: Record<string, any>) => {
+    const payload = { ts: new Date().toISOString(), platform: Platform.OS, tableId, screen: 'jump', ...entry };
+    console.log('[PhotoImport]', payload);
+  }, [tableId]);
+
+  const pickImageUriViaDocumentPicker = useCallback(async (): Promise<string | null> => {
+    try {
+      await appendPhotoImportLog({ step: 'ios_docpicker_start' });
+      const res: any = await DocumentPicker.getDocumentAsync({ type: ['image/*'], multiple: false, copyToCacheDirectory: false });
+      if ((res && 'canceled' in res && res.canceled) || res?.type === 'cancel') { await appendPhotoImportLog({ step: 'ios_docpicker_canceled' }); return null; }
+      const asset = (res as any).assets?.[0] ?? res; const uri = asset?.uri ?? null;
+      await appendPhotoImportLog({ step: 'ios_docpicker_selected', assetUri: uri, fileName: asset?.name ?? null, size: asset?.size ?? null, mimeType: asset?.mimeType ?? null });
+      return uri;
+    } catch (e) {
+      const message = (typeof e === 'object' && e && 'message' in e) ? String((e as any).message) : String(e);
+      const stack = (typeof e === 'object' && e && 'stack' in e) ? String((e as any).stack) : null;
+      await appendPhotoImportLog({ step: 'ios_docpicker_error', message, stack });
+      return null;
+    }
+  }, [appendPhotoImportLog]);
 
   const handleAddPhoto = useCallback(async () => {
     try {
       await appendPhotoImportLog({ step: 'start', msg: 'Add photo tapped' });
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert('Permiso requerido','Se necesita acceso a la galería.');
-        await appendPhotoImportLog({ step: 'permission_denied' });
-        return;
-      }
-      await appendPhotoImportLog({ step: 'permission_granted' });
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection:false, base64:false, quality:0.8 });
-      if (result.canceled) { await appendPhotoImportLog({ step: 'picker_canceled' }); return; }
-      const asset = result.assets?.[0];
-      await appendPhotoImportLog({ step: 'asset_selected', assetUri: asset?.uri ?? null, fileName: (asset as any)?.fileName ?? null, mimeType: (asset as any)?.mimeType ?? null });
-      if(!asset?.uri) { await appendPhotoImportLog({ step: 'asset_missing_uri' }); return; }
 
-      let pickedUri = asset.uri;
-      const ext = getExtFromUri(pickedUri);
-      if (Platform.OS === 'ios') {
-        if (isHeic(ext)) {
-          Alert.alert('Formato no soportado','Las imágenes HEIC/HEIF no son compatibles para exportar. Por favor, selecciona una imagen JPEG o PNG.');
-          await appendPhotoImportLog({ step: 'blocked_heic_heif', ext, uri: pickedUri });
+      let pickedUri: string | null = null;
+      
+      // Mostrar diálogo de selección de origen en Android
+      if (Platform.OS === 'android') {
+        await appendPhotoImportLog({ step: 'android_show_picker_options' });
+        
+        // Usar Alert con opciones para elegir entre Galería o Archivos (OneDrive, etc.)
+        const pickerChoice = await new Promise<'gallery' | 'files' | null>((resolve) => {
+          Alert.alert(
+            'Seleccionar imagen',
+            '¿De dónde deseas seleccionar la imagen?',
+            [
+              {
+                text: 'Galería',
+                onPress: () => resolve('gallery'),
+              },
+              {
+                text: 'Archivos (OneDrive, Drive, etc.)',
+                onPress: () => resolve('files'),
+              },
+              {
+                text: 'Cancelar',
+                onPress: () => resolve(null),
+                style: 'cancel',
+              },
+            ],
+            { cancelable: true, onDismiss: () => resolve(null) }
+          );
+        });
+
+        if (!pickerChoice) {
+          await appendPhotoImportLog({ step: 'picker_choice_canceled' });
           return;
         }
+
+        if (pickerChoice === 'gallery') {
+          // Usar ImagePicker para galería
+          await appendPhotoImportLog({ step: 'android_gallery_selected' });
+          const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (!perm.granted) {
+            Alert.alert('Permiso requerido', 'Se necesita acceso a la galería.');
+            await appendPhotoImportLog({ step: 'permission_denied' });
+            return;
+          }
+          await appendPhotoImportLog({ step: 'permission_granted' });
+          const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsMultipleSelection: false,
+            base64: false,
+            quality: 0.8
+          });
+          if (result.canceled) {
+            await appendPhotoImportLog({ step: 'picker_canceled' });
+            return;
+          }
+          const asset = result.assets?.[0];
+          await appendPhotoImportLog({ step: 'asset_selected', assetUri: asset?.uri ?? null, fileName: (asset as any)?.fileName ?? null, mimeType: (asset as any)?.mimeType ?? null });
+          if (!asset?.uri) {
+            await appendPhotoImportLog({ step: 'asset_missing_uri' });
+            return;
+          }
+          pickedUri = asset.uri;
+        } else {
+          // Usar DocumentPicker para archivos (OneDrive, Drive, etc.)
+          await appendPhotoImportLog({ step: 'android_files_selected' });
+          pickedUri = await pickImageUriViaDocumentPicker();
+        }
+      } else if (Platform.OS === 'ios') {
+        // iOS: usar DocumentPicker por estabilidad
+        pickedUri = await pickImageUriViaDocumentPicker();
+      } else {
+        // Web: usar ImagePicker
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert('Permiso requerido', 'Se necesita acceso a la galería.');
+          await appendPhotoImportLog({ step: 'permission_denied' });
+          return;
+        }
+        await appendPhotoImportLog({ step: 'permission_granted' });
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsMultipleSelection: false,
+          base64: false,
+          quality: 0.8
+        });
+        if (result.canceled) {
+          await appendPhotoImportLog({ step: 'picker_canceled' });
+          return;
+        }
+        const asset = result.assets?.[0];
+        await appendPhotoImportLog({ step: 'asset_selected', assetUri: asset?.uri ?? null, fileName: (asset as any)?.fileName ?? null, mimeType: (asset as any)?.mimeType ?? null });
+        if (!asset?.uri) {
+          await appendPhotoImportLog({ step: 'asset_missing_uri' });
+          return;
+        }
+        pickedUri = asset.uri;
+      }
+
+      // Pre-validaciones y normalización de URI
+      if (!pickedUri) return;
+      const ext = getExtFromUri(pickedUri);
+      
+      // Bloquear HEIC/HEIF en todos los sistemas
+      if (isHeic(ext)) {
+        Alert.alert('Formato no soportado', 'Las imágenes HEIC/HEIF no son compatibles para exportar. Por favor, selecciona una imagen JPEG o PNG.');
+        await appendPhotoImportLog({ step: 'blocked_heic_heif', ext, uri: pickedUri });
+        return;
+      }
+      
+      // Copiar a cache para archivos externos (iOS siempre, Android solo si es de DocumentPicker)
+      const needsCopy = Platform.OS === 'ios' || 
+                        pickedUri.startsWith('content://') || 
+                        pickedUri.includes('onedrive') || 
+                        pickedUri.includes('drive.google') ||
+                        pickedUri.includes('com.microsoft.skydrive') ||
+                        !pickedUri.startsWith('file://');
+      
+      if (needsCopy) {
         const before = pickedUri;
         pickedUri = await copyToAppCache(pickedUri);
         await appendPhotoImportLog({ step: 'copied_to_cache', from: before, to: pickedUri, changed: before !== pickedUri });
@@ -417,55 +637,92 @@ const DrawingCanvas = ({
 
       try {
         const info = await FileSystem.getInfoAsync(pickedUri);
-        if (!info.exists || (info.size ?? 0) === 0) { Alert.alert('Error','No se pudo acceder a la imagen seleccionada.'); await appendPhotoImportLog({ step: 'file_info_invalid', uri: pickedUri, info }); return; }
-        if ((info.size ?? 0) > 25*1024*1024) { Alert.alert('Imagen muy grande','La imagen supera 25MB. Selecciona otra más pequeña.'); await appendPhotoImportLog({ step: 'file_too_large', size: info.size, uri: pickedUri }); return; }
-        await appendPhotoImportLog({ step: 'file_info_ok', size: info.size, uri: pickedUri });
+        if (!info.exists || (info.size ?? 0) === 0) { Alert.alert('Error','No se pudo acceder a la imagen seleccionada.'); appendPhotoImportLog({ step: 'file_info_invalid', uri: pickedUri, info }); return; }
+        if ((info.size ?? 0) > 25*1024*1024) { Alert.alert('Imagen muy grande','La imagen supera 25MB. Selecciona otra más pequeña.'); appendPhotoImportLog({ step: 'file_too_large', size: info.size, uri: pickedUri }); return; }
+        appendPhotoImportLog({ step: 'file_info_ok', size: info.size, uri: pickedUri });
       } catch {}
 
-      const ok = await addPhotoToMainTable(tableId, pickedUri);
-      await appendPhotoImportLog({ step: 'db_add_result', ok, uri: pickedUri });
-      if (ok) {
-        const photoSize = 120;
-        const centerX = Math.round((width - photoSize)/2);
-        const centerY = Math.round((canvasHeight - photoSize)/2);
-        await updatePhotoTransformForMainTable(tableId, pickedUri, { x: centerX, y: centerY, scale:0.5 });
-        await appendPhotoImportLog({ step: 'transform_initialized', x: centerX, y: centerY, scale: 0.5, uri: pickedUri });
-        await loadPhotos(); await loadPhotoItems(); setActivePhoto(pickedUri);
-        await appendPhotoImportLog({ step: 'success', uri: pickedUri });
+      // Operación transaccional completa: agregar foto y configurar transformación
+      const success = await addPhotoToMainTable(tableId, pickedUri);
+      appendPhotoImportLog({ step: 'db_add_result', success, uri: pickedUri });
+      
+      if (!success) {
+        throw new Error('No se pudo agregar la foto a la base de datos');
       }
+      
+      const photoSize = 120;
+      const centerX = Math.round((width - photoSize)/2);
+      const centerY = Math.round((canvasHeight - photoSize)/2);
+      
+      // Actualizar transform inicial (operación transaccional)
+      const transformSuccess = await updatePhotoTransformForMainTable(tableId, pickedUri, { x: centerX, y: centerY, scale:0.5 });
+      
+      if (!transformSuccess) {
+        throw new Error('No se pudo inicializar la transformación de la foto');
+      }
+      
+      appendPhotoImportLog({ step: 'transform_initialized', x: centerX, y: centerY, scale: 0.5, uri: pickedUri });
+      
+      await loadPhotos();
+      await loadPhotoItems();
+      setActivePhoto(pickedUri);
+      appendPhotoImportLog({ step: 'success', uri: pickedUri });
+      console.log('✅ Foto agregada exitosamente:', pickedUri);
     } catch(e) {
-      console.error('handleAddPhoto (jump) error', e);
+      console.error('❌ handleAddPhoto (jump) error', e);
       const message = (typeof e === 'object' && e && 'message' in e) ? String((e as any).message) : String(e);
       const stack = (typeof e === 'object' && e && 'stack' in e) ? String((e as any).stack) : null;
-      await appendPhotoImportLog({ step: 'error', message, stack });
-      Alert.alert('Error','No se pudo añadir la imagen');
+      appendPhotoImportLog({ step: 'error', message, stack });
+      Alert.alert(
+        'Error al Agregar Imagen',
+        `No se pudo añadir la imagen:\n${message}`,
+        [{ text: 'OK' }]
+      );
     }
   }, [tableId, loadPhotos, loadPhotoItems]);
 
   const onUpdatePhotoTransform = useCallback(async (uri:string, data:{x?:number;y?:number;scale?:number;rotation?:number})=>{
+    // Guardar estado anterior para posible rollback
+    const previousState = photoItemsRef.current.find(p => p.uri === uri);
+    
+    // IMPORTANTE: Actualizar ref INMEDIATAMENTE (antes de setState) para evitar race conditions
+    photoItemsRef.current = photoItemsRef.current.map(p => 
+      p.uri === uri ? { ...p, ...data } : p
+    );
+    
+    // Actualizar estado UI inmediatamente (optimistic update)
     setPhotoItems(prev=> prev.map(p=> p.uri===uri? {...p,...data}: p));
+    
     try {
       const existing = photoItemsRef.current.find(p=> p.uri===uri);
       const merged: PhotoItem = existing ? { ...existing, ...data } : { uri, x:0, y:0, scale:1, rotation:0, ...data } as PhotoItem;
       if (merged.scale <=0) merged.scale = 1;
-      await updatePhotoTransformForMainTable(tableId, uri, { x: merged.x, y: merged.y, scale: merged.scale, rotation: merged.rotation });
+      
+      // Operación transaccional
+      const success = await updatePhotoTransformForMainTable(tableId, uri, { x: merged.x, y: merged.y, scale: merged.scale, rotation: merged.rotation });
+      
+      if (!success) {
+        throw new Error('La operación de actualización retornó false');
+      }
+      
       photoItemsRef.current = photoItemsRef.current.map(p=> p.uri===uri? merged: p);
-    } catch(e){ console.warn('Persist transform error', e); }
+      console.log('✅ Transformación de foto guardada:', { uri, ...data });
+    } catch(error) {
+      console.error('❌ Error al guardar transformación de foto:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      Alert.alert(
+        'Error al Guardar',
+        `No se pudo guardar la transformación de la imagen:\n${errorMessage}`,
+        [{ text: 'OK' }]
+      );
+      // Revertir estado UI en caso de error
+      if (previousState) {
+        setPhotoItems(prev => prev.map(p => p.uri === uri ? previousState : p));
+      }
+    }
   }, [tableId]);
 
-  // Helpers iOS + logs persistentes para importación de fotos
-  const PHOTO_IMPORT_LOG_KEY = '@photoImportLog';
-  const appendPhotoImportLog = useCallback(async (entry: Record<string, any>) => {
-    try {
-      const payload = { ts: new Date().toISOString(), platform: Platform.OS, tableId, screen: 'jump', ...entry };
-      console.log('[PhotoImport]', payload);
-      const prev = await AsyncStorage.getItem(PHOTO_IMPORT_LOG_KEY);
-      const arr = prev ? JSON.parse(prev) : [];
-      arr.push(payload);
-      const MAX = 200; if (arr.length > MAX) arr.splice(0, arr.length - MAX);
-      await AsyncStorage.setItem(PHOTO_IMPORT_LOG_KEY, JSON.stringify(arr));
-    } catch (e) { console.warn('[PhotoImport] log save failed', e); }
-  }, [tableId]);
+  
 
   const ensurePhotosDir = async () => {
     const dir = FileSystem.cacheDirectory + 'photos/';
@@ -493,9 +750,32 @@ const DrawingCanvas = ({
   };
 
   const handleDeletePhoto = useCallback(async (uri:string) => {
-    const idx = photoItems.findIndex(p=> p.uri===uri); if (idx===-1) return;
-    const ok = await removePhotoFromMainTable(tableId, idx);
-    if (ok) { await loadPhotos(); await loadPhotoItems(); setActivePhoto(null); }
+    const idx = photoItems.findIndex(p=> p.uri===uri);
+    if (idx === -1) {
+      Alert.alert('Error', 'No se encontró la imagen a eliminar');
+      return;
+    }
+    
+    try {
+      const success = await removePhotoFromMainTable(tableId, idx);
+      
+      if (!success) {
+        throw new Error('La operación de eliminación retornó false');
+      }
+      
+      await loadPhotos();
+      await loadPhotoItems();
+      setActivePhoto(null);
+      console.log('✅ Foto eliminada exitosamente');
+    } catch (error) {
+      console.error('❌ Error al eliminar foto:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      Alert.alert(
+        'Error al Eliminar',
+        `No se pudo eliminar la imagen:\n${errorMessage}`,
+        [{ text: 'OK' }]
+      );
+    }
   }, [tableId, photoItems, loadPhotos, loadPhotoItems]);
 
   // Hit test rotacional con pivote centrado
@@ -534,8 +814,45 @@ const DrawingCanvas = ({
     return x >= left && x <= left + widthRect && y >= top && y <= top + heightRect;
   }, [activePhoto]);
 
-  // Guardar paths de manera eficiente con debounce
+  // --- Callbacks Memoizados para PhotoControls (evita re-renders innecesarios) ---
+  
+  // Memoizar activeItem para evitar recálculos en cada render
+  const activeItem = useMemo(() => {
+    if (!activePhoto) return null;
+    return photoItems.find(p => p.uri === activePhoto) || null;
+  }, [activePhoto, photoItems]);
+
+  // Callback memoizado para escalar
+  const handlePhotoScale = useCallback((d: number) => {
+    if (!activePhoto) return;
+    const item = photoItemsRef.current.find(p => p.uri === activePhoto);
+    if (!item) return;
+    const ns = Math.min(4, Math.max(0.2, parseFloat(((item.scale || 1) + d).toFixed(3))));
+    onUpdatePhotoTransform(activePhoto, { scale: ns });
+  }, [activePhoto, onUpdatePhotoTransform]);
+
+  // Callback memoizado para rotar
+  const handlePhotoRotate = useCallback((deg: number) => {
+    if (!activePhoto) return;
+    const item = photoItemsRef.current.find(p => p.uri === activePhoto);
+    if (!item) return;
+    const nr = ((item.rotation || 0) + deg) % 360;
+    onUpdatePhotoTransform(activePhoto, { rotation: nr });
+  }, [activePhoto, onUpdatePhotoTransform]);
+
+  // Callback memoizado para eliminar
+  const handlePhotoDelete = useCallback(() => {
+    if (activePhoto) handleDeletePhoto(activePhoto);
+  }, [activePhoto, handleDeletePhoto]);
+
+  // Callback memoizado para cerrar
+  const handlePhotoClose = useCallback(() => {
+    setActivePhoto(null);
+  }, []);
+
+  // Guardar paths de manera eficiente con debounce y manejo transaccional
   const savePaths = useCallback(async (newPathsData: PathData[]) => {
+    setIsSaving(true);
     try {
       // Limitar el número de paths para evitar problemas de memoria (máximo 1000)
       const limitedPaths = newPathsData.slice(-1000);
@@ -549,21 +866,44 @@ const DrawingCanvas = ({
       };
       const size = byteLengthUtf8(pathsString);
       if (size > INLINE_HARD_LIMIT) {
-        Alert.alert('Whiteboard cap reached', 'Has reached the maximum drawing capacity. Please erase some strokes before continuing.');
+        setIsSaving(false);
+        Alert.alert(
+          'Límite alcanzado', 
+          'Has alcanzado el límite máximo de trazos. Por favor borra algunos antes de continuar.',
+          [{ text: 'OK' }]
+        );
         console.warn(`[Whiteboard Jump] Save blocked. paths size=${size} bytes > ${INLINE_HARD_LIMIT}`);
         return;
       }
       
+      // Operación transaccional con SQLite
       const mainTable = await getMainTableById(tableId);
 
-
-      if (mainTable) {
-        await updateMainTable(mainTable.id, { paths: pathsString });
+      if (!mainTable) {
+        throw new Error(`No se encontró la tabla con ID ${tableId}`);
       }
 
-      console.log(`Saved ${limitedPaths.length} paths efficiently`);
+      const success = await updateMainTable(mainTable.id, { paths: pathsString });
+      
+      if (!success) {
+        throw new Error('No se pudo actualizar los paths en la base de datos');
+      }
+
+      setLastSaved(new Date());
+      console.log(`✅ Guardados ${limitedPaths.length} trazos exitosamente`);
     } catch (error) {
-      console.error('Error saving paths:', error);
+      console.error('❌ Error saving paths:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      Alert.alert(
+        'Error al Guardar',
+        `No se pudieron guardar los trazos del whiteboard:\n${errorMessage}`,
+        [
+          { text: 'Reintentar', onPress: () => savePaths(newPathsData) },
+          { text: 'Cancelar', style: 'cancel' }
+        ]
+      );
+    } finally {
+      setIsSaving(false);
     }
   }, [tableId]);
 
@@ -1097,11 +1437,11 @@ const DrawingCanvas = ({
         </Animated.View>
       </GestureHandlerRootView>
       <PhotoControls
-        activeItem={activePhoto ? photoItems.find(p=> p.uri===activePhoto) || null : null}
-        onScale={(d)=>{ if(!activePhoto) return; const item = photoItemsRef.current.find(p=> p.uri===activePhoto); if(!item) return; const ns = Math.min(4, Math.max(0.2, parseFloat(((item.scale||1)+d).toFixed(3)))); onUpdatePhotoTransform(activePhoto,{scale:ns}); }}
-        onRotate={(deg)=>{ if(!activePhoto) return; const item = photoItemsRef.current.find(p=> p.uri===activePhoto); if(!item) return; const nr = ((item.rotation||0)+deg)%360; onUpdatePhotoTransform(activePhoto,{rotation:nr}); }}
-        onDelete={()=>{ if(activePhoto) handleDeletePhoto(activePhoto); }}
-        onClose={()=> setActivePhoto(null)}
+        activeItem={activeItem}
+        onScale={handlePhotoScale}
+        onRotate={handlePhotoRotate}
+        onDelete={handlePhotoDelete}
+        onClose={handlePhotoClose}
       />
 
       {/* Menu button */}
@@ -1358,6 +1698,23 @@ const DrawingCanvas = ({
         </TouchableOpacity>
       </Animated.View>
 
+      {/* Indicador de guardado - top right */}
+      {(isSaving || lastSaved) && (
+        <View style={styles.saveIndicatorContainer}>
+          {isSaving ? (
+            <View style={styles.saveIndicator}>
+              <Text style={styles.saveIndicatorText}>💾 Guardando...</Text>
+            </View>
+          ) : lastSaved && (
+            <View style={styles.saveIndicator}>
+              <Text style={styles.saveIndicatorTextSuccess}>
+                ✅ Guardado {new Date().getTime() - lastSaved.getTime() < 3000 ? 'ahora' : 'hace un momento'}
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+
       {/* Percentage display */}
       <Text style={styles.percentageText}>{percentage}</Text>
 
@@ -1397,31 +1754,71 @@ const styles = StyleSheet.create({
   },
   photoControls: {
     position: 'absolute',
-    top: -40,
+    top: -48, // Ajustado para botones más grandes
     left: 0,
     flexDirection: 'row',
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-    borderRadius: 8,
-    gap: 4,
-    alignItems: 'center'
+    backgroundColor: 'rgba(0,0,0,0.7)', // Más opaco para mejor visibilidad
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 10,
+    gap: 6, // Mayor separación entre botones
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5, // Sombra en Android
   },
   photoControlBtn: {
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 4,
-    minWidth: 28,
-    alignItems: 'center'
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 6,
+    minWidth: 44, // Aumentado de 28 a 44 (cerca del estándar de 48dp)
+    minHeight: 44, // Añadido para altura mínima
+    alignItems: 'center',
+    justifyContent: 'center', // Centrar contenido verticalmente
   },
   photoControlText: {
     color: '#fff',
-    fontWeight: '600',
-    fontSize: 14
+    fontWeight: '700', // Más bold para mejor legibilidad
+    fontSize: 16, // Aumentado de 14 a 16
   },
   photoDeleteCtrl: {
-    backgroundColor: 'rgba(220,53,69,0.85)'
+    backgroundColor: 'rgba(220,53,69,0.9)' // Más opaco para destacar
+  },
+  // Estilos específicos para dispositivos tiny (< 960px)
+  photoControlsTiny: {
+    position: 'absolute',
+    top: -38, // Más compacto para tiny
+    left: 0,
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 4, // Menos padding
+    paddingVertical: 4,
+    borderRadius: 8,
+    gap: 3, // Menos espacio entre botones
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  photoControlBtnTiny: {
+    paddingHorizontal: 5, // Más compacto
+    paddingVertical: 5,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 5,
+    minWidth: 32, // Más pequeño para tiny (32px en lugar de 44px)
+    minHeight: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoControlTextTiny: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 13, // Más pequeño para tiny (13px en lugar de 16px)
   },
   photoButtonContainer: {
     position: 'absolute',
@@ -1793,6 +2190,34 @@ const styles = StyleSheet.create({
     right: 10,
     top: 60,
     zIndex: 10,
+  },
+  // Indicador de guardado
+  saveIndicatorContainer: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    zIndex: 1100,
+  },
+  saveIndicator: {
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  saveIndicatorText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  saveIndicatorTextSuccess: {
+    color: '#4CAF50',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });
 
