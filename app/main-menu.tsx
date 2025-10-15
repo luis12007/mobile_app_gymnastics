@@ -9,17 +9,27 @@ import { Buffer } from 'buffer';
 import { useFonts } from "expo-font";
 import { getAllFoldersByParent, updateFolder } from "../Database/database";
 import { getFolderById } from '../Database/database';
+import { 
+  safePromiseAll, 
+  withTimeout, 
+  safeDBOperation, 
+  createMountedRef, 
+  safeLog 
+} from '../utils/crashPrevention';
 
 // Normaliza las posiciones de las carpetas hijas de un parentId
 const normalizeFolderPositions = async (parentId: number | null) => {
-  const folders = await getAllFoldersByParent(parentId);
-  // Ordenar por posición actual para mantener el orden
-  folders.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-  for (let i = 0; i < folders.length; i++) {
-    if (folders[i].position !== i) {
-      await updateFolder(folders[i].id, { position: i });
+  return safeDBOperation(async () => {
+    const folders = await getAllFoldersByParent(parentId);
+    // Ordenar por posición actual para mantener el orden
+    folders.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+    for (let i = 0; i < folders.length; i++) {
+      if (folders[i].position !== i) {
+        await updateFolder(folders[i].id, { position: i });
+      }
     }
-  }
+    return true;
+  }, false, 'normalizeFolderPositions');
 };
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from 'expo-sharing';
@@ -945,23 +955,23 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
       let fetchedFolders = [];
       if (currentParentId === null) {
         // Si estamos en el nivel raíz, obtener todas las carpetas raíz
-        fetchedFolders = await getAllRootFolders();
+        fetchedFolders = await withTimeout(getAllRootFolders(), 8000);
       } else {
         // Si estamos en un nivel más profundo, obtener subcarpetas
-        fetchedFolders = await getAllSubfolders(currentParentId);
+        fetchedFolders = await withTimeout(getAllSubfolders(currentParentId), 8000);
       }
       
-      // Agregar información sobre subcarpetas
-      const foldersWithSubfolders = await Promise.all(
-        fetchedFolders.map(async (folder) => {
-          const hasSubfoldersCount = await countSubfolders(folder.id);
-          return {
-            ...folder,
-            hasSubfolders: hasSubfoldersCount > 0,
-            level: currentLevel
-          };
-        })
-      );
+      // Agregar información sobre subcarpetas - CON PROTECCIÓN DE TIMEOUT
+      const folderPromises = fetchedFolders.map(async (folder) => {
+        const hasSubfoldersCount = await countSubfolders(folder.id);
+        return {
+          ...folder,
+          hasSubfolders: hasSubfoldersCount > 0,
+          level: currentLevel
+        };
+      });
+      
+      const foldersWithSubfolders = await safePromiseAll(folderPromises, 10000);
       
       // ✨ OBTENER COMPETENCIAS
       let allCompetitions: any[] = [];
@@ -970,7 +980,10 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
         // Solo mostrar competencias cuando estamos DENTRO de una carpeta específica
         console.log('Fetching competitions for current folder:', currentParentId);
         try {
-          const folderCompetitions = await getCompetencesByFolderId(currentParentId);
+          const folderCompetitions = await withTimeout(
+            getCompetencesByFolderId(currentParentId),
+            8000
+          );
           allCompetitions = folderCompetitions.map(comp => ({
             ...comp,
             folderId: currentParentId,
@@ -985,9 +998,12 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
         console.log('At root level - not showing competitions');
       }
       
-      console.log('Fetched folders count:', foldersWithSubfolders?.length || 0);
+      // Filtrar nulls del resultado de safePromiseAll
+      const validFolders = (foldersWithSubfolders || []).filter((f): f is NonNullable<typeof f> => f !== null);
+      
+      console.log('Fetched folders count:', validFolders?.length || 0);
       console.log('Fetched competitions count:', allCompetitions?.length || 0);
-      console.log('Fetched folders for level:', foldersWithSubfolders?.map(f => ({ 
+      console.log('Fetched folders for level:', validFolders?.map(f => ({ 
         id: f.id, 
         name: f.name, 
         parentId: f.parentId, 
@@ -1003,13 +1019,13 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
       })));
       
       // Ordenar carpetas por posición antes de renderizar
-      const orderedFolders = (foldersWithSubfolders || []).slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+      const orderedFolders = validFolders.slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
       setFolders(orderedFolders);
       setCompetitions(allCompetitions || []);
       
       // Actualizar la ruta de navegación si estamos en una subcarpeta
       if (currentParentId !== null) {
-        const path = await getFolderPath(currentParentId);
+        const path = await withTimeout(getFolderPath(currentParentId), 5000);
         setFolderPath(path);
       } else {
         setFolderPath([]);

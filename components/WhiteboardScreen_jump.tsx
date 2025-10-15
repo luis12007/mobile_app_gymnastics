@@ -9,6 +9,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import VaultSelectorModal from './ModalVaultWag';
+import { createMountedRef, safeDBOperation, withTimeout, safeLog, safeValidate } from '../utils/crashPrevention';
 
 // Detectar si estamos en entorno web
 const isWeb = Platform.OS === 'web';
@@ -321,11 +322,11 @@ const DrawingCanvas = ({
 
   // Cargar paths desde la base de datos
   const loadSavedPaths = useCallback(async () => {
-    try {
-      const mainTable = await getMainTableById(tableId);
+    return safeDBOperation(async () => {
+      const mainTable = await withTimeout(getMainTableById(tableId), 5000);
       if (mainTable) {
         try {
-          const pathsString = await getMainTablePaths(mainTable.id);
+          const pathsString = await withTimeout(getMainTablePaths(mainTable.id), 5000);
           const savedPathsData: PathData[] = JSON.parse(pathsString || '[]');
           
           // Convertir pathsData a SkPath objects de manera eficiente
@@ -338,26 +339,28 @@ const DrawingCanvas = ({
                 skPaths.push(path);
               }
             } catch (error) {
-              console.warn('Error loading path:', error);
+              safeLog.warn('Error loading path:', error);
             }
           });
           
           setPathsData(savedPathsData);
           setPaths(skPaths);
         } catch (parseError) {
-          console.warn('Error parsing saved paths:', parseError);
+          safeLog.warn('Error parsing saved paths:', parseError);
           setPathsData([]);
           setPaths([]);
         }
       }
-    } catch (error) {
-      console.error('Error loading paths:', error);
-    }
+    }, undefined, 'loadSavedPaths');
   }, [tableId]);
 
   // --- Fotos ---
   const loadPhotos = useCallback(async () => {
-    try { const list = await getPhotosForMainTable(tableId); setPhotos(list); } catch(e){ console.warn('Error loading photos', e);} }, [tableId]);
+    return safeDBOperation(async () => {
+      const list = await withTimeout(getPhotosForMainTable(tableId), 5000);
+      setPhotos(list);
+    }, undefined, 'loadPhotos');
+  }, [tableId]);
   const loadPhotoItems = useCallback(async () => {
     try {
       console.log('📸 [loadPhotoItems] Loading photo items for tableId:', tableId);
@@ -643,6 +646,13 @@ const DrawingCanvas = ({
     // Guardar estado anterior para posible rollback
     const previousState = photoItemsRef.current.find(p => p.uri === uri);
     
+    // Verificar si la foto todavía existe (puede haber sido eliminada)
+    const photoExists = photoItemsRef.current.some(p => p.uri === uri);
+    if (!photoExists) {
+      console.log(`⚠️ Foto ya eliminada, saltando guardado: ${uri}`);
+      return;
+    }
+    
     // IMPORTANTE: Actualizar ref INMEDIATAMENTE (antes de setState) para evitar race conditions
     photoItemsRef.current = photoItemsRef.current.map(p => 
       p.uri === uri ? { ...p, ...data } : p
@@ -660,12 +670,25 @@ const DrawingCanvas = ({
       const success = await updatePhotoTransformForMainTable(tableId, uri, { x: merged.x, y: merged.y, scale: merged.scale, rotation: merged.rotation });
       
       if (!success) {
+        // Si falla, puede ser porque la foto ya fue eliminada
+        const stillExists = photoItemsRef.current.some(p => p.uri === uri);
+        if (!stillExists) {
+          console.log(`ℹ️ Foto eliminada durante guardado: ${uri}`);
+          return; // No mostrar error, es esperado
+        }
         throw new Error('La operación de actualización retornó false');
       }
       
       photoItemsRef.current = photoItemsRef.current.map(p=> p.uri===uri? merged: p);
       console.log('✅ Transformación de foto guardada:', { uri, ...data });
     } catch(error) {
+      // Verificar si la foto todavía existe antes de mostrar error
+      const stillExists = photoItemsRef.current.some(p => p.uri === uri);
+      if (!stillExists) {
+        console.log(`ℹ️ Error ignorado, foto ya fue eliminada: ${uri}`);
+        return;
+      }
+      
       console.error('❌ Error al guardar transformación de foto:', error);
       const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
       Alert.alert(
@@ -812,12 +835,26 @@ const DrawingCanvas = ({
         {
           text: "Eliminar",
           style: "destructive",
-          onPress: () => {
-            const index = photoItems.findIndex(p => p.uri === uri);
-            if (index !== -1) {
-              setPhotoItems(prev => prev.filter(p => p.uri !== uri));
-              removePhotoFromMainTable(tableId, index);
-              selectedPhotoRef.current = null;
+          onPress: async () => {
+            try {
+              const index = photoItems.findIndex(p => p.uri === uri);
+              if (index !== -1) {
+                // 1. Cancelar cualquier actualización pendiente de esta foto
+                pendingPhotoUpdatesRef.current.delete(uri);
+                console.log(`🗑️ Canceladas actualizaciones pendientes de foto: ${uri}`);
+                
+                // 2. Actualizar UI inmediatamente
+                setPhotoItems(prev => prev.filter(p => p.uri !== uri));
+                selectedPhotoRef.current = null;
+                
+                // 3. Eliminar de la base de datos
+                await removePhotoFromMainTable(tableId, index);
+                console.log(`✅ Foto eliminada: ${uri}`);
+              }
+            } catch (error) {
+              console.error('❌ Error al eliminar foto:', error);
+              // No mostrar alerta si es solo un problema de actualización pendiente
+              // La foto ya se eliminó de la UI, que es lo importante
             }
           }
         }
@@ -1503,15 +1540,81 @@ const DrawingCanvas = ({
     }: any)=>{
       let liveColor = isEraser? '#e0e0e0' : selectedPen===1? 'red' : selectedPen===2? 'yellow' : currentColor;
       let liveStrokeWidth = isEraser? currentStrokeWidth*4 : selectedPen===1? 2 : currentStrokeWidth;
+      
+      // 🔥 FIX: Calcular background image fuera del JSX
+      let backgroundImageElement = null;
+      if (backgroundImage) {
+        const imageWidth = width * 0.9;
+        const imageX = (width - imageWidth) / 2;
+        backgroundImageElement = (
+          <SkiaImage 
+            image={backgroundImage} 
+            x={imageX} 
+            y={0} 
+            width={imageWidth} 
+            height={canvasHeight} 
+            fit="contain" 
+            opacity={0.6} 
+          />
+        );
+      }
+      
+      // 🔥 FIX: Crear pathMap para O(1) lookup en vez de indexOf
+      const pathMap = useMemo(() => {
+        const map = new Map();
+        pathsData.forEach((pd: any, idx: number) => {
+          map.set(pd, idx);
+        });
+        return map;
+      }, [pathsData]);
+      
       return (
         <Canvas style={[styles.canvas, { height: canvasHeight }]}>
           {/* Imagen de fondo - PRIMERO para que quede debajo de todo */}
-          {Platform.OS === 'ios' && backgroundImage && (()=>{ const imageWidth = width*0.9; const imageX = (width - imageWidth)/2; return <SkiaImage image={backgroundImage} x={imageX} y={0} width={imageWidth} height={canvasHeight} fit="contain" />; })()}
-          {Children.toArray(pathsData.filter((pd:any)=> pd.penType===0 || !pd.penType).map((pd:any)=>{ const idx=pathsData.indexOf(pd); const path=paths[idx]; if(!path) return null; const displayColor = pd.isEraser? '#e0e0e0': pd.color; return <Path key={`n-${idx}`} path={path} color={displayColor} style="stroke" strokeWidth={pd.strokeWidth} strokeCap="round" strokeJoin="round" />; }))}
-          {Platform.OS !== 'ios' && backgroundImage && (()=>{ const imageWidth = width*0.9; const imageX = (width - imageWidth)/2; return <SkiaImage image={backgroundImage} x={imageX} y={0} width={imageWidth} height={canvasHeight} fit="contain" />; })()}
-          {Children.toArray(pathsData.filter((pd:any)=> pd.penType===1).map((pd:any)=>{ const idx=pathsData.indexOf(pd); const path=paths[idx]; if(!path) return null; return <Path key={`t-${idx}`} path={path} color={pd.color} style="stroke" strokeWidth={pd.strokeWidth} strokeCap="round" strokeJoin="round" opacity={0.8} />; }))}
-          {Children.toArray(pathsData.filter((pd:any)=> pd.penType===2).map((pd:any)=>{ const idx=pathsData.indexOf(pd); const path=paths[idx]; if(!path) return null; return <Group key={`h-${idx}`}><Path path={path} color={pd.color} style="fill" opacity={0.3} /><Path path={path} color={pd.color} style="stroke" strokeWidth={pd.strokeWidth} strokeCap="round" strokeJoin="round" opacity={0.5} /></Group>; }))}
-          {photoItems.map((item:PhotoItem)=>(<SkiaPhoto key={item.uri} item={item} registerMeta={registerImageMeta} />))}
+          {backgroundImageElement}
+          
+          {/* Paths normales - validación de arrays */}
+          {safeValidate.isArray(pathsData) && Children.toArray(
+            pathsData
+              .filter((pd:any)=> pd.penType===0 || !pd.penType)
+              .map((pd:any)=>{ 
+                const idx = pathMap.get(pd); 
+                const path = paths[idx]; 
+                if(!path) return null; 
+                const displayColor = pd.isEraser? '#e0e0e0': pd.color; 
+                return <Path key={`n-${idx}`} path={path} color={displayColor} style="stroke" strokeWidth={pd.strokeWidth} strokeCap="round" strokeJoin="round" />; 
+              })
+          )}
+          
+          {/* Telestrator paths */}
+          {safeValidate.isArray(pathsData) && Children.toArray(
+            pathsData
+              .filter((pd:any)=> pd.penType===1)
+              .map((pd:any)=>{ 
+                const idx = pathMap.get(pd); 
+                const path = paths[idx]; 
+                if(!path) return null; 
+                return <Path key={`t-${idx}`} path={path} color={pd.color} style="stroke" strokeWidth={pd.strokeWidth} strokeCap="round" strokeJoin="round" opacity={0.8} />; 
+              })
+          )}
+          
+          {/* Highlighter paths */}
+          {safeValidate.isArray(pathsData) && Children.toArray(
+            pathsData
+              .filter((pd:any)=> pd.penType===2)
+              .map((pd:any)=>{ 
+                const idx = pathMap.get(pd); 
+                const path = paths[idx]; 
+                if(!path) return null; 
+                return <Group key={`h-${idx}`}><Path path={path} color={pd.color} style="fill" opacity={0.3} /><Path path={path} color={pd.color} style="stroke" strokeWidth={pd.strokeWidth} strokeCap="round" strokeJoin="round" opacity={0.5} /></Group>; 
+              })
+          )}
+          
+          {/* Photos - validación de arrays */}
+          {safeValidate.isArray(photoItems) && photoItems.map((item:PhotoItem)=>(
+            <SkiaPhoto key={item.uri} item={item} registerMeta={registerImageMeta} />
+          ))}
+          
           {currentPathDisplay && (
             <Group>
               {selectedPen===2 && !isEraser && <Path path={currentPathDisplay} color="yellow" style="fill" opacity={0.3} />}

@@ -845,8 +845,17 @@ export const updateFolder = async (
     const updates: string[] = [];
     const values: any[] = [];
 
+    // Lista de columnas válidas en la tabla folders (excluir propiedades calculadas como hasSubfolders, children)
+    const validColumns = ['userId', 'name', 'description', 'type', 'date', 'filled', 'position', 'parentId', 'level'];
+
     Object.entries(folderData).forEach(([key, value]) => {
       if (key === 'id') return;
+      
+      // Solo actualizar columnas que existen en la tabla
+      if (!validColumns.includes(key)) {
+        console.log(`⚠️ Skipping non-column field: ${key}`);
+        return;
+      }
       
       updates.push(`${key} = ?`);
       
@@ -1127,8 +1136,17 @@ export const updateSession = async (
     const updates: string[] = [];
     const values: any[] = [];
 
+    // Lista de columnas válidas en la tabla sessions
+    const validColumns = ['gender', 'userId'];
+
     Object.entries(sessionData).forEach(([key, value]) => {
       if (key === 'id') return;
+      
+      // Solo actualizar columnas que existen en la tabla
+      if (!validColumns.includes(key)) {
+        console.log(`⚠️ Skipping non-column field in session: ${key}`);
+        return;
+      }
       
       updates.push(`${key} = ?`);
       values.push(key === 'gender' ? (value ? 1 : 0) : value);
@@ -1228,8 +1246,17 @@ export const updateCompetence = async (
     const updates: string[] = [];
     const values: any[] = [];
 
+    // Lista de columnas válidas en la tabla competences (excluir propiedades calculadas)
+    const validColumns = ['name', 'description', 'date', 'type', 'gender', 'sessionId', 'folderId', 'userId', 'numberOfParticipants'];
+
     Object.entries(competenceData).forEach(([key, value]) => {
       if (key === 'id') return;
+      
+      // Solo actualizar columnas que existen en la tabla
+      if (!validColumns.includes(key)) {
+        console.log(`⚠️ Skipping non-column field in competence: ${key}`);
+        return;
+      }
       
       updates.push(`${key} = ?`);
       values.push(key === 'gender' ? (value ? 1 : 0) : value);
@@ -1441,8 +1468,26 @@ export const updateMainTable = async (
     const updates: string[] = [];
     const values: any[] = [];
 
+    // Lista de columnas válidas en la tabla main_tables
+    const validColumns = [
+      'competenceId', 'number', 'name', 'event', 'noc', 'bib',
+      'j', 'i', 'h', 'g', 'f', 'e', 'd', 'c', 'b', 'a',
+      'dv', 'eg', 'sb', 'nd', 'cv', 'sv', 'e2', 'd3', 'e3', 'delt',
+      'percentage', 'stickBonus', 'numberOfElements', 'difficultyValues',
+      'elementGroups1', 'elementGroups2', 'elementGroups3', 'elementGroups4', 'elementGroups5',
+      'execution', 'eScore', 'myScore', 'compD', 'compE', 'compSd', 'compNd', 'compScore',
+      'comments', 'paths', 'ded', 'dedexecution', 'vaultNumber', 'vaultDescription',
+      'startValue', 'description', 'score'
+    ];
+
     Object.entries(tableData).forEach(([key, value]) => {
       if (key === 'id') return;
+      
+      // Solo actualizar columnas que existen en la tabla
+      if (!validColumns.includes(key)) {
+        console.log(`⚠️ Skipping non-column field in main_table: ${key}`);
+        return;
+      }
       
       updates.push(`${key} = ?`);
       
@@ -1832,8 +1877,22 @@ export const updateRateGeneral = async (
     const updates: string[] = [];
     const values: any[] = [];
 
+    // Lista de columnas válidas en la tabla rate_general
+    const validColumns = [
+      'tableId', 'stickBonus', 'numberOfElements', 'difficultyValues',
+      'elementGroups1', 'elementGroups2', 'elementGroups3', 'elementGroups4', 'elementGroups5',
+      'execution', 'eScore', 'myScore', 'compD', 'compE', 'compSd', 'compNd', 'compScore',
+      'comments', 'paths', 'ded', 'dedexecution', 'vaultNumber', 'vaultDescription', 'images'
+    ];
+
     Object.entries(rateData).forEach(([key, value]) => {
       if (key === 'id') return;
+      
+      // Solo actualizar columnas que existen en la tabla
+      if (!validColumns.includes(key)) {
+        console.log(`⚠️ Skipping non-column field in rate_general: ${key}`);
+        return;
+      }
       
       updates.push(`${key} = ?`);
       values.push(key === 'stickBonus' ? (value ? 1 : 0) : value);
@@ -1937,8 +1996,20 @@ export const updateRateJump = async (
     const updates: string[] = [];
     const values: any[] = [];
 
+    // Lista de columnas válidas en la tabla rate_jump
+    const validColumns = [
+      'tableId', 'stickBonus', 'vaultNumber', 'startValue', 'description',
+      'execution', 'myScore', 'compD', 'compE', 'compSd', 'compNd', 'score'
+    ];
+
     Object.entries(rateData).forEach(([key, value]) => {
       if (key === 'id') return;
+      
+      // Solo actualizar columnas que existen en la tabla
+      if (!validColumns.includes(key)) {
+        console.log(`⚠️ Skipping non-column field in rate_jump: ${key}`);
+        return;
+      }
       
       updates.push(`${key} = ?`);
       values.push(key === 'stickBonus' ? (value ? 1 : 0) : value);

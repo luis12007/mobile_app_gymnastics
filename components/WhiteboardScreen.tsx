@@ -616,6 +616,13 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
     // Guardar estado anterior para posible rollback
     const previousState = photoItemsRef.current.find(p => p.uri === uri);
     
+    // Verificar si la foto todavía existe (puede haber sido eliminada)
+    const photoExists = photoItemsRef.current.some(p => p.uri === uri);
+    if (!photoExists) {
+      console.log(`⚠️ Foto ya eliminada, saltando guardado: ${uri}`);
+      return;
+    }
+    
     // IMPORTANTE: Actualizar ref INMEDIATAMENTE (antes de setState) para evitar race conditions
     photoItemsRef.current = photoItemsRef.current.map(p => 
       p.uri === uri ? { ...p, ...data } : p
@@ -637,12 +644,25 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
       );
       
       if (!success) {
+        // Si falla, puede ser porque la foto ya fue eliminada
+        const stillExists = photoItemsRef.current.some(p => p.uri === uri);
+        if (!stillExists) {
+          console.log(`ℹ️ Foto eliminada durante guardado: ${uri}`);
+          return; // No mostrar error, es esperado
+        }
         throw new Error('La operación de actualización retornó false');
       }
       
       photoItemsRef.current = photoItemsRef.current.map(p => p.uri === uri ? merged : p);
       console.log('✅ Transformación de foto guardada:', { uri, ...data });
     } catch (error) {
+      // Verificar si la foto todavía existe antes de mostrar error
+      const stillExists = photoItemsRef.current.some(p => p.uri === uri);
+      if (!stillExists) {
+        console.log(`ℹ️ Error ignorado, foto ya fue eliminada: ${uri}`);
+        return;
+      }
+      
       console.error('❌ Error al guardar transformación de foto:', error);
       const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
       Alert.alert(
@@ -1259,12 +1279,26 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
         {
           text: "Eliminar",
           style: "destructive",
-          onPress: () => {
-            const index = photoItems.findIndex(p => p.uri === uri);
-            if (index !== -1) {
-              setPhotoItems(prev => prev.filter(p => p.uri !== uri));
-              removePhotoFromMainTable(tableId, index);
-              selectedPhotoRef.current = null;
+          onPress: async () => {
+            try {
+              const index = photoItems.findIndex(p => p.uri === uri);
+              if (index !== -1) {
+                // 1. Cancelar cualquier actualización pendiente de esta foto
+                pendingPhotoUpdatesRef.current.delete(uri);
+                console.log(`🗑️ Canceladas actualizaciones pendientes de foto: ${uri}`);
+                
+                // 2. Actualizar UI inmediatamente
+                setPhotoItems(prev => prev.filter(p => p.uri !== uri));
+                selectedPhotoRef.current = null;
+                
+                // 3. Eliminar de la base de datos
+                await removePhotoFromMainTable(tableId, index);
+                console.log(`✅ Foto eliminada: ${uri}`);
+              }
+            } catch (error) {
+              console.error('❌ Error al eliminar foto:', error);
+              // No mostrar alerta si es solo un problema de actualización pendiente
+              // La foto ya se eliminó de la UI, que es lo importante
             }
           }
         }

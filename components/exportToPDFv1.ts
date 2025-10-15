@@ -154,10 +154,8 @@ interface FinalTableData {
 }
 
 // Function to get Jump image as base64
-// Fallback base64 para imagen de salto (puedes usar una imagen pequeña o un SVG simple)
-const JUMP_IMAGE_FALLBACK =
-  'data:image/svg+xml;base64,' +
-  btoa('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60"><rect width="120" height="60" fill="#eee"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="14" fill="#888">No Jump Img</text></svg>');
+// Fallback vacío - NO renderizar placeholder si no hay imagen
+const JUMP_IMAGE_FALLBACK = '';
 
 // (Android usa un hook en componentes para obtener esta imagen)
 
@@ -230,6 +228,7 @@ const getJumpImageBase64 = async (): Promise<string> => {
     return primaryUri; // permitir que WebKit la resuelva en print
   }
 
+  // Si nada funciona, NO renderizar placeholder
   return JUMP_IMAGE_FALLBACK;
 };
 
@@ -240,6 +239,16 @@ const getJumpImageBase64 = async (): Promise<string> => {
 
 // FINAL TABLE PDF GENERATION
 export const generateFinalTablePDF = async (data: FinalTableData) => {
+  // Helper: Timeout de 3 minutos para generación
+  const printWithTimeout = async (html: string, base64: boolean = false, timeoutMs: number = 180000): Promise<{ uri: string; base64?: string }> => {
+    return Promise.race([
+      Print.printToFileAsync({ html, base64 }),
+      new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('⏱️ Timeout: La generación del PDF tomó más de 3 minutos')), timeoutMs)
+      )
+    ]);
+  };
+
   const html = `
     <!DOCTYPE html>
     <html>
@@ -670,10 +679,7 @@ export const generateFinalTablePDF = async (data: FinalTableData) => {
   `;
 
   try {
-    const { uri } = await Print.printToFileAsync({ 
-      html,
-      base64: false 
-    });
+    const { uri } = await printWithTimeout(html, false);
     
     await shareAsync(uri, { 
       UTI: '.pdf', 
@@ -683,6 +689,10 @@ export const generateFinalTablePDF = async (data: FinalTableData) => {
     return uri;
   } catch (error) {
     console.error('Error generating final table PDF:', error);
+    // Si es timeout, mostrar mensaje específico
+    if (error instanceof Error && /Timeout.*3 minutos/i.test(error.message)) {
+      throw new Error('⏱️ La generación del PDF tomó demasiado tiempo. Por favor intenta nuevamente.');
+    }
     throw error;
   }
 };
@@ -845,7 +855,7 @@ export const generateComprehensivePDF = async (
     if (__photoCache[uri]) return __photoCache[uri];
     const mime = inferMimeFromExt(uri);
     const build = (b64: string) => `data:${mime};base64,${b64}`;
-    const placeholder = (light = false) => 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60"><rect width="60" height="60" fill="${light ? '#ddd' : '#ccc'}"/><text x="50%" y="50%" font-size="8" text-anchor="middle" dominant-baseline="middle">IMG</text></svg>`);
+    // NO renderizar placeholder - devolver vacío si no se puede cargar la imagen
     const tryFetch = async () => {
       try {
         const res = await fetch(uri);
@@ -870,9 +880,9 @@ export const generateComprehensivePDF = async (
           if (b64 && b64.length > 40) { const d = build(b64); __photoCache[uri] = d; return d; }
         } catch {}
       }
-      const ph = placeholder(isFallback);
-      __photoCache[uri] = ph;
-      return ph;
+      // Si falla, NO renderizar placeholder
+      __photoCache[uri] = '';
+      return '';
     } else {
       const fetched = await tryFetch();
       if (fetched) { __photoCache[uri] = fetched; return fetched; }
@@ -881,9 +891,9 @@ export const generateComprehensivePDF = async (
         const b64 = await (FileSystem as any).readAsStringAsync(uri, { encoding: 'base64' });
         if (b64 && b64.length > 40) { const d = build(b64); __photoCache[uri] = d; return d; }
       } catch {}
-      const ph = placeholder();
-      __photoCache[uri] = ph;
-      return ph;
+      // Si falla, NO renderizar placeholder
+      __photoCache[uri] = '';
+      return '';
     }
   };
 
@@ -1047,6 +1057,11 @@ export const generateComprehensivePDF = async (
       
       // Render fotos (mismo grupo de centrado y factor de escala 0.85)
       const photoElements = (photos || []).map(ph => {
+        // Solo renderizar si hay dataUrl válida
+        if (!ph.dataUrl || !ph.dataUrl.trim()) {
+          return ''; // No renderizar placeholder
+        }
+        
         // Aplicar mismo factor global de paths (0.85) después de reproducir escala igual que en whiteboard
         const scaledBaseW = ph.baseWidth * ph.scale;
         const scaledBaseH = ph.baseHeight * ph.scale;
@@ -1105,13 +1120,11 @@ export const generateComprehensivePDF = async (
           <div class="whiteboard-section">
             <div class="whiteboard-title">Judge's Whiteboard</div>
             <svg class="whiteboard-canvas" viewBox="0 0 1300 780" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
-              <!-- Jump background image -->
-              ${jumpImageBase64 ? `
+              <!-- Jump background image - solo si existe -->
+              ${jumpImageBase64 && jumpImageBase64.trim() ? `
                 <image href="${jumpImageBase64}" 
             width="1000" height="663" x="80" y="65" opacity="0.6" />
-              ` : `
-                
-              `}
+              ` : ''}
               ${renderWhiteboardPaths(gymnast.paths || '', gymnastPhotosMap[gymnast.id] || [])}
 
             </svg>
@@ -2281,6 +2294,16 @@ export const generateComprehensivePDF = async (
 
   let finalUri: string | null = null;
 
+  // Helper: Timeout de 3 minutos para generación de chunks
+  const printWithTimeout = async (html: string, base64: boolean = true, timeoutMs: number = 180000): Promise<{ uri: string; base64?: string }> => {
+    return Promise.race([
+      Print.printToFileAsync({ html, base64 }),
+      new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('⏱️ Timeout: La generación del chunk tomó más de 3 minutos')), timeoutMs)
+      )
+    ]);
+  };
+
   const needsChunk = pagesCount > MAX_PAGES_PER_CHUNK || buildFullHTML(pagesArray, true).length > MAX_HTML_CHARS;
   console.log(`[PDF] needsChunk = ${needsChunk}`);
   if (needsChunk) {
@@ -2337,15 +2360,22 @@ export const generateComprehensivePDF = async (
           console.log(`[PDF] Generando chunk ${Math.floor(chunkStart / MAX_PAGES_PER_CHUNK) + 1}/${totalChunks} páginas ${chunkStart + 1}-${chunkEnd} intento ${attempt + 1} length=${chunkHtml.length}`);
           progressCb?.(`Chunk ${(Math.floor(chunkStart / MAX_PAGES_PER_CHUNK) + 1)}/${totalChunks}`, 0.1 + 0.35 * (chunkStart / pagesCount));
           checkCancel();
-          const { uri, base64 } = await Print.printToFileAsync({ html: chunkHtml, base64: true });
+          const { uri, base64 } = await printWithTimeout(chunkHtml, true);
           chunkUris.push(uri);
           if (base64) chunkBase64.push(base64); else console.warn('[PDF] chunk sin base64 (omitido en merge)');
           console.log(`[PDF][ChunkLoop] Chunk completado start=${chunkStart} end=${chunkEnd} totalChunks=${totalChunks} uri=${uri}`);
           break; // éxito
         } catch (err: any) {
           const msg = String(err?.message || err);
+          const isTimeout = /Timeout.*3 minutos/i.test(msg);
           const isOOM = isOOMMessage(msg);
           console.warn(`[PDF][ChunkLoop] Error en chunk start=${chunkStart} end=${chunkEnd} intento=${attempt + 1} msg=${msg}`);
+          
+          // Si es timeout, lanzar error inmediatamente para cancelar todo
+          if (isTimeout) {
+            throw new Error('⏱️ La generación del PDF tomó demasiado tiempo. Por favor intenta nuevamente con menos imágenes o divide la competencia en partes más pequeñas.');
+          }
+          
           if (control?.cancelled) {
             console.warn('[PDF] Cancel detectado durante error de chunk');
             throw new Error('PDF cancelado');
@@ -2376,14 +2406,21 @@ export const generateComprehensivePDF = async (
                 try {
                   const includeFinalSingle = includeFinal && pi === pagesCount - 1;
                   const singleHtml = buildFullHTML(pagesArray[pi], includeFinalSingle);
-                  const { uri, base64 } = await Print.printToFileAsync({ html: singleHtml, base64: true });
+                  const { uri, base64 } = await printWithTimeout(singleHtml, true);
                   chunkUris.push(uri);
                   if (base64) chunkBase64.push(base64); else console.warn('[PDF] página individual sin base64');
                   console.log(`[PDF][ChunkLoop] Página individual OK index=${pi} uri=${uri}`);
                   break;
                 } catch (singleErr: any) {
                   const smsg = String(singleErr?.message || singleErr);
+                  const isTimeout = /Timeout.*3 minutos/i.test(smsg);
                   const isSingleOOM = isOOMMessage(smsg);
+                  
+                  // Si es timeout en página individual, lanzar error para cancelar todo
+                  if (isTimeout) {
+                    throw new Error('⏱️ La generación del PDF tomó demasiado tiempo. Por favor intenta nuevamente con menos imágenes o divide la competencia en partes más pequeñas.');
+                  }
+                  
                   const gid = resolvedData[pi].id;
                   const photosArr = gymnastPhotosMap[gid] || [];
                   if ((isSingleOOM || photosArr.length > 0) && photosArr.length > 0) {
@@ -2505,7 +2542,7 @@ export const generateComprehensivePDF = async (
         // Crear un PDF temporal vía data URL (embed base64 en un iframe HTML y print de nuevo)
         try {
           const tempHtml = `<html><body style="margin:0"><embed width="100%" height="100%" type="application/pdf" src="data:application/pdf;base64,${mergedB64}" /></body></html>`;
-          const printed = await Print.printToFileAsync({ html: tempHtml, base64: true });
+          const printed = await printWithTimeout(tempHtml, true);
           if (printed?.uri) { finalUri = printed.uri; }
           else { finalUri = chunkUris[0]; console.warn('[PDF] Fallback a primer chunk por falla en impresión temporal'); }
         } catch (e) {
@@ -2522,7 +2559,7 @@ export const generateComprehensivePDF = async (
   const html = buildFullHTML(pagesArray, true);
     console.log('[PDF] Generando PDF en único archivo length=', html.length);
     progressCb?.('Generando PDF…', 0.4);
-    const { uri, base64 } = await Print.printToFileAsync({ html, base64: true });
+    const { uri, base64 } = await printWithTimeout(html, true);
     if (Platform.OS === 'ios' && (require('../utils/platformFS').PFS)) {
       // intentar copiar a docDir
       try {

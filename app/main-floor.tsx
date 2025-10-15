@@ -3173,7 +3173,7 @@ const styles = StyleSheet.create({
     width: 200,
   },
   infoLabelText: {
-    fontSize: 7,
+    fontSize: 14,
     fontWeight: "bold",
     color: "#333",
   },
@@ -3470,7 +3470,7 @@ const styles = StyleSheet.create({
     borderColor: "black",
   },
   compDeductionLabelText: {
-    fontSize: 10,
+    fontSize: 13,
     fontWeight: "bold",
     color: "#333",
     textAlign: "right",
@@ -3710,7 +3710,7 @@ const styles = StyleSheet.create({
     borderColor: "black",
   },
   neutralLabelText: {
-    fontSize: 10,
+    fontSize: 13,
     fontWeight: "bold",
     color: "#333",
     textAlign: "right",

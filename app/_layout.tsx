@@ -4,6 +4,8 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
+import ErrorBoundary from '../components/ErrorBoundary';
+import { safeLog } from '../utils/crashPrevention';
 
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
@@ -25,18 +27,25 @@ export default function RootLayout() {
   }
 
   return (
-    <ThemeProvider value={DefaultTheme}>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="index" options={{ title: 'LoginScreen' }} />
-        <Stack.Screen name="select-sex" options={{ title: 'SelectSex' }} />
-        <Stack.Screen name="main-menu" options={{ title: 'main-menu' }} />
-        <Stack.Screen name="final-table" options={{ title: 'final-table' }} />
-        <Stack.Screen name="start-gudging" options={{ title: 'start-gudging' }} />
-        <Stack.Screen name="main-floor" options={{ title: 'main-floor' }} />
-        <Stack.Screen name="main-jump" options={{ title: 'main-jump' }} />
+    <ErrorBoundary
+      onError={(error, errorInfo) => {
+        safeLog.error('App Error Boundary caught error:', error);
+        safeLog.error('Component Stack:', errorInfo.componentStack);
+      }}
+    >
+      <ThemeProvider value={DefaultTheme}>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="index" options={{ title: 'LoginScreen' }} />
+          <Stack.Screen name="select-sex" options={{ title: 'SelectSex' }} />
+          <Stack.Screen name="main-menu" options={{ title: 'main-menu' }} />
+          <Stack.Screen name="final-table" options={{ title: 'final-table' }} />
+          <Stack.Screen name="start-gudging" options={{ title: 'start-gudging' }} />
+          <Stack.Screen name="main-floor" options={{ title: 'main-floor' }} />
+          <Stack.Screen name="main-jump" options={{ title: 'main-jump' }} />
 
         
-      </Stack>
-    </ThemeProvider>
+        </Stack>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
