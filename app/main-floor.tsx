@@ -2416,7 +2416,7 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                       : styles.infoValueCellRed,
                   ]}
                 >
-                  <Text style={styles.infoValueText}>{totalElements}</Text>
+                  <Text style={styles.infoValueText}>{String(totalElements)}</Text>
                 </View>
               </View>
 
@@ -2834,19 +2834,19 @@ const GymnasticsJudgingTable: React.FC<JudgingTableProps> = ({
                   <Text style={styles.neutralLabelText}>GYMNAST INFO</Text>
                 </View>
                 <View style={styles.overtimeCell}>
-                  <Text style={styles.overtimeValueText}>{gymnastName}</Text>
+                  <Text style={styles.overtimeValueText}>{String(gymnastName || '')}</Text>
                 </View>
                 <View style={styles.lineCell}>
-                  <Text style={styles.lineValueText}>{gymnastNoc}</Text>
+                  <Text style={styles.lineValueText}>{String(gymnastNoc || '')}</Text>
                 </View>
                 <View style={styles.otherCell}>
-                  <Text style={styles.lineValueText}>{gymnastBib}</Text>
+                  <Text style={styles.lineValueText}>{String(gymnastBib || '')}</Text>
                 </View>
                 <View style={styles.otherCell}>
-                  <Text style={styles.otherValueText}>{gymnastEvent}</Text>
+                  <Text style={styles.otherValueText}>{String(gymnastEvent || '')}</Text>
                 </View>
                 <View style={styles.neutralTotalCell}>
-                  <Text style={styles.neutralTotalValueText}>{number}</Text>
+                  <Text style={styles.neutralTotalValueText}>{String(number || '')}</Text>
                 </View>
               </View>
             </View>

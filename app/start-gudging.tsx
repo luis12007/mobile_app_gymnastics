@@ -146,8 +146,6 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
   const competenceId = params.id ? Number(params.id) : 0;
   const number = params.number ? Number(params.number) : 1;
   const folderId = params.folderId;
-  const backButtonOpacity = useRef(new Animated.Value(0)).current;
-  const backButtonTranslateX = useRef(new Animated.Value(50)).current;
 
   // Define the event options based on discipline
   const maleEvents = ["FX", "VT", "PH", "SR", "PB", "HB"];
@@ -226,131 +224,11 @@ const GymnasticsTable: React.FC<GymnasticsTableProps> = ({
     field: string | null;
   }>({ gymnastId: null, field: null });
 
-  // Animation values
-  const searchBarOpacity = useRef(new Animated.Value(0)).current;
-  const searchBarTranslateY = useRef(new Animated.Value(-50)).current;
-  const tableOpacity = useRef(new Animated.Value(0)).current;
-  const tableScale = useRef(new Animated.Value(0.95)).current;
-  const buttonContainerOpacity = useRef(new Animated.Value(0)).current;
-  const buttonContainerTranslateY = useRef(new Animated.Value(50)).current;
   const scrollViewRef = useRef<ScrollView>(null);
-
-  // Row animation values (for staggered effect)
-  const rowAnimations = useRef<
-    { opacity: Animated.Value; translateX: Animated.Value }[]
-  >([]).current;
 
   const router = useRouter();
 
-  // Initialize row animations only on initial load
-  useEffect(() => {
-    if (!initialLoadComplete && gymnasts.length > 0) {
-      // Reset and recreate row animations
-      rowAnimations.length = 0;
-
-      gymnasts.forEach(() => {
-        rowAnimations.push({
-          opacity: new Animated.Value(0),
-          translateX: new Animated.Value(-20),
-        });
-      });
-
-      // Start the row animations
-      rowAnimations.forEach((anim, index) => {
-        Animated.sequence([
-          Animated.delay(700 + index * 100), // Staggered delay for each row
-          Animated.parallel([
-            Animated.timing(anim.opacity, {
-              toValue: 1,
-              duration: 500,
-              useNativeDriver: true,
-              easing: Easing.out(Easing.ease),
-            }),
-            Animated.timing(anim.translateX, {
-              toValue: 0,
-              duration: 600,
-              useNativeDriver: true,
-              easing: Easing.out(Easing.back(1.5)),
-            }),
-          ]),
-        ]).start();
-      });
-
-      setInitialLoadComplete(true);
-    }
-  }, [gymnasts, initialLoadComplete]);
-
-  // Run animations when component mounts
-  useEffect(() => {
-    // Animate search bar
-    Animated.timing(searchBarOpacity, {
-      toValue: 1,
-      duration: 2000, // Changed from 600 to 2000 ms (2 seconds)
-      useNativeDriver: true,
-      easing: Easing.out(Easing.ease),
-    }).start();
-
-    Animated.timing(searchBarTranslateY, {
-      toValue: 0,
-      duration: 2000, // Changed from 700 to 2000 ms (2 seconds)
-      useNativeDriver: true,
-      easing: Easing.out(Easing.back(1.2)),
-    }).start();
-
-    // Animate table
-    Animated.sequence([
-      Animated.delay(300), // Wait for search bar animation
-      Animated.timing(tableOpacity, {
-        toValue: 1,
-        duration: 700,
-        useNativeDriver: true,
-        easing: Easing.out(Easing.ease),
-      }),
-      Animated.timing(tableScale, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-        easing: Easing.out(Easing.back(1.05)),
-      }),
-    ]).start();
-
-    Animated.sequence([
-      Animated.delay(500), // Start after search bar animation begins
-      Animated.parallel([
-        Animated.timing(backButtonOpacity, {
-          toValue: 1,
-          duration: 600,
-          useNativeDriver: true,
-          easing: Easing.out(Easing.ease),
-        }),
-        Animated.timing(backButtonTranslateX, {
-          toValue: 0,
-          duration: 700,
-          useNativeDriver: true,
-          easing: Easing.out(Easing.back(1.2)),
-        }),
-      ]),
-    ]).start();
-
-    // Animate button container
-    Animated.sequence([
-      Animated.delay(1200), // Wait for table animation
-      Animated.parallel([
-        Animated.timing(buttonContainerOpacity, {
-          toValue: 1,
-          duration: 600,
-          useNativeDriver: true,
-          easing: Easing.out(Easing.ease),
-        }),
-        Animated.timing(buttonContainerTranslateY, {
-          toValue: 0,
-          duration: 700,
-          useNativeDriver: true,
-          easing: Easing.out(Easing.back(1.2)),
-        }),
-      ]),
-    ]).start();
-  }, []);
+  // Animations removed for stability
 
   // Load gymnasts data from AsyncStorage based on competenceId
   useEffect(() => {
@@ -894,35 +772,9 @@ const performDelete = async () => {
           return;
         }
 
-        // Aplicar animación de reordenamiento
-        rowAnimations.length = 0;
-        correlativeGymnasts.forEach(() => {
-          rowAnimations.push({
-            opacity: new Animated.Value(0),
-            translateX: new Animated.Value(-20),
-          });
-        });
+        // Animations removed for stability
 
         setGymnasts(correlativeGymnasts);
-
-        // Iniciar animación
-        rowAnimations.forEach((anim, index) => {
-          Animated.sequence([
-            Animated.delay(index * 100), // Retraso escalonado
-            Animated.parallel([
-              Animated.timing(anim.opacity, {
-                toValue: 1,
-                duration: 500,
-                useNativeDriver: true,
-              }),
-              Animated.timing(anim.translateX, {
-                toValue: 0,
-                duration: 500,
-                useNativeDriver: true,
-              }),
-            ]),
-          ]).start();
-        });
 
         // Actualizar número de participantes en la competencia
         if (competenceData) {
@@ -1033,35 +885,9 @@ const performDelete = async () => {
         return;
       }
 
-      // Aplicar animación de reordenamiento
-      rowAnimations.length = 0;
-      correlativeGymnasts.forEach(() => {
-        rowAnimations.push({
-          opacity: new Animated.Value(0),
-          translateX: new Animated.Value(-20),
-        });
-      });
+      // Animations removed for stability
 
       setGymnasts(correlativeGymnasts);
-
-      // Iniciar animación
-      rowAnimations.forEach((anim, index) => {
-        Animated.sequence([
-          Animated.delay(index * 100), // Retraso escalonado
-          Animated.parallel([
-            Animated.timing(anim.opacity, {
-              toValue: 1,
-              duration: 500,
-              useNativeDriver: true,
-            }),
-            Animated.timing(anim.translateX, {
-              toValue: 0,
-              duration: 500,
-              useNativeDriver: true,
-            }),
-          ]),
-        ]).start();
-      });
     } catch (error) {
       console.error("Error reordering gymnasts:", error);
       Alert.alert("Error", "Failed to reorder gymnasts.");
@@ -2180,13 +2006,9 @@ const processAndInsertData = async (data: any[]) => {
   return (
     <View style={styles.container} onTouchStart={handleGlobalClick}>
       {/* Top Control Bar - Single Row with All Controls */}
-      <Animated.View
+      <View
         style={[
           styles.topControlsContainer,
-          {
-            opacity: searchBarOpacity,
-            transform: [{ translateY: searchBarTranslateY }],
-          },
         ]}
       >
         {/* Left Section - Inputs */}
@@ -2359,16 +2181,12 @@ const processAndInsertData = async (data: any[]) => {
             </Text>
           </TouchableOpacity>
         </View>
-      </Animated.View>
+      </View>
 
-      {/* Table with Animation */}
-      <Animated.View
+      {/* Table */}
+      <View
         style={[
           styles.tableContainer,
-          {
-            opacity: tableOpacity,
-            transform: [{ scale: tableScale }],
-          },
         ]}
       >
         {/* Table Header */}
@@ -2404,18 +2222,12 @@ const processAndInsertData = async (data: any[]) => {
               <Text style={styles.emptyStateSubtext}> </Text>
             </View>
           ) : (
-            /* Rows with animation and selection */
+            /* Rows */
             gymnasts.map((gymnast, index) => (
-              <Animated.View
+              <View
                 key={gymnast.id}
                 style={[
                   styles.row,
-                  {
-                    opacity: rowAnimations[index]?.opacity || 1,
-                    transform: [
-                      { translateX: rowAnimations[index]?.translateX || 0 },
-                    ],
-                  },
                   invalidGymnastIds.includes(gymnast.id) && {
                     borderColor: "red",
                     borderWidth: 2,
@@ -2646,7 +2458,7 @@ const processAndInsertData = async (data: any[]) => {
                     </TouchableOpacity>
                   )}
                 </View>
-              </Animated.View>
+              </View>
             ))
           )}
 
@@ -2657,16 +2469,12 @@ const processAndInsertData = async (data: any[]) => {
             </TouchableOpacity>
           )}
         </ScrollView>
-      </Animated.View>
+      </View>
 
-      {/* Button Container with Animation */}
-      <Animated.View
+      {/* Button Container */}
+      <View
         style={[
           styles.buttonContainer,
-          {
-            opacity: buttonContainerOpacity,
-            transform: [{ translateY: buttonContainerTranslateY }],
-          },
         ]}
       >
         {!isDeleteMode ? (
@@ -2723,7 +2531,7 @@ const processAndInsertData = async (data: any[]) => {
             </TouchableOpacity>
           </>
         )}
-      </Animated.View>
+      </View>
 
       {/* Event Dropdown (shown conditionally) */}
       {dropdownVisible && (
@@ -4186,3 +3994,4 @@ addGymnastOverlayCentered: {
 });
 
 export default GymnasticsTable;
+

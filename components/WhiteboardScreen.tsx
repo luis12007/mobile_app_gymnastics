@@ -271,9 +271,9 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
   // Cargar items con metadatos
   const loadPhotoItems = useCallback( async () => {
     try {
-      console.log('📸 [loadPhotoItems] Loading photo items for tableId:', tableId);
+      console.log('📸 [loadPhotoItems] Loading photo items for tableId:', String(tableId));
       const items = await getPhotoItemsForMainTable(tableId);
-      console.log('📸 [loadPhotoItems] Loaded', items?.length || 0, 'photo items from DB');
+      console.log('📸 [loadPhotoItems] Loaded', String(items?.length || 0), 'photo items from DB');
       
       const normalized = items.map((it, idx) => {
         const item = {
@@ -281,18 +281,18 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
           scale: (it.scale === undefined || it.scale === null || it.scale <= 0) ? 1 : it.scale,
           rotation: typeof it.rotation === 'number' ? it.rotation : 0
         };
-        console.log(`📸 [loadPhotoItems] Photo ${idx}:`, {
+        console.log(`📸 [loadPhotoItems] Photo ${String(idx)}:`, {
           uri: item.uri?.substring(0, 50) + '...',
-          x: item.x,
-          y: item.y,
-          scale: item.scale,
-          rotation: item.rotation
+          x: String(item.x),
+          y: String(item.y),
+          scale: String(item.scale),
+          rotation: String(item.rotation)
         });
         return item;
       });
       
       setPhotoItems(normalized);
-      console.log('✅ [loadPhotoItems] Photo items state updated with', normalized.length, 'items');
+      console.log('✅ [loadPhotoItems] Photo items state updated with', String(normalized.length), 'items');
     } catch (e) { 
       console.error('❌ [loadPhotoItems] Error loading photo items:', e);
     }
@@ -341,7 +341,7 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
       // Guardar cambios pendientes antes de desmontar
       const pendingUpdates = Array.from(pendingPhotoUpdatesRef.current.entries());
       if (pendingUpdates.length > 0) {
-        console.log(`💾 [Unmount] Guardando ${pendingUpdates.length} foto(s) pendientes`);
+        console.log(`💾 [Unmount] Guardando ${String(pendingUpdates.length)} foto(s) pendientes`);
         pendingUpdates.forEach(([photoUri, photoUpdates]) => {
           updatePhotoTransformForMainTable(tableId, photoUri, photoUpdates);
         });
@@ -705,9 +705,7 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
     // Guardar inmediatamente cualquier cambio pendiente
     const pendingUpdates = Array.from(pendingPhotoUpdatesRef.current.entries());
     if (pendingUpdates.length > 0) {
-      console.log(`💾 [Cleanup] Guardando ${pendingUpdates.length} foto(s) pendientes antes de desmontar`);
-      
-      // Guardar en paralelo para ser más rápido
+        console.log(`💾 [Cleanup] Guardando ${String(pendingUpdates.length)} foto(s) pendientes antes de desmontar`);      // Guardar en paralelo para ser más rápido
       await Promise.all(
         pendingUpdates.map(([photoUri, photoUpdates]) => 
           onUpdatePhotoTransform(photoUri, photoUpdates)
@@ -811,7 +809,7 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
       }
 
       setLastSaved(new Date());
-      console.log(`✅ Guardados ${limitedPaths.length} trazos exitosamente`);
+      console.log(`✅ Guardados ${String(limitedPaths.length)} trazos exitosamente`);
     } catch (error) {
       console.error('❌ Error saving paths:', error);
       const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
@@ -1254,7 +1252,7 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
       const pendingUpdates = Array.from(pendingPhotoUpdatesRef.current.entries());
       
       if (pendingUpdates.length > 0) {
-        console.log(`💾 Guardando ${pendingUpdates.length} foto(s) después de 3s de inactividad`);
+        console.log(`💾 Guardando ${String(pendingUpdates.length)} foto(s) después de 3s de inactividad`);
         
         // Guardar cada foto con sus cambios acumulados
         pendingUpdates.forEach(([photoUri, photoUpdates]) => {
@@ -1383,7 +1381,7 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
             x: photo.x,
             y: photo.y
           };
-          console.log(`📌 Pan inicio en foto: x=${photo.x}, y=${photo.y}, scale=${photo.scale}`);
+          console.log(`📌 Pan inicio en foto: x=${String(photo.x)}, y=${String(photo.y)}, scale=${String(photo.scale)}`);
         }
         // Preparar para mover foto, no dibujar
         return;
@@ -1680,9 +1678,8 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
         {/* Multi-touch gestures - no necesitamos controles flotantes */}
 
         {/* Stroke Width Control Bar con GestureDetector dentro del GestureHandlerRootView */}
-        <Animated.View style={[
-          styles.strokeBarContainer,
-          { transform: [{ translateX: strokeBarAnim }] }
+        <View style={[
+          styles.strokeBarContainer
         ]}>
           <View style={styles.strokeBar}>
             {/* Indicador de grosor actual */}
@@ -1695,7 +1692,7 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
                   backgroundColor: currentColor 
                 }
               ]} />
-              <Text style={styles.strokeValue}>{currentStrokeWidth}</Text>
+              <Text style={styles.strokeValue}>{String(currentStrokeWidth)}</Text>
             </View>
             
             {/* Barra interactiva */}
@@ -1720,14 +1717,13 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
               </TouchableOpacity>
             </GestureDetector>
           </View>
-        </Animated.View>
+        </View>
       </GestureHandlerRootView>
       )}
 
       {/* Menu button */}
-      <Animated.View style={[
-        styles.menuButtonContainer,
-        { transform: [{ translateX: menuButtonAnim }] }
+      <View style={[
+        styles.menuButtonContainer
       ]}>
         <TouchableOpacity 
           style={[styles.menuButton, menuOpen && styles.activeButton]}
@@ -1736,7 +1732,7 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
         >
           <Text style={styles.buttonText}>☰</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
       {/* Menu desplegable responsivo */}
       {menuOpen && (
@@ -1837,9 +1833,8 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
       )}
 
       {/* Undo button */}
-      <Animated.View style={[
-        styles.undoButtonContainer,
-        { transform: [{ translateX: undoButtonAnim }] }
+      <View style={[
+        styles.undoButtonContainer
       ]}>
         <TouchableOpacity 
           style={[
@@ -1852,12 +1847,11 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
         >
           <Text style={styles.buttonText}>↩</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
       {/* Redo button */}
-      <Animated.View style={[
-        styles.redoButtonContainer,
-        { transform: [{ translateX: redoButtonAnim }] }
+      <View style={[
+        styles.redoButtonContainer
       ]}>
         <TouchableOpacity 
           style={[
@@ -1870,12 +1864,11 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
         >
           <Text style={styles.buttonText}>↪</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
       {/* Eraser button */}
-      <Animated.View style={[
-        styles.eraserButtonContainer,
-        { transform: [{ translateX: eraserButtonAnim }] }
+      <View style={[
+        styles.eraserButtonContainer
       ]}>
         <TouchableOpacity 
           style={[
@@ -1887,12 +1880,11 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
         >
           <Text style={styles.buttonText}>🧽</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
       {/* Pen button */}
-      <Animated.View style={[
-        styles.penButtonContainer,
-        { transform: [{ translateX: penButtonAnim }] }
+      <View style={[
+        styles.penButtonContainer
       ]}>
         <TouchableOpacity 
           style={[
@@ -1904,12 +1896,11 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
         >
           <Text style={styles.buttonText}>✏️</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
       {/* Red Pen button */}
-      <Animated.View style={[
-        styles.redPenButtonContainer,
-        { transform: [{ translateX: redPenButtonAnim }] }
+      <View style={[
+        styles.redPenButtonContainer
       ]}>
         <TouchableOpacity 
           style={[
@@ -1921,10 +1912,10 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
         >
           <Text style={styles.buttonText}>🔴</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
       {/* Blue Pen button */}
-      <Animated.View style={[styles.bluePenButtonContainer, { transform: [{ translateX: bluePenButtonAnim }] }]}> 
+      <View style={[styles.bluePenButtonContainer]}> 
         <TouchableOpacity 
           style={[styles.actionButton, !isEraser && currentColor === 'blue' && styles.activeButton]}
           onPress={selectBluePen}
@@ -1932,7 +1923,7 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
         >
           <Text style={styles.buttonText}>🔵</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
       {/* Add Photo button */}
       <View style={styles.photoButtonContainer}> 
@@ -1946,7 +1937,7 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
       </View>
 
       {/* Botón de alternancia pen/finger */}
-      <Animated.View style={[styles.toggleInputModeButtonContainer]}> 
+      <View style={[styles.toggleInputModeButtonContainer]}> 
         <TouchableOpacity 
           style={[styles.actionButton, inputMode === 'finger' && { backgroundColor: '#d1e7dd' }]} 
           onPress={toggleInputMode}
@@ -1954,15 +1945,14 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
         >
           <Text style={styles.buttonText}>{inputMode === 'pen' ? '✍️ ' : '🖐️'}</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
 
 
       {/* Stick Bonus button - bottom right - Only show for discipline=true and if the event is not 'PH' */}
       {event !== 'PH' && (
-        <Animated.View style={[
-          styles.stickButtonContainer,
-          { transform: [{ translateY: stickButtonAnim }] }
+        <View style={[
+          styles.stickButtonContainer
         ]}>
           <TouchableOpacity 
             style={[
@@ -1974,7 +1964,7 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
           >
             <Text style={styles.stickButtonText}>{discipline ? "STICK BONUS" : "DMT BONUS"}</Text>
           </TouchableOpacity>
-        </Animated.View>
+        </View>
       )}
 
       {/* Indicador de guardado - top right */}
@@ -1995,7 +1985,7 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
       )}
 
       {/* Percentage display */}
-      <Text style={styles.percentageText}>{percentage}</Text>
+      <Text style={styles.percentageText}>{String(percentage ?? '0.0')}</Text>
 
   {/* Lista de miniaturas eliminada según solicitud */}
     </View>

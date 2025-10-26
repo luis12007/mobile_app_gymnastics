@@ -64,16 +64,6 @@ export default function SelectSex() {
     "Rajdhani-Bold": require("../assets/fonts/Rajdhani/Rajdhani-Bold.ttf"),
   });
 
-  // Animation values
-  const titleOpacity = useRef(new Animated.Value(0)).current;
-  const titleTranslateY = useRef(new Animated.Value(-50)).current;
-  const backgroundOpacity = useRef(new Animated.Value(0)).current;
-  const leftButtonTranslateX = useRef(new Animated.Value(-100)).current;
-  const rightButtonTranslateX = useRef(new Animated.Value(100)).current;
-  const buttonsOpacity = useRef(new Animated.Value(0)).current;
-  const adminButtonOpacity = useRef(new Animated.Value(0)).current;
-  const toggleButtonOpacity = useRef(new Animated.Value(0)).current;
-
   // Cargar disciplina por defecto desde memoria
   const loadDefaultDiscipline = () => {
     try {
@@ -133,69 +123,7 @@ export default function SelectSex() {
 
     checkUserPermissions();
 
-    // Solo mostrar animaciones si changeDis es true o no hay disciplina por defecto
-    if (changeDis || defaultDiscipline === null) {
-      // Start animation sequence after component mounts
-      Animated.sequence([
-        // First fade in the background
-        Animated.timing(backgroundOpacity, {
-          toValue: 1,
-          duration: 600,
-          useNativeDriver: true,
-          easing: Easing.out(Easing.ease),
-        }),
-        // Then animate the title
-        Animated.timing(titleOpacity, {
-          toValue: 1,
-          duration: 700,
-          useNativeDriver: true,
-          easing: Easing.out(Easing.ease),
-        }),
-        // Followed by buttons animation
-        Animated.parallel([
-          Animated.timing(buttonsOpacity, {
-            toValue: 1,
-            duration: 600,
-            useNativeDriver: true,
-            easing: Easing.out(Easing.ease),
-          }),
-          Animated.timing(leftButtonTranslateX, {
-            toValue: 0,
-            duration: 600,
-            useNativeDriver: true,
-            easing: Easing.out(Easing.back(1.5)),
-          }),
-          Animated.timing(rightButtonTranslateX, {
-            toValue: 0,
-            duration: 600,
-            useNativeDriver: true,
-            easing: Easing.out(Easing.back(1.5)),
-          }),
-          // Admin button animation
-          Animated.timing(adminButtonOpacity, {
-            toValue: 1,
-            duration: 800,
-            useNativeDriver: true,
-            easing: Easing.out(Easing.ease),
-          }),
-          // Toggle button animation
-          Animated.timing(toggleButtonOpacity, {
-            toValue: 1,
-            duration: 800,
-            useNativeDriver: true,
-            easing: Easing.out(Easing.ease),
-          }),
-        ]),
-      ]).start();
-
-      // Animate title from top to position
-      Animated.timing(titleTranslateY, {
-        toValue: 0,
-        duration: 800,
-        useNativeDriver: true,
-        easing: Easing.out(Easing.back(1.2)),
-      }).start();
-    }
+    // Animations removed for stability
   }, [userId, changeDis, defaultDiscipline]);
 
   const handleSelect = (discipline: boolean) => {
@@ -298,40 +226,37 @@ export default function SelectSex() {
 
 return (
     <View style={styles.container}>
-      {/* Background Images with fade-in animation */}
-      <Animated.Image
+      {/* Background Images */}
+      <Image
         source={require("../assets/images/Vector2.png")}
         style={[
           isLargeDevice ? styles.backgroundImageLarge : null,
           isMediumLargeDevice ? styles.backgroundImageMediumLarge : null,
           isSmallDevice ? styles.backgroundImageSmall : null,
           isTinyDevice ? styles.backgroundImageTiny : null,
-          { opacity: backgroundOpacity }
         ]}
         resizeMode="cover"
       />
 
-      <Animated.Image
+      <Image
         source={require("../assets/images/Vector3.png")}
         style={[
           isLargeDevice ? styles.backgroundImageRightLarge : null,
           isMediumLargeDevice ? styles.backgroundImageRightMediumLarge : null,
           isSmallDevice ? styles.backgroundImageRightSmall : null,
           isTinyDevice ? styles.backgroundImageRightTiny : null,
-          { opacity: backgroundOpacity }
         ]}
         resizeMode="cover"
       />
 
       {/* Admin Key Button - solo visible para usuario Bernabe con rol admin */}
       {showKeysButton && (
-        <Animated.View 
+        <View 
           style={[
             isLargeDevice ? styles.adminKeyButtonLarge : null,
             isMediumLargeDevice ? styles.adminKeyButtonMediumLarge : null,
             isSmallDevice ? styles.adminKeyButtonSmall : null,
             isTinyDevice ? styles.adminKeyButtonTiny : null,
-            { opacity: adminButtonOpacity }
           ]}
         >
           <TouchableOpacity 
@@ -360,24 +285,20 @@ return (
               isTinyDevice ? styles.keyButtonTextTiny : null,
             ]}>Keys</Text>
           </TouchableOpacity>
-        </Animated.View>
+        </View>
       )}
 
-      {/* Animated Title */}
-      <Animated.Text
+      {/* Title */}
+      <Text
         style={[
           isLargeDevice ? styles.titleTextLarge : null,
           isMediumLargeDevice ? styles.titleTextMediumLarge : null,
           isSmallDevice ? styles.titleTextSmall : null,
           isTinyDevice ? styles.titleTextTiny : null,
-          { 
-            opacity: titleOpacity,
-            transform: [{ translateY: titleTranslateY }]
-          }
         ]}
       >
         CHOOSE YOUR DISCIPLINE
-      </Animated.Text>
+      </Text>
 
       {/* Two Buttons */}
       <View style={[
@@ -386,11 +307,9 @@ return (
         isSmallDevice ? styles.rowContainerSmall : null,
         isTinyDevice ? styles.rowContainerTiny : null,
       ]}>
-        {/* MAG Button with animation */}
-        <Animated.View
+        {/* MAG Button */}
+        <View
           style={{
-            opacity: buttonsOpacity,
-            transform: [{ translateX: leftButtonTranslateX }],
             width: "47%"
           }}
         >
@@ -436,13 +355,11 @@ return (
               </View>
             )}
           </TouchableOpacity>
-        </Animated.View>
+        </View>
 
-        {/* WAG Button with animation */}
-        <Animated.View
+        {/* WAG Button */}
+        <View
           style={{
-            opacity: buttonsOpacity,
-            transform: [{ translateX: rightButtonTranslateX }],
             width: "47%"
           }}
         >
@@ -488,11 +405,11 @@ return (
               </View>
             )}
           </TouchableOpacity>
-        </Animated.View>
+        </View>
       </View>
 
       {/* Toggle Default Discipline Button */}
-      <Animated.View style={{ opacity: toggleButtonOpacity }}>
+      <View>
         <TouchableOpacity
           style={[
             isLargeDevice ? styles.toggleButtonLarge : null,
@@ -527,7 +444,7 @@ return (
             }
           </Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
       {/* Modal para generar claves */}
       <Modal
@@ -1792,3 +1709,4 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 });
+

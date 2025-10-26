@@ -640,14 +640,14 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   /* Logic ======================================================== */
   const handleStickBonusChange = async (value: boolean) => {
     console.log("handleStickBonusChange called with:", value);
-    console.log("Current values - eScore:", eScore, "sv:", sv, "nd:", nd);
+    console.log("Current values - eScore:", String(eScore), "sv:", String(sv), "nd:", String(nd));
     setStickBonus(value);
     
     // Usar operación más robusta para evitar errores de punto flotante
   const newmyscore = Math.round((eScore + sv + (value ? getStickBonusValue() : 0) - nd) * 1000) / 1000;
-  console.log("handleStickBonusChange calculation:", eScore, "+", sv, "+", (value ? getStickBonusValue() : 0), "-", nd, "=", newmyscore);
+  console.log("handleStickBonusChange calculation:", String(eScore), "+", String(sv), "+", String(value ? getStickBonusValue() : 0), "-", String(nd), "=", String(newmyscore));
     const finalScore = newmyscore;
-    console.log("Final Score (handleStickBonusChange):", finalScore);
+    console.log("Final Score (handleStickBonusChange):", String(finalScore));
 
     setMyScore(finalScore);
 
@@ -658,7 +658,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         myScore: finalScore,
       };
       console.log("Update Data:", updateData); // Debugging line
-      console.log("Rate ID:", rateid); // Debugging line
+      console.log("Rate ID:", String(rateid)); // Debugging line
       
     } catch (error) {
       console.error("Error saving stickBonus to MainRateGeneral:", error);
@@ -787,7 +787,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             setNdInputcomp(value);
           }}
           onClose={(finalValue) => {
-            console.log("ndInputcomp:", finalValue);
+            console.log("ndInputcomp:", String(finalValue));
 
             // First check if finalValue exists and is not empty
             if (!finalValue || finalValue === "" || finalValue === ".") {
@@ -839,7 +839,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             setSvInput(value);
           }}
           onClose={(finalValue) => {
-            console.log("svInput:", finalValue);
+            console.log("svInput:", String(finalValue));
 
             // First check if finalValue exists and is not empty
             if (!finalValue || finalValue === "" || finalValue === ".") {
@@ -862,17 +862,17 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             if (!isNaN(num)) {
               const rounded = Math.round(num * 10) / 10;
               setSv(rounded);
-              console.log("Rounded SV:", rounded);
-              console.log("eScore:", eScore);
-              console.log("nd:", nd);
-              console.log("stickbonus:", stickbonus);
+              console.log("Rounded SV:", String(rounded));
+              console.log("eScore:", String(eScore));
+              console.log("nd:", String(nd));
+              console.log("stickbonus:", String(stickbonus));
               
               // Usar operación más robusta para evitar errores de punto flotante
               const newmyscore = Math.round((eScore + rounded + (stickbonus ? getStickBonusValue() : 0) - nd) * 1000) / 1000;
-              console.log("Calculation: ", eScore, "+", rounded, "+", (stickbonus ? getStickBonusValue() : 0), "-", nd, "=", newmyscore);
+              console.log("Calculation: ", String(eScore), "+", String(rounded), "+", String(stickbonus ? getStickBonusValue() : 0), "-", String(nd), "=", String(newmyscore));
               const finalScore = newmyscore;
 
-              console.log("Final Score (SV Modal):", finalScore);
+              console.log("Final Score (SV Modal):", String(finalScore));
               setMyScore(finalScore);
 
               
@@ -899,7 +899,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             setEInput(value);
           }}
           onClose={(finalValue) => {
-            console.log("eInput:", finalValue);
+            console.log("eInput:", String(finalValue));
 
             // First check if finalValue exists and is not empty
             if (!finalValue || finalValue === "" || finalValue === ".") {
@@ -970,7 +970,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             setDInput(value);
           }}
           onClose={(finalValue) => {
-            console.log("dInput:", finalValue);
+            console.log("dInput:", String(finalValue));
 
             // First check if finalValue exists and is not empty
             if (!finalValue || finalValue === "" || finalValue === ".") {
@@ -1021,7 +1021,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             setExecutionInput(value);
           }}
           onClose={(finalValue) => {
-            console.log("executionInput:", finalValue);
+            console.log("executionInput:", String(finalValue));
 
             // First check if finalValue exists and is not empty
             if (!finalValue || finalValue === "" || finalValue === ".") {
@@ -1181,7 +1181,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             setNdInput(value);
           }}
           onClose={(finalValue) => {
-            console.log("ndInput:", finalValue);
+            console.log("ndInput:", String(finalValue));
 
             // First check if finalValue exists and is not empty
             if (!finalValue || finalValue === "" || finalValue === ".") {
@@ -1794,7 +1794,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                   isTinyDevice ? styles.neutralTextTiny : null,
                 ]}
               >
-                {gymnastName}
+                {String(gymnastName || '')}
               </Text>
             </View>
             <View style={styles.neutralValueCell}>
@@ -1806,7 +1806,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                   isTinyDevice ? styles.neutralTextTiny : null,
                 ]}
               >
-                {gymnastNoc}
+                {String(gymnastNoc || '')}
               </Text>
             </View>
             <View style={styles.neutralValueCell}>
@@ -1818,7 +1818,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                   isTinyDevice ? styles.neutralTextTiny : null,
                 ]}
               >
-                {gymnastBib}
+                {String(gymnastBib || '')}
               </Text>
             </View>
             <View style={styles.neutralValueCell}>
@@ -1830,7 +1830,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                   isTinyDevice ? styles.neutralTextTiny : null,
                 ]}
               >
-                {gymnastEvent}
+                {String(gymnastEvent || '')}
               </Text>
             </View>
             <View style={styles.neutralTotalCell}>
@@ -1844,7 +1844,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                   isTinyDevice ? styles.neutralTotalTextTiny : null,
                 ]}
               >
-                {number}
+                {String(number || '')}
               </Text>
             </View>
           </View>

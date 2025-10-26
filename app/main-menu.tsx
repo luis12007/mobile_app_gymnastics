@@ -199,13 +199,7 @@ const FolderItem: React.FC<FolderItemProps> = ({
   handleSelectFolderForCompetitionMove,
 }) => {
   const router = useRouter();
-  const scaleAnim = useRef(new Animated.Value(0.8)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
   const [folderTypeText, setFolderTypeText] = useState(folderType === 1 ? "Training" : "Competence");
-
-  // Variables para tap-to-swap system
-  const swapHighlightAnim = useRef(new Animated.Value(0)).current;
-  const swapPulseAnim = useRef(new Animated.Value(1)).current;
 
   // Estado para manejar long press
   const [longPressActive, setLongPressActive] = useState(false);
@@ -268,72 +262,7 @@ const FolderItem: React.FC<FolderItemProps> = ({
     }
   };
 
-  // Efecto para animar la aparición inicial de las carpetas
-  useEffect(() => {
-    // Delay each folder's animation for staggered effect
-    setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(scaleAnim, {
-          toValue: 1,
-          duration: 500,
-          useNativeDriver: false, // Cambiar a false para consistencia
-          easing: Easing.out(Easing.back(1.5)),
-        }),
-        Animated.timing(opacityAnim, {
-          toValue: 1,
-          duration: 400,
-          useNativeDriver: false, // Cambiar a false para consistencia
-        }),
-      ]).start();
-    }, animationDelay);
-  }, []);
-
-  // Efecto para animar el estado de selección para swap
-  useEffect(() => {
-    if (isSelectedForSwap) {
-      console.log(`Card ${id} selected for swap, starting highlight animation`);
-      Animated.timing(swapHighlightAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: false,
-      }).start();
-      
-      const pulseLoop = Animated.loop(
-        Animated.sequence([
-          Animated.timing(swapPulseAnim, {
-            toValue: 1.05, // Escala completa (inicial + pulso)
-            duration: 800,
-            useNativeDriver: false,
-          }),
-          Animated.timing(swapPulseAnim, {
-            toValue: 1.0, // Volver a escala inicial
-            duration: 800,
-            useNativeDriver: false,
-          }),
-        ])
-      );
-      pulseLoop.start();
-      
-      return () => {
-        pulseLoop.stop();
-      };
-    } else {
-      console.log(`Card ${id} deselected for swap, stopping highlight animation`);
-      swapPulseAnim.stopAnimation();
-      Animated.parallel([
-        Animated.timing(swapHighlightAnim, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: false,
-        }),
-        Animated.timing(swapPulseAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: false,
-        }),
-      ]).start();
-    }
-  }, [isSelectedForSwap]);
+  // Animations removed for stability
 
   const goIntoFolder = (folderId: number, discipline: Boolean) => {
     if (selectionMode) {
@@ -357,39 +286,23 @@ const FolderItem: React.FC<FolderItemProps> = ({
   };
 
   return (
-    <Animated.View
+    <View
       style={[
         { 
-          opacity: opacityAnim,
-          transform: [
-            { 
-              scale: isSelectedForSwap ? swapPulseAnim : scaleAnim
-            }
-          ],
           flex: 1,
         },
         // Efecto visual para carta seleccionada para swap
         isSelectedForSwap ? {
           borderRadius: getBorderRadius(),
           borderWidth: 1,
-          borderColor: swapHighlightAnim.interpolate({
-            inputRange: [0, 1],
-            outputRange: ['transparent', '#00AAFF'],
-          }),
-          // Usar padding en lugar de margin para hacer el highlight más pequeño que el container
+          borderColor: '#00AAFF',
           shadowColor: '#00AAFF',
-          marginRight: 25, // Asegurar que el padding sea consistente
+          marginRight: 25,
           shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: swapHighlightAnim.interpolate({
-            inputRange: [0, 1],
-            outputRange: [0, 0.3],
-          }),
+          shadowOpacity: 0.3,
           shadowRadius: 2,
           elevation: 3,
-          backgroundColor: swapHighlightAnim.interpolate({
-            inputRange: [0, 1],
-            outputRange: ['transparent', 'rgba(0, 170, 255, 0.05)'],
-          }),
+          backgroundColor: 'rgba(0, 170, 255, 0.05)',
         } : null,
       ]}
     >
@@ -488,7 +401,7 @@ const FolderItem: React.FC<FolderItemProps> = ({
           </View>
         )}
       </TouchableOpacity>
-    </Animated.View>
+    </View>
   );
 };
 
@@ -583,12 +496,8 @@ const CompetitionItem: React.FC<CompetitionItemProps> = ({
   };
 
   return (
-    <Animated.View
+    <View
       style={[
-        {
-          opacity: opacityAnim,
-          transform: [{ scale: scaleAnim }],
-        },
         { width: '100%' },
       ]}
     >
@@ -718,7 +627,7 @@ const CompetitionItem: React.FC<CompetitionItemProps> = ({
           </View>
         )}
       </TouchableOpacity>
-    </Animated.View>
+    </View>
   );
 };
 
@@ -867,19 +776,7 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
   }
 };
 
-  // Animation values
-  const headerAnimOpacity = useRef(new Animated.Value(0)).current;
-  const headerAnimY = useRef(new Animated.Value(-50)).current;
-  const buttonAnimOpacity = useRef(new Animated.Value(0)).current;
-  const buttonAnimY = useRef(new Animated.Value(50)).current;
-  const deleteButtonAnim = useRef(new Animated.Value(0)).current;
-  
-  // Animation values para la barra de carga
-  const loadingSpinAnim = useRef(new Animated.Value(0)).current;
-  const loadingScaleAnim = useRef(new Animated.Value(0.8)).current;
-  const loadingOpacityAnim = useRef(new Animated.Value(0)).current;
-
-
+  // Animations removed for stability
 
   // Load the custom font
   const [fontsLoaded] = useFonts({
@@ -893,30 +790,6 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
     setLoadingProgress(progress);
     setIsLoadingOperation(true);
     setShowLoadingModal(true);
-    
-    // Animar entrada del modal
-    Animated.parallel([
-      Animated.timing(loadingOpacityAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(loadingScaleAnim, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-        easing: Easing.out(Easing.back(1.2)),
-      }),
-    ]).start();
-    
-    // Animación de rotación continua
-    Animated.loop(
-      Animated.timing(loadingSpinAnim, {
-        toValue: 1,
-        duration: 2000,
-        useNativeDriver: true,
-      })
-    ).start();
   };
 
   const updateLoading = (message: string, progress: number) => {
@@ -925,24 +798,9 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
   };
 
   const hideLoading = () => {
-    // Animar salida del modal
-    Animated.parallel([
-      Animated.timing(loadingOpacityAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(loadingScaleAnim, {
-        toValue: 0.8,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      setShowLoadingModal(false);
-      setIsLoadingOperation(false);
-      setLoadingProgress(0);
-      loadingSpinAnim.setValue(0);
-    });
+    setShowLoadingModal(false);
+    setIsLoadingOperation(false);
+    setLoadingProgress(0);
   };
 
   const fetchFolders = async () => {
@@ -1751,38 +1609,7 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
     }, []) // Sin dependencias ya que siempre cargamos todos los folders
   );
 
-  useEffect(() => {
-    // Animate header
-    Animated.timing(headerAnimOpacity, {
-      toValue: 1,
-      duration: 600,
-      useNativeDriver: true,
-      easing: Easing.out(Easing.ease),
-    }).start();
-
-    Animated.timing(headerAnimY, {
-      toValue: 0,
-      duration: 800,
-      useNativeDriver: true,
-      easing: Easing.out(Easing.back(1.2)),
-    }).start();
-
-    // Animate add button (bottom)
-    Animated.sequence([
-      Animated.delay(1200), // Wait for folders to animate
-      Animated.timing(buttonAnimOpacity, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-      Animated.timing(buttonAnimY, {
-        toValue: 0,
-        duration: 400,
-        useNativeDriver: true,
-        easing: Easing.out(Easing.back(1.2)),
-      }),
-    ]).start();
-  }, []);
+  // Animations removed for stability
 
   // Function to toggle folder selection
   const toggleFolderSelection = async (id: number) => {
@@ -1879,13 +1706,6 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
     setSelectionAction('delete');
     setSelectedFolders([]);
     setSelectedCompetitions([]);
-    
-    // Animate the delete confirmation button
-    Animated.timing(deleteButtonAnim, {
-      toValue: 1,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
   };
 
   // Function to cancel selection mode
@@ -1894,13 +1714,6 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
     setSelectionAction(null);
     setSelectedFolders([]);
     setSelectedCompetitions([]);
-    
-    // Hide the delete confirmation button
-    Animated.timing(deleteButtonAnim, {
-      toValue: 0,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
   };
 
   // Function to confirm deletion
@@ -2040,13 +1853,6 @@ const performDelete = async () => {
     setSelectedFolders([]);
     setSelectedCompetitions([]);
 
-    // Hide the delete confirmation button
-    Animated.timing(deleteButtonAnim, {
-      toValue: 0,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
-
     updateLoading("Completed", 100);
 
     setTimeout(() => {
@@ -2071,13 +1877,6 @@ const performDelete = async () => {
     setSelectionAction(null);
     setSelectedFolders([]);
     setSelectedCompetitions([]);
-    
-    // Hide the delete confirmation button
-    Animated.timing(deleteButtonAnim, {
-      toValue: 0,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
   } finally {
     setIsLoadingDeleteFolder(false);
   }
@@ -2241,38 +2040,7 @@ const performDelete = async () => {
     router.replace(`/?userId=${userIdparams}&changeDis=${true}`);
   };
 
-  useEffect(() => {
-    // Animate header
-    Animated.timing(headerAnimOpacity, {
-      toValue: 1,
-      duration: 600,
-      useNativeDriver: true,
-      easing: Easing.out(Easing.ease),
-    }).start();
-
-    Animated.timing(headerAnimY, {
-      toValue: 0,
-      duration: 800,
-      useNativeDriver: true,
-      easing: Easing.out(Easing.back(1.2)),
-    }).start();
-
-    // Animate add button (bottom)
-    Animated.sequence([
-      Animated.delay(1200), // Wait for folders to animate
-      Animated.timing(buttonAnimOpacity, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-      Animated.timing(buttonAnimY, {
-        toValue: 0,
-        duration: 400,
-        useNativeDriver: true,
-        easing: Easing.out(Easing.back(1.2)),
-      }),
-    ]).start();
-  }, []);
+  // Animations removed for stability
 
   const addNewCompetition = async () => {
     // Validate inputs
@@ -2357,20 +2125,20 @@ const performDelete = async () => {
       await updateFolder(targetFolderId, { filled: true }); // Update the folder to mark it as filled
       
       if (competitionId) {
-        updateLoading(`Creating ${numberOfParticipants} gymnasts...`, 40);
+        updateLoading(`Creating ${String(numberOfParticipants)} gymnasts...`, 40);
         // Create Main Table entries for each participant with progress tracking
         await createMainTableEntriesWithProgress(competitionId, numberOfParticipants);
 
         updateLoading("Updating list...", 90);
         console.log("=== BEFORE REFRESH ===");
-        console.log("Current navigation state - Parent ID:", currentParentId, "Level:", currentLevel);
+        console.log("Current navigation state - Parent ID:", String(currentParentId), "Level:", String(currentLevel));
         
         // Refresh folders list to reflect changes
         await refreshFolders();
         
         // Verificar las competencias después del refresh
         console.log("=== AFTER REFRESH ===");
-        console.log("Competitions in state:", competitions.length);
+        console.log("Competitions in state:", String(competitions.length));
         if (currentParentId !== null) {
           try {
             const testCompetitions = await getCompetencesByFolderId(currentParentId);
@@ -2401,8 +2169,196 @@ const performDelete = async () => {
           }, 1500);
         }, 500);
       } else {
-        hideLoading();
-        Alert.alert("Error", "Failed to add competition.");
+        // FALLBACK: Retry creating competition with DIFFERENT strategies
+        console.log("=== COMPETITION CREATION FAILED - ATTEMPTING ALTERNATIVE STRATEGIES ===");
+        updateLoading("Trying alternative methods...", 15);
+        
+        try {
+          // STRATEGY 1: Wait and retry with minimal data first, then update description
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          const minimalCompetenceData = {
+            folderId: targetFolderId,
+            name: competenceData.name,
+            numberOfParticipants: competenceData.numberOfParticipants,
+            type: competenceData.type,
+            date: new Date().toISOString(), // Fresh timestamp
+            gender: competenceData.gender,
+            sessionId: competenceData.sessionId,
+            userId: competenceData.userId,
+            description: "", // Empty description
+          };
+          
+          console.log("=== STRATEGY 1: MINIMAL DATA INSERT ===");
+          console.log("Minimal competition data:", minimalCompetenceData);
+          
+          updateLoading("Creating competition with minimal data...", 25);
+          let retryCompetitionId = await insertCompetence(minimalCompetenceData);
+          console.log("Strategy 1 result - Competition ID:", String(retryCompetitionId));
+          
+          if (retryCompetitionId) {
+            // Update with full description separately
+            if (competenceData.description && competenceData.description.trim() !== "") {
+              console.log("Updating competition with full description...");
+              await updateCompetence(retryCompetitionId, { description: competenceData.description });
+            }
+            
+            // Update folder status
+            updateLoading("Updating folder status...", 35);
+            await updateFolder(targetFolderId, { filled: true });
+            
+            updateLoading(`Creating ${String(numberOfParticipants)} gymnasts...`, 40);
+            await createMainTableEntriesWithProgress(retryCompetitionId, numberOfParticipants);
+            
+            updateLoading("Updating list...", 90);
+            await refreshFolders();
+            
+            updateLoading("Finalizing...", 100);
+            
+            // Reset form
+            setCompetitionName("");
+            setCompetitionDescription("");
+            setCompetitionParticipants("");
+            setCompetitionType("Floor");
+            setFolderSelectionForCompetition(false);
+            setSelectionMode(false);
+            setSelectedFolders([]);
+            setCurrentFolderId(null);
+            
+            setTimeout(() => {
+              hideLoading();
+              setFeedbackAcceptModel(true);
+              setTimeout(() => {
+                setFeedbackAcceptModel(false);
+              }, 1500);
+            }, 500);
+            
+            console.log("=== STRATEGY 1 SUCCESSFUL ===");
+          } else {
+            // STRATEGY 2: Different approach - create with simplified name first
+            console.log("=== STRATEGY 1 FAILED - TRYING STRATEGY 2 ===");
+            updateLoading("Trying simplified approach...", 30);
+            
+            await new Promise(resolve => setTimeout(resolve, 700));
+            
+            const simplifiedData = {
+              folderId: targetFolderId,
+              name: `Competition_${Date.now()}`, // Temporary simplified name
+              numberOfParticipants: numberOfParticipants,
+              type: competenceData.type,
+              date: new Date().toISOString(),
+              gender: competenceData.gender,
+              sessionId: 1,
+              userId: userId,
+              description: "",
+            };
+            
+            console.log("=== STRATEGY 2: SIMPLIFIED NAME INSERT ===");
+            updateLoading("Creating with simplified data...", 35);
+            retryCompetitionId = await insertCompetence(simplifiedData);
+            console.log("Strategy 2 result - Competition ID:", String(retryCompetitionId));
+            
+            if (retryCompetitionId) {
+              // Now update with real name and description
+              console.log("Updating with real competition data...");
+              await updateCompetence(retryCompetitionId, {
+                name: competenceData.name,
+                description: competenceData.description || "",
+              });
+              
+              await updateFolder(targetFolderId, { filled: true });
+              
+              updateLoading(`Creating ${String(numberOfParticipants)} gymnasts...`, 40);
+              await createMainTableEntriesWithProgress(retryCompetitionId, numberOfParticipants);
+              
+              updateLoading("Updating list...", 90);
+              await refreshFolders();
+              
+              updateLoading("Finalizing...", 100);
+              
+              setCompetitionName("");
+              setCompetitionDescription("");
+              setCompetitionParticipants("");
+              setCompetitionType("Floor");
+              setFolderSelectionForCompetition(false);
+              setSelectionMode(false);
+              setSelectedFolders([]);
+              setCurrentFolderId(null);
+              
+              setTimeout(() => {
+                hideLoading();
+                setFeedbackAcceptModel(true);
+                setTimeout(() => setFeedbackAcceptModel(false), 1500);
+              }, 500);
+              
+              console.log("=== STRATEGY 2 SUCCESSFUL ===");
+            } else {
+              // STRATEGY 3: Last resort - force direct transaction
+              console.log("=== STRATEGY 2 FAILED - FINAL STRATEGY 3 ===");
+              updateLoading("Final attempt with full data...", 25);
+              
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              
+              // Create completely fresh object to avoid any reference issues
+              const freshCompetenceData = {
+                folderId: Number(targetFolderId),
+                name: String(competitionName),
+                description: String(competitionDescription || ""),
+                numberOfParticipants: Number(numberOfParticipants),
+                type: String(competitionType),
+                date: new Date().toISOString(),
+                gender: Boolean(discipline),
+                sessionId: 1,
+                userId: Number(userId),
+              };
+              
+              console.log("=== STRATEGY 3: FRESH DATA OBJECT ===");
+              console.log("Fresh data:", freshCompetenceData);
+              
+              const finalAttemptId = await insertCompetence(freshCompetenceData);
+              
+              if (finalAttemptId) {
+                console.log("Strategy 3 succeeded with ID:", String(finalAttemptId));
+                await updateFolder(targetFolderId, { filled: true });
+                
+                updateLoading(`Creating ${String(numberOfParticipants)} gymnasts...`, 40);
+                await createMainTableEntriesWithProgress(finalAttemptId, numberOfParticipants);
+                
+                updateLoading("Updating list...", 90);
+                await refreshFolders();
+                
+                updateLoading("Finalizing...", 100);
+                
+                setCompetitionName("");
+                setCompetitionDescription("");
+                setCompetitionParticipants("");
+                setCompetitionType("Floor");
+                setFolderSelectionForCompetition(false);
+                setSelectionMode(false);
+                setSelectedFolders([]);
+                setCurrentFolderId(null);
+                
+                setTimeout(() => {
+                  hideLoading();
+                  setFeedbackAcceptModel(true);
+                  setTimeout(() => setFeedbackAcceptModel(false), 1500);
+                }, 500);
+                
+                console.log("=== STRATEGY 3 SUCCESSFUL ===");
+              } else {
+                throw new Error("All 3 strategies failed to return competition ID");
+              }
+            }
+          }
+        } catch (retryError) {
+          console.error("=== ALL STRATEGIES FAILED ===", retryError);
+          hideLoading();
+          Alert.alert(
+            "Error", 
+            "Failed to create competition after trying 3 different methods. The database may be locked or corrupted. Please:\n1. Close and restart the app\n2. Try creating the competition again",
+            [{ text: "OK" }]
+          );
+        }
       }
     } catch (error) {
       console.error("Error adding competition:", error);
@@ -2642,17 +2598,13 @@ const confirmFolderForCompetition = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
       
-      {/* Header with Animation */}
-      <Animated.View 
+      {/* Header */}
+      <View 
         style={[
           isLargeDevice ? styles.headerLarge : null,
           isMediumLargeDevice ? styles.headerMediumLarge : null,
           isSmallDevice ? styles.headerSmall : null,
           isTinyDevice ? styles.headerTiny : null,
-          { 
-            opacity: headerAnimOpacity,
-            transform: [{ translateY: headerAnimY }]
-          }
         ]}
       >
         <TouchableOpacity style={[
@@ -2708,7 +2660,7 @@ const confirmFolderForCompetition = () => {
                     fontFamily: "Rajdhani-medium",
                     maxWidth: 120
                   }} numberOfLines={1}>
-                    {folder.name}
+                    {folder.name || 'Unnamed'}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -2760,7 +2712,7 @@ const confirmFolderForCompetition = () => {
             </TouchableOpacity>
           </View>
         )}
-      </Animated.View>
+      </View>
       
       {/* Folders Grid */}
       <ScrollView 
@@ -2886,17 +2838,13 @@ const confirmFolderForCompetition = () => {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Add Competition Button with Animation */}
-      <Animated.View 
+      {/* Add Competition Button */}
+      <View 
         style={[
           isLargeDevice ? styles.buttonContainerLarge : null,
           isMediumLargeDevice ? styles.buttonContainerMediumLarge : null,
           isSmallDevice ? styles.buttonContainerSmall : null,
           isTinyDevice ? styles.buttonContainerTiny : null,
-          {
-            opacity: buttonAnimOpacity,
-            transform: [{ translateY: buttonAnimY }]
-          }
         ]}
       >
         {!selectionMode ? (
@@ -2971,22 +2919,18 @@ const confirmFolderForCompetition = () => {
             </Text>
           </TouchableOpacity>
         ) : null}
-      </Animated.View>
+      </View>
   
       {/* Delete Confirmation Button (appears when in delete mode) */}
       {/* Botón Move oculto: la acción de mover carpeta es directa con tap-to-move */}
       
       {selectionMode && selectionAction === 'delete' && (selectedFolders.length > 0 || selectedCompetitions.length > 0) && (
-        <Animated.View 
+        <View 
           style={[
             isLargeDevice ? styles.deleteButtonContainerLarge : null,
             isMediumLargeDevice ? styles.deleteButtonContainerMediumLarge : null,
             isSmallDevice ? styles.deleteButtonContainerSmall : null,
             isTinyDevice ? styles.deleteButtonContainerTiny : null,
-            {
-              opacity: deleteButtonAnim,
-              transform: [{ scale: deleteButtonAnim }]
-            }
           ]}
         >
           <TouchableOpacity 
@@ -3002,7 +2946,7 @@ const confirmFolderForCompetition = () => {
           >
             <Ionicons name="trash" size={isLargeDevice ? 24 : isMediumLargeDevice ? 22 : isSmallDevice ? 20 : 20} color="#fff" />
           </TouchableOpacity>
-        </Animated.View>
+        </View>
       )}
   
       {/* Menu Modal: View en iOS (iPhone), Modal en otras plataformas */}
@@ -4781,7 +4725,7 @@ const confirmFolderForCompetition = () => {
       justifyContent: 'center',
       alignItems: 'center'
     }}>
-      <Animated.View style={[
+      <View style={[
         {
           backgroundColor: 'white',
           borderRadius: isLargeDevice ? 20 : isMediumLargeDevice ? 18 : isSmallDevice ? 16 : 14,
@@ -4795,12 +4739,12 @@ const confirmFolderForCompetition = () => {
           elevation: 15,
         },
         {
-          opacity: loadingOpacityAnim,
-          transform: [{ scale: loadingScaleAnim }]
+          
+          
         }
       ]}>
         {/* Icono de carga animado */}
-        <Animated.View style={[
+        <View style={[
           {
             width: isLargeDevice ? 80 : isMediumLargeDevice ? 70 : isSmallDevice ? 60 : 50,
             height: isLargeDevice ? 80 : isMediumLargeDevice ? 70 : isSmallDevice ? 60 : 50,
@@ -4809,14 +4753,6 @@ const confirmFolderForCompetition = () => {
             borderColor: '#007AFF',
             borderTopColor: 'transparent',
             marginBottom: isLargeDevice ? 30 : isMediumLargeDevice ? 25 : isSmallDevice ? 20 : 18,
-          },
-          {
-            transform: [{
-              rotate: loadingSpinAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: ['0deg', '360deg']
-              })
-            }]
           }
         ]} />
 
@@ -4840,7 +4776,7 @@ const confirmFolderForCompetition = () => {
           overflow: 'hidden',
           marginBottom: isLargeDevice ? 15 : isMediumLargeDevice ? 12 : isSmallDevice ? 10 : 8,
         }}>
-          <Animated.View style={{
+          <View style={{
             height: '100%',
             backgroundColor: '#007AFF',
             width: `${loadingProgress}%`,
@@ -4857,7 +4793,7 @@ const confirmFolderForCompetition = () => {
         }}>
           {Math.round(loadingProgress)}%
         </Text>
-      </Animated.View>
+      </View>
     </View>
   )
 ) : (
@@ -4873,7 +4809,7 @@ const confirmFolderForCompetition = () => {
       justifyContent: 'center',
       alignItems: 'center'
     }}>
-      <Animated.View style={[
+      <View style={[
         {
           backgroundColor: 'white',
           borderRadius: isLargeDevice ? 20 : isMediumLargeDevice ? 18 : isSmallDevice ? 16 : 14,
@@ -4887,12 +4823,12 @@ const confirmFolderForCompetition = () => {
           elevation: 15,
         },
         {
-          opacity: loadingOpacityAnim,
-          transform: [{ scale: loadingScaleAnim }]
+          
+          
         }
       ]}>
         {/* Icono de carga animado */}
-        <Animated.View style={[
+        <View style={[
           {
             width: isLargeDevice ? 80 : isMediumLargeDevice ? 70 : isSmallDevice ? 60 : 50,
             height: isLargeDevice ? 80 : isMediumLargeDevice ? 70 : isSmallDevice ? 60 : 50,
@@ -4901,14 +4837,6 @@ const confirmFolderForCompetition = () => {
             borderColor: '#007AFF',
             borderTopColor: 'transparent',
             marginBottom: isLargeDevice ? 30 : isMediumLargeDevice ? 25 : isSmallDevice ? 20 : 18,
-          },
-          {
-            transform: [{
-              rotate: loadingSpinAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: ['0deg', '360deg']
-              })
-            }]
           }
         ]} />
 
@@ -4932,7 +4860,7 @@ const confirmFolderForCompetition = () => {
           overflow: 'hidden',
           marginBottom: isLargeDevice ? 15 : isMediumLargeDevice ? 12 : isSmallDevice ? 10 : 8,
         }}>
-          <Animated.View style={{
+          <View style={{
             height: '100%',
             backgroundColor: '#007AFF',
             width: `${loadingProgress}%`,
@@ -4949,7 +4877,7 @@ const confirmFolderForCompetition = () => {
         }}>
           {Math.round(loadingProgress)}%
         </Text>
-      </Animated.View>
+      </View>
     </View>
   </Modal>
 )}
@@ -7481,3 +7409,4 @@ const styles = StyleSheet.create({
 });
 
 export default MainMenu;
+

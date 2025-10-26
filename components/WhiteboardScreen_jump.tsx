@@ -291,7 +291,7 @@ const DrawingCanvas = ({
     // Guardar inmediatamente cualquier cambio pendiente
     const pendingUpdates = Array.from(pendingPhotoUpdatesRef.current.entries());
     if (pendingUpdates.length > 0) {
-      console.log(`💾 [Cleanup] Guardando ${pendingUpdates.length} foto(s) pendientes antes de desmontar`);
+      console.log(`💾 [Cleanup] Guardando ${String(pendingUpdates.length)} foto(s) pendientes antes de desmontar`);
       
       // Guardar en paralelo para ser más rápido
       await Promise.all(
@@ -363,9 +363,9 @@ const DrawingCanvas = ({
   }, [tableId]);
   const loadPhotoItems = useCallback(async () => {
     try {
-      console.log('📸 [loadPhotoItems] Loading photo items for tableId:', tableId);
+      console.log('📸 [loadPhotoItems] Loading photo items for tableId:', String(tableId));
       const items = await getPhotoItemsForMainTable(tableId);
-      console.log('📸 [loadPhotoItems] Loaded', items?.length || 0, 'photo items from DB');
+      console.log('📸 [loadPhotoItems] Loaded', String(items?.length || 0), 'photo items from DB');
       
       const normalized = items.map((it: any, idx) => {
         const item = { 
@@ -373,18 +373,18 @@ const DrawingCanvas = ({
           scale: it.scale && it.scale > 0 ? it.scale : 1, 
           rotation: typeof it.rotation === 'number' ? it.rotation : 0 
         };
-        console.log(`📸 [loadPhotoItems] Photo ${idx}:`, {
+        console.log(`📸 [loadPhotoItems] Photo ${String(idx)}:`, {
           uri: item.uri?.substring(0, 50) + '...',
-          x: item.x,
-          y: item.y,
-          scale: item.scale,
-          rotation: item.rotation
+          x: String(item.x),
+          y: String(item.y),
+          scale: String(item.scale),
+          rotation: String(item.rotation)
         });
         return item;
       });
       
       setPhotoItems(normalized);
-      console.log('✅ [loadPhotoItems] Photo items state updated with', normalized.length, 'items');
+      console.log('✅ [loadPhotoItems] Photo items state updated with', String(normalized.length), 'items');
     } catch (e) { 
       console.error('❌ [loadPhotoItems] Error loading photo items:', e);
     }
@@ -433,7 +433,7 @@ const DrawingCanvas = ({
       // Guardar cambios pendientes antes de desmontar
       const pendingUpdates = Array.from(pendingPhotoUpdatesRef.current.entries());
       if (pendingUpdates.length > 0) {
-        console.log(`💾 [Unmount] Guardando ${pendingUpdates.length} foto(s) pendientes`);
+        console.log(`💾 [Unmount] Guardando ${String(pendingUpdates.length)} foto(s) pendientes`);
         pendingUpdates.forEach(([photoUri, photoUpdates]) => {
           updatePhotoTransformForMainTable(tableId, photoUri, photoUpdates);
         });
@@ -810,7 +810,7 @@ const DrawingCanvas = ({
       const pendingUpdates = Array.from(pendingPhotoUpdatesRef.current.entries());
       
       if (pendingUpdates.length > 0) {
-        console.log(`💾 Guardando ${pendingUpdates.length} foto(s) después de 3s de inactividad`);
+        console.log(`💾 Guardando ${String(pendingUpdates.length)} foto(s) después de 3s de inactividad`);
         
         // Guardar cada foto con sus cambios acumulados
         pendingUpdates.forEach(([photoUri, photoUpdates]) => {
@@ -1647,9 +1647,8 @@ const DrawingCanvas = ({
         </GestureDetector>
 
         {/* Stroke Width Control Bar con GestureDetector dentro del GestureHandlerRootView */}
-        <Animated.View style={[
-          styles.strokeBarContainer,
-          { transform: [{ translateX: strokeBarAnim }] }
+        <View style={[
+          styles.strokeBarContainer
         ]}>
           <View style={styles.strokeBar}>
             {/* Indicador de grosor actual */}
@@ -1662,7 +1661,7 @@ const DrawingCanvas = ({
                   backgroundColor: currentColor,
                 },
               ]} />
-              <Text style={styles.strokeValue}>{currentStrokeWidth}</Text>
+              <Text style={styles.strokeValue}>{String(currentStrokeWidth || 2)}</Text>
             </View>
 
             {/* Barra interactiva */}
@@ -1691,14 +1690,13 @@ const DrawingCanvas = ({
               </TouchableOpacity>
             </GestureDetector>
           </View>
-        </Animated.View>
+        </View>
       </GestureHandlerRootView>
       {/* Multi-touch gestures - no necesitamos controles flotantes */}
 
       {/* Menu button */}
-      <Animated.View style={[
-        styles.menuButtonContainer,
-        { transform: [{ translateX: menuButtonAnim }] }
+      <View style={[
+        styles.menuButtonContainer
       ]}>
         <TouchableOpacity 
           style={[styles.menuButton, menuOpen && styles.activeButton]}
@@ -1707,7 +1705,7 @@ const DrawingCanvas = ({
         >
           <Text style={styles.buttonText}>☰</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
       {/* Menu desplegable responsivo */}
       {menuOpen && (
@@ -1808,9 +1806,8 @@ const DrawingCanvas = ({
       )}
 
       {/* Undo button */}
-      <Animated.View style={[
-        styles.undoButtonContainer,
-        { transform: [{ translateX: undoButtonAnim }] }
+      <View style={[
+        styles.undoButtonContainer
       ]}>
         <TouchableOpacity 
           style={[
@@ -1823,12 +1820,11 @@ const DrawingCanvas = ({
         >
           <Text style={styles.buttonText}>↩</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
       {/* Redo button */}
-      <Animated.View style={[
-        styles.redoButtonContainer,
-        { transform: [{ translateX: redoButtonAnim }] }
+      <View style={[
+        styles.redoButtonContainer
       ]}>
         <TouchableOpacity 
           style={[
@@ -1841,12 +1837,11 @@ const DrawingCanvas = ({
         >
           <Text style={styles.buttonText}>↪</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
       {/* Eraser button */}
-      <Animated.View style={[
-        styles.eraserButtonContainer,
-        { transform: [{ translateX: eraserButtonAnim }] }
+      <View style={[
+        styles.eraserButtonContainer
       ]}>
         <TouchableOpacity 
           style={[
@@ -1858,12 +1853,11 @@ const DrawingCanvas = ({
         >
           <Text style={styles.buttonText}>🧽</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
       {/* Pen button */}
-      <Animated.View style={[
-        styles.penButtonContainer,
-        { transform: [{ translateX: penButtonAnim }] }
+      <View style={[
+        styles.penButtonContainer
       ]}>
         <TouchableOpacity 
           style={[
@@ -1875,12 +1869,11 @@ const DrawingCanvas = ({
         >
           <Text style={styles.buttonText}>✏️</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
       {/* Red Pen button */}
-      <Animated.View style={[
-        styles.redPenButtonContainer,
-        { transform: [{ translateX: redPenButtonAnim }] }
+      <View style={[
+        styles.redPenButtonContainer
       ]}>
         <TouchableOpacity 
           style={[
@@ -1892,12 +1885,11 @@ const DrawingCanvas = ({
         >
           <Text style={styles.buttonText}>🔴</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
       {/* Blue Pen button */}
-      <Animated.View style={[
-        styles.bluePenButtonContainer,
-        { transform: [{ translateX: bluePenButtonAnim }] }
+      <View style={[
+        styles.bluePenButtonContainer
       ]}>
         <TouchableOpacity 
           style={[
@@ -1909,7 +1901,7 @@ const DrawingCanvas = ({
         >
           <Text style={styles.buttonText}>🔵</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
       {/* Add Photo button */}
       <View style={styles.photoButtonContainer}>
@@ -1919,9 +1911,8 @@ const DrawingCanvas = ({
       </View>
 
       {/* Stick / Bonus button - bottom right (always visible) */}
-      <Animated.View style={[
-        styles.stickButtonContainer,
-        { transform: [{ translateY: stickButtonAnim }] }
+      <View style={[
+        styles.stickButtonContainer
       ]}>
         <TouchableOpacity 
           style={[
@@ -1933,12 +1924,11 @@ const DrawingCanvas = ({
         >
           <Text style={styles.stickButtonText}>{discipline ? 'STICK BONUS' : 'BONUS'}</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
       {/* Vault Table button - bottom left */}
-      <Animated.View style={[
-        styles.vaultButtonContainer,
-        { transform: [{ translateY: vaultButtonAnim }] }
+      <View style={[
+        styles.vaultButtonContainer
       ]}>
         <TouchableOpacity 
           style={styles.vaultButton}
@@ -1947,7 +1937,7 @@ const DrawingCanvas = ({
         >
           <Text style={styles.vaultButtonText}>VAULT TABLE</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
       {/* Indicador de guardado - top right */}
       {(isSaving || lastSaved) && (
@@ -1967,7 +1957,7 @@ const DrawingCanvas = ({
       )}
 
       {/* Percentage display */}
-      <Text style={styles.percentageText}>{percentage}</Text>
+      <Text style={styles.percentageText}>{String(percentage !== null && percentage !== undefined ? percentage : '0.0')}</Text>
 
       {/* Vault Modal */}
       <VaultSelectorModal
@@ -1977,7 +1967,7 @@ const DrawingCanvas = ({
       />
 
       {/* Botón de alternancia pen/finger en la UI */}
-      <Animated.View style={[styles.toggleInputModeButtonContainer]}> 
+      <View style={[styles.toggleInputModeButtonContainer]}> 
         <TouchableOpacity 
           style={[styles.actionButton, inputMode === 'finger' && { backgroundColor: '#d1e7dd' }]} 
           onPress={toggleInputMode}
@@ -1985,7 +1975,7 @@ const DrawingCanvas = ({
         >
           <Text style={styles.buttonText}>{inputMode === 'pen' ? '✍️' : '🖐️'}</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
     </View>
   );
 };
