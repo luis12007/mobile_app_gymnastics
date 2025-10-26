@@ -1110,6 +1110,18 @@ export const getSessionsByUserId = async (userId: number): Promise<Session[]> =>
   }));
 };
 
+export const getSessionById = async (sessionId: number): Promise<Session | null> => {
+  const rows = await safeQuery<any>(
+    'SELECT * FROM sessions WHERE id = ? LIMIT 1',
+    [sessionId]
+  );
+  if (rows.length === 0) return null;
+  return {
+    ...rows[0],
+    gender: rows[0].gender === 1,
+  };
+};
+
 export const insertSession = async (
   sessionData: Omit<Session, 'id'>
 ): Promise<number | false> => {

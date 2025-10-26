@@ -17,9 +17,17 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  ScrollView
+  ScrollView,
+  Platform
 } from "react-native";
 import { getUserById, getFoldersByUserId, exportFolderData, importFolderData, initDatabase, getDefaultDiscipline, saveDefaultDiscipline, checkUserExists, insertUserWithoutValidation } from "../Database/database";
+import { installConsoleOverrides } from "../utils/consoleOverride";
+
+// 🔧 Install console overrides IMMEDIATELY on Android to prevent memory leaks
+if (Platform.OS === 'android') {
+  installConsoleOverrides();
+  console.log('✅ Console overrides installed at app startup');
+}
 
 const { width, height } = Dimensions.get("window");
 var isLargeDevice = false;
@@ -79,9 +87,9 @@ export default function SelectSex() {
       console.log('📖 Loading default discipline from database...');
       const discipline = await getDefaultDiscipline();
       setDefaultDiscipline(discipline);
-      console.log('📖 Loaded default discipline from DB:', discipline, '→ State updated');
+      console.log('📖 Loaded default discipline from DB:', String(discipline), '→ State updated');
     } catch (error) {
-      console.error("Error loading default discipline:", error);
+      console.error("Error loading default discipline:", String(error));
     } finally {
       setIsLoadingDefault(false);
     }
@@ -90,16 +98,16 @@ export default function SelectSex() {
   // Guardar disciplina por defecto en la base de datos
   const saveDefaultDisciplineToDB = async (discipline: boolean | null) => {
     try {
-      console.log('💾 Attempting to save default discipline:', discipline);
+      console.log('💾 Attempting to save default discipline:', String(discipline));
       const success = await saveDefaultDiscipline(discipline);
       if (success) {
         setDefaultDiscipline(discipline);
-        console.log('💾 Saved default discipline to DB and updated state:', discipline);
+        console.log('💾 Saved default discipline to DB and updated state:', String(discipline));
       } else {
         Alert.alert('Error', 'Failed to save default discipline');
       }
     } catch (error) {
-      console.error("Error saving default discipline:", error);
+      console.error("Error saving default discipline:", String(error));
       Alert.alert('Error', 'Failed to save default discipline');
     }
   };
@@ -129,7 +137,7 @@ export default function SelectSex() {
       
       // Si no es cambio manual y hay disciplina por defecto, hacer auto-route
       if (!changeDis && defaultDiscipline !== null) {
-        console.log('🔄 Auto-routing to main-menu with discipline:', defaultDiscipline);
+        console.log('🔄 Auto-routing to main-menu with discipline:', String(defaultDiscipline));
         router.replace(`/main-menu?discipline=${defaultDiscipline}&userId=${0}`);
       } else {
         console.log('📋 Showing discipline selection screen');
@@ -146,7 +154,7 @@ export default function SelectSex() {
         setIsDatabaseInitialized(true);
         console.log('✅ Database initialized successfully');
       } catch (error) {
-        console.error('❌ Error initializing database:', error);
+        console.error('❌ Error initializing database:', String(error));
         Alert.alert(
           'Database Error',
           'Failed to initialize database. Please restart the app.',
@@ -183,7 +191,7 @@ export default function SelectSex() {
         const exists = await checkUserExists(user.username);
         
         if (exists) {
-          console.log(`El usuario ${user.username} ya existe, no se creará nuevamente`);
+          console.log(`El usuario ${String(user.username)} ya existe, no se creará nuevamente`);
           continue; // Saltar al siguiente usuario
         }
         
@@ -194,9 +202,9 @@ export default function SelectSex() {
           throw new Error(`No se pudo crear el usuario ${user.username}`);
         }
         
-        console.log(`✅ Usuario por defecto creado: ${user.username} (${user.rol})`);
+        console.log(`✅ Usuario por defecto creado: ${String(user.username)} (${String(user.rol)})`);
       } catch (error) {
-        console.error(`❌ Error al crear usuario por defecto ${user.username}:`, error);
+        console.error(`❌ Error al crear usuario por defecto ${String(user.username)}:`, String(error));
         const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
         
         Alert.alert(
@@ -215,7 +223,7 @@ export default function SelectSex() {
     console.log("Proceso de creación de usuarios por defecto completado");
     
   } catch (error) {
-    console.error("Error creando usuarios por defecto:", error);
+    console.error("Error creando usuarios por defecto:", String(error));
   }
 };
 
@@ -276,9 +284,9 @@ export default function SelectSex() {
       setGeneratedKey(activationKey);
       
       // Log para debugging
-      console.log(`Clave generada para dispositivo ${deviceId}: ${activationKey}`);
+      console.log(`Clave generada para dispositivo ${String(deviceId)}: ${String(activationKey)}`);
     } catch (error) {
-      console.error("Error generando clave:", error);
+      console.error("Error generando clave:", String(error));
       Alert.alert("Error", "No se pudo generar la clave de activación");
     } finally {
       setIsGenerating(false);
@@ -294,7 +302,7 @@ export default function SelectSex() {
   };
 
   // Función para extraer el deviceId del texto pegado
-  const parseDeviceInfo = (text) => {
+  const parseDeviceInfo = (text: any) => {
     try {
       // Buscar el patrón "Device ID: XXX" en el texto
       const match = text.match(/Device ID:\s*([a-zA-Z0-9]+)/);
@@ -304,13 +312,13 @@ export default function SelectSex() {
       }
       return false;
     } catch (error) {
-      console.error("Error al analizar información del dispositivo:", error);
+      console.error("Error al analizar información del dispositivo:", String(error));
       return false;
     }
   };
 
   // Manejar el cambio en el texto del dispositivo
-  const handleDeviceInfoChange = (text) => {
+  const handleDeviceInfoChange = (text: any) => {
     setDeviceInfo(text);
     parseDeviceInfo(text);
   };
@@ -326,7 +334,7 @@ export default function SelectSex() {
       const folders = await getFoldersByUserId(userId);
       setUserFolders(folders || []);
     } catch (error) {
-      console.error("Error loading user folders:", error);
+      console.error("Error loading user folders:", String(error));
       setUserFolders([]);
     }
   };
@@ -370,7 +378,7 @@ export default function SelectSex() {
       }
 
     } catch (error: any) {
-      console.error("❌ Error exporting folder:", error);
+      console.error("❌ Error exporting folder:", String(error));
       const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
       
       Alert.alert(
@@ -425,7 +433,7 @@ export default function SelectSex() {
       );
 
     } catch (error: any) {
-      console.error("❌ Error importing folder:", error);
+      console.error("❌ Error importing folder:", String(error));
       const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
       
       Alert.alert(
@@ -479,7 +487,7 @@ export default function SelectSex() {
     );
   }
 
-  console.log('📋 Rendering discipline selection. defaultDiscipline:', defaultDiscipline, 'hasCheckedAutoRoute:', hasCheckedAutoRoute, 'changeDis:', changeDis);
+  console.log('📋 Rendering discipline selection. defaultDiscipline:', String(defaultDiscipline), 'hasCheckedAutoRoute:', String(hasCheckedAutoRoute), 'changeDis:', String(changeDis));
 
 return (
     <View style={styles.container}>

@@ -6,7 +6,10 @@ import { useEffect } from 'react';
 import 'react-native-reanimated';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { safeLog } from '../utils/crashPrevention';
+import { memoryManager } from '../utils/memoryManager';
+import { Platform, AppState } from 'react-native';
 
+// Note: Console overrides are now installed in index.tsx for earlier activation
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -22,6 +25,29 @@ export default function RootLayout() {
     }
   }, [loaded]);
 
+  // Setup memory management on Android
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      console.log('🚀 Setting up memory management for Android');
+      memoryManager.setupMemoryMonitoring();
+
+      // Clean memory when app goes to background
+      const subscription = AppState.addEventListener('change', (nextAppState) => {
+        if (nextAppState === 'background') {
+          console.log('📱 App going to background - cleaning memory');
+          memoryManager.cleanupMemory();
+        }
+      });
+
+      // Initial cleanup
+      memoryManager.cleanupMemory();
+
+      return () => {
+        subscription.remove();
+      };
+    }
+  }, []);
+
   if (!loaded) {
     return null;
   }
@@ -31,6 +57,11 @@ export default function RootLayout() {
       onError={(error, errorInfo) => {
         safeLog.error('App Error Boundary caught error:', error);
         safeLog.error('Component Stack:', errorInfo.componentStack);
+        
+        // Trigger emergency cleanup on crash
+        if (Platform.OS === 'android') {
+          memoryManager.emergencyCleanup();
+        }
       }}
     >
       <ThemeProvider value={DefaultTheme}>

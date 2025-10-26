@@ -79,7 +79,10 @@ import {
   canMoveFolder,
   hasSubfolders,
   countSubfolders,
-  deleteFolderRecursively
+  deleteFolderRecursively,
+  getUserById,
+  getSessionById,
+  insertSession
 } from "../Database/database"; // Adjust the path based on your project structure
 import { GridDraggableItem } from "../components/GridDraggableItem";
 import CustomNumberPadOptimized from '@/components/CustomNumberPadOptimized_competition';
@@ -680,16 +683,9 @@ const MainMenu: React.FC = () => {
   const discipline = params.discipline === "true";
   const userIdparams = params.userId;
   
-  // Use userId from params or default to 1, ensure it's a valid number
-  const userId = (() => {
-    if (typeof userIdparams === 'string') {
-      const parsed = parseInt(userIdparams, 10);
-      return !isNaN(parsed) ? parsed : 1;
-    } else if (typeof userIdparams === 'number') {
-      return !isNaN(userIdparams) ? userIdparams : 1;
-    }
-    return 1;
-  })();
+  // 🔧 SIEMPRE USA userId = 0 (aplicación de un solo usuario, ID por defecto)
+  const userId = 0;
+  console.log("🔧 Using FIXED userId:", userId);
 
 
   // variables competition
@@ -700,6 +696,12 @@ const [competitionType, setCompetitionType] = useState("Floor");
 const [currentFolderId, setCurrentFolderId] = useState<number | null>(
   params.folderId ? parseInt(params.folderId as string) : null
 );
+
+// 🔧 VALORES FIJOS PARA LA APLICACIÓN (SIEMPRE LOS MISMOS)
+const FIXED_USER_ID = 0; // ✅ Usuario por defecto es ID 0
+const FIXED_SESSION_ID = 1;
+// 📦 Backup del último folderId válido conocido
+const [lastValidFolderId, setLastValidFolderId] = useState<number | null>(null);
 
 // Estados para importar/exportar
 const [showExportModal, setShowExportModal] = useState(false);
@@ -928,6 +930,9 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
       console.log('Navigating to folder:', folderId);
       setCurrentParentId(folderId);
       setCurrentLevel(currentLevel + 1);
+      // 📦 Actualizar backup del folderId al navegar
+      setLastValidFolderId(folderId);
+      console.log('📦 Backup folderId updated to:', folderId);
       // ✨ CAMBIO: El useEffect se encargará de fetchFolders automáticamente
     } catch (error) {
       console.error('Error navigating to folder:', error);
@@ -2098,11 +2103,16 @@ const performDelete = async () => {
         type: competitionType,
         date: new Date().toISOString(),
         gender: discipline,
-        sessionId: 1, // Default session ID
-        userId: userId, // Use current user ID
+        sessionId: FIXED_SESSION_ID, // 🔧 SIEMPRE 1
+        userId: FIXED_USER_ID, // 🔧 SIEMPRE 1
       };
       
       console.log("Competition data to insert:", competenceData);
+      console.log("🔧 FIXED VALUES - userId:", FIXED_USER_ID, "sessionId:", FIXED_SESSION_ID);
+      
+      // 📦 Guardar backup del folderId antes de crear
+      setLastValidFolderId(targetFolderId);
+      console.log("📦 Backup folderId saved:", targetFolderId);
       
       // Ejecutar la creación asíncrona
       createCompetitionAsync(competenceData, numberOfParticipants, targetFolderId);
@@ -2114,12 +2124,62 @@ const performDelete = async () => {
     try {
       updateLoading("Saving competition...", 20);
       console.log("=== CREATING COMPETITION ===");
+      
+      // 🔧 FORZAR VALORES FIJOS SIEMPRE
+      competenceData.userId = FIXED_USER_ID;
+      competenceData.sessionId = FIXED_SESSION_ID;
+      
+      // 📦 Sistema de backup para folderId
+      let safeFolderId = targetFolderId;
+      if (!safeFolderId || safeFolderId <= 0) {
+        console.warn("⚠️ Invalid targetFolderId, using backup:", lastValidFolderId);
+        safeFolderId = lastValidFolderId || currentParentId || 1;
+      }
+      competenceData.folderId = safeFolderId;
+      
+      // 🔍 DEBUG: Imprimir siempre los IDs que se están usando
+      console.log("📊 DEBUG - FIXED IDs being used:");
+      console.log("  folderId:", String(competenceData.folderId), "(backup available:", String(lastValidFolderId), ")");
+      console.log("  userId:", String(FIXED_USER_ID), "(FIXED)");
+      console.log("  sessionId:", String(FIXED_SESSION_ID), "(FIXED)");
       console.log("Competition data:", competenceData);
-      console.log("Target folder ID:", targetFolderId);
-      console.log("Current parent ID:", currentParentId);
+      
+      // 🔍 VALIDAR FOREIGN KEYS ANTES DE INSERTAR
+      console.log("🔍 Validating foreign keys before insert...");
+      
+      const userExists = await getUserById(FIXED_USER_ID);
+      console.log("✓ User ID", FIXED_USER_ID, "exists:", userExists ? "YES" : "NO ❌");
+      
+      const sessionExists = await getSessionById(FIXED_SESSION_ID);
+      console.log("✓ Session ID", FIXED_SESSION_ID, "exists:", sessionExists ? "YES" : "NO ❌");
+      
+      const folderExists = await getFolderById(safeFolderId);
+      console.log("✓ Folder ID", safeFolderId, "exists:", folderExists ? "YES" : "NO ❌");
+      
+      if (!userExists) {
+        throw new Error(`❌ FOREIGN KEY ERROR: User ID ${FIXED_USER_ID} does NOT exist in database!`);
+      }
+      if (!sessionExists) {
+        // Intentar crear la sesión
+        console.log("⚠️ Session does not exist, creating session ID 1...");
+        try {
+          const newSessionId = await insertSession({
+            gender: competenceData.gender,
+            userId: FIXED_USER_ID
+          });
+          console.log("✅ Session created with ID:", newSessionId);
+        } catch (error) {
+          throw new Error(`❌ FOREIGN KEY ERROR: Session ID ${FIXED_SESSION_ID} does NOT exist and could not be created!`);
+        }
+      }
+      if (!folderExists) {
+        throw new Error(`❌ FOREIGN KEY ERROR: Folder ID ${safeFolderId} does NOT exist in database!`);
+      }
+      
+      console.log("✅ All foreign keys validated successfully!");
       
       const competitionId = await insertCompetence(competenceData);
-      console.log("Competition created with ID:", competitionId);
+      console.log("Competition created with ID:", String(competitionId));
 
       /* change filled in the folder in the db */
       await updateFolder(targetFolderId, { filled: true }); // Update the folder to mark it as filled
@@ -2177,19 +2237,28 @@ const performDelete = async () => {
           // STRATEGY 1: Wait and retry with minimal data first, then update description
           await new Promise(resolve => setTimeout(resolve, 500));
           
+          // 🔧 Sistema de backup para folderId en Strategy 1
+          let safeFolderId1 = targetFolderId;
+          if (!safeFolderId1 || safeFolderId1 <= 0) {
+            console.warn("⚠️ Strategy 1: Invalid folderId, using backup:", lastValidFolderId);
+            safeFolderId1 = lastValidFolderId || currentParentId || 1;
+          }
+          
           const minimalCompetenceData = {
-            folderId: targetFolderId,
+            folderId: safeFolderId1,
             name: competenceData.name,
             numberOfParticipants: competenceData.numberOfParticipants,
             type: competenceData.type,
             date: new Date().toISOString(), // Fresh timestamp
             gender: competenceData.gender,
-            sessionId: competenceData.sessionId,
-            userId: competenceData.userId,
+            sessionId: FIXED_SESSION_ID, // 🔧 FIJO
+            userId: FIXED_USER_ID, // 🔧 FIJO
             description: "", // Empty description
           };
           
           console.log("=== STRATEGY 1: MINIMAL DATA INSERT ===");
+          console.log("📦 Using backup folderId:", safeFolderId1, "(original:", targetFolderId, ")");
+          console.log("🔧 FIXED - userId:", FIXED_USER_ID, "sessionId:", FIXED_SESSION_ID);
           console.log("Minimal competition data:", minimalCompetenceData);
           
           updateLoading("Creating competition with minimal data...", 25);
@@ -2241,19 +2310,28 @@ const performDelete = async () => {
             
             await new Promise(resolve => setTimeout(resolve, 700));
             
+            // 🔧 Sistema de backup para folderId en Strategy 2
+            let safeFolderId2 = targetFolderId;
+            if (!safeFolderId2 || safeFolderId2 <= 0) {
+              console.warn("⚠️ Strategy 2: Invalid folderId, using backup:", lastValidFolderId);
+              safeFolderId2 = lastValidFolderId || currentParentId || 1;
+            }
+            
             const simplifiedData = {
-              folderId: targetFolderId,
+              folderId: safeFolderId2,
               name: `Competition_${Date.now()}`, // Temporary simplified name
               numberOfParticipants: numberOfParticipants,
               type: competenceData.type,
               date: new Date().toISOString(),
               gender: competenceData.gender,
-              sessionId: 1,
-              userId: userId,
+              sessionId: FIXED_SESSION_ID, // 🔧 FIJO
+              userId: FIXED_USER_ID, // 🔧 FIJO
               description: "",
             };
             
             console.log("=== STRATEGY 2: SIMPLIFIED NAME INSERT ===");
+            console.log("📦 Using backup folderId:", safeFolderId2, "(original:", targetFolderId, ")");
+            console.log("🔧 FIXED - userId:", FIXED_USER_ID, "sessionId:", FIXED_SESSION_ID);
             updateLoading("Creating with simplified data...", 35);
             retryCompetitionId = await insertCompetence(simplifiedData);
             console.log("Strategy 2 result - Competition ID:", String(retryCompetitionId));
@@ -2299,20 +2377,29 @@ const performDelete = async () => {
               
               await new Promise(resolve => setTimeout(resolve, 1000));
               
+              // 🔧 Sistema de backup para folderId en Strategy 3
+              let safeFolderId3 = targetFolderId;
+              if (!safeFolderId3 || safeFolderId3 <= 0) {
+                console.warn("⚠️ Strategy 3: Invalid folderId, using backup:", lastValidFolderId);
+                safeFolderId3 = lastValidFolderId || currentParentId || 1;
+              }
+              
               // Create completely fresh object to avoid any reference issues
               const freshCompetenceData = {
-                folderId: Number(targetFolderId),
+                folderId: safeFolderId3,
                 name: String(competitionName),
                 description: String(competitionDescription || ""),
                 numberOfParticipants: Number(numberOfParticipants),
                 type: String(competitionType),
                 date: new Date().toISOString(),
                 gender: Boolean(discipline),
-                sessionId: 1,
-                userId: Number(userId),
+                sessionId: FIXED_SESSION_ID, // 🔧 FIJO
+                userId: FIXED_USER_ID, // 🔧 FIJO
               };
               
               console.log("=== STRATEGY 3: FRESH DATA OBJECT ===");
+              console.log("📦 Using backup folderId:", safeFolderId3, "(original:", targetFolderId, ")");
+              console.log("🔧 FIXED - userId:", FIXED_USER_ID, "sessionId:", FIXED_SESSION_ID);
               console.log("Fresh data:", freshCompetenceData);
               
               const finalAttemptId = await insertCompetence(freshCompetenceData);

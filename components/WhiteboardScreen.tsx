@@ -140,9 +140,10 @@ const DrawingCanvas = ({
   const [normalPenColor, setNormalPenColor] = useState<string>(globalPenConfig.color); // Recordar color del pen normal
   const [previousStrokeWidth, setPreviousStrokeWidth] = useState<number>(globalPenConfig.strokeWidth); // Recordar grosor antes del eraser
   
-  // Límites para optimización de memoria
-  const MAX_UNDO_STACK = 20; // Limitar a 50 acciones de undo
-  const MAX_PATHS_MEMORY = 500; // Limitar paths en memoria
+  // Límites para optimización de memoria - REDUCIDOS PARA PREVENIR CRASHES
+  const MAX_UNDO_STACK = 10; // Limitar a 10 acciones de undo (reducido de 20)
+  const MAX_PATHS_MEMORY = 150; // Limitar paths en memoria (reducido de 500)
+  const MAX_PHOTOS_RENDERED = 7; // Máximo de fotos renderizadas simultáneamente
   
   // Animaciones para los botones (más cercanos)
 
@@ -773,8 +774,9 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
   const savePaths = useCallback(async (newPathsData: PathData[]) => {
     setIsSaving(true);
     try {
-      // Limitar el número de paths para evitar problemas de memoria (máximo 1000)
-      const limitedPaths = newPathsData.slice(-1000);
+      // 🔥 OPTIMIZACIÓN CRÍTICA: Limitar paths guardados a MAX_PATHS_MEMORY (150)
+      // Esto previene que el JSON crezca demasiado y cause OOM
+      const limitedPaths = newPathsData.slice(-MAX_PATHS_MEMORY);
       
       const pathsString = JSON.stringify(limitedPaths);
       // Validación de tamaño antes de persistir (coherente con backend ~0.9MB)
@@ -878,11 +880,12 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
       setUndoStack([]);
     }
     
-    // Actualizar estados con límite de memoria
+    // Actualizar estados con límite de memoria - AGRESIVO
     setPaths((prevState) => {
       const newPaths = [...prevState, newPath];
-      // Limitar paths en memoria para performance
+      // 🔥 OPTIMIZACIÓN: Limitar paths AGRESIVAMENTE para prevenir GC stack overflow
       if (newPaths.length > MAX_PATHS_MEMORY) {
+        console.log(`⚠️ Límite de paths alcanzado (${newPaths.length}), limpiando a ${MAX_PATHS_MEMORY}`);
         return newPaths.slice(-MAX_PATHS_MEMORY);
       }
       return newPaths;
@@ -891,7 +894,7 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
     setPathsData((prevData) => {
       const newData = [...prevData, newPathData];
       
-      // Limitar paths data para performance
+      // 🔥 OPTIMIZACIÓN: Limitar paths data AGRESIVAMENTE
       const limitedData = newData.length > MAX_PATHS_MEMORY 
         ? newData.slice(-MAX_PATHS_MEMORY) 
         : newData;
@@ -1567,63 +1570,86 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
       currentColor,
       currentStrokeWidth
     }: any) => {
+      // 🔥 OPTIMIZACIÓN: Limitar fotos renderizadas a MAX_PHOTOS_RENDERED
+      const visiblePhotos = photoItems.slice(0, MAX_PHOTOS_RENDERED);
+      
+      // 🔥 OPTIMIZACIÓN: Usar useMemo para paths filtrados
+      const normalPaths = useMemo(() => 
+        pathsData
+          .filter((pd: any) => pd.penType === 0 || !pd.penType)
+          .map((pd: any, filterIdx: number) => {
+            const idx = pathsData.indexOf(pd);
+            const path = paths[idx];
+            if (!path) return null;
+            const displayColor = pd.isEraser ? '#e0e0e0' : pd.color;
+            return { idx, path, displayColor, strokeWidth: pd.strokeWidth };
+          })
+          .filter(Boolean),
+        [pathsData, paths]
+      );
+
+      const telePaths = useMemo(() =>
+        pathsData
+          .filter((pd: any) => pd.penType === 1)
+          .map((pd: any) => {
+            const idx = pathsData.indexOf(pd);
+            const path = paths[idx];
+            if (!path) return null;
+            return { idx, path, color: pd.color, strokeWidth: pd.strokeWidth };
+          })
+          .filter(Boolean),
+        [pathsData, paths]
+      );
+
+      const highlightPaths = useMemo(() =>
+        pathsData
+          .filter((pd: any) => pd.penType === 2)
+          .map((pd: any) => {
+            const idx = pathsData.indexOf(pd);
+            const path = paths[idx];
+            if (!path) return null;
+            return { idx, path, color: pd.color, strokeWidth: pd.strokeWidth };
+          })
+          .filter(Boolean),
+        [pathsData, paths]
+      );
+      
       // Derivar estilo actual sólo si hay path en progreso
       let liveColor = isEraser ? '#e0e0e0' : selectedPen === 1 ? 'red' : selectedPen === 2 ? 'yellow' : currentColor;
       let liveStrokeWidth = isEraser ? currentStrokeWidth * 4 : selectedPen === 1 ? 2 : currentStrokeWidth;
+      
       return (
         <Canvas style={[styles.canvas, { height: canvasHeight }]}> 
-          {Children.toArray(pathsData
-            .filter((pd: any) => pd.penType === 0 || !pd.penType)
-            .map((pd: any) => {
-              const idx = pathsData.indexOf(pd);
-              const path = paths[idx];
-              if (!path) return null;
-              const displayColor = pd.isEraser ? '#e0e0e0' : pd.color;
-              return (
-                <Path
-                  key={`n-${idx}`}
-                  path={path}
-                  color={displayColor}
-                  style="stroke"
-                  strokeWidth={pd.strokeWidth}
-                  strokeCap="round"
-                  strokeJoin="round"
-                />
-              );
-            }))}
-          {Children.toArray(pathsData
-            .filter((pd: any) => pd.penType === 1)
-            .map((pd: any) => {
-              const idx = pathsData.indexOf(pd);
-              const path = paths[idx];
-              if (!path) return null;
-              return (
-                <Path
-                  key={`t-${idx}`}
-                  path={path}
-                  color={pd.color}
-                  style="stroke"
-                  strokeWidth={pd.strokeWidth}
-                  strokeCap="round"
-                  strokeJoin="round"
-                  opacity={0.8}
-                />
-              );
-            }))}
-          {Children.toArray(pathsData
-            .filter((pd: any) => pd.penType === 2)
-            .map((pd: any) => {
-              const idx = pathsData.indexOf(pd);
-              const path = paths[idx];
-              if (!path) return null;
-              return (
-                <Group key={`h-${idx}`}>
-                  <Path path={path} color={pd.color} style="fill" opacity={0.3} />
-                  <Path path={path} color={pd.color} style="stroke" strokeWidth={pd.strokeWidth} strokeCap="round" strokeJoin="round" opacity={0.5} />
-                </Group>
-              );
-            }))}
-          {photoItems.map((item: any) => (
+          {Children.toArray(normalPaths.map((pathInfo: any) => (
+            <Path
+              key={`n-${pathInfo.idx}`}
+              path={pathInfo.path}
+              color={pathInfo.displayColor}
+              style="stroke"
+              strokeWidth={pathInfo.strokeWidth}
+              strokeCap="round"
+              strokeJoin="round"
+            />
+          )))}
+          {Children.toArray(telePaths.map((pathInfo: any) => (
+            <Path
+              key={`t-${pathInfo.idx}`}
+              path={pathInfo.path}
+              color={pathInfo.color}
+              style="stroke"
+              strokeWidth={pathInfo.strokeWidth}
+              strokeCap="round"
+              strokeJoin="round"
+              opacity={0.8}
+            />
+          )))}
+          {Children.toArray(highlightPaths.map((pathInfo: any) => (
+            <Group key={`h-${pathInfo.idx}`}>
+              <Path path={pathInfo.path} color={pathInfo.color} style="fill" opacity={0.3} />
+              <Path path={pathInfo.path} color={pathInfo.color} style="stroke" strokeWidth={pathInfo.strokeWidth} strokeCap="round" strokeJoin="round" opacity={0.5} />
+            </Group>
+          )))}
+          {visiblePhotos.map((item: any) => (
             <SkiaPhoto key={item.uri} item={item} registerMeta={registerImageMeta} />
           ))}
           {currentPathDisplay && (
