@@ -342,117 +342,59 @@ export default function SelectSex() {
   // Función para exportar folder con patrón transaccional
   const handleExportFolder = async () => {
     if (!selectedFolder) {
-      Alert.alert("Error", "Por favor selecciona un folder para exportar");
+      Alert.alert('Error', 'No hay carpeta seleccionada para exportar.');
       return;
     }
-    
-    setIsExporting(true);
-    try {
-      // Exportar datos del folder
-      const exportedData = await exportFolderData(selectedFolder.id);
-      
-      if (!exportedData) {
-        throw new Error("No se pudieron exportar los datos del folder");
-      }
 
-      // Crear archivo temporal
-      const fileName = `folder_${selectedFolder.name}_${new Date().toISOString().split('T')[0]}.json`;
+    try {
+      console.log('Calling exportFolderData from index...');
+      const exportedData = await exportFolderData(selectedFolder.id, (msg?: string, p?: number) => {
+        console.log('Export progress:', msg, p);
+      });
+      if (!exportedData) throw new Error('No data exported');
+
+      const safeFolderName = selectedFolder.name ? String(selectedFolder.name).replace(/[^a-z0-9-_]/gi, '_') : String(selectedFolder.id);
+      const fileName = `folder_${safeFolderName}_${new Date().toISOString().split('T')[0]}.json`;
       const fileUri = FileSystem.documentDirectory + fileName;
-      
       await FileSystem.writeAsStringAsync(fileUri, exportedData);
 
-      // Compartir archivo
       if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(fileUri, {
-          mimeType: 'application/json',
-          dialogTitle: 'Exportar Folder'
-        });
-        
-        Alert.alert(
-          "Éxito", 
-          "Folder exportado correctamente. El archivo ha sido compartido.",
-          [{ text: "OK", onPress: () => setShowExportModal(false) }]
-        );
+        try {
+          await Sharing.shareAsync(fileUri, { mimeType: 'application/json', dialogTitle: 'Exportar Folder' });
+        } catch (e) {
+          console.warn('Share canceled or failed', e);
+        }
       } else {
-        throw new Error("No se puede compartir archivos en este dispositivo");
+        Alert.alert('Export saved', `Export saved to ${fileUri}`);
       }
-
     } catch (error: any) {
-      console.error("❌ Error exporting folder:", String(error));
-      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
-      
-      Alert.alert(
-        "Error al exportar", 
-        `No se pudo exportar el folder: ${errorMessage}`,
-        [
-          {
-            text: 'Reintentar',
-            onPress: () => handleExportFolder()
-          },
-          {
-            text: 'Cancelar',
-            style: 'cancel',
-            onPress: () => setShowExportModal(false)
-          }
-        ]
-      );
-    } finally {
-      setIsExporting(false);
+      console.error('Error exporting folder (index):', error);
+      Alert.alert('Error', `Error exporting folder: ${error.message || error}`);
     }
   };
 
   // Función para importar folder con patrón transaccional
   const handleImportFolder = async () => {
-    setIsImporting(true);
     try {
-      // Seleccionar archivo
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/json', 'text/plain'],
-        copyToCacheDirectory: true
-      });
-
-      if (result.canceled) {
-        setIsImporting(false);
+      const result = await DocumentPicker.getDocumentAsync({ type: ['application/json', 'text/plain'], copyToCacheDirectory: true });
+      const canceled = (result as any).canceled === true || (result as any).type === 'cancel';
+      if (canceled) return;
+      const fileUri = (result as any).uri ?? (result as any).assets?.[0]?.uri;
+      if (!fileUri) {
+        Alert.alert('Error', 'No se pudo obtener la ruta del archivo.');
         return;
       }
 
-      // Leer archivo
-      const fileContent = await FileSystem.readAsStringAsync(result.assets[0].uri);
-      
-      // ✨ ACTUALIZADO: Importar en carpeta raíz (parentId = 0) para nueva estructura de carpetas anidadas
-      const success = await importFolderData(fileContent, 0);
-      
-      if (!success) {
-        throw new Error("Error al procesar el archivo de importación");
+      const fileContent = await FileSystem.readAsStringAsync(fileUri);
+      const success = await importFolderData(fileContent, 0, (msg?: string, p?: number) => console.log('Import progress:', msg, p));
+      if (success) {
+        Alert.alert('Success', 'Folder imported successfully.');
+      } else {
+        throw new Error('Import reported failure');
       }
-      
-      Alert.alert(
-        "Éxito", 
-        "Folder importado correctamente. Los datos se han agregado a la carpeta raíz.",
-        [{ text: "OK", onPress: () => setShowImportModal(false) }]
-      );
-
     } catch (error: any) {
-      console.error("❌ Error importing folder:", String(error));
-      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
-      
-      Alert.alert(
-        "Error al importar", 
-        `No se pudo importar el folder: ${errorMessage}`,
-        [
-          {
-            text: 'Reintentar',
-            onPress: () => handleImportFolder()
-          },
-          {
-            text: 'Cancelar',
-            style: 'cancel',
-            onPress: () => setShowImportModal(false)
-          }
-        ]
-      );
-    } finally {
-      setIsImporting(false);
+      console.error('Error importing folder (index):', error);
+      Alert.alert('Error', `Error importing folder: ${error.message || error}`);
     }
   };
 

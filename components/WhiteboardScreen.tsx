@@ -423,8 +423,8 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
 
       let pickedUri: string | null = null;
       
-      // Mostrar diálogo de selección de origen en Android
-      if (Platform.OS === 'android') {
+  // Mostrar diálogo de selección de origen en Android e iOS (incluye iPad)
+  if (Platform.OS === 'android' || Platform.OS === 'ios') {
         await appendPhotoImportLog({ step: 'android_show_picker_options' });
         
         // Usar Alert con opciones para elegir entre Galería o Archivos (OneDrive, etc.)
@@ -488,9 +488,6 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
           await appendPhotoImportLog({ step: 'android_files_selected' });
           pickedUri = await pickImageUriViaDocumentPicker();
         }
-      } else if (Platform.OS === 'ios') {
-        // iOS: usar DocumentPicker por estabilidad
-        pickedUri = await pickImageUriViaDocumentPicker();
       } else {
         // Web: usar ImagePicker
         const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -1369,7 +1366,8 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
     .runOnJS(true)
     .minDistance(5)
     .onStart((event) => {
-      const { x, y, pointerType } = event;
+  const { x, y } = event;
+  const pointerType = (event as any).pointerType ?? 0;
       const photoUri = findPhotoAtPoint(x, y);
       
       if (photoUri) {
@@ -1401,7 +1399,8 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
       setCurrentPathDisplay(currentPath.current.copy());
     })
     .onUpdate((event) => {
-      const { x, y, translationX, translationY, pointerType } = event;
+  const { x, y, translationX, translationY } = event;
+  const pointerType = (event as any).pointerType ?? 0;
       
       // Si hay foto seleccionada, moverla
       if (selectedPhotoRef.current && photoGestureStartRef.current) {
@@ -1421,7 +1420,7 @@ const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
       }
     })
     .onEnd((event) => {
-      const { pointerType } = event;
+  const pointerType = (event as any).pointerType ?? 0;
       
       // Resetear inicio de gesto de foto
       if (selectedPhotoRef.current) {

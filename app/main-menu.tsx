@@ -1402,23 +1402,16 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
   // Función para exportar folder
   const handleExportFolder = async () => {
     if (!selectedFolder) {
-      Alert.alert("Error", "Please select a folder to export");
+      Alert.alert('Error', 'No hay carpeta seleccionada para exportar.');
       return;
     }
-    
-    if (isLoadingOperation) return;
-    
-    console.log("Starting export with userId:", userId, "and folderId:", selectedFolder.id);
-    
-    // Cerrar modal de exportación PRIMERO
-    setShowExportModal(false);
-    
+
     // Pequeño delay para asegurar que el modal se cierre completamente
     setTimeout(() => {
       // Mostrar barra de carga
-      showLoading("Preparing export...", 0);
+      showLoading('Preparing export...', 0);
       setIsExporting(true);
-      
+
       // Ejecutar la exportación asíncrona
       exportFolderAsync(selectedFolder.id, selectedFolder.name);
     }, 300);
@@ -1428,48 +1421,46 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
   const exportFolderAsync = async (folderId: number, folderName: string) => {
     try {
       // Exportar datos del folder con progreso
-  console.log("Calling exportFolderZip...");
-  const zipBytes = await exportFolderZip(folderId, updateLoading);
-  if (!zipBytes) {
-        throw new Error("No data exported");
+      console.log('Calling exportFolderData...');
+      const exportedData = await exportFolderData(folderId, updateLoading);
+      if (!exportedData) {
+        throw new Error('No data exported');
       }
-  console.log("Export successful, bytes:", zipBytes.length);
-  updateLoading("Creating file...", 97);
-  // Crear archivo temporal ZIP
-  const fileName = `folder_${folderName}_${new Date().toISOString().split('T')[0]}.zip`;
-  const fileUri = FileSystem.documentDirectory + fileName;
-  // Guardar bytes en Base64
-  const base64 = Buffer.from(zipBytes).toString('base64');
-  await FileSystem.writeAsStringAsync(fileUri, base64, { encoding: FileSystem.EncodingType.Base64 });
-      updateLoading("Preparing to share...", 99);
+      console.log('Export successful, data length:', exportedData.length);
+      updateLoading('Creating file...', 97);
+      // Crear archivo temporal
+      const safeFolderName = folderName ? folderName.replace(/[^a-z0-9-_]/gi, '_') : String(folderId);
+      const fileName = `folder_${safeFolderName}_${new Date().toISOString().split('T')[0]}.json`;
+      const fileUri = FileSystem.documentDirectory + fileName;
+      await FileSystem.writeAsStringAsync(fileUri, exportedData);
+      updateLoading('Preparing to share...', 99);
       // Share file
       if (await Sharing.isAvailableAsync()) {
-        updateLoading("Sharing file...", 100);
+        updateLoading('Sharing file...', 100);
         try {
           await Sharing.shareAsync(fileUri, {
-    mimeType: 'application/zip',
-    dialogTitle: 'Exportar Folder',
-    UTI: 'public.zip-archive'
+            mimeType: 'application/json',
+            dialogTitle: 'Exportar Folder'
           });
         } catch (shareError) {
-          console.warn("Sharing cancelled or failed:", shareError);
+          console.warn('Sharing cancelled or failed:', shareError);
         }
         hideLoading();
         Alert.alert(
-          "Success", 
-          "Folder exported successfully. The file has been shared.",
-          [{ text: "OK", onPress: () => {
+          'Success', 
+          'Folder exported successfully. The file has been shared.',
+          [{ text: 'OK', onPress: () => {
             setMenuVisible(false);
           }}]
         );
       } else {
         hideLoading();
-        Alert.alert("Error", "Sharing is not available on this device.");
+        Alert.alert('Error', 'Sharing is not available on this device.');
       }
     } catch (error: any) {
-      console.error("Error exporting folder:", error);
+      console.error('Error exporting folder:', error);
       hideLoading();
-      Alert.alert("Error", `Error exporting folder: ${error.message || error}`);
+      Alert.alert('Error', `Error exporting folder: ${error.message || error}`);
     } finally {
       setIsExporting(false);
     }
@@ -1481,13 +1472,22 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
     try {
       // Seleccionar archivo PRIMERO, sin mostrar barra de carga aún
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/zip', 'application/x-zip-compressed', 'application/json', 'text/plain'],
+        type: ['application/json', 'text/plain'],
         copyToCacheDirectory: true
       });
 
-      if (result.canceled) {
+      // Different versions of the API return different shapes
+      const canceled = (result as any).canceled === true || (result as any).type === 'cancel';
+      if (canceled) {
         setIsImporting(false);
         // No cerrar el modal, el usuario puede intentar de nuevo
+        return;
+      }
+
+      // Obtener URI del archivo (compatibilidad con diferentes versiones)
+      const fileUri = (result as any).uri ?? (result as any).assets?.[0]?.uri;
+      if (!fileUri) {
+        Alert.alert('Error', 'No se pudo obtener la ruta del archivo.');
         return;
       }
 
@@ -1497,61 +1497,54 @@ const handleSelectFolderForCompetitionMove = async (folderId: number) => {
       // Pequeño delay para asegurar que el modal se cierre completamente
       setTimeout(() => {
         // Ahora mostrar barra de carga
-        showLoading("Reading file...", 5);
+        showLoading('Reading file...', 5);
         setIsImporting(true);
         // Ejecutar la importación asíncrona
-  importFileAsync(result.assets[0].uri, result.assets[0].mimeType || result.assets[0].name);
+        importFileAsync(fileUri);
       }, 300);
 
     } catch (error: any) {
-      console.error("Error selecting file:", error);
-      Alert.alert("Error", `Error selecting file: ${error.message || error}`);
+      console.error('Error selecting file:', error);
+      Alert.alert('Error', `Error selecting file: ${error.message || error}`);
     }
   };
 
   // Nueva función para manejar la importación asíncrona
-  const importFileAsync = async (fileUri: string, mimeOrName?: string) => {
+  const importFileAsync = async (fileUri: string) => {
     try {
-      const isZip = (mimeOrName || '').includes('.zip') || (mimeOrName || '').includes('zip');
-      let importedOk = false;
-      if (isZip) {
-        // Leer como bytes base64 y convertir a Uint8Array
-        const b64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
-        const bytes = Uint8Array.from(Buffer.from(b64, 'base64'));
-        const targetFolderId = currentParentId || 0;
-        importedOk = await importFolderZip(bytes, targetFolderId, updateLoading);
-      } else {
-        const fileContent = await FileSystem.readAsStringAsync(fileUri);
-        const targetFolderId = currentParentId || 0; // 0 para carpetas raíz
-        importedOk = await importFolderData(fileContent, targetFolderId, updateLoading);
-      }
-      
-      if (importedOk) {
-        updateLoading("Updating list...", 98);
+      // Leer archivo
+      const fileContent = await FileSystem.readAsStringAsync(fileUri);
+
+      // ✨ ACTUALIZADO: Usar currentParentId en lugar de userId para importar en la carpeta actual
+      const targetFolderId = currentParentId || 0; // 0 para carpetas raíz
+      const success = await importFolderData(fileContent, targetFolderId, updateLoading);
+
+      if (success) {
+        updateLoading('Updating list...', 98);
 
         // ✨ ACTUALIZADO: Recargar carpetas y competencias del nivel actual
         await fetchFolders();
 
-        updateLoading("Completed", 100);
+        updateLoading('Completed', 100);
 
         setTimeout(() => {
           hideLoading();
           Alert.alert(
-            "Success", 
-            "Folder imported successfully.",
-            [{ text: "OK", onPress: () => {
+            'Success', 
+            'Folder imported successfully. The data has been added to your account.',
+            [{ text: 'OK', onPress: () => {
               setMenuVisible(false);
             }}]
           );
         }, 500);
       } else {
-        throw new Error("Error processing import file");
+        throw new Error('Error processing import file');
       }
 
     } catch (error: any) {
-      console.error("Error importing folder:", error);
+      console.error('Error importing folder:', error);
       hideLoading();
-      Alert.alert("Error", `Error importing folder: ${error.message || error}`);
+      Alert.alert('Error', `Error importing folder: ${error.message || error}`);
     } finally {
       setIsImporting(false);
     }

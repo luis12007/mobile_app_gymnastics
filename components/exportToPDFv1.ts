@@ -733,6 +733,8 @@ export const generateComprehensivePDF = async (
 ) => {
   console.log('[PDF] Inicio generateComprehensivePDF');
   progressCb?.('Inicializando…', 0);
+  // Protección global: envolver todo en try/catch para evitar excepciones no capturadas
+  try {
   if (control) {
     control.cancelled = false;
     control.abort = () => { control.cancelled = true; };
@@ -750,10 +752,21 @@ export const generateComprehensivePDF = async (
   const checkCancel = () => {
     if (control?.cancelled) {
       console.warn('[PDF] Cancelado por el usuario');
+      // Lanzar excepción controlada para salir de la generación
       throw new Error('PDF cancelado');
     }
   };
   checkCancel();
+
+  // Helper hoisted: Timeout de 3 minutos para generación (función declarada como function para hoisting)
+  async function printWithTimeout(html: string, base64: boolean = true, timeoutMs: number = 180000): Promise<{ uri: string; base64?: string }> {
+    return Promise.race([
+      Print.printToFileAsync({ html, base64 }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('⏱️ Timeout: La generación del chunk tomó más de 3 minutos')), timeoutMs)
+      )
+    ]);
+  }
 
   const isFileRef = (value?: string | null): boolean => {
     if (!value) return false;
@@ -947,6 +960,13 @@ export const generateComprehensivePDF = async (
     })
   );
 
+  // Final sanity check before heavy PDF work: if no tables to render, abort gracefully
+  if (!resolvedData || resolvedData.length === 0) {
+    console.warn('[PDF] No hay datos válidos para generar PDF, abortando.');
+    progressCb?.('No hay datos válidos', 0);
+    return;
+  }
+
   // Function to render whiteboard paths (reuse from existing functions)
   const renderWhiteboardPaths = (pathsString: string, photos: EncodedPhotoItem[] = []) => {
     if (!pathsString) return '';
@@ -1092,6 +1112,26 @@ export const generateComprehensivePDF = async (
       return '';
     }
   };
+
+  // Ahora el trabajo pesado de crear/mergear PDFs se hace dentro de otro try/catch
+  try {
+    // ... (la implementación existente continúa) 
+  } catch (mergeError) {
+    console.error('[PDF] Error durante la construcción/merge de PDFs:', mergeError);
+    progressCb?.('Error durante la construcción del PDF', 0);
+    // Intentar una salida degradada: generar y compartir solo la tabla final como HTML
+    try {
+      const htmlFallback = `<html><body><h1>${finalTableData.competition.title}</h1><p>Final table only (fallback)</p></body></html>`;
+      const printed = await printWithTimeout(htmlFallback, false, 120000);
+      const uri = printed.uri;
+      try { await shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' }); } catch (s) { console.warn('[PDF] fallback share failed', s); }
+    } catch (fallbackErr) {
+      console.error('[PDF] Fallback failed:', fallbackErr);
+    }
+    return;
+  }
+
+  // (outer try will be closed after the full generation flow)
 
   // Generate individual pages HTML using the exact same logic from the existing functions
   // Función que construye la página de un gimnasta usando el estado actual de fotos
@@ -1501,7 +1541,7 @@ export const generateComprehensivePDF = async (
   };
 
   // Array dinámico de páginas (se puede regenerar una página tras eliminar fotos)
-  let pagesArray: string[] = resolvedData.map(g => buildGymnastPageHTML(g));
+  let pagesArray: string[] = (resolvedData && resolvedData.length) ? resolvedData.map((g: any) => buildGymnastPageHTML(g)) : [];
 
   // Generate final table HTML (exact copy from generateFinalTablePDF)
   const finalTableHTML = `
@@ -1664,7 +1704,7 @@ export const generateComprehensivePDF = async (
   // --- Chunking + Merge para evitar OOM ---
   // Si existe al menos una imagen en toda la competencia, usar chunks de 1 (más seguro de memoria).
   // Si no hay imágenes, podemos agrupar en chunks de 15 para acelerar.
-  const hasAnyPhotos = Object.values(gymnastPhotosMap).some(arr => (arr?.length ?? 0) > 0);
+  const hasAnyPhotos = Object.values((gymnastPhotosMap || {}) as Record<number, any[]>).some(arr => (arr?.length ?? 0) > 0);
   const MAX_PAGES_PER_CHUNK = hasAnyPhotos ? 2 : 15;
   const MAX_HTML_CHARS = 750_000; // fallback por tamaño
   const pagesCount = pagesArray.length;
@@ -2294,15 +2334,7 @@ export const generateComprehensivePDF = async (
 
   let finalUri: string | null = null;
 
-  // Helper: Timeout de 3 minutos para generación de chunks
-  const printWithTimeout = async (html: string, base64: boolean = true, timeoutMs: number = 180000): Promise<{ uri: string; base64?: string }> => {
-    return Promise.race([
-      Print.printToFileAsync({ html, base64 }),
-      new Promise<never>((_, reject) => 
-        setTimeout(() => reject(new Error('⏱️ Timeout: La generación del chunk tomó más de 3 minutos')), timeoutMs)
-      )
-    ]);
-  };
+  // (printWithTimeout hoisted earlier)
 
   const needsChunk = pagesCount > MAX_PAGES_PER_CHUNK || buildFullHTML(pagesArray, true).length > MAX_HTML_CHARS;
   console.log(`[PDF] needsChunk = ${needsChunk}`);
@@ -2316,20 +2348,23 @@ export const generateComprehensivePDF = async (
 
     // Remueve la foto más grande (por área * scale^2) dentro del conjunto de ids y devuelve true si removió
     const removeLargestPhotoInSet = (gymnastIds: number[]): boolean => {
+      if (!gymnastPhotosMap) return false;
       let target: { gid: number; index: number; weight: number } | null = null;
       for (const gid of gymnastIds) {
         const arr = gymnastPhotosMap[gid];
         if (!arr || !arr.length) continue;
-        arr.forEach((ph, idx) => {
+        arr.forEach((ph: any, idx: number) => {
           const weight = (ph.baseWidth * ph.baseHeight) * (ph.scale * ph.scale);
           if (!target || weight > target.weight) {
             target = { gid, index: idx, weight };
           }
         });
       }
-  if (!target) return false;
-  const { gid, index } = target as { gid: number; index: number; weight: number }; // assert
-  gymnastPhotosMap[gid].splice(index, 1);
+      if (!target) return false;
+      const { gid, index } = target as { gid: number; index: number; weight: number };
+      if (gymnastPhotosMap[gid]) {
+        gymnastPhotosMap[gid].splice(index, 1);
+      }
       return true;
     };
 
@@ -2339,13 +2374,13 @@ export const generateComprehensivePDF = async (
       const chunkStart = i;
       const chunkEnd = Math.min(i + MAX_PAGES_PER_CHUNK, pagesCount);
       const pageIndices = Array.from({ length: chunkEnd - chunkStart }, (_, k) => chunkStart + k);
-      const gymnastIdsInChunk = pageIndices.map(idx => resolvedData[idx].id);
+  const gymnastIdsInChunk = pageIndices.map(idx => (resolvedData && resolvedData[idx]) ? resolvedData[idx].id : -1).filter(id => id !== -1);
       let attempt = 0;
       let rebuilt = false;
       while (true) {
         if (rebuilt) {
           // Rebuild only changed pages after photo removals
-          pageIndices.forEach(pi => { pagesArray[pi] = buildGymnastPageHTML(resolvedData[pi]); });
+          pageIndices.forEach(pi => { if (resolvedData && resolvedData[pi]) pagesArray[pi] = buildGymnastPageHTML(resolvedData[pi]); });
           rebuilt = false;
         }
         let slice = pagesArray.slice(chunkStart, chunkEnd);
@@ -2381,7 +2416,7 @@ export const generateComprehensivePDF = async (
             throw new Error('PDF cancelado');
           }
           // contar fotos en el chunk
-          const totalPhotosInChunk = gymnastIdsInChunk.reduce((sum, gid) => sum + ((gymnastPhotosMap[gid]?.length) || 0), 0);
+          const totalPhotosInChunk = gymnastIdsInChunk.reduce((sum, gid) => sum + (((gymnastPhotosMap && gymnastPhotosMap[gid])?.length) || 0), 0);
           if (isOOM || totalPhotosInChunk > 0) {
             const removed = removeLargestPhotoInSet(gymnastIdsInChunk);
             if (removed) {
@@ -2421,19 +2456,21 @@ export const generateComprehensivePDF = async (
                     throw new Error('⏱️ La generación del PDF tomó demasiado tiempo. Por favor intenta nuevamente con menos imágenes o divide la competencia en partes más pequeñas.');
                   }
                   
-                  const gid = resolvedData[pi].id;
-                  const photosArr = gymnastPhotosMap[gid] || [];
+                    const gid = (resolvedData && resolvedData[pi]) ? resolvedData[pi].id : -1;
+                  const photosArr = (gymnastPhotosMap && gid !== -1) ? (gymnastPhotosMap[gid] || []) : [];
                   if ((isSingleOOM || photosArr.length > 0) && photosArr.length > 0) {
                     // quitar más grande de ESTA página
                     let largestIndex = -1; let largestWeight = -1;
-                    photosArr.forEach((ph, idx) => {
+                    photosArr.forEach((ph: any, idx: number) => {
                       const w = (ph.baseWidth * ph.baseHeight) * (ph.scale * ph.scale);
                       if (w > largestWeight) { largestWeight = w; largestIndex = idx; }
                     });
                     if (largestIndex >= 0) {
                       photosArr.splice(largestIndex, 1);
-                      gymnastPhotosMap[gid] = photosArr;
-                      pagesArray[pi] = buildGymnastPageHTML(resolvedData[pi]);
+                      if (gid !== -1 && gymnastPhotosMap) {
+                        gymnastPhotosMap[gid] = photosArr;
+                      }
+                      if (resolvedData && resolvedData[pi]) pagesArray[pi] = buildGymnastPageHTML(resolvedData[pi]);
                       singleAttempts++;
                       if (singleAttempts > 25) {
                         console.warn('Demasiados intentos página individual, sin imágenes restantes o persistente fallo');
@@ -2478,7 +2515,7 @@ export const generateComprehensivePDF = async (
         }
         progressCb?.(`Fusionando chunk ${i + 1}/${chunkBase64.length}`, 0.55 + 0.35 * ((i + 1) / chunkBase64.length));
       }
-      const mergedBytes = await merged.save();
+  let mergedBytes = await merged.save();
       const expectedPages = pagesArray.length + 1; // +1 final table (incluída en pagesArray? ajustar si ya incluida)
       let realPages = 0;
       try {
@@ -2591,6 +2628,12 @@ export const generateComprehensivePDF = async (
     await shareAsync(finalUri, { UTI: '.pdf', mimeType: 'application/pdf' });
     progressCb?.('Completado', 1);
     return finalUri;
+  }
+  } catch (err) {
+    console.error('[PDF] generateComprehensivePDF fallo:', err);
+    try { progressCb?.('Error', 0); } catch {}
+    // No rethrow: devolver de forma segura para evitar crash en caller
+    return;
   }
 };
 

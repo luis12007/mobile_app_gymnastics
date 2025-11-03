@@ -920,6 +920,7 @@ const performDelete = async () => {
 
     /* Enhanced start judging with validation and recovery */
     if (gymnasts.length > 0) {
+      try {
       let targetGymnastNumber = number !== 0 ? number : 1;
       let targetGymnast = gymnasts.find(g => g.number === targetGymnastNumber);
       
@@ -954,6 +955,10 @@ const performDelete = async () => {
         router.replace(
           `/main-floor?competenceId=${competenceId}&gymnastId=${validGymnastId}&event=${validEvent}&discipline=${discipline}&gymnast=${validGymnastId}&number=${targetGymnastNumber}&participants=${participants}&folderId=${folderId}`
         );
+      }
+      } catch (error:any) {
+        console.error('Error starting judging (handleSelectStart):', error);
+        Alert.alert('Error', 'No se pudo iniciar la evaluación. Intenta de nuevo.');
       }
     }
   };
@@ -1172,23 +1177,28 @@ if (invalids.length > 0) {
   setTimeout(() => setInvalidGymnastIds([]), 1000);
   return;
 }
-    // Validate and recover gymnast data
-    const validationResult = await validateAndRecoverGymnastData(gymnastId, number, false);
-    
-    if (!validationResult) {
-      return; // Error already shown in validation function
-    }
+    try {
+      // Validate and recover gymnast data
+      const validationResult = await validateAndRecoverGymnastData(gymnastId, number, false);
+      
+      if (!validationResult) {
+        return; // Error already shown in validation function
+      }
 
-    const { gymnastId: validGymnastId, event: validEvent } = validationResult;
+      const { gymnastId: validGymnastId, event: validEvent } = validationResult;
 
-    if (validEvent === "VT") {
-      router.replace(
-        `/main-jump?competenceId=${competenceId}&gymnastId=${validGymnastId}&event=${validEvent}&discipline=${discipline}&gymnast=${validGymnastId}&number=${number}&participants=${participants}&folderId=${folderId}`
-      );
-    } else {
-      router.replace(
-        `/main-floor?competenceId=${competenceId}&gymnastId=${validGymnastId}&event=${validEvent}&discipline=${discipline}&gymnast=${validGymnastId}&number=${number}&participants=${participants}&folderId=${folderId}`
-      );
+      if (validEvent === "VT") {
+        router.replace(
+          `/main-jump?competenceId=${competenceId}&gymnastId=${validGymnastId}&event=${validEvent}&discipline=${discipline}&gymnast=${validGymnastId}&number=${number}&participants=${participants}&folderId=${folderId}`
+        );
+      } else {
+        router.replace(
+          `/main-floor?competenceId=${competenceId}&gymnastId=${validGymnastId}&event=${validEvent}&discipline=${discipline}&gymnast=${validGymnastId}&number=${number}&participants=${participants}&folderId=${folderId}`
+        );
+      }
+    } catch (error:any) {
+      console.error('Error navigating to gymnast calculator:', error);
+      Alert.alert('Error', 'No se pudo abrir la pantalla de evaluación. Intenta de nuevo.');
     }
   };
 
@@ -2261,7 +2271,8 @@ const processAndInsertData = async (data: any[]) => {
                 <TouchableOpacity
                   style={styles.noCell}
                   onPress={async () => {
-                    if (!isDeleteMode) {
+                    if (isDeleteMode) return;
+                    try {
                       await gotogymnastcalculator(
                         competenceId,
                         gymnast.id,
@@ -2270,6 +2281,9 @@ const processAndInsertData = async (data: any[]) => {
                         gymnast.id,
                         gymnast.number
                       );
+                    } catch (err:any) {
+                      console.error('Unexpected error handling gymnast press:', err);
+                      Alert.alert('Error', 'Ocurrió un error al abrir la evaluación. Intenta de nuevo.');
                     }
                   }}
                   disabled={isDeleteMode}
