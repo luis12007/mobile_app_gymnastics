@@ -1,4 +1,4 @@
-import { useRef, useState, Children, useCallback, useEffect, memo, useMemo } from "react";
+import React, { useRef, useState, Children, useCallback, useEffect, memo, useMemo } from "react";
 import { View, StyleSheet, Dimensions, TouchableOpacity, Text, Animated, Image, Platform, Alert } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView, GestureType } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
@@ -147,7 +147,7 @@ const canvasHeight = (() => {
   return canvasHeight;
 })();
 
-const DrawingCanvas = ({ 
+const DrawingCanvasInner = ({ 
   rateGeneralId = 0, 
   tableId, 
   stickBonus = false, 
@@ -2496,5 +2496,50 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
+
+
+class WhiteboardErrorBoundaryJump extends React.Component<any, any> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(_error: any) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: any, info: any) {
+    console.error('WhiteboardErrorBoundaryJump caught error:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <Text>Ocurrió un error en la pizarra</Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const DrawingCanvas = (props: WhiteboardProps) => {
+  const { tableId } = props || {};
+  if (!tableId || typeof tableId !== 'number' || Number.isNaN(tableId)) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <Text>Whiteboard no disponible</Text>
+      </View>
+    );
+  }
+
+  return (
+    <WhiteboardErrorBoundaryJump>
+      <DrawingCanvasInner {...props} />
+    </WhiteboardErrorBoundaryJump>
+  );
+};
 
 export default DrawingCanvas;

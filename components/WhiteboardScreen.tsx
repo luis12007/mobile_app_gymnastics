@@ -1,4 +1,4 @@
-import { useRef, useState, Children, useCallback, useEffect, memo, useMemo } from "react";
+import React, { useRef, useState, Children, useCallback, useEffect, memo, useMemo } from "react";
 import { View, StyleSheet, Dimensions, TouchableOpacity, Text, Animated, Platform, Alert } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView, GestureType } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
@@ -103,7 +103,7 @@ const canvasHeight = (() => {
   return canvasHeight;
 })();
 
-const DrawingCanvas = ({ 
+const DrawingCanvasInner = ({ 
   rateGeneralId = 0, 
   tableId, 
   stickBonus = false, 
@@ -113,6 +113,14 @@ const DrawingCanvas = ({
   event,
   onLoaded
 }: WhiteboardProps) => {
+  // Defensive guard: if tableId is missing or invalid, render a safe placeholder and avoid DB/Skia work
+  if (!tableId || typeof tableId !== 'number' || tableId <= 0) {
+    return (
+      <View style={{ padding: 12, alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ color: '#666' }}>Whiteboard not available</Text>
+      </View>
+    );
+  }
   const currentPath = useRef<SkPath | null>(null);
   const [paths, setPaths] = useState<SkPath[]>([]);
   const [pathsData, setPathsData] = useState<PathData[]>([]);
@@ -2583,5 +2591,35 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
+// Simple Error Boundary to catch render-time errors inside the whiteboard and avoid crashing the whole app
+class WhiteboardErrorBoundary extends React.Component<any, any> {
+  constructor(props:any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error:any) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error:any, info:any) {
+    console.error('[WhiteboardErrorBoundary] caught error:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={{ padding: 12, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ color: '#b00' }}>An error occurred while loading the whiteboard.</Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const DrawingCanvas = (props: WhiteboardProps) => (
+  <WhiteboardErrorBoundary>
+    <DrawingCanvasInner {...props} />
+  </WhiteboardErrorBoundary>
+);
 
 export default DrawingCanvas;
