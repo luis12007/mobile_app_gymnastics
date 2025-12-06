@@ -2,6 +2,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   SafeAreaView,
   ScrollView,
@@ -12,6 +13,9 @@ import {
   Modal,
 } from 'react-native';
 import { getCompetitionById, Competition, getGymnastsByCompetition, Gymnast } from '../lib/database';
+import { generateAndSharePDF } from '../lib/pdfGenerator';
+import FolderExportModal from '../componentes/FolderExportModal';
+import FolderImportModal from '../componentes/FolderImportModal';
 
 const { width, height } = Dimensions.get("window");
 
@@ -58,6 +62,11 @@ const MainTable: React.FC = () => {
   const [tableData, setTableData] = useState<TableRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showFinishModal, setShowFinishModal] = useState(false);
+  const [generatingPDF, setGeneratingPDF] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState(0);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [exportModalVisible, setExportModalVisible] = useState(false);
+  const [importModalVisible, setImportModalVisible] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
 
   useEffect(() => {
@@ -73,19 +82,61 @@ const MainTable: React.FC = () => {
       setCompetition(comp);
       setGymnasts(gymList);
       
-      // Convert gymnasts to table rows with placeholder scoring data
-      const rows: TableRow[] = gymList.map(g => ({
-        id: g.id,
-        numero: g.numero,
-        gymnasta: g.gymnasta,
-        evento: g.evento,
-        noc: g.noc,
-        bib: g.bib,
-        j: 0, i: 0, h: 0, g: 0, f: 0, e: 0, d: 0, c: 0, b: 0, a: 0,
-        dv: 0, eg: 0, sb: 0, nd: 0, cv: 0, sv: 0,
-        eScore: 0, dScore: 0, eDelta: 0, delta: 0, percentage: 0,
-        comments: ''
-      }));
+      // Convert gymnasts to table rows with actual data
+      const rows: TableRow[] = gymList.map(g => {
+        // Calculate element group total from individual groups
+        const egTotal = (g.element_group1 || 0) + (g.element_group2 || 0) + 
+                       (g.element_group3 || 0) + (g.element_group4 || 0);
+        
+        // Calculate total difficulty score (D Score)
+        const dScore = (g.difficulty_values || 0) + egTotal + (g.cv || 0);
+        
+        // Calculate execution score (E Score)
+        const eScore = g.escore || 0;
+        
+        // Calculate total score
+        const totalScore = dScore + eScore + (g.bonus || 0) - (g.nd || 0);
+        
+        // Calculate execution delta (difference from perfect 10.0)
+        const eDelta = 10.0 - (g.execution || 0);
+        
+        // Calculate percentage (assuming max possible score)
+        const maxPossibleScore = dScore + 10.0;
+        const percentage = maxPossibleScore > 0 ? (totalScore / maxPossibleScore) * 100 : 0;
+        
+        return {
+          id: g.id,
+          numero: g.numero,
+          gymnasta: g.gymnasta || '',
+          evento: g.evento || '',
+          noc: g.noc || '',
+          bib: g.bib || '',
+          // Judge scores (deductions)
+          j: g.j || 0,
+          i: g.i || 0,
+          h: g.h || 0,
+          g: g.g || 0,
+          f: g.f || 0,
+          e: g.e || 0,
+          d: g.d || 0,
+          c: g.c || 0,
+          b: g.b || 0,
+          a: g.a || 0,
+          // Difficulty & Execution components
+          dv: g.difficulty_values || 0,  // Difficulty Value
+          eg: egTotal,  // Element Group total
+          sb: g.bonus || 0,  // Stick Bonus
+          nd: g.nd || 0,  // Neutral Deduction
+          cv: g.cv || 0,  // Connection Value
+          sv: g.sv || 0,  // Start Value
+          eScore: eScore,  // Execution Score
+          dScore: dScore,  // Difficulty Score
+          eDelta: eDelta,  // Execution Delta
+          delta: g.delta || 0,  // Overall Delta
+          percentage: percentage,  // Performance percentage
+          comments: g.comments || ''
+        };
+      });
       
       setTableData(rows);
     } catch (error) {
@@ -103,15 +154,90 @@ const MainTable: React.FC = () => {
     setShowFinishModal(true);
   };
 
-  const handleDownloadPDF = () => {
-    // TODO: Implement PDF download logic
-    console.log('Download PDF - To be implemented');
-    setShowFinishModal(false);
+  const handleDownloadPDF = async () => {
+    let progressInterval: any = null;
+    
+    try {
+      setShowFinishModal(false);
+      setGeneratingPDF(true);
+      setPdfProgress(0);
+      
+      // Simular progreso durante la generación
+      progressInterval = setInterval(() => {
+        setPdfProgress(prev => {
+          if (prev >= 90) {
+            return 90; // Mantener en 90% hasta que termine
+          }
+          return prev + 10;
+        });
+      }, 200);
+
+      // Generar y compartir el PDF
+      await generateAndSharePDF(competitionId, tableData);
+      
+      // Detener el intervalo y completar al 100%
+      if (progressInterval) clearInterval(progressInterval);
+      setPdfProgress(100);
+      
+      // Esperar un momento para mostrar el 100%
+      setTimeout(() => {
+        setGeneratingPDF(false);
+        setPdfProgress(0);
+        
+        Alert.alert(
+          'Éxito',
+          'El PDF se ha compartido correctamente',
+          [
+            { 
+              text: 'OK',
+              onPress: () => router.push('/')
+            }
+          ]
+        );
+      }, 500);
+    } catch (error: any) {
+      console.error('Error al generar PDF:', error);
+      
+      // Detener el intervalo en caso de error
+      if (progressInterval) clearInterval(progressInterval);
+      setGeneratingPDF(false);
+      setPdfProgress(0);
+      
+      // Verificar si el usuario canceló el share
+      const errorMessage = error?.message || '';
+      const isCancelled = errorMessage.includes('cancel') || errorMessage.includes('dismiss');
+      
+      if (!isCancelled) {
+        Alert.alert(
+          'Error',
+          `No se pudo ${errorMessage.includes('Timeout') ? 'compartir' : 'generar'} el PDF. Por favor intenta nuevamente.`,
+          [{ text: 'OK' }]
+        );
+      } else {
+        // Usuario canceló, navegar a inicio sin mostrar error
+        router.push('/');
+      }
+    }
   };
 
   const handleFinalize = () => {
     setShowFinishModal(false);
     router.push('/main-menu');
+  };
+
+  const handleMenuAction = (action: string) => {
+    setMenuVisible(false);
+    
+    switch (action) {
+      case 'export':
+        setExportModalVisible(true);
+        break;
+      case 'import':
+        setImportModalVisible(true);
+        break;
+      default:
+        break;
+    }
   };
 
   const handleRowPress = useCallback((row: TableRow) => {
@@ -131,11 +257,69 @@ const MainTable: React.FC = () => {
     </View>
   );
 
-  const renderDataCell = (value: string | number, width: number, isFirst?: boolean) => (
-    <View style={[styles.dataCell, { width }, isFirst && styles.firstCell]}>
-      <Text style={styles.dataText} numberOfLines={1}>{value}</Text>
-    </View>
-  );
+  // Component for cells with validation colors
+  const DataCell: React.FC<{
+    value: string | number;
+    width: number;
+    isFirst?: boolean;
+    columnType?: string;
+  }> = ({ value, width, isFirst, columnType }) => {
+    let cellStyle = styles.dataCell;
+    let styleProps: any = { width };
+
+    if (columnType === 'percentage') {
+      const stringValue = value.toString().replace('%', '');
+      const numValue = parseFloat(stringValue);
+      if (!isNaN(numValue)) {
+        if (numValue >= 90) {
+          styleProps.backgroundColor = '#d1f2eb';
+        } else if (numValue >= 70) {
+          styleProps.backgroundColor = '#fff3cd';
+        } else {
+          styleProps.backgroundColor = '#f8d7da';
+        }
+      }
+      return (
+        <View style={[cellStyle, styleProps, isFirst && styles.firstCell]}>
+          <Text style={styles.dataText} numberOfLines={1}>{value}</Text>
+        </View>
+      );
+    }
+    console.log('Rendering DataCell:', { value, columnType });
+
+    if (columnType === 'sv') {
+      // Validación: verde si dScore === sv, rojo si no
+      const dScoreValue = typeof value === 'number' ? value : parseFloat(value.toString());
+            const stringValue = value.toString().replace('%', '');
+      const numValue = parseFloat(stringValue);
+      console.log('Validando SV vs D Score:', { dScoreValue, styleProps });
+      console.log('Validando SV vs D Score:', { dScoreValue, styleProps });
+
+      // Buscar el SV correspondiente en la fila
+      // El valor SV se pasa en la misma fila, así que se puede acceder por props si se modifica el renderDataCell
+      // Aquí, como workaround, se puede usar styleProps.extraSv si se pasa como prop
+      if (Math.abs(numValue - dScoreValue) < 0.001) {
+          styleProps.backgroundColor = '#d1f2eb'; // verde
+        } else {
+          styleProps.backgroundColor = '#f8d7da'; // rojo
+        }
+      return (
+        <View style={[cellStyle, styleProps, isFirst && styles.firstCell]}>
+          <Text style={styles.dataText} numberOfLines={1}>{value}</Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={[cellStyle, styleProps, isFirst && styles.firstCell]}>
+        <Text style={styles.dataText} numberOfLines={1}>{value}</Text>
+      </View>
+    );
+  };
+
+  const renderDataCell = (value: string | number, width: number, isFirst?: boolean, columnType?: string) => {
+    return <DataCell value={value} width={width} isFirst={isFirst} columnType={columnType} />;
+  };
 
   const renderRow = useCallback(({ item }: { item: TableRow }) => (
     <TouchableOpacity 
@@ -148,27 +332,27 @@ const MainTable: React.FC = () => {
       {renderDataCell(item.evento, 60)}
       {renderDataCell(item.noc, 60)}
       {renderDataCell(item.bib, 60)}
-      {renderDataCell(item.j, 50)}
-      {renderDataCell(item.i, 50)}
-      {renderDataCell(item.h, 50)}
-      {renderDataCell(item.g, 50)}
-      {renderDataCell(item.f, 50)}
-      {renderDataCell(item.e, 50)}
-      {renderDataCell(item.d, 50)}
-      {renderDataCell(item.c, 50)}
-      {renderDataCell(item.b, 50)}
-      {renderDataCell(item.a, 50)}
-      {renderDataCell(item.dv, 60)}
-      {renderDataCell(item.eg, 50)}
-      {renderDataCell(item.sb, 50)}
-      {renderDataCell(item.nd, 50)}
-      {renderDataCell(item.cv, 50)}
-      {renderDataCell(item.sv, 60)}
-      {renderDataCell(item.eScore.toFixed(2), 70)}
+      {renderDataCell(item.j === 0 ? '-' : item.j.toFixed(2), 50)}
+      {renderDataCell(item.i === 0 ? '-' : item.i.toFixed(2), 50)}
+      {renderDataCell(item.h === 0 ? '-' : item.h.toFixed(2), 50)}
+      {renderDataCell(item.g === 0 ? '-' : item.g.toFixed(2), 50)}
+      {renderDataCell(item.f === 0 ? '-' : item.f.toFixed(2), 50)}
+      {renderDataCell(item.e === 0 ? '-' : item.e.toFixed(2), 50)}
+      {renderDataCell(item.d === 0 ? '-' : item.d.toFixed(2), 50)}
+      {renderDataCell(item.c === 0 ? '-' : item.c.toFixed(2), 50)}
+      {renderDataCell(item.b === 0 ? '-' : item.b.toFixed(2), 50)}
+      {renderDataCell(item.a === 0 ? '-' : item.a.toFixed(2), 50)}
+      {renderDataCell(item.dv.toFixed(2), 60, false, 'dv')}
+      {renderDataCell(item.eg.toFixed(2), 50)}
+      {renderDataCell(item.sb.toFixed(2), 50)}
+      {renderDataCell(item.nd.toFixed(2), 50)}
+      {renderDataCell(item.cv.toFixed(2), 50)}
+      {renderDataCell(item.sv.toFixed(2), 60)}
+      {renderDataCell(item.eScore.toFixed(3), 70)}
       {renderDataCell(item.dScore.toFixed(2), 70)}
       {renderDataCell(item.eDelta.toFixed(2), 70)}
-      {renderDataCell(item.delta.toFixed(2), 70)}
-      {renderDataCell(item.percentage.toFixed(1) + '%', 70)}
+      {renderDataCell(item.delta.toFixed(2), 70, false, 'delta')}
+      {renderDataCell(item.percentage.toFixed(1) + '%', 70, false, 'percentage')}
       {renderDataCell(item.comments || '-', 120)}
     </TouchableOpacity>
   ), [handleRowPress]);
@@ -240,33 +424,33 @@ const MainTable: React.FC = () => {
                   onPress={() => handleRowPress(item)}
                   activeOpacity={0.7}
                 >
-                  {renderDataCell(item.numero, 60, true)}
-                  {renderDataCell(item.gymnasta, 150)}
-                  {renderDataCell(item.evento, 60)}
-                  {renderDataCell(item.noc, 60)}
-                  {renderDataCell(item.bib, 60)}
-                  {renderDataCell(item.j, 50)}
-                  {renderDataCell(item.i, 50)}
-                  {renderDataCell(item.h, 50)}
-                  {renderDataCell(item.g, 50)}
-                  {renderDataCell(item.f, 50)}
-                  {renderDataCell(item.e, 50)}
-                  {renderDataCell(item.d, 50)}
-                  {renderDataCell(item.c, 50)}
-                  {renderDataCell(item.b, 50)}
-                  {renderDataCell(item.a, 50)}
-                  {renderDataCell(item.dv, 60)}
-                  {renderDataCell(item.eg, 50)}
-                  {renderDataCell(item.sb, 50)}
-                  {renderDataCell(item.nd, 50)}
-                  {renderDataCell(item.cv, 50)}
-                  {renderDataCell(item.sv, 60)}
-                  {renderDataCell(item.eScore.toFixed(2), 70)}
-                  {renderDataCell(item.dScore.toFixed(2), 70)}
-                  {renderDataCell(item.eDelta.toFixed(2), 70)}
-                  {renderDataCell(item.delta.toFixed(2), 70)}
-                  {renderDataCell(item.percentage.toFixed(1) + '%', 70)}
-                  {renderDataCell(item.comments || '-', 120)}
+                  {renderDataCell(item.numero, 60, true, 'numero')}
+                  {renderDataCell(item.gymnasta, 150, false, 'gymnasta')}
+                  {renderDataCell(item.evento, 60, false, 'evento')}
+                  {renderDataCell(item.noc, 60, false, 'noc')}
+                  {renderDataCell(item.bib, 60, false, 'bib')}
+                  {renderDataCell(item.j, 50, false, 'j')}
+                  {renderDataCell(item.i, 50, false, 'i')}
+                  {renderDataCell(item.h, 50, false, 'h')}
+                  {renderDataCell(item.g, 50, false, 'g')}
+                  {renderDataCell(item.f, 50, false, 'f')}
+                  {renderDataCell(item.e, 50, false, 'e')}
+                  {renderDataCell(item.d, 50, false, 'd')}
+                  {renderDataCell(item.c, 50, false, 'c')}
+                  {renderDataCell(item.b, 50, false, 'b')}
+                  {renderDataCell(item.a, 50, false, 'a')}
+                  {renderDataCell(item.dv, 60, false, 'dv')}
+                  {renderDataCell(item.eg, 50, false, 'eg')}
+                  {renderDataCell(item.sb, 50, false, 'sb')}
+                  {renderDataCell(item.nd, 50, false, 'nd')}
+                  {renderDataCell(item.cv, 50, false, 'cv')}
+                  {renderDataCell(item.sv,60 , false, 'sv')}
+                  {renderDataCell(item.eScore.toFixed(2), 70, false, 'eScore')}
+                  {renderDataCell(item.dScore.toFixed(2), 70, false, 'dScore')}
+                  {renderDataCell(item.eDelta.toFixed(2), 70, false, 'eDelta')}
+                  {renderDataCell(item.delta.toFixed(2), 70, false, 'delta')}
+                  {renderDataCell(item.percentage.toFixed(1) + '%', 70, false, 'percentage')}
+                  {renderDataCell(item.comments || '-', 120, false, 'comments')}
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -306,6 +490,83 @@ const MainTable: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      {/* PDF Generation Progress Modal */}
+      <Modal visible={generatingPDF} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Generando PDF</Text>
+            <Text style={styles.modalText}>Por favor espera...</Text>
+            
+            <View style={styles.progressBarContainer}>
+              <View style={[styles.progressBar, { width: `${pdfProgress}%` }]} />
+            </View>
+            
+            <Text style={styles.progressText}>{pdfProgress}%</Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Hamburger Menu Modal */}
+      <Modal
+        visible={menuVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setMenuVisible(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setMenuVisible(false)}
+        >
+          <View 
+            style={styles.menuModalContent}
+            onStartShouldSetResponder={() => true}
+          >
+            <Text style={styles.modalTitle}>Options</Text>
+            
+            <TouchableOpacity 
+              style={styles.modalButton}
+              onPress={() => handleMenuAction('import')}
+            >
+              <Text style={styles.menuButtonIcon}>📥</Text>
+              <Text style={styles.modalButtonText}>Import</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.modalButton}
+              onPress={() => handleMenuAction('export')}
+            >
+              <Text style={styles.menuButtonIcon}>📤</Text>
+              <Text style={styles.modalButtonText}>Export</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.modalButton, styles.cancelButton]}
+              onPress={() => setMenuVisible(false)}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Folder Export Modal */}
+      <FolderExportModal
+        visible={exportModalVisible}
+        onClose={() => setExportModalVisible(false)}
+      />
+
+      {/* Folder Import Modal */}
+      <FolderImportModal
+        visible={importModalVisible}
+        onClose={() => setImportModalVisible(false)}
+        currentFolderId={competition?.folder_id || null}
+        onImportComplete={() => {
+          setImportModalVisible(false);
+          loadData();
+        }}
+      />
     </SafeAreaView>
   );
 };
@@ -314,6 +575,36 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    backgroundColor: '#fff',
+  },
+  titleContainer: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  topBarTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  hamburgerButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  hamburgerIcon: {
+    fontSize: 28,
+    color: '#004aad',
+    fontWeight: 'bold',
   },
   loadingContainer: {
     flex: 1,
@@ -357,7 +648,6 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
     minHeight: 50,
@@ -369,11 +659,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRightWidth: 1,
     borderRightColor: '#E0E0E0',
+    backgroundColor: '#fff',
   },
   dataText: {
     fontSize: 13,
     color: '#333',
     textAlign: 'center',
+  },
+  cellGreen: {
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRightWidth: 1,
+    borderRightColor: '#E0E0E0',
+    backgroundColor: '#d1f2eb',
+  },
+  cellYellow: {
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRightWidth: 1,
+    borderRightColor: '#E0E0E0',
+    backgroundColor: '#fff3cd',
+  },
+  cellRed: {
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRightWidth: 1,
+    borderRightColor: '#E0E0E0',
+    backgroundColor: '#f8d7da',
   },
   footer: {
     flexDirection: 'row',
@@ -421,6 +739,17 @@ const styles = StyleSheet.create({
     width: width * 0.85,
     maxWidth: 400,
   },
+  menuModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    width: width * 0.75,
+    maxWidth: 350,
+  },
+  menuButtonIcon: {
+    fontSize: 24,
+    marginBottom: 4,
+  },
   modalTitle: {
     fontSize: 22,
     fontWeight: '700',
@@ -458,6 +787,26 @@ const styles = StyleSheet.create({
     color: '#666',
     fontSize: 16,
     fontWeight: '600',
+  },
+  progressBarContainer: {
+    width: '100%',
+    height: 8,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 4,
+    marginTop: 20,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    backgroundColor: '#004aad',
+    borderRadius: 4,
+  },
+  progressText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#004aad',
+    textAlign: 'center',
   },
 });
 

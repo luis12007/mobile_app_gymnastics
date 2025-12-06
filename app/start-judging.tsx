@@ -114,7 +114,12 @@ export default function StartJudging() {
   };
 
   const handleBack = () => {
-    router.back();
+    // Ir a la carpeta de la competencia
+    if (competition?.folder_id) {
+      router.push(`/folder/${competition.folder_id}`);
+    } else {
+      router.push('/main-menu');
+    }
   };
 
   const handleUndo = async () => {
@@ -600,8 +605,37 @@ export default function StartJudging() {
     }
   };
 
-  const navigateToGymnast = (gymnast: Gymnast) => {
+  const navigateToGymnast = (gymnast: Gymnast, skipValidation: boolean = false) => {
     if (!competition) return;
+
+    // Validate that gymnast has an event selected (unless skipping validation)
+    if (!skipValidation && (!gymnast.evento || gymnast.evento.trim() === '')) {
+      // Find the index of this gymnast in the full list
+      const gymnastIndex = gymnasts.findIndex(g => g.id === gymnast.id);
+      
+      if (gymnastIndex !== -1) {
+        // Scroll to the gymnast
+        scrollViewRef.current?.scrollTo({
+          y: gymnastIndex * 48, // Approximate row height
+          animated: true
+        });
+
+        // Highlight the row in red
+        setHighlightedRow(gymnastIndex);
+        
+        // Remove highlight after 1 second
+        setTimeout(() => {
+          setHighlightedRow(null);
+        }, 1000);
+      }
+
+      Alert.alert(
+        'Missing Event',
+        'Please select an event for this gymnast before starting judging.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
 
     // Check if event is VT (Vault)
     if (gymnast.evento === 'VT') {

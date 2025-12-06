@@ -2,6 +2,8 @@ import { View, Text, StyleSheet, TouchableOpacity, Modal, SafeAreaView, StatusBa
 import { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { getDiscipline, createFolder, getRootFolders, Folder, deleteFolder, updateFolder } from '../lib/database';
+import FolderExportModal from '../componentes/FolderExportModal';
+import FolderImportModal from '../componentes/FolderImportModal';
 
 const { width, height } = Dimensions.get('window');
 
@@ -18,6 +20,8 @@ export default function MainMenu() {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [folderName, setFolderName] = useState('');
   const [folderDescription, setFolderDescription] = useState('');
+  const [exportModalVisible, setExportModalVisible] = useState(false);
+  const [importModalVisible, setImportModalVisible] = useState(false);
 
   useEffect(() => {
     loadDiscipline();
@@ -43,7 +47,7 @@ export default function MainMenu() {
   };
 
   const handleBack = () => {
-    router.back();
+    router.push('/discipline-select');
   };
 
   const toggleMenu = () => {
@@ -61,6 +65,10 @@ export default function MainMenu() {
     } else if (action === 'delete') {
       setDeleteMode(true);
       setSelectedItems(new Set());
+    } else if (action === 'export') {
+      setExportModalVisible(true);
+    } else if (action === 'import') {
+      setImportModalVisible(true);
     }
   };
 
@@ -419,6 +427,23 @@ export default function MainMenu() {
           </ScrollView>
         </TouchableOpacity>
       </Modal>
+
+      {/* Folder Export Modal */}
+      <FolderExportModal
+        visible={exportModalVisible}
+        onClose={() => setExportModalVisible(false)}
+      />
+
+      {/* Folder Import Modal */}
+      <FolderImportModal
+        visible={importModalVisible}
+        onClose={() => setImportModalVisible(false)}
+        currentFolderId={null}
+        onImportComplete={() => {
+          setImportModalVisible(false);
+          loadFolders();
+        }}
+      />
     </SafeAreaView>
   );
 }

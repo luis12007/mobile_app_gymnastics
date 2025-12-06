@@ -2,6 +2,9 @@ import { View, Text, StyleSheet, TouchableOpacity, Modal, SafeAreaView, StatusBa
 import { useEffect, useState } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { getDiscipline, getSubfolders, getFolderById, getFolderPath, Folder, createFolder, createCompetition, getCompetitionsByFolder, Competition, deleteFolder, deleteCompetition, updateFolder, updateCompetition } from '../../lib/database';
+import FolderExportModal from '../../componentes/FolderExportModal';
+import FolderImportModal from '../../componentes/FolderImportModal';
+import CustomNumberPadOptimized from '../../componentes/CustomNumberPadOptimized';
 
 const { width, height } = Dimensions.get('window');
 
@@ -18,6 +21,8 @@ export default function FolderView() {
   const [deleteMode, setDeleteMode] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
+  const [exportModalVisible, setExportModalVisible] = useState(false);
+  const [importModalVisible, setImportModalVisible] = useState(false);
   const [currentFolder, setCurrentFolder] = useState<Folder | null>(null);
   const [breadcrumb, setBreadcrumb] = useState<Folder[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -33,6 +38,8 @@ export default function FolderView() {
   const [competitionDescription, setCompetitionDescription] = useState('');
   const [competitionGender, setCompetitionGender] = useState<'MAG' | 'WAG'>('MAG');
   const [competitionParticipants, setCompetitionParticipants] = useState('');
+  // Estado para mostrar el pad de participantes
+  const [showParticipantsPad, setShowParticipantsPad] = useState(false);
 
   useEffect(() => {
     loadDiscipline();
@@ -81,7 +88,12 @@ export default function FolderView() {
   };
 
   const handleBack = () => {
-    router.back();
+    // Ir al folder padre o al root
+    if (currentFolder?.parent_folder_id) {
+      router.push(`/folder/${currentFolder.parent_folder_id}`);
+    } else {
+      router.push('/main-menu');
+    }
   };
 
   const toggleMenu = () => {
@@ -99,6 +111,10 @@ export default function FolderView() {
     } else if (action === 'delete') {
       setDeleteMode(true);
       setSelectedItems(new Set());
+    } else if (action === 'export') {
+      setExportModalVisible(true);
+    } else if (action === 'import') {
+      setImportModalVisible(true);
     }
   };
 
@@ -557,14 +573,32 @@ export default function FolderView() {
                 numberOfLines={2}
               />
               
-              <TextInput
+              <TouchableOpacity
                 style={styles.input}
-                placeholder="Number of participants"
-                placeholderTextColor="#999"
+                onPress={() => setShowParticipantsPad(true)}
+                activeOpacity={0.8}
+              >
+                <Text style={{ color: competitionParticipants ? '#333' : '#999', fontSize: 16 }}>
+                  {competitionParticipants ? competitionParticipants : 'Number of participants'}
+                </Text>
+              </TouchableOpacity>
+
+              {/* CustomNumberPadOptimized para participantes */}
+              <CustomNumberPadOptimized
+                visible={showParticipantsPad}
                 value={competitionParticipants}
-                onChangeText={setCompetitionParticipants}
-                keyboardType="numeric"
+                onValueChange={setCompetitionParticipants}
+                onClose={(finalValue: string) => {
+                  setCompetitionParticipants(finalValue);
+                  setShowParticipantsPad(false);
+                }}
+                title="Number of participants"
+                allowDecimal={false}
+                maxLength={4}
               />
+                // ...existing code...
+                // Estado para mostrar el pad de participantes
+                const [showParticipantsPad, setShowParticipantsPad] = useState(false);
               
               <View style={styles.genderContainer}>
                 <Text style={styles.label}>Discipline:</Text>
@@ -686,6 +720,23 @@ export default function FolderView() {
           </ScrollView>
         </TouchableOpacity>
       </Modal>
+
+      {/* Folder Export Modal */}
+      <FolderExportModal
+        visible={exportModalVisible}
+        onClose={() => setExportModalVisible(false)}
+      />
+
+      {/* Folder Import Modal */}
+      <FolderImportModal
+        visible={importModalVisible}
+        onClose={() => setImportModalVisible(false)}
+        currentFolderId={currentFolder?.id || null}
+        onImportComplete={() => {
+          setImportModalVisible(false);
+          loadFolderData();
+        }}
+      />
     </SafeAreaView>
   );
 }
