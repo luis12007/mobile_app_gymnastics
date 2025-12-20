@@ -596,9 +596,6 @@ export default function FolderView() {
                 allowDecimal={false}
                 maxLength={4}
               />
-                // ...existing code...
-                // Estado para mostrar el pad de participantes
-                const [showParticipantsPad, setShowParticipantsPad] = useState(false);
               
               <View style={styles.genderContainer}>
                 <Text style={styles.label}>Discipline:</Text>

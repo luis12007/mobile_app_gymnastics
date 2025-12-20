@@ -1,6 +1,6 @@
 import * as Print from 'expo-print';
 import { shareAsync, isAvailableAsync } from 'expo-sharing';
-import { Platform, Alert } from 'react-native';
+import { Platform, Alert, Image } from 'react-native';
 import { PDFDocument } from 'pdf-lib';
 import { 
   getCompetitionById, 
@@ -137,6 +137,18 @@ async function printHtmlToPdf(html: string, label: string): Promise<string> {
   return uri;
 }
 
+const PDF_MIN_VALID_BYTES = 2048;
+
+async function getFileSizeBytes(uri: string): Promise<number> {
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    const size = info.exists && typeof (info as any).size === 'number' ? (info as any).size : 0;
+    return size;
+  } catch {
+    return 0;
+  }
+}
+
 async function generateCompetitionPDFChunked(
   competition: Competition,
   competitionId: number,
@@ -175,13 +187,93 @@ async function generateCompetitionPDFChunked(
           chunkRows.map(r => ({ id: r.id, numero: r.numero, evento: r.evento, gymnast: r.gymnasta }))
         );
 
+        const baseLabel = `[PDF][Chunk] Chunk ${chunkIndex + 1}`;
+
         const html = await generatePDFHTML(competition, tableData, gymnasts, {
           rowsForIndividualPages: chunkRows,
           includeIndividualPages: true,
           includeSummary: false,
           debugLabel: `chunk-${chunkIndex + 1}`,
+          whiteboardMode: 'full',
         });
-        const uri = await printHtmlToPdf(html, `[PDF][Chunk] Chunk ${chunkIndex + 1}`);
+
+        let uri: string | null = null;
+
+        try {
+          uri = await printHtmlToPdf(html, baseLabel);
+        } catch (err) {
+          // If a single-gymnast chunk fails due to memory, retry without images.
+          if (chunkSize === 1 && isPdfOutOfMemoryError(err)) {
+            console.warn('[PDF][Chunk] OOM while printing chunk; retrying with per-image embedding', {
+              chunkIndex: chunkIndex + 1,
+            });
+
+            const htmlPerImage = await generatePDFHTML(competition, tableData, gymnasts, {
+              rowsForIndividualPages: chunkRows,
+              includeIndividualPages: true,
+              includeSummary: false,
+              debugLabel: `chunk-${chunkIndex + 1}-perImage`,
+              whiteboardMode: 'perImage',
+            });
+
+            try {
+              uri = await printHtmlToPdf(htmlPerImage, `${baseLabel} (perImage)`);
+            } catch (err2) {
+              console.warn('[PDF][Chunk] perImage retry failed; retrying pathsOnly', {
+                chunkIndex: chunkIndex + 1,
+              });
+              const htmlNoImages = await generatePDFHTML(competition, tableData, gymnasts, {
+                rowsForIndividualPages: chunkRows,
+                includeIndividualPages: true,
+                includeSummary: false,
+                debugLabel: `chunk-${chunkIndex + 1}-pathsOnly`,
+                whiteboardMode: 'pathsOnly',
+              });
+              uri = await printHtmlToPdf(htmlNoImages, `${baseLabel} (pathsOnly)`);
+            }
+          } else {
+            throw err;
+          }
+        }
+
+        // Sometimes ExpoPrint returns a tiny PDF instead of throwing.
+        const size = uri ? await getFileSizeBytes(uri) : 0;
+        if (uri && size > 0 && size < PDF_MIN_VALID_BYTES) {
+          console.warn('[PDF][Chunk] Tiny PDF detected; retrying with per-image embedding', {
+            chunkIndex: chunkIndex + 1,
+            size,
+          });
+          await safeDeleteUris([uri], 'tiny chunk PDF');
+
+          const htmlPerImage = await generatePDFHTML(competition, tableData, gymnasts, {
+            rowsForIndividualPages: chunkRows,
+            includeIndividualPages: true,
+            includeSummary: false,
+            debugLabel: `chunk-${chunkIndex + 1}-perImage`,
+            whiteboardMode: 'perImage',
+          });
+          uri = await printHtmlToPdf(htmlPerImage, `${baseLabel} (perImage)`);
+
+          const size2 = uri ? await getFileSizeBytes(uri) : 0;
+          if (uri && size2 > 0 && size2 < PDF_MIN_VALID_BYTES) {
+            console.warn('[PDF][Chunk] perImage still produced tiny PDF; retrying pathsOnly', {
+              chunkIndex: chunkIndex + 1,
+              size: size2,
+            });
+            await safeDeleteUris([uri], 'tiny chunk PDF (perImage)');
+
+            const htmlNoImages = await generatePDFHTML(competition, tableData, gymnasts, {
+              rowsForIndividualPages: chunkRows,
+              includeIndividualPages: true,
+              includeSummary: false,
+              debugLabel: `chunk-${chunkIndex + 1}-pathsOnly`,
+              whiteboardMode: 'pathsOnly',
+            });
+            uri = await printHtmlToPdf(htmlNoImages, `${baseLabel} (pathsOnly)`);
+          }
+        }
+
+        if (!uri) throw new Error(`[PDF][Chunk] Failed to generate chunk ${chunkIndex + 1}`);
         chunkUris.push(uri);
       }
 
@@ -294,6 +386,7 @@ async function getJumpImageBase64(): Promise<string> {
 const PDF_IMAGE_OPT_MAX_WIDTH = 512;
 const PDF_IMAGE_OPT_COMPRESS = 0.72;
 const PDF_IMAGE_OPT_MIN_BYTES = 350_000;
+const PDF_IMAGE_EMBED_MAX_BYTES = 550_000;
 const pdfOptimizedImageCache = new Map<string, string>();
 
 type ExpoImageManipulatorModule = typeof import('expo-image-manipulator');
@@ -313,8 +406,13 @@ function getExpoImageManipulatorModule(): ExpoImageManipulatorModule | null {
 }
 
 function logPdfImageOptimizerStatus(label: string) {
-  const available = !!getExpoImageManipulatorModule();
+  const available = Platform.OS !== 'ios' && !!getExpoImageManipulatorModule();
   console.log(`[PDF][IMG] Optimizer ${available ? 'ENABLED' : 'DISABLED'} (${label})`);
+}
+
+function isPdfImageOptimizerEnabled(): boolean {
+  // Per user requirement: iOS must not use the image optimizer.
+  return Platform.OS !== 'ios' && !!getExpoImageManipulatorModule();
 }
 
 async function getOptimizedImageDataUri(originalUri: string): Promise<string> {
@@ -325,6 +423,37 @@ async function getOptimizedImageDataUri(originalUri: string): Promise<string> {
   try {
     const info = await FileSystem.getInfoAsync(originalUri);
     const originalSize = info.exists && typeof (info as any).size === 'number' ? (info as any).size : 0;
+
+    // iOS: never optimize (embed original).
+    if (!isPdfImageOptimizerEnabled()) {
+      // On iOS we prefer correctness/consistency; embed original image data directly.
+      if (originalSize > 0 && originalSize > PDF_IMAGE_EMBED_MAX_BYTES) {
+        console.warn('[PDF][IMG] Skipping embed (optimizer disabled + too large)', { originalSize, originalUri });
+        return '';
+      }
+      const base64 = await FileSystem.readAsStringAsync(originalUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const dataUri = `data:image/png;base64,${base64}`;
+      pdfOptimizedImageCache.set(originalUri, dataUri);
+      console.log('[PDF][IMG] Embedded original (optimizer disabled)', { originalSize, originalUri });
+      return dataUri;
+    }
+
+    const ImageManipulator = getExpoImageManipulatorModule();
+    if (!ImageManipulator) {
+      if (originalSize > 0 && originalSize > PDF_IMAGE_EMBED_MAX_BYTES) {
+        console.warn('[PDF][IMG] Skipping embed (optimizer unavailable + too large)', { originalSize, originalUri });
+        return '';
+      }
+      const base64 = await FileSystem.readAsStringAsync(originalUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const dataUri = `data:image/png;base64,${base64}`;
+      pdfOptimizedImageCache.set(originalUri, dataUri);
+      console.log('[PDF][IMG] Embedded original (optimizer unavailable)', { originalSize, originalUri });
+      return dataUri;
+    }
 
     // If already small, skip optimization.
     if (originalSize > 0 && originalSize < PDF_IMAGE_OPT_MIN_BYTES) {
@@ -337,17 +466,8 @@ async function getOptimizedImageDataUri(originalUri: string): Promise<string> {
       return dataUri;
     }
 
-    const ImageManipulator = getExpoImageManipulatorModule();
-    if (!ImageManipulator) {
-      const base64 = await FileSystem.readAsStringAsync(originalUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      const dataUri = `data:image/png;base64,${base64}`;
-      pdfOptimizedImageCache.set(originalUri, dataUri);
-      return dataUri;
-    }
-
-    const out = await ImageManipulator.manipulateAsync(
+    // Try 1: moderate resize + compress.
+    const attempt1 = await ImageManipulator.manipulateAsync(
       originalUri,
       [{ resize: { width: PDF_IMAGE_OPT_MAX_WIDTH } }],
       {
@@ -357,16 +477,47 @@ async function getOptimizedImageDataUri(originalUri: string): Promise<string> {
       }
     );
 
-    const optimizedInfo = await FileSystem.getInfoAsync(out.uri);
-    const optimizedSize = optimizedInfo.exists && typeof (optimizedInfo as any).size === 'number' ? (optimizedInfo as any).size : 0;
+    const info1 = await FileSystem.getInfoAsync(attempt1.uri);
+    const size1 = info1.exists && typeof (info1 as any).size === 'number' ? (info1 as any).size : 0;
+
+    // If still large, try 2: smaller width + stronger compression.
+    let finalUri = attempt1.uri;
+    let finalSize = size1;
+    if (size1 > PDF_IMAGE_EMBED_MAX_BYTES) {
+      const attempt2 = await ImageManipulator.manipulateAsync(
+        originalUri,
+        [{ resize: { width: 320 } }],
+        {
+          compress: 0.6,
+          format: ImageManipulator.SaveFormat.JPEG,
+          base64: false,
+        }
+      );
+      const info2 = await FileSystem.getInfoAsync(attempt2.uri);
+      const size2 = info2.exists && typeof (info2 as any).size === 'number' ? (info2 as any).size : 0;
+      if (size2 > 0 && size2 <= size1) {
+        finalUri = attempt2.uri;
+        finalSize = size2;
+      }
+    }
+
     console.log('[PDF][IMG] Optimized image', {
       originalSize,
-      optimizedSize,
+      optimizedSize: finalSize,
       originalUri,
-      optimizedUri: out.uri,
+      optimizedUri: finalUri,
     });
 
-    const base64 = await FileSystem.readAsStringAsync(out.uri, {
+    if (finalSize > 0 && finalSize > PDF_IMAGE_EMBED_MAX_BYTES) {
+      console.warn('[PDF][IMG] Skipping embed (optimized still too large)', {
+        originalSize,
+        optimizedSize: finalSize,
+        originalUri,
+      });
+      return '';
+    }
+
+    const base64 = await FileSystem.readAsStringAsync(finalUri, {
       encoding: FileSystem.EncodingType.Base64,
     });
     const dataUri = `data:image/jpeg;base64,${base64}`;
@@ -375,6 +526,12 @@ async function getOptimizedImageDataUri(originalUri: string): Promise<string> {
   } catch (error) {
     console.warn('[PDF][IMG] Optimization failed, falling back to original', { originalUri, error });
     try {
+      const info = await FileSystem.getInfoAsync(originalUri);
+      const originalSize = info.exists && typeof (info as any).size === 'number' ? (info as any).size : 0;
+      if (originalSize > 0 && originalSize > PDF_IMAGE_EMBED_MAX_BYTES) {
+        console.warn('[PDF][IMG] Skipping embed (fallback original too large)', { originalSize, originalUri });
+        return '';
+      }
       const base64 = await FileSystem.readAsStringAsync(originalUri, {
         encoding: FileSystem.EncodingType.Base64,
       });
@@ -567,6 +724,42 @@ function getImageSizeFromBase64(base64: string): { width: number; height: number
   return null;
 }
 
+function getImageSizeFromDataOrUriSync(dataOrUri: string): { width: number; height: number } | null {
+  if (typeof dataOrUri !== 'string' || dataOrUri.length === 0) return null;
+  if (dataOrUri.startsWith('data:')) return getImageSizeFromBase64(dataOrUri);
+  return null;
+}
+
+async function getImageSizeFromUriAsync(uri: string): Promise<{ width: number; height: number } | null> {
+  if (typeof uri !== 'string' || uri.length === 0) return null;
+  if (uri.startsWith('data:')) return getImageSizeFromBase64(uri);
+
+  return await new Promise((resolve) => {
+    try {
+      Image.getSize(
+        uri,
+        (width, height) => resolve({ width, height }),
+        () => resolve(null)
+      );
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+function compactSvgPathNumbers(pathString: string, decimals = 1): string {
+  if (typeof pathString !== 'string' || pathString.length === 0) return '';
+  const d = Math.max(0, Math.min(4, decimals));
+  // Replace numeric tokens with rounded versions to reduce string size.
+  return pathString.replace(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi, (m) => {
+    const n = Number(m);
+    if (!Number.isFinite(n)) return m;
+    // Round and strip trailing zeros.
+    const rounded = n.toFixed(d);
+    return rounded.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+  });
+}
+
 function parseWhiteboardPaths(pathsString: string): ParsedWhiteboardPath[] {
   if (!pathsString || pathsString.trim() === '') return [];
   try {
@@ -610,7 +803,8 @@ function renderPathsAsSvg(paths: ParsedWhiteboardPath[]): string {
 
   return paths
     .map((pd) => {
-      const path = typeof pd.path === 'string' ? pd.path : '';
+      const rawPath = typeof pd.path === 'string' ? pd.path : '';
+      const path = rawPath ? compactSvgPathNumbers(rawPath, 1) : '';
       if (!path) return '';
       const penType = safeNum(pd.penType, 0);
       const isEraser = !!pd.isEraser;
@@ -639,23 +833,52 @@ function renderPathsAsSvg(paths: ParsedWhiteboardPath[]): string {
     .join('\n');
 }
 
-async function loadGymnastImagesForSvg(images: GymnastImage[]): Promise<Array<GymnastImage & { dataUri: string; w: number; h: number }>> {
+async function loadGymnastImagesForSvg(
+  images: GymnastImage[],
+  opts?: { mode?: 'full' | 'perImage' }
+): Promise<Array<GymnastImage & { dataUri: string; w: number; h: number }>> {
   if (!images || images.length === 0) return [];
+
+  const mode = opts?.mode ?? 'full';
+  const out: Array<GymnastImage & { dataUri: string; w: number; h: number }> = [];
+
+  if (mode === 'perImage') {
+    // Sequential processing to reduce peak memory.
+    for (const img of images) {
+      try {
+        const dataOrUri = await getOptimizedImageDataUri(img.image_uri);
+        if (!dataOrUri) continue;
+        const size = (dataOrUri.startsWith('data:')
+          ? getImageSizeFromDataOrUriSync(dataOrUri)
+          : await getImageSizeFromUriAsync(dataOrUri));
+        const normalized = normalizePhotoBaseSize(size?.width ?? 120, size?.height ?? 120);
+        out.push({ ...img, dataUri: dataOrUri, w: normalized.w, h: normalized.h });
+      } catch (e) {
+        // Skip ONLY this image.
+        console.warn('[PDF][WB] Skipping image (perImage)', { uri: img.image_uri, id: img.id, e });
+        continue;
+      }
+    }
+    return out;
+  }
+
+  // full mode: parallel load for speed; still skips per-image failures.
   const loaded = await Promise.all(
     images.map(async (img) => {
       try {
-        const base64 = await FileSystem.readAsStringAsync(img.image_uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        const dataUri = `data:image/${img.image_uri.toLowerCase().includes('.png') ? 'png' : 'jpeg'};base64,${base64}`;
-        const size = getImageSizeFromBase64(dataUri);
+        const dataOrUri = await getOptimizedImageDataUri(img.image_uri);
+        if (!dataOrUri) return null;
+        const size = (dataOrUri.startsWith('data:')
+          ? getImageSizeFromDataOrUriSync(dataOrUri)
+          : await getImageSizeFromUriAsync(dataOrUri));
         const normalized = normalizePhotoBaseSize(size?.width ?? 120, size?.height ?? 120);
-        return { ...img, dataUri, w: normalized.w, h: normalized.h };
+        return { ...img, dataUri: dataOrUri, w: normalized.w, h: normalized.h };
       } catch {
         return null;
       }
     })
   );
+
   return loaded.filter((x): x is GymnastImage & { dataUri: string; w: number; h: number } => !!x);
 }
 
@@ -722,9 +945,33 @@ async function buildWhiteboardSvgForPdf(opts: {
   gymnastImages: GymnastImage[];
   showJumpBackground?: boolean;
   jumpImageBase64?: string;
+  omitImages?: boolean;
+  imageMode?: 'full' | 'perImage';
 }): Promise<string> {
+  const tracesChars = typeof opts.tracesJSON === 'string' ? opts.tracesJSON.length : 0;
   const paths = parseWhiteboardPaths(opts.tracesJSON);
-  const loadedImages = await loadGymnastImagesForSvg(opts.gymnastImages);
+  let loadedImages: Array<GymnastImage & { dataUri: string; w: number; h: number }> = [];
+  if (!opts.omitImages) {
+    try {
+      loadedImages = await loadGymnastImagesForSvg(opts.gymnastImages, { mode: opts.imageMode ?? 'full' });
+    } catch (e) {
+      console.warn('[PDF][WB] Failed to load whiteboard images; rendering paths only', e);
+      loadedImages = [];
+    }
+  }
+
+  try {
+    const totalRawPathChars = paths.reduce((acc, p) => acc + (typeof p.path === 'string' ? p.path.length : 0), 0);
+    console.log('[PDF][WB] Whiteboard payload', {
+      tracesChars,
+      pathsCount: paths.length,
+      totalRawPathChars,
+      imagesCount: opts.gymnastImages?.length ?? 0,
+      loadedImages: loadedImages.length,
+    });
+  } catch {
+    // ignore
+  }
 
   const src = inferCanvasSizeFromContent(paths, loadedImages);
   const { scale, tx, ty } = containTransform(src.width, src.height, PDF_WHITEBOARD_W, PDF_WHITEBOARD_H);
@@ -748,10 +995,10 @@ async function buildWhiteboardSvgForPdf(opts: {
     `
     : '';
 
-  const imagesLayer = renderGymnastImagesAsSvg(loadedImages);
+  const imagesLayer = opts.omitImages ? '' : renderGymnastImagesAsSvg(loadedImages);
   const pathsLayer = renderPathsAsSvg(paths);
 
-  return `
+  const svg = `
     <svg class="whiteboard-canvas" viewBox="0 0 ${PDF_WHITEBOARD_W} ${PDF_WHITEBOARD_H}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
       <rect width="${PDF_WHITEBOARD_W}" height="${PDF_WHITEBOARD_H}" fill="#f9f9f9" />
       <g transform="translate(${tx} ${ty}) scale(${scale})">
@@ -761,6 +1008,10 @@ async function buildWhiteboardSvgForPdf(opts: {
       </g>
     </svg>
   `;
+
+  console.log('[PDF][WB] Whiteboard SVG length', svg.length);
+
+  return svg;
 }
 
 /**
@@ -949,7 +1200,11 @@ export async function generateAndSharePDF(
 /**
  * Genera una página individual para Floor
  */
-async function generateFloorPage(row: TableRow, gymnast: Gymnast | undefined): Promise<string> {
+async function generateFloorPage(
+  row: TableRow,
+  gymnast: Gymnast | undefined,
+  opts?: { whiteboardMode?: 'full' | 'perImage' | 'pathsOnly' }
+): Promise<string> {
   const elements = ['J', 'I', 'H', 'G', 'F', 'E', 'D', 'C', 'B', 'A'];
   const selectedElements = elements.filter(code => (row[code.toLowerCase() as keyof TableRow] as number) > 0);
 
@@ -970,6 +1225,8 @@ async function generateFloorPage(row: TableRow, gymnast: Gymnast | undefined): P
         tracesJSON,
         gymnastImages: images,
         showJumpBackground: false,
+        omitImages: opts?.whiteboardMode === 'pathsOnly',
+        imageMode: opts?.whiteboardMode === 'perImage' ? 'perImage' : 'full',
       });
     } catch (error) {
       console.warn('[PDF] Error getting traces for gymnast:', gymnast.id, error);
@@ -1102,7 +1359,11 @@ async function generateFloorPage(row: TableRow, gymnast: Gymnast | undefined): P
 /**
  * Genera una página individual para Vault
  */
-async function generateVaultPage(row: TableRow, gymnast: Gymnast | undefined): Promise<string> {
+async function generateVaultPage(
+  row: TableRow,
+  gymnast: Gymnast | undefined,
+  opts?: { whiteboardMode?: 'full' | 'perImage' | 'pathsOnly' }
+): Promise<string> {
   // Obtener traces del whiteboard si existe el gimnasta
   let whiteboardSvg = '';
   
@@ -1117,6 +1378,8 @@ async function generateVaultPage(row: TableRow, gymnast: Gymnast | undefined): P
         gymnastImages: images,
         showJumpBackground: true,
         jumpImageBase64,
+        omitImages: opts?.whiteboardMode === 'pathsOnly',
+        imageMode: opts?.whiteboardMode === 'perImage' ? 'perImage' : 'full',
       });
     } catch (error) {
       console.warn('[PDF] Error getting traces for gymnast:', gymnast.id, error);
@@ -1231,6 +1494,7 @@ type GeneratePdfHtmlOptions = {
   includeIndividualPages?: boolean;
   includeSummary?: boolean;
   debugLabel?: string;
+  whiteboardMode?: 'full' | 'perImage' | 'pathsOnly';
 };
 
 async function generatePDFHTML(
@@ -1247,6 +1511,7 @@ async function generatePDFHTML(
 
   const includeIndividualPages = options?.includeIndividualPages ?? true;
   const includeSummary = options?.includeSummary ?? true;
+  const whiteboardMode = options?.whiteboardMode ?? 'full';
   const rowsForIndividualPages = (options?.rowsForIndividualPages ?? tableData).filter(
     row => row.gymnasta && row.gymnasta.trim() !== ''
   );
@@ -1279,7 +1544,9 @@ async function generatePDFHTML(
         rowsForIndividualPages.map(async (row) => {
           const gymnast = gymnasts.find(g => g.id === row.id);
           const isVault = row.evento === 'VT';
-          return isVault ? await generateVaultPage(row, gymnast) : await generateFloorPage(row, gymnast);
+          return isVault
+            ? await generateVaultPage(row, gymnast, { whiteboardMode })
+            : await generateFloorPage(row, gymnast, { whiteboardMode });
         })
       )).join('\n')
     : '';

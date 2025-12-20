@@ -5,6 +5,8 @@ import * as SQLite from 'expo-sqlite';
 // This is compatible with both sync and async methods in expo-sqlite 16
 export const db = SQLite.openDatabaseSync('gym_judge.db');
 
+let initDatabasePromise: Promise<void> | null = null;
+
 // Tipos
 export interface Folder {
   id: number;
@@ -384,22 +386,25 @@ async function migrateGymnastsAddPercentageAndDedded() {
  * Inicializar la base de datos con todas las tablas
  */
 export async function initDatabase() {
-  try {
-    console.log('Initializing database...');
-    
-    // Migrar folders si es necesario
-    await migrateFoldersTable();
-    
-    // Migrar app_settings si es necesario
-    await migrateAppSettings();
-    
-    // Migrar gymnasts si es necesario
-    await migrateGymnastsTable();
-    
-    // Agregar columnas percentage y dedded si es necesario
-    await migrateGymnastsAddPercentageAndDedded();
-    
-    await db.execAsync(`
+  if (initDatabasePromise) return initDatabasePromise;
+
+  initDatabasePromise = (async () => {
+    try {
+      console.log('Initializing database...');
+
+      // Migrar folders si es necesario
+      await migrateFoldersTable();
+
+      // Migrar app_settings si es necesario
+      await migrateAppSettings();
+
+      // Migrar gymnasts si es necesario
+      await migrateGymnastsTable();
+
+      // Agregar columnas percentage y dedded si es necesario
+      await migrateGymnastsAddPercentageAndDedded();
+
+      await db.execAsync(`
       -- Tabla de carpetas
       CREATE TABLE IF NOT EXISTS folders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -532,13 +537,23 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_trace_gymnast 
       ON whiteboard_traces(gymnast_id);
     `);
-    
-    // Inicializar valores por defecto si no existen
-    await initializeDefaultSettings();
-    
-    console.log('Database initialized successfully');
+
+      // Inicializar valores por defecto si no existen
+      await initializeDefaultSettings();
+
+      console.log('Database initialized successfully');
+    } catch (error) {
+      console.error('Error initializing database:', error);
+      throw error;
+    }
+  })();
+
+  try {
+    await initDatabasePromise;
+    return;
   } catch (error) {
-    console.error('Error initializing database:', error);
+    // Allow retry on next call if initialization failed.
+    initDatabasePromise = null;
     throw error;
   }
 }
@@ -574,6 +589,7 @@ async function initializeDefaultSettings() {
  */
 export async function getSetting(key: string): Promise<string | null> {
   try {
+    await initDatabase();
     const result = await db.getFirstAsync<AppSettings>(
       'SELECT value FROM app_settings WHERE key = ?',
       [key]
@@ -590,6 +606,7 @@ export async function getSetting(key: string): Promise<string | null> {
  */
 export async function setSetting(key: string, value: string): Promise<void> {
   try {
+    await initDatabase();
     await db.runAsync(
       `INSERT INTO app_settings (key, value) VALUES (?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
@@ -607,6 +624,7 @@ export async function setSetting(key: string, value: string): Promise<void> {
  */
 export async function getAllSettings(): Promise<Record<string, string>> {
   try {
+    await initDatabase();
     const settings = await db.getAllAsync<AppSettings>(
       'SELECT key, value FROM app_settings'
     );
