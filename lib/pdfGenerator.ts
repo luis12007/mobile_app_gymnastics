@@ -2,7 +2,6 @@ import * as Print from 'expo-print';
 import { shareAsync, isAvailableAsync } from 'expo-sharing';
 import { Platform, Alert } from 'react-native';
 import { PDFDocument } from 'pdf-lib';
-import * as ImageManipulator from 'expo-image-manipulator';
 import { 
   getCompetitionById, 
   getGymnastsByCompetition, 
@@ -144,6 +143,7 @@ async function generateCompetitionPDFChunked(
   tableData: TableRow[],
   gymnasts: Gymnast[]
 ): Promise<string> {
+  logPdfImageOptimizerStatus('chunked');
   const rowsForIndividualPages = tableData.filter(row => row.gymnasta && row.gymnasta.trim() !== '');
   const timestamp = Date.now();
 
@@ -230,6 +230,7 @@ export async function generateCompetitionPDF(
 ): Promise<string> {
   try {
     console.log('[PDF] Starting PDF generation for competition:', competitionId);
+    logPdfImageOptimizerStatus('generateCompetitionPDF');
 
     // Obtener información de la competencia
     const competition = await getCompetitionById(competitionId);
@@ -295,6 +296,27 @@ const PDF_IMAGE_OPT_COMPRESS = 0.72;
 const PDF_IMAGE_OPT_MIN_BYTES = 350_000;
 const pdfOptimizedImageCache = new Map<string, string>();
 
+type ExpoImageManipulatorModule = typeof import('expo-image-manipulator');
+let cachedImageManipulatorModule: ExpoImageManipulatorModule | null | undefined;
+
+function getExpoImageManipulatorModule(): ExpoImageManipulatorModule | null {
+  if (cachedImageManipulatorModule !== undefined) return cachedImageManipulatorModule;
+  try {
+    // Lazy-load to avoid crashing when the native module isn't available (Expo Go / old dev client).
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    cachedImageManipulatorModule = require('expo-image-manipulator') as ExpoImageManipulatorModule;
+  } catch (e) {
+    cachedImageManipulatorModule = null;
+    console.warn('[PDF][IMG] expo-image-manipulator not available; skipping optimization', e);
+  }
+  return cachedImageManipulatorModule;
+}
+
+function logPdfImageOptimizerStatus(label: string) {
+  const available = !!getExpoImageManipulatorModule();
+  console.log(`[PDF][IMG] Optimizer ${available ? 'ENABLED' : 'DISABLED'} (${label})`);
+}
+
 async function getOptimizedImageDataUri(originalUri: string): Promise<string> {
   if (!originalUri) return '';
   const cached = pdfOptimizedImageCache.get(originalUri);
@@ -312,6 +334,16 @@ async function getOptimizedImageDataUri(originalUri: string): Promise<string> {
       const dataUri = `data:image/png;base64,${base64}`;
       pdfOptimizedImageCache.set(originalUri, dataUri);
       console.log('[PDF][IMG] Skip optimization (already small)', { originalSize, originalUri });
+      return dataUri;
+    }
+
+    const ImageManipulator = getExpoImageManipulatorModule();
+    if (!ImageManipulator) {
+      const base64 = await FileSystem.readAsStringAsync(originalUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const dataUri = `data:image/png;base64,${base64}`;
+      pdfOptimizedImageCache.set(originalUri, dataUri);
       return dataUri;
     }
 
