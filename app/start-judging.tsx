@@ -1,7 +1,7 @@
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, StatusBar, Platform, ScrollView, Dimensions, TextInput, Modal, Alert } from 'react-native';
 import { useEffect, useState, useRef } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { getCompetitionById, Competition, Gymnast, getGymnastsByCompetition, createGymnast, updateGymnast, deleteGymnast } from '../lib/database';
+import { getCompetitionById, Competition, Gymnast, getGymnastsByCompetition, getGymnastById, createGymnast, updateGymnast, deleteGymnast } from '../lib/database';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as XLSX from 'xlsx';
@@ -19,8 +19,9 @@ const WAG_EVENTS = ['FX', 'UB', 'BB', 'VT'];
 
 export default function StartJudging() {
   const router = useRouter();
-  const { competitionId, lastGymnastId } = useLocalSearchParams();
+  const { competitionId, lastGymnastId, discipline } = useLocalSearchParams();
   const scrollViewRef = useRef<ScrollView>(null);
+  const editValueRef = useRef('');
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [searchName, setSearchName] = useState('');
   const [searchBib, setSearchBib] = useState('');
@@ -55,16 +56,30 @@ export default function StartJudging() {
     }
   }, [lastGymnastId]);
 
-  const handleContinueJudging = () => {
-    if (lastGymnastId) {
-      const gymnast = gymnasts.find(g => g.id === parseInt(lastGymnastId as string));
-      if (gymnast) {
-        const pathname = gymnast.evento === 'VT' ? '/gymnast-vault' : '/gymnast-floor';
-        router.push({
-          pathname,
-          params: { gymnastId: lastGymnastId as string, competitionId: competitionId as string }
-        });
+  const handleContinueJudging = async () => {
+    try {
+      if (!lastGymnastId) return;
+
+      const lastIdNum = parseInt(lastGymnastId as string);
+      let gymnast: Gymnast | null = gymnasts.find(g => g.id === lastIdNum) ?? null;
+      if (!gymnast) gymnast = await getGymnastById(lastIdNum);
+      if (!gymnast) {
+        Alert.alert('Error', 'Could not find the last gymnast.');
+        return;
       }
+
+      const pathname = gymnast.evento === 'VT' ? '/gymnast-vault' : '/gymnast-floor';
+      router.push({
+        pathname,
+        params: {
+          gymnastId: String(lastGymnastId),
+          competitionId: competitionId as string,
+          ...(discipline !== undefined ? { discipline: String(discipline) } : {}),
+        },
+      });
+    } catch (error) {
+      console.error('Error in handleContinueJudging:', error);
+      Alert.alert('Error', 'Could not continue with the last gymnast.');
     }
   };
 
@@ -490,16 +505,73 @@ export default function StartJudging() {
     setSelectedGymnasts(newSelection);
   };
 
-  const handleCellClick = (rowIndex: number, field: string) => {
+  const INLINE_EDIT_FIELDS = new Set(['gymnasta', 'noc', 'bib']);
+
+  const commitInlineCell = async (gymnastId: number, field: string, valueOverride?: string) => {
+    if (!competition) return;
+    if (!INLINE_EDIT_FIELDS.has(field)) return;
+
+    const gymnast = gymnasts.find(g => g.id === gymnastId);
+    if (!gymnast) return;
+
+    const nextValue = String((valueOverride ?? editValueRef.current) ?? '').trim();
+    const prevValue = String((gymnast as any)[field] ?? '');
+
+    // Salir de edición siempre
+    setEditingCell(current => {
+      if (current && current.gymnastId === gymnastId && current.field === field) return null;
+      return current;
+    });
+    setEditValue('');
+    editValueRef.current = '';
+
+    if (nextValue === prevValue) return;
+
+    try {
+      const oldValue = { [field]: (gymnast as any)[field] };
+      const updateData: any = { [field]: nextValue };
+
+      await updateGymnast(gymnastId, updateData);
+
+      setUndoStack(prev => [...prev, {
+        type: 'update',
+        data: {
+          id: gymnastId,
+          field,
+          oldValue,
+          newValue: updateData,
+        },
+        timestamp: Date.now(),
+      }]);
+
+      setGymnasts(prev => prev.map(g => (g.id === gymnastId ? ({ ...g, ...(updateData as any) }) : g)));
+    } catch (error) {
+      console.error('Error saving inline cell:', error);
+      Alert.alert('Error', 'Failed to save changes.');
+    }
+  };
+
+  const handleCellClick = async (rowIndex: number, field: string) => {
     const gymnast = gymnasts[rowIndex];
     if (!gymnast) return;
+
+    // Si hay una edición inline en curso, guardarla antes de cambiar de celda.
+    if (editingCell && INLINE_EDIT_FIELDS.has(editingCell.field)) {
+      const switchingToDifferentCell = editingCell.gymnastId !== gymnast.id || editingCell.field !== field;
+      if (switchingToDifferentCell) {
+        const valueToCommit = editValueRef.current;
+        await commitInlineCell(editingCell.gymnastId, editingCell.field, valueToCommit);
+      }
+    }
 
     if (field === 'evento') {
       setEditingCell({ rowIndex, field, gymnastId: gymnast.id });
       setEventDropdownVisible(true);
     } else {
       setEditingCell({ rowIndex, field, gymnastId: gymnast.id });
-      setEditValue(String((gymnast as any)[field] || ''));
+      const currentValue = String((gymnast as any)[field] || '');
+      setEditValue(currentValue);
+      editValueRef.current = currentValue;
     }
   };
 
@@ -785,41 +857,99 @@ export default function StartJudging() {
                     <Text style={styles.tableCellText}>{gymnast.numero}</Text>
                   </TouchableOpacity>
                 
-                <TouchableOpacity 
-                  style={[styles.tableCell, styles.gymnastColumn]}
-                  onPress={() => handleCellClick(gymnasts.indexOf(gymnast), 'gymnasta')}
-                >
-                  <Text style={styles.tableCellText}>
-                    {gymnast.gymnasta || 'Click to edit'}
-                  </Text>
-                </TouchableOpacity>
+                {editingCell?.gymnastId === gymnast.id && editingCell.field === 'gymnasta' ? (
+                  <View style={[styles.tableCell, styles.gymnastColumn]}>
+                    <TextInput
+                      style={styles.tableCellText}
+                      value={editValue}
+                      onChangeText={(t) => {
+                        setEditValue(t);
+                        editValueRef.current = t;
+                      }}
+                      autoFocus
+                      onBlur={() => commitInlineCell(gymnast.id, 'gymnasta')}
+                      onSubmitEditing={() => commitInlineCell(gymnast.id, 'gymnasta', editValueRef.current)}
+                      returnKeyType="done"
+                      blurOnSubmit
+                      autoCorrect={false}
+                    />
+                  </View>
+                ) : (
+                  <TouchableOpacity 
+                    style={[styles.tableCell, styles.gymnastColumn]}
+                    onPress={() => { void handleCellClick(gymnasts.indexOf(gymnast), 'gymnasta'); }}
+                  >
+                    <Text style={styles.tableCellText}>
+                      {gymnast.gymnasta || 'Click to edit'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
                 
                 <TouchableOpacity 
                   style={[styles.tableCell, styles.eventColumn]}
-                  onPress={() => handleCellClick(gymnasts.indexOf(gymnast), 'evento')}
+                  onPress={() => { void handleCellClick(gymnasts.indexOf(gymnast), 'evento'); }}
                 >
                   <Text style={styles.tableCellText}>
                     {gymnast.evento || 'Click to edit'}
                   </Text>
                 </TouchableOpacity>
                 
-                <TouchableOpacity 
-                  style={[styles.tableCell, styles.nocColumn]}
-                  onPress={() => handleCellClick(gymnasts.indexOf(gymnast), 'noc')}
-                >
-                  <Text style={styles.tableCellText}>
-                    {gymnast.noc || 'Click to edit'}
-                  </Text>
-                </TouchableOpacity>
+                {editingCell?.gymnastId === gymnast.id && editingCell.field === 'noc' ? (
+                  <View style={[styles.tableCell, styles.nocColumn]}>
+                    <TextInput
+                      style={styles.tableCellText}
+                      value={editValue}
+                      onChangeText={(t) => {
+                        setEditValue(t);
+                        editValueRef.current = t;
+                      }}
+                      autoFocus
+                      onBlur={() => commitInlineCell(gymnast.id, 'noc')}
+                      onSubmitEditing={() => commitInlineCell(gymnast.id, 'noc', editValueRef.current)}
+                      returnKeyType="done"
+                      blurOnSubmit
+                      autoCorrect={false}
+                      autoCapitalize="characters"
+                    />
+                  </View>
+                ) : (
+                  <TouchableOpacity 
+                    style={[styles.tableCell, styles.nocColumn]}
+                    onPress={() => { void handleCellClick(gymnasts.indexOf(gymnast), 'noc'); }}
+                  >
+                    <Text style={styles.tableCellText}>
+                      {gymnast.noc || 'Click to edit'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
                 
-                <TouchableOpacity 
-                  style={[styles.tableCell, styles.bibColumn]}
-                  onPress={() => handleCellClick(gymnasts.indexOf(gymnast), 'bib')}
-                >
-                  <Text style={styles.tableCellText}>
-                    {gymnast.bib || 'Click to edit'}
-                  </Text>
-                </TouchableOpacity>
+                {editingCell?.gymnastId === gymnast.id && editingCell.field === 'bib' ? (
+                  <View style={[styles.tableCell, styles.bibColumn]}>
+                    <TextInput
+                      style={styles.tableCellText}
+                      value={editValue}
+                      onChangeText={(t) => {
+                        setEditValue(t);
+                        editValueRef.current = t;
+                      }}
+                      autoFocus
+                      onBlur={() => commitInlineCell(gymnast.id, 'bib')}
+                      onSubmitEditing={() => commitInlineCell(gymnast.id, 'bib', editValueRef.current)}
+                      returnKeyType="done"
+                      blurOnSubmit
+                      autoCorrect={false}
+                    />
+                  </View>
+                ) : (
+                  <TouchableOpacity 
+                    style={[styles.tableCell, styles.bibColumn]}
+                    onPress={() => { void handleCellClick(gymnasts.indexOf(gymnast), 'bib'); }}
+                  >
+                    <Text style={styles.tableCellText}>
+                      {gymnast.bib || 'Click to edit'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
             );
             })}
@@ -858,7 +988,7 @@ export default function StartJudging() {
 
       {/* Edit Cell Modal */}
       <Modal
-        visible={!!editingCell && editingCell.field !== 'evento'}
+        visible={!!editingCell && editingCell.field !== 'evento' && editingCell.field !== 'gymnasta' && editingCell.field !== 'noc' && editingCell.field !== 'bib'}
         transparent={true}
         animationType="fade"
         onRequestClose={() => setEditingCell(null)}
@@ -931,15 +1061,17 @@ export default function StartJudging() {
           >
             <Text style={styles.modalTitle}>Select Event</Text>
             
-            {getAvailableEvents().map((event) => (
-              <TouchableOpacity
-                key={event}
-                style={styles.eventOption}
-                onPress={() => handleSelectEvent(event)}
-              >
-                <Text style={styles.eventOptionText}>{event}</Text>
-              </TouchableOpacity>
-            ))}
+            <ScrollView style={styles.eventOptionsScroll} showsVerticalScrollIndicator={true}>
+              {getAvailableEvents().map((event) => (
+                <TouchableOpacity
+                  key={event}
+                  style={styles.eventOption}
+                  onPress={() => handleSelectEvent(event)}
+                >
+                  <Text style={styles.eventOptionText}>{event}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
             
             <TouchableOpacity 
               style={styles.eventCancelButton}
@@ -979,15 +1111,17 @@ export default function StartJudging() {
               <Text style={styles.eventOptionText}>All Events</Text>
             </TouchableOpacity>
 
-            {getAvailableEvents().map((event) => (
-              <TouchableOpacity
-                key={event}
-                style={styles.eventOption}
-                onPress={() => handleSelectSearchEvent(event)}
-              >
-                <Text style={styles.eventOptionText}>{event}</Text>
-              </TouchableOpacity>
-            ))}
+            <ScrollView style={styles.eventOptionsScroll} showsVerticalScrollIndicator={true}>
+              {getAvailableEvents().map((event) => (
+                <TouchableOpacity
+                  key={event}
+                  style={styles.eventOption}
+                  onPress={() => handleSelectSearchEvent(event)}
+                >
+                  <Text style={styles.eventOptionText}>{event}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
             
             <TouchableOpacity 
               style={styles.eventCancelButton}
@@ -1400,6 +1534,9 @@ const styles = StyleSheet.create({
     padding: 16,
     width: '70%',
     maxWidth: 300,
+  },
+  eventOptionsScroll: {
+    maxHeight: height * 0.45,
   },
   eventOption: {
     paddingVertical: 14,

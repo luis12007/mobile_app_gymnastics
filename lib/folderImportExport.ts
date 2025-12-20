@@ -64,7 +64,7 @@ export async function exportFolders(
   onProgress?: (progress: number, message: string) => void
 ): Promise<string> {
   try {
-    onProgress?.(0, 'Iniciando exportación...');
+    onProgress?.(0, 'Starting export...');
     
     // Usar la instancia de base de datos ya inicializada
     const exportData: ExportData = {
@@ -89,13 +89,13 @@ export async function exportFolders(
         (items) => {
           processedItems += items;
           const progress = Math.round((processedItems / totalItems) * 90); // 0-90%
-          onProgress?.(progress, `Exportando datos... ${processedItems}/${totalItems}`);
+          onProgress?.(progress, `Exporting data... ${processedItems}/${totalItems}`);
         }
       );
       exportData.folders.push(folderData);
     }
 
-    onProgress?.(90, 'Generando archivo...');
+    onProgress?.(90, 'Generating file...');
 
     // Generar archivo JSON
     const jsonString = JSON.stringify(exportData, null, 2);
@@ -106,23 +106,23 @@ export async function exportFolders(
       encoding: FileSystem.EncodingType.UTF8
     });
 
-    onProgress?.(95, 'Compartiendo archivo...');
+    onProgress?.(95, 'Sharing file...');
 
     // Compartir archivo
     if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(filePath, {
         mimeType: 'application/json',
-        dialogTitle: 'Exportar Datos de Gimnasia',
+        dialogTitle: 'Export Gymnastics Data',
         UTI: 'public.json'
       });
     }
 
-    onProgress?.(100, '¡Exportación completada!');
+    onProgress?.(100, 'Export completed!');
     
     return filePath;
   } catch (error) {
     console.error('Error en exportación:', error);
-    throw new Error(`Error al exportar: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    throw new Error(`Error exporting: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
@@ -311,7 +311,7 @@ export async function importFolders(
       stage: 'folders',
       current: 0,
       total: 1,
-      message: 'Seleccionando archivo...'
+      message: 'Selecting file...'
     });
 
     // Seleccionar archivo
@@ -321,7 +321,7 @@ export async function importFolders(
     });
 
     if (result.canceled || !result.assets || result.assets.length === 0) {
-      throw new Error('Importación cancelada');
+      throw new Error('Import canceled');
     }
 
     const fileUri = result.assets[0].uri;
@@ -330,7 +330,7 @@ export async function importFolders(
       stage: 'folders',
       current: 0,
       total: 1,
-      message: 'Leyendo archivo...'
+      message: 'Reading file...'
     });
 
     // Leer archivo
@@ -342,7 +342,7 @@ export async function importFolders(
 
     // Validar versión
     if (!exportData.version || !exportData.folders) {
-      throw new Error('Archivo de importación inválido');
+      throw new Error('Invalid import file');
     }
 
     // Usar la instancia de base de datos ya inicializada
@@ -383,7 +383,7 @@ export async function importFolders(
               stage: 'folders',
               current: processedFolders,
               total: totalFolders,
-              message: `Importando folders... ${processedFolders}/${totalFolders}`
+              message: `Importing folders... ${processedFolders}/${totalFolders}`
             });
           },
           onCompetitionImported: () => {
@@ -392,7 +392,7 @@ export async function importFolders(
               stage: 'competitions',
               current: processedCompetitions,
               total: totalCompetitions,
-              message: `Importando competencias... ${processedCompetitions}/${totalCompetitions}`
+              message: `Importing competitions... ${processedCompetitions}/${totalCompetitions}`
             });
           },
           onGymnastImported: () => {
@@ -401,7 +401,7 @@ export async function importFolders(
               stage: 'gymnasts',
               current: processedGymnasts,
               total: totalGymnasts,
-              message: `Importando gimnastas... ${processedGymnasts}/${totalGymnasts}`
+              message: `Importing gymnasts... ${processedGymnasts}/${totalGymnasts}`
             });
           }
         }
@@ -412,12 +412,12 @@ export async function importFolders(
       stage: 'complete',
       current: 1,
       total: 1,
-      message: '¡Importación completada exitosamente!'
+      message: 'Import completed successfully!'
     });
 
   } catch (error) {
     console.error('Error en importación:', error);
-    throw new Error(`Error al importar: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    throw new Error(`Error importing: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
@@ -612,7 +612,7 @@ export async function validateImportFile(fileUri: string): Promise<{
     const exportData: ExportData = JSON.parse(jsonString);
 
     if (!exportData.version || !exportData.folders) {
-      return { valid: false, error: 'Formato de archivo inválido' };
+      return { valid: false, error: 'Invalid file format' };
     }
 
     // Contar items
@@ -647,7 +647,7 @@ export async function validateImportFile(fileUri: string): Promise<{
   } catch (error) {
     return {
       valid: false,
-      error: error instanceof Error ? error.message : 'Error desconocido'
+      error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
 }

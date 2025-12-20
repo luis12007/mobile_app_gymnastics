@@ -14,7 +14,7 @@ import {
   TextInput,
 } from "react-native";
 import { getGymnastById, getGymnastsByCompetition, updateGymnast, Gymnast } from "../lib/database";
-import WhiteboardScreen, { WhiteboardRef } from "../componentes/WhiteboardScreen";
+import WhiteboardScreen, { WhiteboardRef } from "@/componentes/WhiteboardScreen";
 import CustomNumberPadOptimized from "@/componentes/CustomNumberPadOptimized";
 
 const { width, height } = Dimensions.get("window");
@@ -83,6 +83,11 @@ export default function GymnastFloor() {
   const [numberPadValue, setNumberPadValue] = useState("");
   const [numberPadTarget, setNumberPadTarget] = useState("");
 
+  const safeNumber = (n: any, fallback = 0) => {
+    const v = typeof n === "number" ? n : Number(n);
+    return Number.isFinite(v) ? v : fallback;
+  };
+
   // Función para abrir el modal y definir el target
   const openNumberPadModal = (target: string, value: number) => {
     // Normalizar target para ND y EXECUTION
@@ -91,13 +96,14 @@ export default function GymnastFloor() {
     else if (target === "ND") normalizedTarget = "ND";
     else if (target === "EXECUTION") normalizedTarget = "EXECUTION";
     setNumberPadTarget(normalizedTarget);
-    setNumberPadValue(value.toString());
+    setNumberPadValue(safeNumber(value).toString());
     setShowNumberPadModal(true);
   };
 
   // Función para guardar el valor editado
   const saveNumberPadValue = (value: string) => {
-    const num = parseFloat(value);
+    const parsed = parseFloat(value);
+    const num = Number.isFinite(parsed) ? parsed : 0;
     switch (numberPadTarget) {
       case "CV": {
         setCv(num);
@@ -285,7 +291,7 @@ export default function GymnastFloor() {
         !isDiscipline &&
         (evento === "FX" || evento === "UB" || evento === "BB")
       ) {
-        return [0.0, 0.5];
+        return evento === "FX" ? [0.0, 0.3, 0.5] : [0.0, 0.5];
       } else if (
         isDiscipline &&
         (evento === "PH" || evento === "SR" || evento === "PB" || evento === "HB")
@@ -428,9 +434,10 @@ export default function GymnastFloor() {
         percentage: percentage,
         dedded: dedded,
       };
-      await updateGymnast(gymnastId, gymnastUpdate);
+      return await updateGymnast(gymnastId, gymnastUpdate);
     } catch (error) {
       console.error("Error saving gymnast data:", error);
+      throw error;
     }
   };
 
@@ -445,7 +452,7 @@ export default function GymnastFloor() {
       const allGymList = await getGymnastsByCompetition(competitionId);
 
       if (!gymnastData) {
-        Alert.alert("Error", "Gimnasta no encontrado");
+        Alert.alert("Error", "Gymnast not found");
         router.back();
         return;
       }
@@ -473,39 +480,39 @@ export default function GymnastFloor() {
 
       // Cargar grupos de elementos
       setElementGroupValues({
-        I: gymnastData.element_group1 || 0,
-        II: gymnastData.element_group2 || 0,
-        III: gymnastData.element_group3 || 0,
-        IV: gymnastData.element_group4 || 0,
+        I: safeNumber(gymnastData.element_group1, 0),
+        II: safeNumber(gymnastData.element_group2, 0),
+        III: safeNumber(gymnastData.element_group3, 0),
+        IV: safeNumber(gymnastData.element_group4, 0),
       });
 
       // Cargar valores
-      setTotalElements(gymnastData.number_of_element || 0);
-      setDifficultyValues(gymnastData.difficulty_values || 0);
-      setElementGroupsTotal(gymnastData.element_group_total || 0);
-      setCv(gymnastData.cv || 0);
-      setSv(gymnastData.sv || 0);
-      setExecution(gymnastData.execution || 0);
-      setEScore(gymnastData.escore || 0);
-      setNd(gymnastData.nd || 0);
-      setMyScore(gymnastData.myscore || 0);
+      setTotalElements(safeNumber(gymnastData.number_of_element, 0));
+      setDifficultyValues(safeNumber(gymnastData.difficulty_values, 0));
+      setElementGroupsTotal(safeNumber(gymnastData.element_group_total, 0));
+      setCv(safeNumber(gymnastData.cv, 0));
+      setSv(safeNumber(gymnastData.sv, 0));
+      setExecution(safeNumber(gymnastData.execution, 0));
+      setEScore(safeNumber(gymnastData.escore, 0));
+      setNd(safeNumber(gymnastData.nd, 0));
+      setMyScore(safeNumber(gymnastData.myscore, 0));
       setStickBonus(gymnastData.bonus > 0);
 
       // Cargar valores de competencia
-      setCompD(gymnastData.competition_d || 0);
-      setCompE(gymnastData.competition_e || 0);
+      setCompD(safeNumber(gymnastData.competition_d, 0));
+      setCompE(safeNumber(gymnastData.competition_e, 0));
       setCompSb(gymnastData.competition_sb > 0);
-      setCompNd(gymnastData.competition_nd || 0);
-      setCompScore(gymnastData.competition_score || 0);
+      setCompNd(safeNumber(gymnastData.competition_nd, 0));
+      setCompScore(safeNumber(gymnastData.competition_score, 0));
       setComments(gymnastData.comments || "");
-      setDelta(gymnastData.delta || 0);
-      setPercentage(gymnastData.percentage || 0);
-      setDedded(gymnastData.dedded || 0);
+      setDelta(safeNumber(gymnastData.delta, 0));
+      setPercentage(safeNumber(gymnastData.percentage, 0));
+      setDedded(safeNumber(gymnastData.dedded, 0));
 
 
     } catch (error) {
       console.error("Error loading gymnast:", error);
-      Alert.alert("Error", "No se pudo cargar los datos del gimnasta");
+      Alert.alert("Error", "Could not load gymnast data.");
     } finally {
       setLoading(false);
     }
@@ -537,7 +544,7 @@ export default function GymnastFloor() {
       console.log("âœ… Datos guardados correctamente");
     } catch (error) {
       console.error("âŒ Error guardando datos:", error);
-      Alert.alert("Error", "No se pudieron guardar los datos");
+      Alert.alert("Error", "Could not save data.");
     }
   };
 
@@ -581,13 +588,6 @@ export default function GymnastFloor() {
     // Validaciones según el evento
     const evento = gymnast?.evento || '';
     const maxGroups = getMaxGroupsForEvent(evento);
-    const groupNumber = group === 'I' ? 1 : group === 'II' ? 2 : group === 'III' ? 3 : 4;
-    
-    // Validar que el grupo existe para este evento
-    if (groupNumber > maxGroups) {
-      Alert.alert('Error', `El evento ${evento} solo tiene ${maxGroups} grupos de elementos`);
-      return;
-    }
     
     // Validar rango de valores según disciplina y evento
     const maxValue = getMaxValueForGroup(evento, discipline);
@@ -661,27 +661,31 @@ export default function GymnastFloor() {
   };
 
   const saveGymnastDataAndNavigate = async (nextGymnast?: Gymnast) => {
-    await saveGymnastData();
-    // Forzar guardado de whiteboard inmediatamente
-    if (whiteboardRef.current) {
-      await whiteboardRef.current.forceSave();
-    }
-    
-    if (nextGymnast) {
-      const pathname = nextGymnast.evento === 'VT' ? '/gymnast-vault' : '/gymnast-floor';
-      router.replace({
-        pathname,
-        params: { 
-          gymnastId: nextGymnast.id.toString(), 
-          competitionId: competitionId.toString(),
-          discipline: discipline.toString()
-        }
-      });
-    } else {
-      router.push({
-        pathname: "/main-table",
-        params: { competitionId: competitionId.toString() }
-      });
+    try {
+      await saveGymnastData();
+      if (whiteboardRef.current) {
+        await whiteboardRef.current.forceSave();
+      }
+
+      if (nextGymnast) {
+        const pathname = nextGymnast.evento === 'VT' ? '/gymnast-vault' : '/gymnast-floor';
+        router.replace({
+          pathname,
+          params: { 
+            gymnastId: nextGymnast.id.toString(), 
+            competitionId: competitionId.toString(),
+            discipline: discipline.toString()
+          }
+        });
+      } else {
+        router.push({
+          pathname: "/main-table",
+          params: { competitionId: competitionId.toString() }
+        });
+      }
+    } catch (error) {
+      console.error('Error in saveGymnastDataAndNavigate:', error);
+      Alert.alert('Error', 'Could not save the data. Please try again.');
     }
   };
 
@@ -705,8 +709,25 @@ export default function GymnastFloor() {
     await saveGymnastDataAndNavigate();
   };
 
-  const handleGoBack = () => {
-    router.back();
+  const handleGoBack = async () => {
+    try {
+      await saveGymnastData();
+      if (whiteboardRef.current) {
+        await whiteboardRef.current.forceSave();
+      }
+
+      router.push({
+        pathname: '/start-judging',
+        params: {
+          competitionId: competitionId.toString(),
+          lastGymnastId: gymnastId.toString(),
+          discipline: discipline.toString(),
+        },
+      });
+    } catch (error) {
+      console.error('Error in handleGoBack:', error);
+      Alert.alert('Error', 'Could not save the data. Please try again.');
+    }
   };
 
   const renderNumberButtons = (rowLabel: string) => {
@@ -760,7 +781,7 @@ export default function GymnastFloor() {
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#004aad" />
-          <Text style={styles.loadingText}>Cargando datos...</Text>
+          <Text style={styles.loadingText}>Loading data...</Text>
         </View>
       </SafeAreaView>
     );
@@ -780,6 +801,7 @@ export default function GymnastFloor() {
         stickBonus={stickBonus}
         setStickBonus={handleStickBonusChange}
         discipline={discipline}
+        event={gymnast?.evento}
         percentage={percentage}
       />
       
@@ -808,7 +830,7 @@ export default function GymnastFloor() {
                 </View>
                 <View style={[
                   styles.infoValueCell,
-                  ((discipline ? totalElements >= 6 : totalElements >= 7) && totalElements <= 8)
+                  ((discipline ? totalElements >= 6 : totalElements >= 6) && totalElements <= 8)
                     ? styles.infoValueCellGreen
                     : styles.infoValueCellRed,
                 ]}>
@@ -887,16 +909,18 @@ export default function GymnastFloor() {
 
               <View style={styles.infoRow}>
                 <View style={styles.infoLabelCell}>
-                  <Text style={styles.infoLabelText}>COMPOSITION VALUE</Text>
+                  <Text style={styles.infoLabelText}>CONNECTION VALUE</Text>
                 </View>
                 {/* CV: Ocultar si evento es PH o PB */}
                 {gymnast?.evento !== 'PH' && gymnast?.evento !== 'PB' && (
                   <>
                     <View style={styles.stickBonusCelltext}>
-                      <Text style={styles.bonusLabelText}>CV</Text>
+                      <TouchableOpacity style={styles.fullCellTouchable} onPress={() => openNumberPadModal("CV", cv)}>
+                        <Text style={styles.bonusLabelText}>CV</Text>
+                      </TouchableOpacity>
                     </View>
                     <View style={styles.stickBonusCell}>
-                      <TouchableOpacity onPress={() => openNumberPadModal("CV", cv)}>
+                      <TouchableOpacity style={styles.fullCellTouchable} onPress={() => openNumberPadModal("CV", cv)}>
                         <Text style={styles.bonusValueText}>{cv.toFixed(1)}</Text>
                       </TouchableOpacity>
                     </View>
@@ -908,12 +932,12 @@ export default function GymnastFloor() {
                     {!discipline && (
                       <>
                         <View style={styles.stickBonusCelltext}>
-                          <TouchableOpacity onPress={() => handleStickBonusChange(!stickBonus)}>
+                          <TouchableOpacity style={styles.fullCellTouchable} onPress={() => handleStickBonusChange(!stickBonus)}>
                             <Text style={styles.bonusLabelText}>SB</Text>
                           </TouchableOpacity>
                         </View>
                         <View style={styles.stickBonusCell}>
-                          <TouchableOpacity onPress={() => handleStickBonusChange(!stickBonus)}>
+                          <TouchableOpacity style={styles.fullCellTouchable} onPress={() => handleStickBonusChange(!stickBonus)}>
                             <Text style={styles.bonusValueText}>{stickBonus ? "0.1" : "0.0"}</Text>
                           </TouchableOpacity>
                         </View>
@@ -922,12 +946,12 @@ export default function GymnastFloor() {
                     {discipline && (
                       <>
                         <View style={styles.stickBonusCelltext}>
-                          <TouchableOpacity onPress={() => handleStickBonusChange(!stickBonus)}>
+                          <TouchableOpacity style={styles.fullCellTouchable} onPress={() => handleStickBonusChange(!stickBonus)}>
                             <Text style={styles.bonusLabelText}>{gymnast?.evento === 'PB' ? 'BONUS' : 'SB'}</Text>
                           </TouchableOpacity>
                         </View>
                         <View style={styles.stickBonusCell}>
-                          <TouchableOpacity onPress={() => handleStickBonusChange(!stickBonus)}>
+                          <TouchableOpacity style={styles.fullCellTouchable} onPress={() => handleStickBonusChange(!stickBonus)}>
                             <Text style={styles.bonusValueText}>{stickBonus ? "0.1" : "0.0"}</Text>
                           </TouchableOpacity>
                         </View>
@@ -937,10 +961,12 @@ export default function GymnastFloor() {
                 )}
                 {/* ND: Siempre visible */}
                 <View style={styles.ndCell}>
-                  <Text style={styles.bonusLabelText}>ND</Text>
+                  <TouchableOpacity style={styles.fullCellTouchable} onPress={() => openNumberPadModal("ND", nd)}>
+                    <Text style={styles.bonusLabelText}>ND</Text>
+                  </TouchableOpacity>
                 </View>
                 <View style={styles.ndCellText}>
-                  <TouchableOpacity onPress={() => openNumberPadModal("ND", nd)}>
+                  <TouchableOpacity style={styles.fullCellTouchable} onPress={() => openNumberPadModal("ND", nd)}>
                     <Text style={styles.bonusValueText}>{nd.toFixed(1)}</Text>
                   </TouchableOpacity>
                 </View>
@@ -958,7 +984,7 @@ export default function GymnastFloor() {
                   <Text style={styles.infoLabelText}>EXECUTION</Text>
                 </View>
                 <View style={styles.infoValueCellBlue}>
-                  <TouchableOpacity onPress={() => openNumberPadModal("EXECUTION", execution)}>
+                  <TouchableOpacity style={styles.fullCellTouchable} onPress={() => openNumberPadModal("EXECUTION", execution)}>
                     <Text style={styles.infoValueText}>{execution}</Text>
                   </TouchableOpacity>
                 </View>
@@ -984,7 +1010,7 @@ export default function GymnastFloor() {
                   <Text style={styles.infoLabelText}>DELTA (Δ)</Text>
                 </View>
                 <View style={styles.infoValueCellBlue}>
-                  <Text style={styles.infoValueText}>{delta.toFixed(1)}</Text>
+                  <Text style={styles.infoValueText}>{delta.toFixed(3)}</Text>
                 </View>
               </View>
 
@@ -993,20 +1019,42 @@ export default function GymnastFloor() {
                   <Text style={styles.compDeductionLabelText}>COMPETITION INFO</Text>
                 </View>
                 <View style={styles.infoValueCellBlue}>
-                  <TouchableOpacity onPress={() => openNumberPadModal("D", compD)}>
+                  <TouchableOpacity style={styles.fullCellTouchable} onPress={() => openNumberPadModal("D", compD)}>
                     <Text style={styles.infoValueText}>D: {compD.toFixed(1)}</Text>
                   </TouchableOpacity>
                 </View>
                 <View style={styles.infoValueCellBlue}>
-                  <TouchableOpacity onPress={() => openNumberPadModal("E", compE)}>
+                  <TouchableOpacity style={styles.fullCellTouchable} onPress={() => openNumberPadModal("E", compE)}>
                     <Text style={styles.infoValueText}>E: {compE.toFixed(3)}</Text>
                   </TouchableOpacity>
                 </View>
                 <View style={styles.infoValueCellBlue}>
-                  <Text style={styles.infoValueText}>SB: {compSb ? "0.1" : "0.0"}</Text>
+                  <TouchableOpacity
+                    style={styles.fullCellTouchable}
+                    onPress={() => {
+                      const nextCompSb = !compSb;
+                      setCompSb(nextCompSb);
+
+                      const compscorecalc = compD + compE + (nextCompSb ? getStickBonusValue() : 0) - compNd;
+                      const finalScore = Math.round(compscorecalc * 1000) / 1000;
+                      setCompScore(finalScore);
+
+                      const newdelt = Math.abs(Math.round((eScore - compE) * 10) / 10);
+                      setDelta(newdelt);
+
+                      const newded = 10 - compE;
+                      setDedded(Number(newded));
+
+                      const dedInterval = getDeductionIntervalValue(Number(newded));   
+                      const percentageValue = getPercentageFromTable(dedInterval, newdelt);
+                      setPercentage(percentageValue);
+                    }}
+                  >
+                    <Text style={styles.infoValueText}>SB: {compSb ? "0.1" : "0.0"}</Text>
+                  </TouchableOpacity>
                 </View>
                 <View style={styles.infoValueCellBlue}>
-                  <TouchableOpacity onPress={() => openNumberPadModal("COMP_ND", compNd)}>
+                  <TouchableOpacity style={styles.fullCellTouchable} onPress={() => openNumberPadModal("COMP_ND", compNd)}>
                     <Text style={styles.infoValueText}>ND: {compNd.toFixed(1)}</Text>
                   </TouchableOpacity>
                 </View>
@@ -1057,7 +1105,10 @@ export default function GymnastFloor() {
           <TouchableOpacity style={styles.mainTableButton} onPress={handleFinish}>
             <Text style={styles.buttonText}>MAIN TABLE</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.nextButton, { backgroundColor: currentIndex === allGymnasts.length - 1 ? "#DC3545" : "#0052b4" }]} onPress={handleNext}>
+          <TouchableOpacity
+            style={[styles.nextButton, { backgroundColor: currentIndex === allGymnasts.length - 1 ? "#DC3545" : "#0052b4" }]}
+            onPress={currentIndex === allGymnasts.length - 1 ? handleFinish : handleNext}
+          >
             <Text style={styles.buttonText}>{currentIndex === allGymnasts.length - 1 ? "FINISH" : "NEXT"}</Text>
           </TouchableOpacity>
         </View>
@@ -1074,7 +1125,7 @@ export default function GymnastFloor() {
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContainer}>
-              <Text style={styles.modalTitle}>Seleccionar Grupo {group}</Text>
+              <Text style={styles.modalTitle}>Select Group {group}</Text>
               <ScrollView style={styles.modalScrollView}>
                 {getAvailableValuesForGroup(gymnast?.evento || '', discipline, group).map((value) => (
                   <TouchableOpacity
@@ -1098,7 +1149,7 @@ export default function GymnastFloor() {
                 style={styles.modalCloseButton}
                 onPress={() => setShowElementGroupModal({ ...showElementGroupModal, [group]: false })}
               >
-                <Text style={styles.modalCloseButtonText}>Cerrar</Text>
+                <Text style={styles.modalCloseButtonText}>Close</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1110,6 +1161,7 @@ export default function GymnastFloor() {
             {showNumberPadModal && (
               <Modal transparent visible={showNumberPadModal} animationType="fade">
                     <CustomNumberPadOptimized
+                      visible={showNumberPadModal}
                       value={numberPadValue}
                       onValueChange={setNumberPadValue}
                       onClose={(val) => {
@@ -1125,20 +1177,20 @@ export default function GymnastFloor() {
       <Modal transparent visible={showCommentsModal} animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>Comentarios</Text>
+            <Text style={styles.modalTitle}>Comments</Text>
             <TextInput
               style={[styles.modalInput, styles.modalInputMultiline]}
               value={commentsInput}
               onChangeText={setCommentsInput}
               multiline
-              placeholder="Escribe tus comentarios..."
+              placeholder="Write your comments..."
             />
             <View style={styles.modalButtonRow}>
               <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => setShowCommentsModal(false)}>
-                <Text style={styles.modalButtonText}>Cancelar</Text>
+                <Text style={styles.modalButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.modalButton} onPress={() => { setComments(commentsInput); setShowCommentsModal(false); }}>
-                <Text style={styles.modalButtonText}>Guardar</Text>
+                <Text style={styles.modalButtonText}>Save</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1931,6 +1983,13 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "bold",
     fontSize: 12,
+  },
+  fullCellTouchable: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   modalOverlay: {
     flex: 1,

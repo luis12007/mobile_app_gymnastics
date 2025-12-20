@@ -30,7 +30,7 @@ import {
 } from "../lib/database";
 import ModalvaultMag from "../componentes/ModalVaultMag";
 import ModalvaultWag from "../componentes/ModalVaultWag";
-import WhiteboardScreen, { WhiteboardRef } from "../componentes/WhiteboardScreen_jump";
+import WhiteboardScreen, { WhiteboardRef } from "../componentes/WhiteboardScreen_jump_new";
 import { ActivityIndicator } from "react-native";
 
 const { width, height } = Dimensions.get("window");
@@ -236,6 +236,11 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   }>({});
   const [elementGroupValues] = useState<{ [key: string]: number }>({});
 
+  const safeNumber = (n: any, fallback = 0) => {
+    const v = typeof n === "number" ? n : Number(n);
+    return Number.isFinite(v) ? v : fallback;
+  };
+
   /* DEFINE MODALS */
   const [showmodalmag, setShowModalMag] = useState(false);
   const [showmodalwag, setShowModalWag] = useState(false);
@@ -274,31 +279,31 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         
         if (gymnast) {
           setGymnastEvent(gymnast.evento || '');
-          setGymnastNumber(gymnast.numero || 0);
-          setCv(gymnast.cv || 0);
-          setNd(gymnast.nd || 0);
-          setDelt(gymnast.delta || 0);
-          setpercentage(gymnast.percentage || 0);
+          setGymnastNumber(safeNumber(gymnast.numero, 0));
+          setCv(safeNumber(gymnast.cv, 0));
+          setNd(safeNumber(gymnast.nd, 0));
+          setDelt(safeNumber(gymnast.delta, 0));
+          setpercentage(safeNumber(gymnast.percentage, 0));
           setGymnastName(gymnast.gymnasta || '');
           setGymnastNoc(gymnast.noc || '');
           setGymnastBib(gymnast.bib || '');
-          setSv(gymnast.sv || 0);
-          setStartValue(gymnast.vault_value || 0);
+          setSv(safeNumber(gymnast.sv, 0));
+          setStartValue(safeNumber(gymnast.vault_value, 0));
           setVaultNumber(gymnast.vault || '0');
           setVaultDescription(gymnast.vault_description || 'No Vault Assigned');
           setRateId(gymnast.id);
           setStickBonus(gymnast.bonus === 0.1);
           setCommentsInput(gymnast.comments || '');
           setComments(gymnast.comments || '');
-          setExecution(gymnast.execution || 0);
-          setEScore(gymnast.escore || 0);
-          setMyScore(gymnast.myscore || 0);
-          setD(gymnast.competition_d || 0);
-          setScore(gymnast.competition_score || 0);
-          setE(gymnast.competition_e || 0);
+          setExecution(safeNumber(gymnast.execution, 0));
+          setEScore(safeNumber(gymnast.escore, 0));
+          setMyScore(safeNumber(gymnast.myscore, 0));
+          setD(safeNumber(gymnast.competition_d, 0));
+          setScore(safeNumber(gymnast.competition_score, 0));
+          setE(safeNumber(gymnast.competition_e, 0));
           setSb(gymnast.competition_sb === 0.1);
-          setndcomp(gymnast.competition_nd || 0);
-          setSetded(gymnast.dedded || 0);
+          setndcomp(safeNumber(gymnast.competition_nd, 0));
+          setSetded(safeNumber(gymnast.dedded, 0));
         }
       } catch (error) {
         console.error("Error fetching gymnast data:", error);
@@ -336,7 +341,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
       });
     } catch (error) {
       console.error("Error in handleFinish:", error);
-      Alert.alert("Error", "No se pudieron guardar los datos. Intenta de nuevo.");
+      Alert.alert("Error", "Could not save the data. Please try again.");
     }
   };
 
@@ -355,12 +360,13 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
       router.push({
         pathname: '/start-judging',
         params: { 
-          competitionId: competenceId.toString()
+          competitionId: competenceId.toString(),
+          lastGymnastId: gymnastid.toString(),
         }
       });
     } catch (error) {
       console.error("Error in handleGoBack:", error);
-      Alert.alert("Error", "No se pudieron guardar los datos. Intenta de nuevo.");
+      Alert.alert("Error", "Could not save the data. Please try again.");
     }
   };
 
@@ -394,7 +400,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
       }
     } catch (error) {
       console.error("Error in handleNext:", error);
-      Alert.alert("Error", "No se pudieron guardar los datos. Intenta de nuevo.");
+      Alert.alert("Error", "Could not save the data. Please try again.");
     }
   };
 
@@ -424,7 +430,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
       }
     } catch (error) {
       console.error("Error in handlePrevious:", error);
-      Alert.alert("Error", "No se pudieron guardar los datos. Intenta de nuevo.");
+      Alert.alert("Error", "Could not save the data. Please try again.");
     }
   };
 
@@ -513,7 +519,8 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
 
   /* Helpers ============================================== */
   function trimDecimals(num: number, decimals: number) {
-    const [int, dec] = String(num).split(".");
+    const safe = safeNumber(num, 0);
+    const [int, dec] = String(safe).split(".");
     if (!dec) return int + "." + "0".repeat(decimals);
     return int + "." + dec.slice(0, decimals).padEnd(decimals, "0");
   }
@@ -886,9 +893,10 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             const num = parseFloat(inputString.replace(",", "."));
 
             if (!isNaN(num)) {
-              const rounded = Math.round(num * 10) / 10;
-              setExecution(rounded);
-              const eScore = Number((10 - rounded).toFixed(3));
+              // Mantener la precisión del valor ingresado (como en Floor)
+              // para que eScore/delta/percentage coincidan.
+              setExecution(num);
+              const eScore = Number((10 - num).toFixed(3));
               const newmyscore = eScore + sv + (stickbonus ? getStickBonusValue() : 0) - nd;
               const finalScore = Math.round(newmyscore * 1000) / 1000;
 
@@ -1213,7 +1221,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                 },
               ]}
               onPress={() => {
-                setSvInput(sv.toFixed(1)); // Set current value before opening modal
+                setSvInput(safeNumber(sv, 0).toFixed(1)); // Set current value before opening modal
                 setShowSvModal(true);
               }}
             >
@@ -1225,13 +1233,13 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                   isTinyDevice ? styles.svValueTextTiny : null,
                 ]}
               >
-                {sv.toFixed(1)}
+                {safeNumber(sv, 0).toFixed(1)}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.ndValueCell}
               onPress={() => {
-                setNdInput(nd.toFixed(1)); // Set current value before opening modal
+                setNdInput(safeNumber(nd, 0).toFixed(1)); // Set current value before opening modal
                 setShowNdModal(true);
               }}
             >
@@ -1243,8 +1251,8 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                   isTinyDevice ? styles.valueTextTiny : null,
                 ]}
               >
-                {nd.toFixed(1)}
-              </Text>{" "}
+                {safeNumber(nd, 0).toFixed(1)}
+              </Text>
             </TouchableOpacity>
               <View style={styles.sbValueCell}>
                 <Text
@@ -1259,27 +1267,26 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                 </Text>
               </View>
             <View style={styles.executionValueCellflex}>
-              <View style={styles.executionValueCell}>
+              <TouchableOpacity
+                style={styles.executionValueCell}
+                activeOpacity={0.7}
+                onPress={() => {
+                  setExecutionInput(trimDecimals(execution, 3));
+                  setShowExecutionModal(true);
+                }}
+              >
                 <Text
                   style={[
+                    styles.infoValueText,
                     isLargeDevice ? styles.valueTextLarge : null,
                     isMediumLargeDevice ? styles.valueTextMediumLarge : null,
                     isSmallDevice ? styles.valueTextSmall : null,
                     isTinyDevice ? styles.valueTextTiny : null,
                   ]}
                 >
-                  <TouchableOpacity
-                    onPress={() => {
-                      setExecutionInput(execution.toFixed(1)); // Set current value before opening modal
-                      setShowExecutionModal(true);
-                    }}
-                  >
-                    <Text style={styles.infoValueText}>
-                      {execution.toFixed(1)}
-                    </Text>
-                  </TouchableOpacity>
+                  {trimDecimals(execution, 3)}
                 </Text>
-              </View>
+              </TouchableOpacity>
               <View style={styles.executionValueCell}>
                 <Text
                   style={[
@@ -1299,7 +1306,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                       isTinyDevice ? styles.scoreValueTextTiny : null,
                     ]}
                   >
-                    {eScore.toFixed(3)}
+                    {safeNumber(eScore, 0).toFixed(3)}
                   </Text>
                 </Text>
               </View>
@@ -1372,180 +1379,188 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               </Text>
             </View>
             <View style={styles.dCell}>
-              <Text
-                style={[
-                  isLargeDevice ? styles.smallCellTextLarge : null,
-                  isMediumLargeDevice ? styles.smallCellTextMediumLarge : null,
-                  isSmallDevice ? styles.smallCellTextSmall : null,
-                  isTinyDevice ? styles.smallCellTextTiny : null,
-                ]}
+              <TouchableOpacity
+                style={styles.fullCellTouchable}
+                activeOpacity={0.7}
+                onPress={() => {
+                  setDInput(d.toFixed(1));
+                  setShowDModal(true);
+                }}
               >
-                D
-              </Text>
+                <Text
+                  style={[
+                    isLargeDevice ? styles.smallCellTextLarge : null,
+                    isMediumLargeDevice ? styles.smallCellTextMediumLarge : null,
+                    isSmallDevice ? styles.smallCellTextSmall : null,
+                    isTinyDevice ? styles.smallCellTextTiny : null,
+                  ]}
+                >
+                  D
+                </Text>
+              </TouchableOpacity>
             </View>
             <View style={styles.dValueCell}>
-              <Text
-                style={[
-                  isLargeDevice ? styles.smallValueTextLarge : null,
-                  isMediumLargeDevice ? styles.smallValueTextMediumLarge : null,
-                  isSmallDevice ? styles.smallValueTextSmall : null,
-                  isTinyDevice ? styles.smallValueTextTiny : null,
-                ]}
+              <TouchableOpacity
+                style={styles.fullCellTouchable}
+                activeOpacity={0.7}
+                onPress={() => {
+                  setDInput(d.toFixed(1));
+                  setShowDModal(true);
+                }}
               >
-                <TouchableOpacity
-                  onPress={() => {
-                    setDInput(d.toFixed(1)); // Set current value before opening modal
-                    setShowDModal(true);
-                  }}
+                <Text
+                  style={[
+                    isLargeDevice ? styles.dValueTextLarge : null,
+                    isMediumLargeDevice ? styles.dValueTextMediumLarge : null,
+                    isSmallDevice ? styles.dValueTextSmall : null,
+                    isTinyDevice ? styles.dValueTextTiny : null,
+                  ]}
                 >
-                  <Text
-                    style={[
-                      isLargeDevice ? styles.dValueTextLarge : null,
-                      isMediumLargeDevice ? styles.dValueTextMediumLarge : null,
-                      isSmallDevice ? styles.dValueTextSmall : null,
-                      isTinyDevice ? styles.dValueTextTiny : null,
-                    ]}
-                  >
-                    {d.toFixed(1)}
-                  </Text>
-                </TouchableOpacity>
-              </Text>
+                  {d.toFixed(1)}
+                </Text>
+              </TouchableOpacity>
             </View>
             <View style={styles.eCell}>
-              <Text
-                style={[
-                  isLargeDevice ? styles.smallCellTextLarge : null,
-                  isMediumLargeDevice ? styles.smallCellTextMediumLarge : null,
-                  isSmallDevice ? styles.smallCellTextSmall : null,
-                  isTinyDevice ? styles.smallCellTextTiny : null,
-                ]}
+              <TouchableOpacity
+                style={styles.fullCellTouchable}
+                activeOpacity={0.7}
+                onPress={() => {
+                  setEInput(e.toFixed(3));
+                  setShowEModal(true);
+                }}
               >
-                E
-              </Text>
+                <Text
+                  style={[
+                    isLargeDevice ? styles.smallCellTextLarge : null,
+                    isMediumLargeDevice ? styles.smallCellTextMediumLarge : null,
+                    isSmallDevice ? styles.smallCellTextSmall : null,
+                    isTinyDevice ? styles.smallCellTextTiny : null,
+                  ]}
+                >
+                  E
+                </Text>
+              </TouchableOpacity>
             </View>
             <View style={styles.eValueCell}>
-              <Text
-                style={[
-                  isLargeDevice ? styles.smallValueTextLarge : null,
-                  isMediumLargeDevice ? styles.smallValueTextMediumLarge : null,
-                  isSmallDevice ? styles.smallValueTextSmall : null,
-                  isTinyDevice ? styles.smallValueTextTiny : null,
-                ]}
+              <TouchableOpacity
+                style={styles.fullCellTouchable}
+                activeOpacity={0.7}
+                onPress={() => {
+                  setEInput(e.toFixed(3));
+                  setShowEModal(true);
+                }}
               >
-                <TouchableOpacity
-                  onPress={() => {
-                    setEInput(e.toFixed(3)); // Set current value before opening modal
-                    setShowEModal(true);
-                  }}
+                <Text
+                  style={[
+                    isLargeDevice ? styles.eValueTextLarge : null,
+                    isMediumLargeDevice ? styles.eValueTextMediumLarge : null,
+                    isSmallDevice ? styles.eValueTextSmall : null,
+                    isTinyDevice ? styles.eValueTextTiny : null,
+                  ]}
                 >
-                  <Text
-                    style={[
-                      isLargeDevice ? styles.eValueTextLarge : null,
-                      isMediumLargeDevice ? styles.eValueTextMediumLarge : null,
-                      isSmallDevice ? styles.eValueTextSmall : null,
-                      isTinyDevice ? styles.eValueTextTiny : null,
-                    ]}
-                  >
-                    {e.toFixed(3)}
-                  </Text>
-                </TouchableOpacity>
-              </Text>
+                  {e.toFixed(3)}
+                </Text>
+              </TouchableOpacity>
             </View>
               <>
                 <View style={styles.sdCell}>
-                  <Text
-                    style={[
-                      isLargeDevice ? styles.smallCellTextLarge : null,
-                      isMediumLargeDevice
-                        ? styles.smallCellTextMediumLarge
-                        : null,
-                      isSmallDevice ? styles.smallCellTextSmall : null,
-                      isTinyDevice ? styles.smallCellTextTiny : null,
-                    ]}
+                  <TouchableOpacity
+                    style={styles.fullCellTouchable}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      const newValue = !sb;
+                      setSb(newValue);
+                      const compscorecalc =
+                        d + e + (newValue ? getStickBonusValue() : 0) - ndcomp;
+                      const finalScore = Math.round(compscorecalc * 1000) / 1000;
+
+                      setScore(finalScore);
+                    }}
                   >
-                    {discipline ? "SB" : "B"}
-                  </Text>
+                    <Text
+                      style={[
+                        isLargeDevice ? styles.smallCellTextLarge : null,
+                        isMediumLargeDevice
+                          ? styles.smallCellTextMediumLarge
+                          : null,
+                        isSmallDevice ? styles.smallCellTextSmall : null,
+                        isTinyDevice ? styles.smallCellTextTiny : null,
+                      ]}
+                    >
+                      {discipline ? "SB" : "B"}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
                 <View style={styles.sdValueCell}>
-                  <Text
-                    style={[
-                      isLargeDevice ? styles.smallValueTextLarge : null,
-                      isMediumLargeDevice
-                        ? styles.smallValueTextMediumLarge
-                        : null,
-                      isSmallDevice ? styles.smallValueTextSmall : null,
-                      isTinyDevice ? styles.smallValueTextTiny : null,
-                    ]}
-                  >
-                    <TouchableOpacity
-                      onPress={() => {
-                        const newValue = !sb;
-                        setSb(newValue);
-                        const compscorecalc =
-                          d + e + (newValue ? getStickBonusValue() : 0) - ndcomp;
-                        const finalScore = Math.round(compscorecalc * 1000) / 1000;
+                  <TouchableOpacity
+                    style={styles.fullCellTouchable}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      const newValue = !sb;
+                      setSb(newValue);
+                      const compscorecalc =
+                        d + e + (newValue ? getStickBonusValue() : 0) - ndcomp;
+                      const finalScore = Math.round(compscorecalc * 1000) / 1000;
 
-                        setScore(finalScore);
-                        
-                      }}
+                      setScore(finalScore);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        isLargeDevice ? styles.sdValueTextLarge : null,
+                        isMediumLargeDevice
+                          ? styles.sdValueTextMediumLarge
+                          : null,
+                        isSmallDevice ? styles.sdValueTextSmall : null,
+                        isTinyDevice ? styles.sdValueTextTiny : null,
+                      ]}
                     >
-                      <Text
-                        style={[
-                          isLargeDevice ? styles.sdValueTextLarge : null,
-                          isMediumLargeDevice
-                            ? styles.sdValueTextMediumLarge
-                            : null,
-                          isSmallDevice ? styles.sdValueTextSmall : null,
-                          isTinyDevice ? styles.sdValueTextTiny : null,
-                        ]}
-                      >
-                        {sb ? getStickBonusValue() : "0.0"}
-                      </Text>
-                    </TouchableOpacity>
-                  </Text>
+                      {sb ? getStickBonusValue() : "0.0"}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               </>
             <View style={styles.ndDeductionCell}>
-              <Text
-                style={[
-                  isLargeDevice ? styles.smallCellTextLarge : null,
-                  isMediumLargeDevice ? styles.smallCellTextMediumLarge : null,
-                  isSmallDevice ? styles.smallCellTextSmall : null,
-                  isTinyDevice ? styles.smallCellTextTiny : null,
-                ]}
+              <TouchableOpacity
+                style={styles.fullCellTouchable}
+                activeOpacity={0.7}
+                onPress={() => {
+                  setNdInputcomp(ndcomp.toFixed(1));
+                  setShowNdCompModal(true);
+                }}
               >
-                ND
-              </Text>
+                <Text
+                  style={[
+                    isLargeDevice ? styles.smallCellTextLarge : null,
+                    isMediumLargeDevice ? styles.smallCellTextMediumLarge : null,
+                    isSmallDevice ? styles.smallCellTextSmall : null,
+                    isTinyDevice ? styles.smallCellTextTiny : null,
+                  ]}
+                >
+                  ND
+                </Text>
+              </TouchableOpacity>
             </View>
             <View style={styles.ndDeductionValueCell}>
-              <Text
-                style={[
-                  isLargeDevice ? styles.smallValueTextLarge : null,
-                  isMediumLargeDevice ? styles.smallValueTextMediumLarge : null,
-                  isSmallDevice ? styles.smallValueTextSmall : null,
-                  isTinyDevice ? styles.smallValueTextTiny : null,
-                ]}
+              <TouchableOpacity
+                style={styles.fullCellTouchable}
+                activeOpacity={0.7}
+                onPress={() => {
+                  setNdInputcomp(ndcomp.toFixed(1));
+                  setShowNdCompModal(true);
+                }}
               >
-                <TouchableOpacity
-                  onPress={() => {
-                    setNdInputcomp(ndcomp.toFixed(1)); // Set current value before opening modal
-                    setShowNdCompModal(true);
-                  }}
+                <Text
+                  style={[
+                    isLargeDevice ? styles.ndValueTextLarge : null,
+                    isMediumLargeDevice ? styles.ndValueTextMediumLarge : null,
+                    isSmallDevice ? styles.ndValueTextSmall : null,
+                    isTinyDevice ? styles.ndValueTextTiny : null,
+                  ]}
                 >
-                  <Text
-                    style={[
-                      isLargeDevice ? styles.ndValueTextLarge : null,
-                      isMediumLargeDevice
-                        ? styles.ndValueTextMediumLarge
-                        : null,
-                      isSmallDevice ? styles.ndValueTextSmall : null,
-                      isTinyDevice ? styles.ndValueTextTiny : null,
-                    ]}
-                  >
-                    {ndcomp.toFixed(1)}
-                  </Text>
-                </TouchableOpacity>
-              </Text>
+                  {ndcomp.toFixed(1)}
+                </Text>
+              </TouchableOpacity>
             </View>
             <View style={styles.scoreHeaderCell}>
               <Text
@@ -1745,7 +1760,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               styles.nextButton,
               currentIndex === allGymnasts.length - 1 && { backgroundColor: "#DC3545" }
             ]}
-            onPress={handleNext}
+            onPress={currentIndex === allGymnasts.length - 1 ? handleFinish : handleNext}
           >
             <Text style={styles.buttonText}>
               {currentIndex === allGymnasts.length - 1 ? "FINISH" : "NEXT"}
@@ -1829,6 +1844,13 @@ const styles = StyleSheet.create({
   },
   scrollContainer: {
     flexGrow: 1,
+  },
+  fullCellTouchable: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   tableContainer: {
     width: "100%",

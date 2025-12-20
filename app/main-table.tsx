@@ -64,14 +64,80 @@ const MainTable: React.FC = () => {
   const [showFinishModal, setShowFinishModal] = useState(false);
   const [generatingPDF, setGeneratingPDF] = useState(false);
   const [pdfProgress, setPdfProgress] = useState(0);
+  const [pdfModalLayoutReady, setPdfModalLayoutReady] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [exportModalVisible, setExportModalVisible] = useState(false);
   const [importModalVisible, setImportModalVisible] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
 
+  // PDF generation control (UX + safe cancellation)
+  const pdfCancelledRef = useRef(false);
+  const pdfProgressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pdfCancelEnableIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pdfStartedAtRef = useRef<number>(0);
+  const [allowPdfCancel, setAllowPdfCancel] = useState(false);
+
+  const navigateToCompetitionFolder = useCallback(() => {
+    const folderId = competition?.folder_id;
+    if (folderId != null && String(folderId).length > 0) {
+      router.push({ pathname: '/folder/[id]', params: { id: String(folderId) } });
+      return;
+    }
+    // Fallback (should be rare): if we don't know the folder, go to main menu.
+    router.push('/main-menu');
+  }, [competition?.folder_id, router]);
+
+  useEffect(() => {
+    // Enable cancel button if PDF generation seems stuck (e.g., at 90%).
+    if (!generatingPDF) {
+      if (pdfCancelEnableIntervalRef.current) {
+        clearInterval(pdfCancelEnableIntervalRef.current);
+        pdfCancelEnableIntervalRef.current = null;
+      }
+      setAllowPdfCancel(false);
+      return;
+    }
+
+    pdfStartedAtRef.current = Date.now();
+    setAllowPdfCancel(false);
+    pdfCancelEnableIntervalRef.current = setInterval(() => {
+      const elapsedMs = Date.now() - pdfStartedAtRef.current;
+      // Typical hang scenario is progress capped at 90%; allow cancel after 12s there.
+      if (pdfProgress >= 90 && elapsedMs >= 12_000) {
+        setAllowPdfCancel(true);
+      }
+      // Also allow cancel after a hard timeout even if progress is lower.
+      if (elapsedMs >= 30_000) {
+        setAllowPdfCancel(true);
+      }
+    }, 1_000);
+
+    return () => {
+      if (pdfCancelEnableIntervalRef.current) {
+        clearInterval(pdfCancelEnableIntervalRef.current);
+        pdfCancelEnableIntervalRef.current = null;
+      }
+    };
+  }, [generatingPDF, pdfProgress]);
+
   useEffect(() => {
     loadData();
   }, [competitionId]);
+
+  useEffect(() => {
+    if (!generatingPDF) {
+      setPdfModalLayoutReady(false);
+      return;
+    }
+
+    setPdfModalLayoutReady(false);
+    // Let the modal mount + layout before showing the percentage text to avoid initial misalignment.
+    const raf = requestAnimationFrame(() => {
+      setTimeout(() => setPdfModalLayoutReady(true), 60);
+    });
+
+    return () => cancelAnimationFrame(raf);
+  }, [generatingPDF]);
 
   const loadData = async () => {
     try {
@@ -155,15 +221,22 @@ const MainTable: React.FC = () => {
   };
 
   const handleDownloadPDF = async () => {
-    let progressInterval: any = null;
+    if (generatingPDF) return;
     
     try {
       setShowFinishModal(false);
       setGeneratingPDF(true);
       setPdfProgress(0);
+      pdfCancelledRef.current = false;
+      setAllowPdfCancel(false);
       
       // Simular progreso durante la generación
-      progressInterval = setInterval(() => {
+      if (pdfProgressIntervalRef.current) {
+        clearInterval(pdfProgressIntervalRef.current);
+        pdfProgressIntervalRef.current = null;
+      }
+
+      pdfProgressIntervalRef.current = setInterval(() => {
         setPdfProgress(prev => {
           if (prev >= 90) {
             return 90; // Mantener en 90% hasta que termine
@@ -174,51 +247,91 @@ const MainTable: React.FC = () => {
 
       // Generar y compartir el PDF
       await generateAndSharePDF(competitionId, tableData);
+
+      // If user cancelled waiting, ignore late completion.
+      if (pdfCancelledRef.current) {
+        return;
+      }
       
       // Detener el intervalo y completar al 100%
-      if (progressInterval) clearInterval(progressInterval);
+      if (pdfProgressIntervalRef.current) {
+        clearInterval(pdfProgressIntervalRef.current);
+        pdfProgressIntervalRef.current = null;
+      }
       setPdfProgress(100);
       
       // Esperar un momento para mostrar el 100%
       setTimeout(() => {
+        if (pdfCancelledRef.current) return;
         setGeneratingPDF(false);
         setPdfProgress(0);
         
         Alert.alert(
-          'Éxito',
-          'El PDF se ha compartido correctamente',
+          'Success',
+          'The PDF was shared successfully.',
           [
             { 
               text: 'OK',
-              onPress: () => router.push('/')
+              onPress: navigateToCompetitionFolder
             }
           ]
         );
       }, 500);
     } catch (error: any) {
-      console.error('Error al generar PDF:', error);
+      console.error('Error generating PDF:', error);
       
       // Detener el intervalo en caso de error
-      if (progressInterval) clearInterval(progressInterval);
+      if (pdfProgressIntervalRef.current) {
+        clearInterval(pdfProgressIntervalRef.current);
+        pdfProgressIntervalRef.current = null;
+      }
       setGeneratingPDF(false);
       setPdfProgress(0);
       
       // Verificar si el usuario canceló el share
       const errorMessage = error?.message || '';
       const isCancelled = errorMessage.includes('cancel') || errorMessage.includes('dismiss');
+
+      // If user cancelled waiting, ignore.
+      if (pdfCancelledRef.current) {
+        return;
+      }
       
       if (!isCancelled) {
         Alert.alert(
           'Error',
-          `No se pudo ${errorMessage.includes('Timeout') ? 'compartir' : 'generar'} el PDF. Por favor intenta nuevamente.`,
-          [{ text: 'OK' }]
+          `Could not ${errorMessage.includes('Timeout') ? 'share' : 'generate'} the PDF. Please try again.`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Retry', onPress: handleDownloadPDF }
+          ]
         );
       } else {
-        // Usuario canceló, navegar a inicio sin mostrar error
-        router.push('/');
+        // Usuario canceló, volver al folder de la competencia sin mostrar error
+        navigateToCompetitionFolder();
       }
     }
   };
+
+  const handleCancelPdfWait = useCallback(() => {
+    pdfCancelledRef.current = true;
+    if (pdfProgressIntervalRef.current) {
+      clearInterval(pdfProgressIntervalRef.current);
+      pdfProgressIntervalRef.current = null;
+    }
+    setGeneratingPDF(false);
+    setPdfProgress(0);
+    setAllowPdfCancel(false);
+
+    Alert.alert(
+      'PDF Generation',
+      'This is taking longer than expected. You can retry or exit.',
+      [
+        { text: 'Exit', style: 'cancel', onPress: navigateToCompetitionFolder },
+        { text: 'Retry', onPress: handleDownloadPDF },
+      ]
+    );
+  }, [handleDownloadPDF, navigateToCompetitionFolder]);
 
   const handleFinalize = () => {
     setShowFinishModal(false);
@@ -351,7 +464,7 @@ const MainTable: React.FC = () => {
       {renderDataCell(item.eScore.toFixed(3), 70)}
       {renderDataCell(item.dScore.toFixed(2), 70)}
       {renderDataCell(item.eDelta.toFixed(2), 70)}
-      {renderDataCell(item.delta.toFixed(2), 70, false, 'delta')}
+      {renderDataCell(item.delta.toFixed(3), 70, false, 'delta')}
       {renderDataCell(item.percentage.toFixed(1) + '%', 70, false, 'percentage')}
       {renderDataCell(item.comments || '-', 120)}
     </TouchableOpacity>
@@ -448,7 +561,7 @@ const MainTable: React.FC = () => {
                   {renderDataCell(item.eScore.toFixed(2), 70, false, 'eScore')}
                   {renderDataCell(item.dScore.toFixed(2), 70, false, 'dScore')}
                   {renderDataCell(item.eDelta.toFixed(2), 70, false, 'eDelta')}
-                  {renderDataCell(item.delta.toFixed(2), 70, false, 'delta')}
+                  {renderDataCell(item.delta.toFixed(3), 70, false, 'delta')}
                   {renderDataCell(item.percentage.toFixed(1) + '%', 70, false, 'percentage')}
                   {renderDataCell(item.comments || '-', 120, false, 'comments')}
                 </TouchableOpacity>
@@ -494,15 +607,26 @@ const MainTable: React.FC = () => {
       {/* PDF Generation Progress Modal */}
       <Modal visible={generatingPDF} transparent animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Generando PDF</Text>
-            <Text style={styles.modalText}>Por favor espera...</Text>
+          <View style={styles.modalContent} onLayout={() => setPdfModalLayoutReady(true)}>
+            <Text style={styles.modalTitle}>Generating PDF</Text>
+            <Text style={styles.modalText}>Please wait...</Text>
             
             <View style={styles.progressBarContainer}>
               <View style={[styles.progressBar, { width: `${pdfProgress}%` }]} />
             </View>
             
-            <Text style={styles.progressText}>{pdfProgress}%</Text>
+            <Text style={[styles.progressText, !pdfModalLayoutReady && styles.progressTextHidden]}>
+              {pdfModalLayoutReady ? `${pdfProgress}%` : '0%'}
+            </Text>
+
+            {allowPdfCancel ? (
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={handleCancelPdfWait}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         </View>
       </Modal>
@@ -613,8 +737,11 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 16,
-    fontSize: 16,
-    color: '#666',
+    minWidth: 64,
+    textAlign: 'center',
+  },
+  progressTextHidden: {
+    opacity: 0,
   },
   tableContainer: {
     flex: 1,

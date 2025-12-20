@@ -1,8 +1,6 @@
 import * as Print from 'expo-print';
 import { shareAsync, isAvailableAsync } from 'expo-sharing';
 import { Platform, Alert } from 'react-native';
-import { PDFDocument } from 'pdf-lib';
-import * as ImageManipulator from 'expo-image-manipulator';
 import { 
   getCompetitionById, 
   getGymnastsByCompetition, 
@@ -47,180 +45,6 @@ export interface TableRow {
   comments: string;
 }
 
-function isPdfOutOfMemoryError(error: any): boolean {
-  const message = String(error?.message ?? error ?? '');
-  return (
-    message.includes('OutOfMemoryError') ||
-    message.includes('Failed to allocate') ||
-    message.includes('OOM')
-  );
-}
-
-async function ensurePdfFileExists(uri: string, label: string) {
-  const info = await FileSystem.getInfoAsync(uri);
-  if (!info.exists) {
-    throw new Error(`[PDF] ${label}: file was not created`);
-  }
-  console.log(`[PDF] ${label}: file size`, info.size, 'bytes');
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  const anyBuf: any = (globalThis as any).Buffer;
-  if (anyBuf?.from) {
-    return anyBuf.from(bytes).toString('base64');
-  }
-  const anyGlobal: any = globalThis as any;
-  if (typeof anyGlobal?.btoa === 'function') {
-    let binary = '';
-    const chunk = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunk) {
-      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-    }
-    return anyGlobal.btoa(binary);
-  }
-  throw new Error('[PDF] Could not convert bytes to base64 (no Buffer/btoa available)');
-}
-
-async function mergePdfUrisToSinglePdf(pdfUris: string[], outputUri: string): Promise<string> {
-  console.log('[PDF][Chunk] Merging PDFs:', pdfUris.length);
-  const merged = await PDFDocument.create();
-
-  for (let i = 0; i < pdfUris.length; i++) {
-    const uri = pdfUris[i];
-    console.log(`[PDF][Chunk] Loading chunk PDF ${i + 1}/${pdfUris.length}:`, uri);
-    const base64 = await FileSystem.readAsStringAsync(uri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    const bytes = base64ToBytes(base64);
-    const src = await PDFDocument.load(bytes);
-    const pageCount = src.getPageCount();
-    console.log(`[PDF][Chunk] Chunk ${i + 1} pages:`, pageCount);
-
-    const copied = await merged.copyPages(src, Array.from({ length: pageCount }, (_, idx) => idx));
-    for (const page of copied) merged.addPage(page);
-  }
-
-  const mergedBytes = await merged.save();
-  const mergedBase64 = bytesToBase64(mergedBytes);
-  await FileSystem.writeAsStringAsync(outputUri, mergedBase64, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-
-  await ensurePdfFileExists(outputUri, '[PDF][Chunk] Merged PDF');
-  return outputUri;
-}
-
-async function safeDeleteUris(uris: string[], label: string) {
-  for (const uri of uris) {
-    try {
-      await FileSystem.deleteAsync(uri, { idempotent: true });
-    } catch (e) {
-      console.warn(`[PDF][Chunk] Could not delete ${label}:`, uri, e);
-    }
-  }
-}
-
-async function printHtmlToPdf(html: string, label: string): Promise<string> {
-  console.log(`[PDF] printToFileAsync start: ${label} (html chars=${html.length})`);
-  const { uri } = await Print.printToFileAsync({ html, base64: false });
-  console.log(`[PDF] printToFileAsync done: ${label}`, uri);
-  await ensurePdfFileExists(uri, label);
-
-  try {
-    const info = await FileSystem.getInfoAsync(uri);
-    const size = info.exists && typeof (info as any).size === 'number' ? (info as any).size : 0;
-    if (size > 0 && size < 2048) {
-      console.warn(`[PDF] ${label}: suspiciously small PDF size (${size} bytes). This may render as a blank page.`);
-    }
-  } catch {
-    // ignore
-  }
-  return uri;
-}
-
-async function generateCompetitionPDFChunked(
-  competition: Competition,
-  competitionId: number,
-  tableData: TableRow[],
-  gymnasts: Gymnast[]
-): Promise<string> {
-  const rowsForIndividualPages = tableData.filter(row => row.gymnasta && row.gymnasta.trim() !== '');
-  const timestamp = Date.now();
-
-  let chunkSize = Platform.OS === 'android' ? 3 : 8;
-  const minChunkSize = 1;
-  const maxAttempts = 4;
-
-  console.log('[PDF][Chunk] Starting chunked generation', {
-    competitionId,
-    totalRows: rowsForIndividualPages.length,
-    initialChunkSize: chunkSize,
-    platform: Platform.OS,
-  });
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const chunkUris: string[] = [];
-    let summaryUri: string | null = null;
-    try {
-      console.log(`[PDF][Chunk] Attempt ${attempt}/${maxAttempts} with chunkSize=${chunkSize}`);
-      const totalChunks = Math.ceil(rowsForIndividualPages.length / chunkSize);
-      console.log('[PDF][Chunk] Total chunks:', totalChunks);
-
-      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
-        const start = chunkIndex * chunkSize;
-        const end = Math.min(rowsForIndividualPages.length, start + chunkSize);
-        const chunkRows = rowsForIndividualPages.slice(start, end);
-        console.log(
-          `[PDF][Chunk] Generating chunk ${chunkIndex + 1}/${totalChunks} rows ${start}-${end - 1}`,
-          chunkRows.map(r => ({ id: r.id, numero: r.numero, evento: r.evento, gymnast: r.gymnasta }))
-        );
-
-        const html = await generatePDFHTML(competition, tableData, gymnasts, {
-          rowsForIndividualPages: chunkRows,
-          includeIndividualPages: true,
-          includeSummary: false,
-          debugLabel: `chunk-${chunkIndex + 1}`,
-        });
-        const uri = await printHtmlToPdf(html, `[PDF][Chunk] Chunk ${chunkIndex + 1}`);
-        chunkUris.push(uri);
-      }
-
-      console.log('[PDF][Chunk] Generating summary PDF');
-      const summaryHtml = await generatePDFHTML(competition, tableData, gymnasts, {
-        includeIndividualPages: false,
-        includeSummary: true,
-        debugLabel: 'summary',
-      });
-      summaryUri = await printHtmlToPdf(summaryHtml, '[PDF][Chunk] Summary');
-
-      const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
-      const outputUri = `${baseDir}Competition_${competitionId}_${timestamp}_merged.pdf`;
-      const mergedUri = await mergePdfUrisToSinglePdf([...chunkUris, summaryUri], outputUri);
-
-      await safeDeleteUris(chunkUris, 'chunk PDF');
-      await safeDeleteUris([summaryUri], 'summary PDF');
-
-      console.log('[PDF][Chunk] Chunked generation complete:', mergedUri);
-      return mergedUri;
-    } catch (error) {
-      console.error('[PDF][Chunk] Attempt failed:', error);
-      await safeDeleteUris(chunkUris, 'chunk PDF');
-      if (summaryUri) await safeDeleteUris([summaryUri], 'summary PDF');
-
-      if (isPdfOutOfMemoryError(error) && chunkSize > minChunkSize) {
-        const nextChunkSize = Math.max(minChunkSize, Math.floor(chunkSize / 2));
-        console.warn('[PDF][Chunk] OOM detected. Retrying with smaller chunkSize:', nextChunkSize);
-        chunkSize = nextChunkSize;
-        continue;
-      }
-
-      throw error;
-    }
-  }
-
-  throw new Error('[PDF][Chunk] Could not generate PDF after multiple attempts');
-}
-
 /**
  * Genera un PDF con la tabla de resultados de la competencia
  */
@@ -240,24 +64,30 @@ export async function generateCompetitionPDF(
     // Obtener gimnastas con datos completos de la base de datos
     const gymnasts = await getGymnastsByCompetition(competitionId);
 
-    // Use chunking on Android by default to avoid OOM.
-    if (Platform.OS === 'android') {
-      return await generateCompetitionPDFChunked(competition, competitionId, tableData, gymnasts);
-    }
+    // Generar HTML del PDF
+    const html = await generatePDFHTML(competition, tableData, gymnasts);
 
-    // iOS: try normal generation first, fallback to chunking if needed.
-    try {
-      const html = await generatePDFHTML(competition, tableData, gymnasts);
-      console.log('[PDF] Generando PDF...');
-      const uri = await printHtmlToPdf(html, '[PDF] Full document');
-      return uri;
-    } catch (error) {
-      if (isPdfOutOfMemoryError(error)) {
-        console.warn('[PDF] OOM in full generation. Falling back to chunking...');
-        return await generateCompetitionPDFChunked(competition, competitionId, tableData, gymnasts);
-      }
-      throw error;
+    // Generar el PDF con un nombre único para evitar problemas de cache
+    console.log('[PDF] Generando PDF...');
+    const timestamp = Date.now();
+    const fileName = `competition_${competitionId}_${timestamp}.pdf`;
+    
+    const { uri } = await Print.printToFileAsync({ 
+      html,
+      base64: false
+    });
+    
+    console.log('[PDF] PDF generado en:', uri);
+
+    // Verificar que el archivo existe
+    const fileInfo = await FileSystem.getInfoAsync(uri);
+    if (!fileInfo.exists) {
+      throw new Error('The PDF file was not generated correctly');
     }
+    
+    console.log('[PDF] Archivo verificado, tamaño:', fileInfo.size, 'bytes');
+
+    return uri;
   } catch (error) {
     console.error('[PDF] Error generating PDF:', error);
     throw error;
@@ -290,72 +120,6 @@ async function getJumpImageBase64(): Promise<string> {
   }
 }
 
-const PDF_IMAGE_OPT_MAX_WIDTH = 512;
-const PDF_IMAGE_OPT_COMPRESS = 0.72;
-const PDF_IMAGE_OPT_MIN_BYTES = 350_000;
-const pdfOptimizedImageCache = new Map<string, string>();
-
-async function getOptimizedImageDataUri(originalUri: string): Promise<string> {
-  if (!originalUri) return '';
-  const cached = pdfOptimizedImageCache.get(originalUri);
-  if (cached) return cached;
-
-  try {
-    const info = await FileSystem.getInfoAsync(originalUri);
-    const originalSize = info.exists && typeof (info as any).size === 'number' ? (info as any).size : 0;
-
-    // If already small, skip optimization.
-    if (originalSize > 0 && originalSize < PDF_IMAGE_OPT_MIN_BYTES) {
-      const base64 = await FileSystem.readAsStringAsync(originalUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      const dataUri = `data:image/png;base64,${base64}`;
-      pdfOptimizedImageCache.set(originalUri, dataUri);
-      console.log('[PDF][IMG] Skip optimization (already small)', { originalSize, originalUri });
-      return dataUri;
-    }
-
-    const out = await ImageManipulator.manipulateAsync(
-      originalUri,
-      [{ resize: { width: PDF_IMAGE_OPT_MAX_WIDTH } }],
-      {
-        compress: PDF_IMAGE_OPT_COMPRESS,
-        format: ImageManipulator.SaveFormat.JPEG,
-        base64: false,
-      }
-    );
-
-    const optimizedInfo = await FileSystem.getInfoAsync(out.uri);
-    const optimizedSize = optimizedInfo.exists && typeof (optimizedInfo as any).size === 'number' ? (optimizedInfo as any).size : 0;
-    console.log('[PDF][IMG] Optimized image', {
-      originalSize,
-      optimizedSize,
-      originalUri,
-      optimizedUri: out.uri,
-    });
-
-    const base64 = await FileSystem.readAsStringAsync(out.uri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    const dataUri = `data:image/jpeg;base64,${base64}`;
-    pdfOptimizedImageCache.set(originalUri, dataUri);
-    return dataUri;
-  } catch (error) {
-    console.warn('[PDF][IMG] Optimization failed, falling back to original', { originalUri, error });
-    try {
-      const base64 = await FileSystem.readAsStringAsync(originalUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      const dataUri = `data:image/png;base64,${base64}`;
-      pdfOptimizedImageCache.set(originalUri, dataUri);
-      return dataUri;
-    } catch (e) {
-      console.warn('[PDF][IMG] Fallback read failed', { originalUri, e });
-      return '';
-    }
-  }
-}
-
 /**
  * Renderiza las imágenes del gimnasta en SVG para el PDF
  */
@@ -366,19 +130,18 @@ async function renderGymnastImages(images: GymnastImage[], scaleX: number, scale
     const imageElements = await Promise.all(
       images.map(async (img) => {
         try {
-          // Optimize image before embedding to reduce PDF memory/size.
-          const imageData = await getOptimizedImageDataUri(img.image_uri);
+          // Leer la imagen y convertirla a base64
+          const base64 = await FileSystem.readAsStringAsync(img.image_uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          
+          const imageData = `data:image/png;base64,${base64}`;
           
           // Escalar posición y tamaño con multiplicador de 1.5x
           const x = img.position_x * scaleX + offsetX;
           const y = img.position_y * scaleY;
           const width = 100 * img.scale * scaleX * 1.5; // Tamaño base de 100 con multiplicador 1.5x
           const height = 100 * img.scale * scaleY * 1.5;
-
-          if (!imageData) {
-            console.warn('[PDF][IMG] Empty imageData after optimization', { uri: img.image_uri, gymnastImageId: img.id });
-            return '';
-          }
           
           return `
             <image 
@@ -909,7 +672,7 @@ export async function generateAndSharePDF(
       throw error;
     }
     
-    // Para otros errores, también re-lanzar para que el caller lo muestre y no crashee.
+    // Para otros errores, también re-lanzar
     throw error;
   }
 }
@@ -1194,40 +957,12 @@ async function generateVaultPage(row: TableRow, gymnast: Gymnast | undefined): P
 /**
  * Genera el HTML para el PDF
  */
-type GeneratePdfHtmlOptions = {
-  rowsForIndividualPages?: TableRow[];
-  includeIndividualPages?: boolean;
-  includeSummary?: boolean;
-  debugLabel?: string;
-};
-
-async function generatePDFHTML(
-  competition: Competition,
-  tableData: TableRow[],
-  gymnasts: Gymnast[],
-  options?: GeneratePdfHtmlOptions
-): Promise<string> {
+async function generatePDFHTML(competition: Competition, tableData: TableRow[], gymnasts: Gymnast[]): Promise<string> {
   const formattedDate = new Date(competition.date).toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
   });
-
-  const includeIndividualPages = options?.includeIndividualPages ?? true;
-  const includeSummary = options?.includeSummary ?? true;
-  const rowsForIndividualPages = (options?.rowsForIndividualPages ?? tableData).filter(
-    row => row.gymnasta && row.gymnasta.trim() !== ''
-  );
-
-  if (options?.debugLabel) {
-    console.log('[PDF][HTML] Building HTML', {
-      label: options.debugLabel,
-      includeIndividualPages,
-      includeSummary,
-      rowsForIndividualPages: rowsForIndividualPages.length,
-      totalRows: tableData.length,
-    });
-  }
 
   // Calcular estadísticas
   const totalParticipants = tableData.filter(p => p.eScore > 0).length;
@@ -1241,161 +976,16 @@ async function generatePDFHTML(
     ? Math.min(...tableData.filter(p => p.eScore > 0).map(p => p.percentage))
     : 0;
 
-  // Generar páginas individuales para los gimnastas (incluyendo VT)
-  const individualPages = includeIndividualPages
-    ? (await Promise.all(
-        rowsForIndividualPages.map(async (row) => {
-          const gymnast = gymnasts.find(g => g.id === row.id);
-          const isVault = row.evento === 'VT';
-          return isVault ? await generateVaultPage(row, gymnast) : await generateFloorPage(row, gymnast);
-        })
-      )).join('\n')
-    : '';
-
-  const summaryHtml = includeSummary
-    ? `
-      <div class="page">
-        <div class="header">
-          <h1>SUMMARY</h1>
-          <h2>${competition.name}</h2>
-          <p>${formattedDate} | ${competition.gender ? 'MAG' : 'WAG'}</p>
-        </div>
-
-        <div class="participants-note">Participants: ${totalParticipants}</div>
-        
-        <!-- Results Table -->
-        <div class="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>No.</th>
-                <th>Gymnast</th>
-                <th>Event</th>
-                <th>NOC</th>
-                <th>BIB</th>
-                <th>J</th>
-                <th>I</th>
-                <th>H</th>
-                <th>G</th>
-                <th>F</th>
-                <th>E</th>
-                <th>D</th>
-                <th>C</th>
-                <th>B</th>
-                <th>A</th>
-                <th>DV</th>
-                <th>EG</th>
-                <th>SB</th>
-                <th>ND</th>
-                <th>CV</th>
-                <th>SV</th>
-                <th>E Score</th>
-                <th>D Score</th>
-                <th>E Δ</th>
-                <th>Δ</th>
-                <th>%</th>
-                <th>Comments</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${tableData.map(row => {
-                // Validation for DV (6-8 range)
-                let dvClass = '';
-                if (row.dv >= 6 && row.dv <= 8) dvClass = 'text-green';
-                else dvClass = 'text-red';
-                
-                // Validation for Delta (absolute value)
-                let deltaClass = '';
-                const absDelta = Math.abs(row.delta);
-                if (absDelta <= 0.5) deltaClass = 'text-green';
-                else if (absDelta <= 1.0) deltaClass = 'text-yellow';
-                else deltaClass = 'text-red';
-                
-                // Validation for Percentage
-                let percentageTextClass = '';
-                if (row.percentage >= 90) percentageTextClass = 'text-green';
-                else if (row.percentage >= 70) percentageTextClass = 'text-yellow';
-                else percentageTextClass = 'text-red';
-                
-                return `
-                  <tr>
-                    <td>${row.numero}</td>
-                    <td class="gymnast-name">${row.gymnasta || '-'}</td>
-                    <td>${row.evento || '-'}</td>
-                    <td>${row.noc || '-'}</td>
-                    <td>${row.bib || '-'}</td>
-                    <td>${row.j}</td>
-                    <td>${row.i}</td>
-                    <td>${row.h}</td>
-                    <td>${row.g}</td>
-                    <td>${row.f}</td>
-                    <td>${row.e}</td>
-                    <td>${row.d}</td>
-                    <td>${row.c}</td>
-                    <td>${row.b}</td>
-                    <td>${row.a}</td>
-                    <td class="${dvClass}">${row.dv.toFixed(1)}</td>
-                    <td>${row.eg.toFixed(1)}</td>
-                    <td>${row.sb.toFixed(1)}</td>
-                    <td>${row.nd.toFixed(1)}</td>
-                    <td>${row.cv.toFixed(1)}</td>
-                    <td>${row.sv.toFixed(1)}</td>
-                    <td>${row.eScore.toFixed(3)}</td>
-                    <td>${row.dScore.toFixed(2)}</td>
-                    <td>${row.eDelta.toFixed(2)}</td>
-                    <td class="${deltaClass}">${row.delta.toFixed(3)}</td>
-                    <td class="${percentageTextClass}">${row.percentage.toFixed(1)}%</td>
-                    <td style="text-align: left; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${row.comments || '-'}</td>
-                  </tr>
-                `;
-              }).join('')}
-            </tbody>
-          </table>
-        </div>
-        
-        <!-- Statistics -->
-        <div class="statistics">
-          <h3>📊 Competition Statistics</h3>
-          <div class="stats-grid">
-            <div class="stat-box">
-              <div class="stat-number">${maxPercentage.toFixed(2)}%</div>
-              <div class="stat-label">Highest</div>
-            </div>
-            <div class="stat-box">
-              <div class="stat-number">${avgPercentage.toFixed(2)}%</div>
-              <div class="stat-label">Average</div>
-            </div>
-            <div class="stat-box">
-              <div class="stat-number">${minPercentage.toFixed(2)}%</div>
-              <div class="stat-label">Lowest</div>
-            </div>
-          </div>
-        </div>
-        
-        <!-- Comments Summary Section -->
-        <div class="comments-summary">
-          <h3>💬 Comments Summary</h3>
-          ${tableData
-            .filter(row => row.comments && row.comments.trim() !== '')
-            .map(row => `
-              <div class="comment-item">
-                <div class="comment-header">
-                  <strong>No. ${row.numero} - ${row.gymnasta}</strong>
-                  <span class="comment-event">${row.evento || '-'}</span>
-                </div>
-                <div class="comment-body">${row.comments}</div>
-              </div>
-            `).join('') || '<p class="no-comments">No comments were recorded for this competition.</p>'}
-        </div>
-        
-        <!-- Footer -->
-        <div class="footer">
-          <p><strong>Generado por GymJudge</strong> el ${new Date().toLocaleString('es-ES')}</p>
-          <p>© ${new Date().getFullYear()} GymJudge. Todos los derechos reservados.</p>
-        </div>
-      </div>
-    `
-    : '';
+  // Generar páginas individuales para TODOS los gimnastas (incluyendo VT)
+  const individualPagesPromises = tableData
+    .filter(row => row.gymnasta && row.gymnasta.trim() !== '')
+    .map(async (row) => {
+      const gymnast = gymnasts.find(g => g.id === row.id);
+      const isVault = row.evento === 'VT';
+      return isVault ? await generateVaultPage(row, gymnast) : await generateFloorPage(row, gymnast);
+    });
+  
+  const individualPages = (await Promise.all(individualPagesPromises)).join('\n');
 
   return `
     <!DOCTYPE html>
@@ -2029,30 +1619,167 @@ async function generatePDFHTML(
             margin: 0;
           }
           
-          /* Avoid trailing blank pages (important for chunked PDFs).
-             Force page breaks BEFORE subsequent pages instead of AFTER each page. */
           .page {
-            background: white;
-            margin-bottom: 0;
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            page-break-after: auto;
-            break-after: auto;
-          }
-
-          .page + .page {
-            page-break-before: always;
-            break-before: page;
-          }
+          background: white;
+          margin-bottom: 20px;
+          padding: 15px;
+          border-radius: 8px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          page-break-after: always;
+        }
 
           
         }
       </style>
     </head>
     <body>
-      ${includeIndividualPages ? individualPages : ''}
-      ${summaryHtml}
+      ${individualPages}
+
+      <div class="page">
+        <div class="header">
+          <h1>SUMMARY</h1>
+          <h2>${competition.name}</h2>
+          <p>${formattedDate} | ${competition.gender ? 'MAG' : 'WAG'}</p>
+        </div>
+
+        <div class="participants-note">Participants: ${totalParticipants}</div>
+        
+        <!-- Results Table -->
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>No.</th>
+                <th>Gymnast</th>
+                <th>Event</th>
+                <th>NOC</th>
+                <th>BIB</th>
+                <th>J</th>
+                <th>I</th>
+                <th>H</th>
+                <th>G</th>
+                <th>F</th>
+                <th>E</th>
+                <th>D</th>
+                <th>C</th>
+                <th>B</th>
+                <th>A</th>
+                <th>DV</th>
+                <th>EG</th>
+                <th>SB</th>
+                <th>ND</th>
+                <th>CV</th>
+                <th>SV</th>
+                <th>E Score</th>
+                <th>D Score</th>
+                <th>E Δ</th>
+                <th>Δ</th>
+                <th>%</th>
+                <th>Comments</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableData.map(row => {
+                let percentageClass = '';
+                if (row.percentage >= 88) percentageClass = 'percentage-high';
+                else if (row.percentage >= 70) percentageClass = 'percentage-medium';
+                else if (row.percentage > 0) percentageClass = 'percentage-low';
+                
+                // Validation for DV (6-8 range)
+                let dvClass = '';
+                if (row.dv >= 6 && row.dv <= 8) dvClass = 'text-green';
+                else dvClass = 'text-red';
+                
+                // Validation for Delta (absolute value)
+                let deltaClass = '';
+                const absDelta = Math.abs(row.delta);
+                if (absDelta <= 0.5) deltaClass = 'text-green';
+                else if (absDelta <= 1.0) deltaClass = 'text-yellow';
+                else deltaClass = 'text-red';
+                
+                // Validation for Percentage
+                let percentageTextClass = '';
+                if (row.percentage >= 90) percentageTextClass = 'text-green';
+                else if (row.percentage >= 70) percentageTextClass = 'text-yellow';
+                else percentageTextClass = 'text-red';
+                
+                return `
+                  <tr>
+                    <td>${row.numero}</td>
+                    <td class="gymnast-name">${row.gymnasta || '-'}</td>
+                    <td>${row.evento || '-'}</td>
+                    <td>${row.noc || '-'}</td>
+                    <td>${row.bib || '-'}</td>
+                    <td>${row.j}</td>
+                    <td>${row.i}</td>
+                    <td>${row.h}</td>
+                    <td>${row.g}</td>
+                    <td>${row.f}</td>
+                    <td>${row.e}</td>
+                    <td>${row.d}</td>
+                    <td>${row.c}</td>
+                    <td>${row.b}</td>
+                    <td>${row.a}</td>
+                    <td class="${dvClass}">${row.dv.toFixed(1)}</td>
+                    <td>${row.eg.toFixed(1)}</td>
+                    <td>${row.sb.toFixed(1)}</td>
+                    <td>${row.nd.toFixed(1)}</td>
+                    <td>${row.cv.toFixed(1)}</td>
+                    <td>${row.sv.toFixed(1)}</td>
+                    <td>${row.eScore.toFixed(3)}</td>
+                    <td>${row.dScore.toFixed(2)}</td>
+                    <td>${row.eDelta.toFixed(2)}</td>
+                    <td class="${deltaClass}">${row.delta.toFixed(3)}</td>
+                    <td class="${percentageTextClass}">${row.percentage.toFixed(1)}%</td>
+                    <td style="text-align: left; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${row.comments || '-'}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+        
+        <!-- Statistics -->
+        <div class="statistics">
+          <h3>📊 Competition Statistics</h3>
+          <div class="stats-grid">
+            <div class="stat-box">
+              <div class="stat-number">${maxPercentage.toFixed(2)}%</div>
+              <div class="stat-label">Highest</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-number">${avgPercentage.toFixed(2)}%</div>
+              <div class="stat-label">Average</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-number">${minPercentage.toFixed(2)}%</div>
+              <div class="stat-label">Lowest</div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Comments Summary Section -->
+        <div class="comments-summary">
+          <h3>💬 Comments Summary</h3>
+          ${tableData
+            .filter(row => row.comments && row.comments.trim() !== '')
+            .map(row => `
+              <div class="comment-item">
+                <div class="comment-header">
+                  <strong>No. ${row.numero} - ${row.gymnasta}</strong>
+                  <span class="comment-event">${row.evento || '-'}</span>
+                </div>
+                <div class="comment-body">${row.comments}</div>
+              </div>
+            `).join('') || '<p class="no-comments">No comments were recorded for this competition.</p>'}
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+          <p><strong>Generado por GymJudge</strong> el ${new Date().toLocaleString('es-ES')}</p>
+          <p>© ${new Date().getFullYear()} GymJudge. Todos los derechos reservados.</p>
+        </div>
+      </div>
     </body>
     </html>
   `;

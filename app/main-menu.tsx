@@ -47,7 +47,7 @@ export default function MainMenu() {
   };
 
   const handleBack = () => {
-    router.push('/discipline-select');
+    router.push('/discipline-select?mode=change');
   };
 
   const toggleMenu = () => {

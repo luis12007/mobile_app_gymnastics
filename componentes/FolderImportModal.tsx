@@ -3,15 +3,14 @@ import {
   View,
   Text,
   Modal,
+  ScrollView,
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  Dimensions
+  useWindowDimensions
 } from 'react-native';
 import { importFolders, ImportProgress } from '../lib/folderImportExport';
-
-const { width, height } = Dimensions.get('window');
 
 interface FolderImportModalProps {
   visible: boolean;
@@ -21,12 +20,12 @@ interface FolderImportModalProps {
 }
 
 const STAGE_LABELS: Record<ImportProgress['stage'], string> = {
-  folders: 'Importando Folders',
-  competitions: 'Importando Competencias',
-  gymnasts: 'Importando Gimnastas',
-  images: 'Importando Imágenes',
-  traces: 'Importando Trazos',
-  complete: '¡Completado!'
+  folders: 'Importing Folders',
+  competitions: 'Importing Competitions',
+  gymnasts: 'Importing Gymnasts',
+  images: 'Importing Images',
+  traces: 'Importing Traces',
+  complete: 'Completed!'
 };
 
 export default function FolderImportModal({ 
@@ -35,19 +34,20 @@ export default function FolderImportModal({
   onImportComplete,
   currentFolderId 
 }: FolderImportModalProps) {
+  const { width, height } = useWindowDimensions();
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState<ImportProgress | null>(null);
 
   const handleImport = async () => {
     Alert.alert(
-      'Confirmar Importación',
+      'Confirm Import',
       currentFolderId === null || currentFolderId === undefined
-        ? 'Los folders se importarán en la raíz del sistema.\n\n¿Continuar?'
-        : 'Los folders se importarán dentro del folder actual.\n\n¿Continuar?',
+        ? 'Folders will be imported into the system root.\n\nContinue?'
+        : 'Folders will be imported inside the current folder.\n\nContinue?',
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Importar',
+          text: 'Import',
           onPress: async () => {
             try {
               setImporting(true);
@@ -55,7 +55,7 @@ export default function FolderImportModal({
                 stage: 'folders',
                 current: 0,
                 total: 1,
-                message: 'Iniciando...'
+                message: 'Starting...'
               });
 
               await importFolders(
@@ -66,8 +66,8 @@ export default function FolderImportModal({
               );
 
               Alert.alert(
-                '¡Importación Exitosa!',
-                `Los datos se han importado correctamente`,
+                'Import Successful!',
+                'Data was imported successfully.',
                 [
                   {
                     text: 'OK',
@@ -82,7 +82,7 @@ export default function FolderImportModal({
               console.error('Error en importación:', error);
               Alert.alert(
                 'Error',
-                `No se pudo completar la importación:\n${error instanceof Error ? error.message : 'Error desconocido'}`
+                `Could not complete the import:\n${error instanceof Error ? error.message : 'Unknown error'}`
               );
               onClose();
             } finally {
@@ -109,10 +109,10 @@ export default function FolderImportModal({
       onRequestClose={importing ? undefined : onClose}
     >
       <View style={styles.modalOverlay}>
-        <View style={styles.modalContainer}>
+        <View style={[styles.modalContainer, { width: width * 0.9, maxHeight: height * 0.9 }]}>
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>Importar Folders</Text>
+            <Text style={styles.title}>Import Folders</Text>
             {!importing && (
               <TouchableOpacity onPress={onClose} style={styles.closeButton}>
                 <Text style={styles.closeButtonText}>✕</Text>
@@ -121,7 +121,11 @@ export default function FolderImportModal({
           </View>
 
           {/* Content */}
-          <View style={styles.content}>
+          <ScrollView
+            style={styles.content}
+            contentContainerStyle={styles.contentContainer}
+            showsVerticalScrollIndicator={false}
+          >
             {importing && progress ? (
               // Mostrando progreso de importación
               <View style={styles.progressContainer}>
@@ -153,7 +157,7 @@ export default function FolderImportModal({
                 </Text>
 
                 <Text style={styles.warningText}>
-                  Por favor no cierres la aplicación
+                  Please do not close the app
                 </Text>
               </View>
             ) : (
@@ -164,24 +168,24 @@ export default function FolderImportModal({
                 </View>
 
                 <Text style={styles.description}>
-                  Importa folders con toda su estructura jerárquica
+                  Import folders with their full hierarchy
                 </Text>
 
                 <View style={styles.infoBox}>
-                  <Text style={styles.infoTitle}>Se importará:</Text>
-                  <Text style={styles.infoItem}>• Folders y subfolders</Text>
-                  <Text style={styles.infoItem}>• Todas las competencias</Text>
-                  <Text style={styles.infoItem}>• Todos los gimnastas</Text>
-                  <Text style={styles.infoItem}>• Todas las imágenes</Text>
-                  <Text style={styles.infoItem}>• Todos los trazos de whiteboard</Text>
+                  <Text style={styles.infoTitle}>Will import:</Text>
+                  <Text style={styles.infoItem}>• Folders and subfolders</Text>
+                  <Text style={styles.infoItem}>• All competitions</Text>
+                  <Text style={styles.infoItem}>• All gymnasts</Text>
+                  <Text style={styles.infoItem}>• All images</Text>
+                  <Text style={styles.infoItem}>• All whiteboard traces</Text>
                 </View>
 
                 <View style={styles.locationInfo}>
-                  <Text style={styles.locationLabel}>Ubicación de importación:</Text>
+                  <Text style={styles.locationLabel}>Import location:</Text>
                   <Text style={styles.locationValue}>
                     {currentFolderId === null || currentFolderId === undefined
-                      ? 'Raíz del sistema'
-                      : 'Dentro del folder actual'}
+                      ? 'System root'
+                      : 'Inside current folder'}
                   </Text>
                 </View>
 
@@ -190,16 +194,16 @@ export default function FolderImportModal({
                   onPress={handleImport}
                 >
                   <Text style={styles.importButtonText}>
-                    Seleccionar Archivo
+                    Select File
                   </Text>
                 </TouchableOpacity>
 
                 <Text style={styles.fileTypeInfo}>
-                  Archivos soportados: .json
+                  Supported files: .json
                 </Text>
               </View>
             )}
-          </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -214,7 +218,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalContainer: {
-    width: width * 0.9,
     maxWidth: 500,
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -241,7 +244,11 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   content: {
+    flexGrow: 0,
+  },
+  contentContainer: {
     padding: 24,
+    flexGrow: 1,
   },
   initialContainer: {
     alignItems: 'center',

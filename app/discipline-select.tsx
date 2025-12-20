@@ -1,10 +1,54 @@
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { useRouter } from 'expo-router';
-import { useEffect } from 'react';
-import { initDatabase, setDiscipline } from '../lib/database';
+import { View, Text, StyleSheet, TouchableOpacity, Image, useWindowDimensions, Animated, Platform } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { APP_SETTINGS_KEYS, getDiscipline, getSetting, initDatabase, setDiscipline } from '../lib/database';
+
+const clamp = (min: number, value: number, max: number) => Math.min(max, Math.max(min, value));
 
 export default function DisciplineSelect() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ mode?: string; change?: string }>();
+  const { width, height } = useWindowDimensions();
+
+  const isChangeMode = params?.mode === 'change' || params?.change === '1';
+
+  const [currentDiscipline, setCurrentDiscipline] = useState<'MAG' | 'WAG'>('WAG');
+
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  const fadeAnim = useState(() => new Animated.Value(1))[0];
+
+  const isPhone = width < 480 || height < 700;
+  const scale = clamp(0.72, width / 430, 1);
+
+  const horizontalPadding = Math.round(clamp(14, 24 * scale, 24));
+  const gap = Math.round(clamp(12, 24 * scale, 24));
+
+  // Fit two buttons side-by-side; never exceed the available half width.
+  const rawButtonWidth = (width - horizontalPadding * 2 - gap) / 2;
+  const buttonWidth = Math.min(360, rawButtonWidth >= 110 ? Math.max(110, rawButtonWidth) : rawButtonWidth);
+
+  const imageSize = Math.round(
+    clamp(isPhone ? 64 : 96, buttonWidth * 0.62, isPhone ? 120 : 170)
+  );
+  const fontSize = Math.round(clamp(isPhone ? 20 : 24, (isPhone ? 28 : 30) * scale, isPhone ? 26 : 30));
+  const paddingVertical = Math.round(clamp(isPhone ? 14 : 22, (isPhone ? 20 : 32) * scale, isPhone ? 22 : 32));
+  const titleSize = Math.round(clamp(28, 48 * scale, 48));
+  const versionSize = Math.round(clamp(12, 16 * scale, 16));
+  const versionBottom = Math.round(clamp(18, 60 * scale, 60));
+  const radius = Math.round(clamp(22, 36 * scale, 36));
+  const imageMarginBottom = Math.round(clamp(8, 14 * scale, 14));
+
+  const navigateWithAnimation = (path: string) => {
+    if (isRedirecting) return;
+    setIsRedirecting(true);
+    Animated.timing(fadeAnim, {
+      toValue: 0,
+      duration: 260,
+      useNativeDriver: true,
+    }).start(() => {
+      router.replace(path as any);
+    });
+  };
 
   useEffect(() => {
     // Inicializar la base de datos al cargar la app
@@ -13,37 +57,103 @@ export default function DisciplineSelect() {
     });
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadAndMaybeSkip = async () => {
+      try {
+        // Mostrar cuál es el default seleccionado
+        const d = await getDiscipline();
+        if (!cancelled && (d === 'MAG' || d === 'WAG')) setCurrentDiscipline(d);
+
+        // Auto-skip SOLO si el usuario ya eligió explícitamente antes
+        // y NO estamos entrando en modo cambio desde main menu.
+        if (!isChangeMode) {
+          const wasSelected = await getSetting(APP_SETTINGS_KEYS.DISCIPLINE_SELECTED);
+          if (!cancelled && wasSelected === '1') {
+            navigateWithAnimation('/main-menu');
+          }
+        }
+      } catch (error) {
+        console.error('Error loading discipline state:', error);
+      }
+    };
+
+    loadAndMaybeSkip();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isChangeMode]);
+
   const handleDisciplineSelect = async (discipline: 'MAG' | 'WAG') => {
     try {
       await setDiscipline(discipline);
       console.log(`Disciplina seleccionada: ${discipline}`);
-      router.push('/main-menu');
+      setCurrentDiscipline(discipline);
+      navigateWithAnimation('/main-menu');
     } catch (error) {
       console.error('Error al establecer disciplina:', error);
     }
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Gym Judge</Text>
-      <Text style={styles.version}>v1.6.0</Text>
+    <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
+      <Text style={[styles.title, { fontSize: titleSize }]}>CHOOSE YOUR DISCIPLINE</Text>
+      <Text style={[styles.version, { fontSize: versionSize, marginBottom: versionBottom }]}>DEFAULT: {currentDiscipline}</Text>
       
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity 
-          style={[styles.button, styles.magButton]}
-          onPress={() => handleDisciplineSelect('MAG')}
-        >
-          <Text style={styles.buttonText}>MAG</Text>
-        </TouchableOpacity>
+      <View style={[styles.buttonContainer, { gap, paddingHorizontal: horizontalPadding }]}>
+        <View style={[styles.buttonShadow, { width: buttonWidth, borderRadius: radius }]}>
+          <View style={[styles.buttonSurface, { borderRadius: radius }, styles.magButton]}>
+            {currentDiscipline === 'MAG' && (
+              <View
+                pointerEvents="none"
+                style={[styles.selectedOverlay, { borderRadius: radius }]}
+              />
+            )}
+            <TouchableOpacity
+              style={[styles.buttonInner, { paddingVertical }]}
+              onPress={() => handleDisciplineSelect('MAG')}
+              disabled={isRedirecting}
+              activeOpacity={0.85}
+            >
+              {currentDiscipline === 'MAG' && <Text style={styles.defaultBadge}>DEFAULT</Text>}
+              <Image
+                source={require('../assets/images/MAG.webp')}
+                style={[styles.buttonImage, { width: imageSize, height: imageSize, marginBottom: imageMarginBottom }]}
+                resizeMode="contain"
+              />
+              <Text style={[styles.buttonText, { fontSize }]}>MAG</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
         
-        <TouchableOpacity 
-          style={[styles.button, styles.wagButton]}
-          onPress={() => handleDisciplineSelect('WAG')}
-        >
-          <Text style={styles.buttonText}>WAG</Text>
-        </TouchableOpacity>
+        <View style={[styles.buttonShadow, { width: buttonWidth, borderRadius: radius }]}>
+          <View style={[styles.buttonSurface, { borderRadius: radius }, styles.wagButton]}>
+            {currentDiscipline === 'WAG' && (
+              <View
+                pointerEvents="none"
+                style={[styles.selectedOverlay, { borderRadius: radius }]}
+              />
+            )}
+            <TouchableOpacity
+              style={[styles.buttonInner, { paddingVertical }]}
+              onPress={() => handleDisciplineSelect('WAG')}
+              disabled={isRedirecting}
+              activeOpacity={0.85}
+            >
+              {currentDiscipline === 'WAG' && <Text style={styles.defaultBadge}>DEFAULT</Text>}
+              <Image
+                source={require('../assets/images/WAG.webp')}
+                style={[styles.buttonImage, { width: imageSize, height: imageSize, marginBottom: imageMarginBottom }]}
+                resizeMode="contain"
+              />
+              <Text style={[styles.buttonText, { fontSize }]}>WAG</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -58,6 +168,8 @@ const styles = StyleSheet.create({
     fontSize: 48,
     fontWeight: 'bold',
     color: '#004aad',
+    textAlign: 'center',
+    paddingHorizontal: 16,
   },
   version: {
     fontSize: 16,
@@ -67,27 +179,68 @@ const styles = StyleSheet.create({
   },
   buttonContainer: {
     flexDirection: 'row',
-    gap: 20,
+    width: '100%',
+    justifyContent: 'center',
   },
-  button: {
-    paddingVertical: 20,
-    paddingHorizontal: 50,
-    borderRadius: 12,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+  buttonShadow: {
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
+      },
+      android: {
+        elevation: 0,
+      },
+      default: {},
+    }),
+  },
+  buttonSurface: {
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  buttonInner: {
+    paddingHorizontal: 18,
+    alignItems: 'center',
+    width: '100%',
+    zIndex: 1,
+  },
+  selectedOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderWidth: 3,
+    borderColor: '#004aad',
+    zIndex: 2,
+  },
+  defaultBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 10,
+    backgroundColor: '#004aad',
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    overflow: 'hidden',
   },
   magButton: {
-    backgroundColor: '#004aad',
+    backgroundColor: '#6E6E6E',
   },
   wagButton: {
-    backgroundColor: '#e91e63',
+    backgroundColor: '#6E6E6E',
+  },
+  buttonImage: {
+    marginBottom: 14,
   },
   buttonText: {
     color: '#fff',
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: 'bold',
   },
 });

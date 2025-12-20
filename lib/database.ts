@@ -103,6 +103,7 @@ export interface Competition {
 // Configuración global de la app
 export const APP_SETTINGS_KEYS = {
   DISCIPLINE: 'discipline',
+  DISCIPLINE_SELECTED: 'discipline_selected',
   PEN_COLOR: 'pen_color',
   PEN_STROKE: 'pen_stroke',
   PEN_TYPE: 'pen_type',
@@ -111,6 +112,7 @@ export const APP_SETTINGS_KEYS = {
 // Valores por defecto
 const DEFAULT_SETTINGS = {
   [APP_SETTINGS_KEYS.DISCIPLINE]: 'WAG',
+  [APP_SETTINGS_KEYS.DISCIPLINE_SELECTED]: '0',
   [APP_SETTINGS_KEYS.PEN_COLOR]: '#000000',
   [APP_SETTINGS_KEYS.PEN_STROKE]: '2',
   [APP_SETTINGS_KEYS.PEN_TYPE]: 'normal',
@@ -636,6 +638,7 @@ export async function getDiscipline(): Promise<string> {
  */
 export async function setDiscipline(discipline: string): Promise<void> {
   await setSetting(APP_SETTINGS_KEYS.DISCIPLINE, discipline);
+  await setSetting(APP_SETTINGS_KEYS.DISCIPLINE_SELECTED, '1');
 }
 
 /**
@@ -739,7 +742,8 @@ export async function getFolderById(id: number): Promise<Folder | null> {
 export async function getRootFolders(): Promise<Folder[]> {
   try {
     const result = await db.getAllAsync<Folder>(
-      'SELECT * FROM folders WHERE parent_folder_id IS NULL ORDER BY fecha_creacion DESC'
+      // Some legacy data may store root as 0 instead of NULL.
+      'SELECT * FROM folders WHERE parent_folder_id IS NULL OR parent_folder_id = 0 ORDER BY fecha_creacion DESC'
     );
     return result;
   } catch (error) {
@@ -942,8 +946,8 @@ export async function createCompetition(
     if (numberOfParticipants > 0) {
       for (let i = 1; i <= numberOfParticipants; i++) {
         await db.runAsync(
-          `INSERT INTO gymnasts (competence_id, numero, gymnasta, evento, noc, bib, element_group1, element_group2, element_group3, element_group4, element_group_total) 
-           VALUES (?, ?, '', '', '', '', 0.5, 0.5, 0.5, 0.5, 2.0)`,
+          `INSERT INTO gymnasts (competence_id, numero, gymnasta, evento, noc, bib, element_group1, element_group2, element_group3, element_group4, element_group_total, sv) 
+           VALUES (?, ?, '', '', '', '', 0.5, 0.5, 0.5, 0.5, 2.0, 2.0)`,
           [competitionId, i]
         );
       }

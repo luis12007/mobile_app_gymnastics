@@ -8,12 +8,10 @@ import {
   FlatList,
   ActivityIndicator,
   Alert,
-  Dimensions
+  useWindowDimensions
 } from 'react-native';
 import { Folder, getRootFolders, getAllFolders } from '../lib/database';
 import { exportFolders } from '../lib/folderImportExport';
-
-const { width, height } = Dimensions.get('window');
 
 interface FolderExportModalProps {
   visible: boolean;
@@ -22,6 +20,7 @@ interface FolderExportModalProps {
 }
 
 export default function FolderExportModal({ visible, onClose, currentFolderId }: FolderExportModalProps) {
+  const { width, height } = useWindowDimensions();
   const [folders, setFolders] = useState<Folder[]>([]);
   const [selectedFolders, setSelectedFolders] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -44,6 +43,12 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
       if (currentFolderId === null || currentFolderId === undefined) {
         // Vista raíz: mostrar todos los folders raíz
         folderList = await getRootFolders();
+
+        // Fallback: some databases may not mark root folders as NULL/0 consistently.
+        // If root comes back empty but there are folders, show all so export still works.
+        if (folderList.length === 0) {
+          folderList = await getAllFolders();
+        }
       } else {
         // Vista de folder específico: mostrar todos los folders
         // (para permitir exportar cualquier folder desde cualquier nivel)
@@ -53,7 +58,7 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
       setFolders(folderList);
     } catch (error) {
       console.error('Error cargando folders:', error);
-      Alert.alert('Error', 'No se pudieron cargar los folders');
+      Alert.alert('Error', 'Could not load folders.');
     } finally {
       setLoading(false);
     }
@@ -71,22 +76,22 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
 
   const handleExport = async () => {
     if (selectedFolders.size === 0) {
-      Alert.alert('Selección requerida', 'Por favor selecciona al menos un folder para exportar');
+      Alert.alert('Selection required', 'Please select at least one folder to export.');
       return;
     }
 
     Alert.alert(
-      'Confirmar Exportación',
-      `¿Deseas exportar ${selectedFolders.size} folder(s) con todo su contenido?\n\nEsto incluirá:\n• Todos los subfolders\n• Todas las competencias\n• Todos los gimnastas\n• Todas las imágenes\n• Todos los trazos de whiteboard`,
+      'Confirm Export',
+      `Do you want to export ${selectedFolders.size} folder(s) with all contents?\n\nThis will include:\n• All subfolders\n• All competitions\n• All gymnasts\n• All images\n• All whiteboard traces`,
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Exportar',
+          text: 'Export',
           onPress: async () => {
             try {
               setExporting(true);
               setExportProgress(0);
-              setExportMessage('Iniciando...');
+              setExportMessage('Starting...');
 
               await exportFolders(
                 Array.from(selectedFolders),
@@ -97,15 +102,15 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
               );
 
               Alert.alert(
-                '¡Exportación Exitosa!',
-                'Los datos se han exportado correctamente',
+                'Export Successful!',
+                'Data was exported successfully.',
                 [{ text: 'OK', onPress: () => onClose() }]
               );
             } catch (error) {
               console.error('Error en exportación:', error);
               Alert.alert(
                 'Error',
-                `No se pudo completar la exportación:\n${error instanceof Error ? error.message : 'Error desconocido'}`
+                `Could not complete the export:\n${error instanceof Error ? error.message : 'Unknown error'}`
               );
             } finally {
               setExporting(false);
@@ -166,10 +171,19 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
       onRequestClose={exporting ? undefined : onClose}
     >
       <View style={styles.modalOverlay}>
-        <View style={styles.modalContainer}>
+        <View
+          style={[
+            styles.modalContainer,
+            {
+              width: width * 0.9,
+              height: Math.min(Math.max(420, height * 0.8), 720),
+              maxHeight: height * 0.9,
+            },
+          ]}
+        >
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>Exportar Folders</Text>
+            <Text style={styles.title}>Export Folders</Text>
             <TouchableOpacity
               onPress={onClose}
               disabled={exporting}
@@ -179,43 +193,16 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
             </TouchableOpacity>
           </View>
 
-          {/* Instrucciones */}
-          <View style={styles.instructions}>
-            <Text style={styles.instructionsText}>
-              Selecciona los folders que deseas exportar. Se exportará todo el contenido incluyendo subfolders, competencias y gimnastas.
-            </Text>
-          </View>
-
-          {/* Botones de selección rápida */}
-          {!exporting && (
-            <View style={styles.quickActions}>
-              <TouchableOpacity
-                style={styles.quickActionButton}
-                onPress={selectAll}
-                disabled={loading}
-              >
-                <Text style={styles.quickActionText}>Seleccionar Todos</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.quickActionButton}
-                onPress={deselectAll}
-                disabled={loading}
-              >
-                <Text style={styles.quickActionText}>Deseleccionar Todos</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
           {/* Lista de folders */}
           {loading ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#007AFF" />
-              <Text style={styles.loadingText}>Cargando folders...</Text>
+              <Text style={styles.loadingText}>Loading folders...</Text>
             </View>
           ) : exporting ? (
             <View style={styles.exportingContainer}>
               <ActivityIndicator size="large" color="#007AFF" />
-              <Text style={styles.exportingTitle}>Exportando...</Text>
+              <Text style={styles.exportingTitle}>Exporting...</Text>
               <View style={styles.progressBarContainer}>
                 <View style={[styles.progressBar, { width: `${exportProgress}%` }]} />
               </View>
@@ -224,7 +211,7 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
             </View>
           ) : folders.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No hay folders disponibles para exportar</Text>
+              <Text style={styles.emptyText}>No folders available to export</Text>
             </View>
           ) : (
             <FlatList
@@ -233,6 +220,33 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
               keyExtractor={(item) => item.id.toString()}
               style={styles.folderList}
               contentContainerStyle={styles.folderListContent}
+              ListHeaderComponent={
+                <>
+                  <View style={styles.instructions}>
+                    <Text style={styles.instructionsText}>
+                      Select the folders you want to export. All contents will be exported, including subfolders, competitions, and gymnasts.
+                    </Text>
+                  </View>
+                  {!exporting && (
+                    <View style={styles.quickActions}>
+                      <TouchableOpacity
+                        style={styles.quickActionButton}
+                        onPress={selectAll}
+                        disabled={loading}
+                      >
+                        <Text style={styles.quickActionText}>Select All</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.quickActionButton}
+                        onPress={deselectAll}
+                        disabled={loading}
+                      >
+                        <Text style={styles.quickActionText}>Deselect All</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </>
+              }
             />
           )}
 
@@ -240,7 +254,7 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
           {!exporting && !loading && (
             <View style={styles.footer}>
               <Text style={styles.selectionCount}>
-                {selectedFolders.size} folder(s) seleccionado(s)
+                {selectedFolders.size} folder(s) selected
               </Text>
               <TouchableOpacity
                 style={[
@@ -251,7 +265,7 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
                 disabled={selectedFolders.size === 0}
               >
                 <Text style={styles.exportButtonText}>
-                  Exportar
+                  Export
                 </Text>
               </TouchableOpacity>
             </View>
@@ -270,9 +284,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalContainer: {
-    width: width * 0.9,
     maxWidth: 600,
-    height: height * 0.8,
     backgroundColor: '#fff',
     borderRadius: 12,
     overflow: 'hidden',

@@ -1,164 +1,169 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, StatusBar } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  SafeAreaView,
+  StatusBar,
+  ScrollView,
+  useWindowDimensions,
+} from 'react-native';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+
+type PlanId = 'monthly' | 'annual' | 'one_time';
 
 export default function Index() {
   const router = useRouter();
-  const [selectedPlan, setSelectedPlan] = useState<'annual' | null>('annual');
+  const { height, width } = useWindowDimensions();
+
+  const isSmall = height < 720;
+  const titleSize = isSmall ? 34 : 40;
+  const subtitleSize = isSmall ? 14 : 16;
+  const sectionSize = isSmall ? 18 : 20;
+
+  const planCardWidth = Math.min(320, Math.max(260, Math.floor(width * 0.78)));
+
+  const [selectedPlan, setSelectedPlan] = useState<PlanId | null>(null);
+
+  const plans = useMemo(
+    () => [
+      {
+        id: 'monthly' as const,
+        title: 'Monthly',
+        price: '$4.99',
+        detail: 'Billed every month',
+        benefits: ['Full access to scoring', 'PDF export', 'Whiteboard'],
+      },
+      {
+        id: 'annual' as const,
+        title: 'Annual',
+        price: '$29.99',
+        detail: 'Best value (12 months)',
+        benefits: ['Full access to scoring', 'PDF export', 'Whiteboard', 'Save vs monthly'],
+      },
+      {
+        id: 'one_time' as const,
+        title: 'One-time payment',
+        price: '$49.99',
+        detail: 'Single payment, no renewals',
+        benefits: ['Full access to scoring', 'PDF export', 'Whiteboard'],
+      },
+    ],
+    []
+  );
 
   const handleSubscribe = () => {
-    // TODO: Implementar lógica de suscripción (integración con RevenueCat, Stripe, etc.)
-    console.log('Procesando suscripción anual...');
-    
-    // Navegar a la pantalla de selección de disciplina
+    // No subscription logic yet — just continue.
+    // If nothing selected, keep it simple: default to annual.
+    const planToUse: PlanId = selectedPlan ?? 'annual';
+    setSelectedPlan(planToUse);
     router.replace('/discipline-select');
-  };
-
-  const handleRestore = () => {
-    // TODO: Implementar lógica de restaurar compras
-    console.log('Restaurando compras...');
-    
-    // Si la restauración es exitosa, navegar a selección de disciplina
-    // router.replace('/discipline-select');
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#004aad" />
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Header */}
+
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <Text style={styles.appName}>Gym Judge</Text>
-          <Text style={styles.subtitle}>Herramienta Profesional de Evaluación</Text>
+          <Text style={[styles.appName, { fontSize: titleSize }]}>Gym Judge</Text>
+          <Text style={[styles.subtitle, { fontSize: subtitleSize }]}>Professional Judging Tool</Text>
         </View>
 
-        {/* Features */}
-        <View style={styles.featuresContainer}>
-          <Text style={styles.sectionTitle}>✨ Funcionalidades Premium</Text>
-          
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { fontSize: sectionSize }]}>Premium Features</Text>
+
           <View style={styles.featureItem}>
             <Text style={styles.featureIcon}>📊</Text>
             <View style={styles.featureText}>
-              <Text style={styles.featureTitle}>Evaluaciones Completas</Text>
-              <Text style={styles.featureDescription}>
-                Sistema completo de puntuación para Floor y Vault
-              </Text>
+              <Text style={styles.featureTitle}>Complete scoring</Text>
+              <Text style={styles.featureDescription}>Full scoring workflow for Floor and Vault.</Text>
+            </View>
+          </View>
+
+          <View style={styles.featureItem}>
+            <Text style={styles.featureIcon}>🧮</Text>
+            <View style={styles.featureText}>
+              <Text style={styles.featureTitle}>Fast input</Text>
+              <Text style={styles.featureDescription}>Optimized number pad and judging flow.</Text>
             </View>
           </View>
 
           <View style={styles.featureItem}>
             <Text style={styles.featureIcon}>🎨</Text>
             <View style={styles.featureText}>
-              <Text style={styles.featureTitle}>Whiteboard Interactivo</Text>
-              <Text style={styles.featureDescription}>
-                Dibuja y anota directamente sobre las rutinas
-              </Text>
+              <Text style={styles.featureTitle}>Interactive whiteboard</Text>
+              <Text style={styles.featureDescription}>Draw and annotate routines quickly.</Text>
             </View>
           </View>
 
           <View style={styles.featureItem}>
             <Text style={styles.featureIcon}>📄</Text>
             <View style={styles.featureText}>
-              <Text style={styles.featureTitle}>Reportes PDF</Text>
-              <Text style={styles.featureDescription}>
-                Genera reportes profesionales para compartir
-              </Text>
+              <Text style={styles.featureTitle}>PDF reports</Text>
+              <Text style={styles.featureDescription}>Generate professional reports to share.</Text>
             </View>
           </View>
 
           <View style={styles.featureItem}>
             <Text style={styles.featureIcon}>📁</Text>
             <View style={styles.featureText}>
-              <Text style={styles.featureTitle}>Organización Ilimitada</Text>
-              <Text style={styles.featureDescription}>
-                Crea carpetas y gestiona múltiples competencias
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.featureItem}>
-            <Text style={styles.featureIcon}>☁️</Text>
-            <View style={styles.featureText}>
-              <Text style={styles.featureTitle}>Almacenamiento Local</Text>
-              <Text style={styles.featureDescription}>
-                Todos tus datos seguros en tu dispositivo
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.featureItem}>
-            <Text style={styles.featureIcon}>🔄</Text>
-            <View style={styles.featureText}>
-              <Text style={styles.featureTitle}>Actualizaciones Continuas</Text>
-              <Text style={styles.featureDescription}>
-                Nuevas funcionalidades y mejoras regulares
-              </Text>
+              <Text style={styles.featureTitle}>Unlimited organization</Text>
+              <Text style={styles.featureDescription}>Folders, competitions, and exports.</Text>
             </View>
           </View>
         </View>
 
-        {/* Pricing Card */}
-        <View style={styles.pricingContainer}>
-          <TouchableOpacity 
-            style={[styles.pricingCard, selectedPlan === 'annual' && styles.selectedCard]}
-            onPress={() => setSelectedPlan('annual')}
-            activeOpacity={0.8}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { fontSize: sectionSize }]}>Choose a plan</Text>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.planCarousel}
+            snapToInterval={planCardWidth + 14}
+            decelerationRate="fast"
           >
-            <View style={styles.badgeContainer}>
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>MEJOR VALOR</Text>
-              </View>
-            </View>
-            
-            <Text style={styles.planTitle}>Suscripción Anual</Text>
-            
-            <View style={styles.priceContainer}>
-              <Text style={styles.currency}>$</Text>
-              <Text style={styles.price}>29.99</Text>
-              <Text style={styles.period}>/año</Text>
-            </View>
+            {plans.map((p) => {
+              const isSelected = selectedPlan === p.id;
+              return (
+                <TouchableOpacity
+                  key={p.id}
+                  activeOpacity={0.9}
+                  onPress={() => setSelectedPlan(p.id)}
+                  style={[
+                    styles.planCard,
+                    { width: planCardWidth },
+                    isSelected && styles.planCardSelected,
+                  ]}
+                >
+                  <Text style={styles.planName}>{p.title}</Text>
+                  <View style={styles.planPriceRow}>
+                    <Text style={styles.planPrice}>{p.price}</Text>
+                    <Text style={styles.planPeriod}>{p.id === 'monthly' ? '/mo' : p.id === 'annual' ? '/yr' : ''}</Text>
+                  </View>
+                  <Text style={styles.planDetail}>{p.detail}</Text>
 
-            <View style={styles.savingsContainer}>
-              <Text style={styles.savingsText}>Ahorra 50% vs. mensual</Text>
-            </View>
+                  <View style={styles.planBenefits}>
+                    {p.benefits.slice(0, 3).map((b) => (
+                      <Text key={b} style={styles.planBenefit}>
+                        ✓ {b}
+                      </Text>
+                    ))}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
 
-            <View style={styles.benefitsList}>
-              <Text style={styles.benefit}>✓ Acceso completo a todas las funciones</Text>
-              <Text style={styles.benefit}>✓ Sin anuncios</Text>
-              <Text style={styles.benefit}>✓ Soporte prioritario</Text>
-              <Text style={styles.benefit}>✓ Cancela cuando quieras</Text>
-            </View>
+          <TouchableOpacity style={styles.subscribeButton} onPress={handleSubscribe} activeOpacity={0.9}>
+            <Text style={styles.subscribeButtonText}>Subscribe Now</Text>
           </TouchableOpacity>
-        </View>
 
-        {/* Subscribe Button */}
-        <TouchableOpacity 
-          style={styles.subscribeButton}
-          onPress={handleSubscribe}
-          activeOpacity={0.9}
-        >
-          <Text style={styles.subscribeButtonText}>Suscribirme Ahora</Text>
-        </TouchableOpacity>
-
-        {/* Restore Button */}
-        <TouchableOpacity 
-          style={styles.restoreButton}
-          onPress={handleRestore}
-        >
-          <Text style={styles.restoreButtonText}>Restaurar Compras</Text>
-        </TouchableOpacity>
-
-        {/* Terms */}
-        <View style={styles.termsContainer}>
-          <Text style={styles.termsText}>
-            La suscripción se renueva automáticamente a menos que se cancele 
-            al menos 24 horas antes del final del período actual.
+          <Text style={styles.smallNote}>
+            {selectedPlan ? 'Plan selected. Tap Subscribe Now to continue.' : 'Select a plan to continue.'}
           </Text>
-          <View style={styles.termsLinks}>
-            <Text style={styles.termsLink}>Términos de Servicio</Text>
-            <Text style={styles.termsSeparator}>•</Text>
-            <Text style={styles.termsLink}>Política de Privacidad</Text>
-          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -171,42 +176,38 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f7fa',
   },
   scrollContent: {
-    paddingBottom: 40,
+    paddingBottom: 22,
   },
   header: {
     backgroundColor: '#004aad',
-    paddingVertical: 40,
+    paddingVertical: 26,
     paddingHorizontal: 20,
     alignItems: 'center',
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
   },
   appName: {
-    fontSize: 42,
     fontWeight: 'bold',
     color: '#ffffff',
     marginBottom: 8,
   },
   subtitle: {
-    fontSize: 16,
     color: '#e3f2fd',
     textAlign: 'center',
   },
-  featuresContainer: {
+  section: {
     paddingHorizontal: 20,
-    paddingTop: 30,
+    paddingTop: 18,
   },
   sectionTitle: {
-    fontSize: 22,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 20,
     textAlign: 'center',
+    marginBottom: 14,
   },
   featureItem: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 20,
     backgroundColor: '#ffffff',
     padding: 15,
     borderRadius: 12,
@@ -215,10 +216,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    marginBottom: 14,
   },
   featureIcon: {
-    fontSize: 32,
-    marginRight: 15,
+    fontSize: 30,
+    marginRight: 14,
   },
   featureText: {
     flex: 1,
@@ -227,115 +229,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 4,
   },
   featureDescription: {
     fontSize: 14,
     color: '#666',
+    marginTop: 4,
     lineHeight: 20,
-  },
-  pricingContainer: {
-    paddingHorizontal: 20,
-    marginTop: 30,
-  },
-  pricingCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 20,
-    padding: 25,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 5,
-    borderWidth: 2,
-    borderColor: '#e0e0e0',
-  },
-  selectedCard: {
-    borderColor: '#004aad',
-    borderWidth: 3,
-  },
-  badgeContainer: {
-    position: 'absolute',
-    top: -12,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-  },
-  badge: {
-    backgroundColor: '#ffc107',
-    paddingHorizontal: 20,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  badgeText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  planTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    textAlign: 'center',
-    marginTop: 10,
-    marginBottom: 15,
-  },
-  priceContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  currency: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#004aad',
-    marginTop: 5,
-  },
-  price: {
-    fontSize: 56,
-    fontWeight: 'bold',
-    color: '#004aad',
-    lineHeight: 56,
-  },
-  period: {
-    fontSize: 18,
-    color: '#666',
-    marginTop: 20,
-  },
-  savingsContainer: {
-    backgroundColor: '#e8f5e9',
-    paddingVertical: 8,
-    paddingHorizontal: 15,
-    borderRadius: 20,
-    alignSelf: 'center',
-    marginBottom: 20,
-  },
-  savingsText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#2e7d32',
-  },
-  benefitsList: {
-    marginTop: 10,
-  },
-  benefit: {
-    fontSize: 15,
-    color: '#333',
-    marginBottom: 10,
-    lineHeight: 22,
   },
   subscribeButton: {
     backgroundColor: '#004aad',
-    marginHorizontal: 20,
-    marginTop: 30,
-    paddingVertical: 18,
-    borderRadius: 12,
+    paddingVertical: 16,
+    borderRadius: 14,
     shadowColor: '#004aad',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 5,
+    marginTop: 18,
   },
   subscribeButtonText: {
     color: '#ffffff',
@@ -343,42 +253,68 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
   },
-  restoreButton: {
-    marginHorizontal: 20,
-    marginTop: 15,
-    paddingVertical: 12,
-  },
-  restoreButtonText: {
-    color: '#004aad',
-    fontSize: 16,
-    fontWeight: '600',
+  smallNote: {
+    marginTop: 10,
     textAlign: 'center',
-  },
-  termsContainer: {
-    paddingHorizontal: 30,
-    marginTop: 30,
-    alignItems: 'center',
-  },
-  termsText: {
     fontSize: 12,
-    color: '#999',
-    textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: 10,
+    color: '#777',
   },
-  termsLinks: {
+
+  planCarousel: {
+    paddingRight: 20,
+    paddingLeft: 20,
+    paddingBottom: 6,
+  },
+  planCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 18,
+    padding: 16,
+    marginRight: 14,
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  planCardSelected: {
+    borderColor: '#004aad',
+    borderWidth: 3,
+  },
+  planName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  planPriceRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 5,
+    alignItems: 'flex-end',
+    marginTop: 8,
   },
-  termsLink: {
-    fontSize: 12,
+  planPrice: {
+    fontSize: 28,
+    fontWeight: 'bold',
     color: '#004aad',
-    fontWeight: '600',
   },
-  termsSeparator: {
+  planPeriod: {
+    fontSize: 14,
+    color: '#666',
+    marginLeft: 6,
+    marginBottom: 4,
+  },
+  planDetail: {
     fontSize: 12,
-    color: '#999',
-    marginHorizontal: 8,
+    color: '#666',
+    marginTop: 4,
   },
+  planBenefits: {
+    marginTop: 12,
+  },
+  planBenefit: {
+    fontSize: 12,
+    color: '#333',
+    marginBottom: 6,
+  },
+
 });
