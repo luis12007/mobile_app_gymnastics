@@ -1,10 +1,15 @@
-import { View, Text, StyleSheet, TouchableOpacity, Modal, SafeAreaView, StatusBar, Platform, ScrollView, Dimensions, FlatList, TextInput } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, SafeAreaView, StatusBar, Platform, ScrollView, Dimensions, FlatList, TextInput, Image } from 'react-native';
 import { useEffect, useState } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { getDiscipline, getSubfolders, getFolderById, getFolderPath, Folder, createFolder, createCompetition, getCompetitionsByFolder, Competition, deleteFolder, deleteCompetition, updateFolder, updateCompetition } from '../../lib/database';
 import FolderExportModal from '../../componentes/FolderExportModal';
 import FolderImportModal from '../../componentes/FolderImportModal';
 import CustomNumberPadOptimized from '../../componentes/CustomNumberPadOptimized';
+
+const IMG_FOLDER_CLOSED = require('../../assets/images/folder.png');
+const IMG_FOLDER_OPEN = require('../../assets/images/open-folder.png');
+const IMG_GYMNAST_MAG = require('../../assets/images/gymnast1.png');
+const IMG_GYMNAST_WAG = require('../../assets/images/gymnast2.png');
 
 const { width, height } = Dimensions.get('window');
 
@@ -287,6 +292,8 @@ export default function FolderView() {
     
     if (isFolder) {
       const folder = data as Folder;
+      const hasContent = (folder.child_count ?? 0) > 0 || (folder.competition_count ?? 0) > 0;
+      const folderIconSource = hasContent ? IMG_FOLDER_OPEN : IMG_FOLDER_CLOSED;
       return (
         <TouchableOpacity 
           style={[
@@ -299,10 +306,11 @@ export default function FolderView() {
             <View style={styles.checkbox}>
               <Text style={styles.checkboxText}>{isSelected ? '✓' : ''}</Text>
             </View>
-          )}
+          )}  
           <View style={styles.folderImage}>
-            <Text style={styles.folderIcon}>📁</Text>
+            <Image source={folderIconSource} style={styles.itemIconImage} resizeMode="contain" />
           </View>
+          <View style={styles.cardSeparator} />
           <View style={styles.folderInfo}>
             <Text style={styles.folderTitle} numberOfLines={1}>{folder.titulo}</Text>
             <Text style={styles.folderDescription} numberOfLines={2}>
@@ -316,6 +324,7 @@ export default function FolderView() {
       );
     } else {
       const competition = data as Competition;
+      const competitionIconSource = competition.gender ? IMG_GYMNAST_MAG : IMG_GYMNAST_WAG;
       return (
         <TouchableOpacity 
           style={[
@@ -330,8 +339,9 @@ export default function FolderView() {
             </View>
           )}
           <View style={[styles.folderImage, styles.competitionImage]}>
-            <Text style={styles.folderIcon}>🏆</Text>
+            <Image source={competitionIconSource} style={styles.itemIconImage} resizeMode="contain" />
           </View>
+          <View style={styles.cardSeparator} />
           <View style={styles.folderInfo}>
             <Text style={styles.folderTitle} numberOfLines={1}>{competition.name}</Text>
             <Text style={styles.folderDescription} numberOfLines={1}>
@@ -823,7 +833,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 12,
     width: (width - 48) / 3,
+    height: Math.max(96, Math.min(140, ((width - 48) / 3) * 0.6)),
     margin: 6,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    overflow: 'hidden',
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -853,23 +867,30 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   folderImage: {
-    width: '100%',
-    height: ((width - 48) / 3) * 0.6,
-    backgroundColor: '#e3f2fd',
+    width: '33%',
+    height: '100%',
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-    overflow: 'hidden',
   },
   competitionImage: {
-    backgroundColor: '#fff3e0',
+    backgroundColor: 'transparent',
+  },
+  cardSeparator: {
+    width: 1,
+    backgroundColor: '#e0e0e0',
   },
   folderIcon: {
     fontSize: Math.min(width * 0.08, 40),
   },
+  itemIconImage: {
+    width: Math.min(width * 0.14, 72),
+    height: Math.min(width * 0.14, 72),
+  },
   folderInfo: {
-    padding: 8,
+    flex: 1,
+    padding: 10,
+    justifyContent: 'center',
   },
   folderTitle: {
     fontSize: Math.min(width * 0.035, 14),
@@ -922,7 +943,7 @@ const styles = StyleSheet.create({
   },
   deleteCancelButton: {
     flex: 1,
-    backgroundColor: '#666',
+    backgroundColor: '#e4e3e3ff',
     paddingVertical: Math.max(height * 0.018, 14),
     paddingHorizontal: 24,
     borderRadius: 12,

@@ -15,6 +15,10 @@ export interface Folder {
   fecha_creacion: string;
   nivel_profundidad: number;
   parent_folder_id: number | null; // null si es carpeta raíz
+
+  // Optional computed fields (when selected via queries with subselects)
+  child_count?: number;
+  competition_count?: number;
 }
 
 export interface AppSettings {
@@ -761,7 +765,13 @@ export async function getRootFolders(): Promise<Folder[]> {
   try {
     const result = await db.getAllAsync<Folder>(
       // Some legacy data may store root as 0 instead of NULL.
-      'SELECT * FROM folders WHERE parent_folder_id IS NULL OR parent_folder_id = 0 ORDER BY fecha_creacion DESC'
+      `SELECT
+        f.*,
+        (SELECT COUNT(*) FROM folders sf WHERE sf.parent_folder_id = f.id) AS child_count,
+        (SELECT COUNT(*) FROM competitions c WHERE c.folder_id = f.id) AS competition_count
+      FROM folders f
+      WHERE f.parent_folder_id IS NULL OR f.parent_folder_id = 0
+      ORDER BY f.fecha_creacion DESC`
     );
     return result;
   } catch (error) {
@@ -776,7 +786,13 @@ export async function getRootFolders(): Promise<Folder[]> {
 export async function getSubfolders(parentFolderId: number): Promise<Folder[]> {
   try {
     const result = await db.getAllAsync<Folder>(
-      'SELECT * FROM folders WHERE parent_folder_id = ? ORDER BY fecha_creacion DESC',
+      `SELECT
+        f.*,
+        (SELECT COUNT(*) FROM folders sf WHERE sf.parent_folder_id = f.id) AS child_count,
+        (SELECT COUNT(*) FROM competitions c WHERE c.folder_id = f.id) AS competition_count
+      FROM folders f
+      WHERE f.parent_folder_id = ?
+      ORDER BY f.fecha_creacion DESC`,
       [parentFolderId]
     );
     return result;

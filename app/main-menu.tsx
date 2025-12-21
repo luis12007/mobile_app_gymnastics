@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, Modal, SafeAreaView, StatusBar, Platform, ScrollView, Dimensions, FlatList, TextInput } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, SafeAreaView, StatusBar, Platform, ScrollView, Dimensions, FlatList, TextInput, Image } from 'react-native';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { getDiscipline, createFolder, getRootFolders, Folder, deleteFolder, updateFolder } from '../lib/database';
@@ -6,6 +6,9 @@ import FolderExportModal from '../componentes/FolderExportModal';
 import FolderImportModal from '../componentes/FolderImportModal';
 
 const { width, height } = Dimensions.get('window');
+
+const IMG_FOLDER_CLOSED = require('../assets/images/folder.png');
+const IMG_FOLDER_OPEN = require('../assets/images/open-folder.png');
 
 export default function MainMenu() {
   const router = useRouter();
@@ -161,6 +164,8 @@ export default function MainMenu() {
   const renderFolderCard = ({ item }: { item: Folder }) => {
     const itemKey = `folder-${item.id}`;
     const isSelected = selectedItems.has(itemKey);
+    const hasContent = (item.child_count ?? 0) > 0 || (item.competition_count ?? 0) > 0;
+    const folderIconSource = hasContent ? IMG_FOLDER_OPEN : IMG_FOLDER_CLOSED;
     
     return (
       <TouchableOpacity 
@@ -176,8 +181,9 @@ export default function MainMenu() {
           </View>
         )}
         <View style={styles.folderImage}>
-          <Text style={styles.folderIcon}>📁</Text>
+          <Image source={folderIconSource} style={styles.folderIconImage} resizeMode="contain" />
         </View>
+        <View style={styles.cardSeparator} />
         <View style={styles.folderInfo}>
           <Text style={styles.folderTitle} numberOfLines={1}>{item.titulo}</Text>
           <Text style={styles.folderDescription} numberOfLines={2}>
@@ -530,7 +536,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 12,
     width: (width - 48) / 3,
+    height: Math.max(96, Math.min(140, ((width - 48) / 3) * 0.6)),
     margin: 6,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    overflow: 'hidden',
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -560,17 +570,27 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   folderImage: {
-    width: '100%',
-    height: ((width - 48) / 3) * 0.6,
-    backgroundColor: '#e3f2fd',
+    width: '33%',
+    height: '100%',
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  cardSeparator: {
+    width: 1,
+    backgroundColor: '#e0e0e0',
   },
   folderIcon: {
     fontSize: Math.min(width * 0.08, 40),
   },
+  folderIconImage: {
+    width: Math.min(width * 0.14, 72),
+    height: Math.min(width * 0.14, 72),
+  },
   folderInfo: {
-    padding: 8,
+    flex: 1,
+    padding: 10,
+    justifyContent: 'center',
   },
   folderTitle: {
     fontSize: Math.min(width * 0.035, 14),
@@ -701,7 +721,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cancelButton: {
-    backgroundColor: '#666',
+    backgroundColor: '#e4e3e3ff',
   },
   cancelButtonText: {
     fontSize: Math.min(width * 0.04, 16),
@@ -711,18 +731,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   bottomButtonContainer: {
-    padding: 16,
     backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
+    paddingVertical: Math.max(height * 0.02, 16),
+    paddingHorizontal: Math.max(width * 0.04, 16),
+    margin: Math.max(width * 0.03, 12),
+    borderRadius: 12,
   },
   deleteButtonsContainer: {
     flexDirection: 'row',
-    gap: 12,
+    gap: Math.max(width * 0.03, 12),
   },
   bottomButton: {
-    paddingVertical: 16,
-    borderRadius: 8,
+    paddingVertical: Math.max(height * 0.02, 18),
+    minHeight: Math.max(height * 0.07, 56),
+    borderRadius: 10,
     alignItems: 'center',
     flex: 1,
   },

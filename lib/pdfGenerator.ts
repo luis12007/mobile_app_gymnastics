@@ -202,8 +202,8 @@ async function generateCompetitionPDFChunked(
         try {
           uri = await printHtmlToPdf(html, baseLabel);
         } catch (err) {
-          // If a single-gymnast chunk fails due to memory, retry without images.
-          if (chunkSize === 1 && isPdfOutOfMemoryError(err)) {
+          // Android-only: extra fallbacks for memory/blank rendering.
+          if (Platform.OS === 'android' && chunkSize === 1 && isPdfOutOfMemoryError(err)) {
             console.warn('[PDF][Chunk] OOM while printing chunk; retrying with per-image embedding', {
               chunkIndex: chunkIndex + 1,
             });
@@ -218,7 +218,7 @@ async function generateCompetitionPDFChunked(
 
             try {
               uri = await printHtmlToPdf(htmlPerImage, `${baseLabel} (perImage)`);
-            } catch (err2) {
+            } catch {
               console.warn('[PDF][Chunk] perImage retry failed; retrying pathsOnly', {
                 chunkIndex: chunkIndex + 1,
               });
@@ -238,7 +238,7 @@ async function generateCompetitionPDFChunked(
 
         // Sometimes ExpoPrint returns a tiny PDF instead of throwing.
         const size = uri ? await getFileSizeBytes(uri) : 0;
-        if (uri && size > 0 && size < PDF_MIN_VALID_BYTES) {
+        if (Platform.OS === 'android' && uri && size > 0 && size < PDF_MIN_VALID_BYTES) {
           console.warn('[PDF][Chunk] Tiny PDF detected; retrying with per-image embedding', {
             chunkIndex: chunkIndex + 1,
             size,
@@ -389,6 +389,30 @@ const PDF_IMAGE_OPT_MIN_BYTES = 350_000;
 const PDF_IMAGE_EMBED_MAX_BYTES = 550_000;
 const pdfOptimizedImageCache = new Map<string, string>();
 
+function inferImageMimeFromUri(uri: string): 'png' | 'jpeg' {
+  const u = String(uri ?? '').toLowerCase();
+  if (u.includes('.jpg') || u.includes('.jpeg')) return 'jpeg';
+  return 'png';
+}
+
+async function getOriginalImageDataUriNoLimit(originalUri: string): Promise<string> {
+  if (!originalUri) return '';
+  const cached = pdfOptimizedImageCache.get(`orig:${originalUri}`);
+  if (cached) return cached;
+  try {
+    const base64 = await FileSystem.readAsStringAsync(originalUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    const mime = inferImageMimeFromUri(originalUri);
+    const dataUri = `data:image/${mime};base64,${base64}`;
+    pdfOptimizedImageCache.set(`orig:${originalUri}`, dataUri);
+    return dataUri;
+  } catch (e) {
+    console.warn('[PDF][IMG] Failed to read original image', { originalUri, e });
+    return '';
+  }
+}
+
 type ExpoImageManipulatorModule = typeof import('expo-image-manipulator');
 let cachedImageManipulatorModule: ExpoImageManipulatorModule | null | undefined;
 
@@ -420,23 +444,30 @@ async function getOptimizedImageDataUri(originalUri: string): Promise<string> {
   const cached = pdfOptimizedImageCache.get(originalUri);
   if (cached) return cached;
 
+  // iOS: do not run any image optimization logic; embed original image.
+  if (Platform.OS === 'ios') {
+    const dataUri = await getOriginalImageDataUriNoLimit(originalUri);
+    pdfOptimizedImageCache.set(originalUri, dataUri);
+    return dataUri;
+  }
+
   try {
     const info = await FileSystem.getInfoAsync(originalUri);
     const originalSize = info.exists && typeof (info as any).size === 'number' ? (info as any).size : 0;
 
-    // iOS: never optimize (embed original).
+    // Non-iOS: if optimizer not enabled, embed only if reasonably small.
     if (!isPdfImageOptimizerEnabled()) {
-      // On iOS we prefer correctness/consistency; embed original image data directly.
       if (originalSize > 0 && originalSize > PDF_IMAGE_EMBED_MAX_BYTES) {
-        console.warn('[PDF][IMG] Skipping embed (optimizer disabled + too large)', { originalSize, originalUri });
+        console.warn('[PDF][IMG] Skipping embed (optimizer unavailable + too large)', { originalSize, originalUri });
         return '';
       }
       const base64 = await FileSystem.readAsStringAsync(originalUri, {
         encoding: FileSystem.EncodingType.Base64,
       });
-      const dataUri = `data:image/png;base64,${base64}`;
+      const mime = inferImageMimeFromUri(originalUri);
+      const dataUri = `data:image/${mime};base64,${base64}`;
       pdfOptimizedImageCache.set(originalUri, dataUri);
-      console.log('[PDF][IMG] Embedded original (optimizer disabled)', { originalSize, originalUri });
+      console.log('[PDF][IMG] Embedded original (optimizer unavailable)', { originalSize, originalUri });
       return dataUri;
     }
 
@@ -449,7 +480,8 @@ async function getOptimizedImageDataUri(originalUri: string): Promise<string> {
       const base64 = await FileSystem.readAsStringAsync(originalUri, {
         encoding: FileSystem.EncodingType.Base64,
       });
-      const dataUri = `data:image/png;base64,${base64}`;
+      const mime = inferImageMimeFromUri(originalUri);
+      const dataUri = `data:image/${mime};base64,${base64}`;
       pdfOptimizedImageCache.set(originalUri, dataUri);
       console.log('[PDF][IMG] Embedded original (optimizer unavailable)', { originalSize, originalUri });
       return dataUri;
@@ -535,7 +567,8 @@ async function getOptimizedImageDataUri(originalUri: string): Promise<string> {
       const base64 = await FileSystem.readAsStringAsync(originalUri, {
         encoding: FileSystem.EncodingType.Base64,
       });
-      const dataUri = `data:image/png;base64,${base64}`;
+      const mime = inferImageMimeFromUri(originalUri);
+      const dataUri = `data:image/${mime};base64,${base64}`;
       pdfOptimizedImageCache.set(originalUri, dataUri);
       return dataUri;
     } catch (e) {

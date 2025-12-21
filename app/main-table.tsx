@@ -829,15 +829,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopWidth: 2,
     borderTopColor: '#333',
+    gap: 12,
   },
   footerButton: {
     backgroundColor: '#333',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+    flex: 1,
+    paddingVertical: 16,
+    minHeight: 54,
     borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   finishButton: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: '#004aad',
   },
   footerButtonText: {
     color: '#fff',
@@ -891,14 +895,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   modalButton: {
-    backgroundColor: '#333',
+    backgroundColor: '#004aad',
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
     marginBottom: 12,
   },
   finalizeButton: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: '#006607ff',
   },
   modalButtonText: {
     color: '#fff',
@@ -908,10 +912,11 @@ const styles = StyleSheet.create({
   cancelButton: {
     marginTop: 8,
     paddingVertical: 12,
+    backgroundColor: '#e0e0e0',
     alignItems: 'center',
   },
   cancelButtonText: {
-    color: '#666',
+    color: '#3a3a3aff',
     fontSize: 16,
     fontWeight: '600',
   },
