@@ -7,15 +7,34 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  Text,
+  Text as RNText,
   TouchableOpacity,
   View,
   Modal,
   TextInput,
 } from "react-native";
-import { getGymnastById, getGymnastsByCompetition, updateGymnast, Gymnast } from "../lib/database";
+import { getCompetitionById, getGymnastById, getGymnastsByCompetition, updateGymnast, Gymnast } from "../lib/database";
 import WhiteboardScreen, { WhiteboardRef } from "@/componentes/WhiteboardScreen";
 import CustomNumberPadOptimized from "@/componentes/CustomNumberPadOptimized";
+
+const TEXT_FONT_DELTA = -3;
+
+const Text = ({ style, ...props }: React.ComponentProps<typeof RNText>) => {
+  const flattened = style ? (StyleSheet.flatten(style as any) as any) : undefined;
+  const adjustedStyle =
+    flattened && typeof flattened.fontSize === "number"
+      ? ({ ...flattened, fontSize: Math.max(1, flattened.fontSize + TEXT_FONT_DELTA) } as any)
+      : flattened;
+
+  return (
+    <RNText
+      {...props}
+      allowFontScaling={false}
+      maxFontSizeMultiplier={1}
+      style={adjustedStyle}
+    />
+  );
+};
 
 const { width, height } = Dimensions.get("window");
 
@@ -35,7 +54,22 @@ export default function GymnastFloor() {
   const params = useLocalSearchParams();
   const gymnastId = params.gymnastId ? Number(params.gymnastId) : 0;
   const competitionId = params.competitionId ? Number(params.competitionId) : 0;
-  const discipline = params.discipline === "true"; // true = MAG, false = WAG
+
+  const parseBooleanParam = (value: unknown): boolean | null => {
+    if (value === undefined || value === null) return null;
+    if (Array.isArray(value)) return parseBooleanParam(value[0]);
+    if (typeof value === "boolean") return value;
+    if (typeof value === "number") return value === 1;
+    if (typeof value === "string") {
+      const v = value.trim().toLowerCase();
+      if (v === "true" || v === "1") return true;
+      if (v === "false" || v === "0") return false;
+    }
+    return null;
+  };
+
+  const disciplineParam = parseBooleanParam(params.discipline);
+  const [discipline, setDiscipline] = useState<boolean>(disciplineParam ?? false); // true = MAG, false = WAG
   
   // Ref para whiteboard
   const whiteboardRef = useRef<WhiteboardRef>(null);
@@ -108,9 +142,10 @@ export default function GymnastFloor() {
       case "CV": {
         setCv(num);
         // Recalcular SV y myScore según integración
-        const newSv = difficultyValues + elementGroupsTotal + num + (stickBonus ? getStickBonusValue() : 0);
+        const newSv = difficultyValues + elementGroupsTotal + num;
         setSv(newSv);
-        const newMyScore = safeRound(eScore + newSv + (stickBonus ? getStickBonusValue() : 0) - nd, 3);
+        const rawScore = eScore + newSv + (stickBonus ? getStickBonusValue() : 0) - nd;
+        const newMyScore = safeRound(adjustScoreFor99(rawScore), 3);
         setMyScore(newMyScore);
         // Guardar en base de datos si corresponde
         // await updateGymnast(gymnastId, { cv: num, sv: newSv, myscore: newMyScore });
@@ -122,7 +157,7 @@ export default function GymnastFloor() {
         const compscorecalc = num + compE + (compSb ? getStickBonusValue() : 0) - compNd;
         const finalScore = Math.round(compscorecalc * 1000) / 1000;
         setCompScore(finalScore);
-        const newdelt = Math.abs(Math.round((eScore - compE) * 10) / 10);
+        const newdelt = Math.abs(Math.round((eScore - compE) * 1000) / 1000);
         setDelta(newdelt);
         const newded = 10 - compE;
         setDedded(Number(newded));
@@ -139,7 +174,7 @@ export default function GymnastFloor() {
         const compscorecalc = compD + num + (compSb ? getStickBonusValue() : 0) - compNd;
         const finalScore = Math.round(compscorecalc * 1000) / 1000;
         setCompScore(finalScore);
-        const newdelt = Math.abs(Math.round((eScore - num) * 10) / 10);
+        const newdelt = Math.abs(Math.round((eScore - num) * 1000) / 1000);
         setDelta(newdelt);
         const newded = 10 - num;
         setDedded(Number(newded));
@@ -153,7 +188,8 @@ export default function GymnastFloor() {
       case "ND": {
         setNd(num);
         // Recalcular myScore según integración
-        const newMyScore = safeRound(eScore + sv + (stickBonus ? getStickBonusValue() : 0) - num, 3);
+        const rawScore = eScore + sv + (stickBonus ? getStickBonusValue() : 0) - num;
+        const newMyScore = safeRound(adjustScoreFor99(rawScore), 3);
         setMyScore(newMyScore);
         // Guardar en base de datos si corresponde
         // await updateGymnast(gymnastId, { nd: num, myscore: newMyScore });
@@ -165,7 +201,7 @@ export default function GymnastFloor() {
         const compscorecalc = compD + compE + (compSb ? getStickBonusValue() : 0) - num;
         const finalScore = Math.round(compscorecalc * 1000) / 1000;
         setCompScore(finalScore);
-        const newdelt = Math.abs(Math.round((eScore - compE) * 10) / 10);
+        const newdelt = Math.abs(Math.round((eScore - compE) * 1000) / 1000);
         setDelta(newdelt);
         const newded = 10 - compE;
         setDedded(Number(newded));
@@ -177,23 +213,19 @@ export default function GymnastFloor() {
         break;
       }
       case "SB": {
-        const isBonus = num === 0.1;
+        const isBonus = num === getStickBonusValue();
         setCompSb(isBonus);
         // Recalcular SV y myScore según integración
-        let newSv;
-        if (!discipline) {
-          newSv = difficultyValues + elementGroupsTotal + cv + (isBonus ? getStickBonusValue() : 0);
-        } else {
-          newSv = difficultyValues + elementGroupsTotal + cv;
-        }
+        const newSv = difficultyValues + elementGroupsTotal + cv;
         setSv(newSv);
-        const newMyScore = safeRound(eScore + newSv + (isBonus ? getStickBonusValue() : 0) - nd, 3);
+        const rawMyScore = eScore + newSv + (isBonus ? getStickBonusValue() : 0) - nd;
+        const newMyScore = safeRound(adjustScoreFor99(rawMyScore), 3);
         setMyScore(newMyScore);
         // Recalcular compScore, delt, ded y percentage para competencia
         const compscorecalc = compD + compE + (isBonus ? getStickBonusValue() : 0) - compNd;
         const finalScore = Math.round(compscorecalc * 1000) / 1000;
         setCompScore(finalScore);
-        const newdelt = Math.abs(Math.round((eScore - compE) * 10) / 10);
+        const newdelt = Math.abs(Math.round((eScore - compE) * 1000) / 1000);
         setDelta(newdelt);
         const newded = 10 - compE;
         setDedded(Number(newded));
@@ -209,33 +241,26 @@ export default function GymnastFloor() {
         // Recalcular eScore y myScore según integración
         const newEScore = Number((10 - num).toFixed(3));
         setEScore(newEScore);
-        const newMyScore = safeRound(newEScore + sv + (stickBonus ? getStickBonusValue() : 0) - nd, 3);
+        // Recalcular delta, ded y percentage (dependen de eScore)
+        const newdelt = Math.abs(Math.round((newEScore - compE) * 1000) / 1000);
+        setDelta(newdelt);
+        const newded = 10 - compE;
+        setDedded(Number(newded));
+        const dedInterval = getDeductionIntervalValue(Number(newded));
+        const percentageValue = getPercentageFromTable(dedInterval, newdelt);
+        setPercentage(percentageValue);
+        const rawScore = newEScore + sv + (stickBonus ? getStickBonusValue() : 0) - nd;
+        const newMyScore = safeRound(adjustScoreFor99(rawScore), 3);
         setMyScore(newMyScore);
         // Guardar en base de datos si corresponde
         // await updateGymnast(gymnastId, { execution: num, escore: newEScore, myscore: newMyScore });
         break;
       }
-      case "SB": {
-        const isBonus = num === 0.1;
-        setCompSb(isBonus);
-        // Recalcular SV y myScore según integración
-        let newSv;
-        if (!discipline) {
-          newSv = difficultyValues + elementGroupsTotal + cv + (isBonus ? getStickBonusValue() : 0);
-        } else {
-          newSv = difficultyValues + elementGroupsTotal + cv;
-        }
-        setSv(newSv);
-        const newMyScore = safeRound(eScore + newSv + (isBonus ? getStickBonusValue() : 0) - nd, 3);
-        setMyScore(newMyScore);
-        // Guardar en base de datos si corresponde
-        // await updateGymnast(gymnastId, { competition_sb: isBonus ? getStickBonusValue() : 0, sv: newSv, myscore: newMyScore });
-        break;
-      }
       case "SV": {
         setSv(num);
         // Recalcular myScore según integración
-        const newMyScore = safeRound(eScore + num + (stickBonus ? getStickBonusValue() : 0) - nd, 3);
+        const rawScore = eScore + num + (stickBonus ? getStickBonusValue() : 0) - nd;
+        const newMyScore = safeRound(adjustScoreFor99(rawScore), 3);
         setMyScore(newMyScore);
         // Guardar en base de datos si corresponde
         // await updateGymnast(gymnastId, { sv: num, myscore: newMyScore });
@@ -275,7 +300,7 @@ export default function GymnastFloor() {
       isDiscipline &&
       (evento === "PH" || evento === "SR" || evento === "PB" || evento === "HB")
     ) {
-      return 1.1;
+      return 0.5;
     } else {
       return 1.1;
     }
@@ -296,9 +321,9 @@ export default function GymnastFloor() {
         isDiscipline &&
         (evento === "PH" || evento === "SR" || evento === "PB" || evento === "HB")
       ) {
-        return [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1];
+        return [0.0, 0.1, 0.2, 0.3, 0.4, 0.5];
       } else {
-        return [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1];
+        return [0.0, 0.1, 0.2, 0.3, 0.4, 0.5];
       }
     } else {
       // Grupos I, II, III: Solo dependen de discipline
@@ -330,7 +355,15 @@ export default function GymnastFloor() {
   const [percentage, setPercentage] = useState(0);
   const [dedded, setDedded] = useState(0);
 
-  const getStickBonusValue = () => 0.1;
+  const getStickBonusValue = () => (discipline ? 0.1 : 0.2);
+
+  const adjustScoreFor99 = (score: number): number => {
+    const roundedScore = Math.round(score * 1000) / 1000;
+    const scoreStr = roundedScore.toFixed(3);
+    const endsWithX99Pattern = /\d\.\d99$/;
+    if (endsWithX99Pattern.test(scoreStr)) return roundedScore + 0.001;
+    return roundedScore;
+  };
 
   // Helper functions for percentage calculation
   function getDeductionIntervalValue(newded: number): number {
@@ -346,7 +379,7 @@ export default function GymnastFloor() {
     return 0;
   }
 
-  const percentageTableDisciplineTrue = [
+  const percentageTableDisciplineTrue  = [
     [100, 75, 65, 55, 45, 35, 25, 15, 5, 0, 0, 0, 0, 0, 0, 0, 0],
     [100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0, 0, 0],
     [100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0, 0],
@@ -366,32 +399,22 @@ export default function GymnastFloor() {
     [100, 100, 100, 100, 100, 95, 85, 80, 70, 60, 50, 40, 30, 20, 10, 0],
   ];
 
-  const deltSteps = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5];
+  const deltSteps = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6];
 
   function getPercentageFromTable(dedInterval: number, delt: number): number {
-    // Redondear delt a 2 decimales para evitar problemas de precisión
-    const roundedDelt = Math.round(delt * 100) / 100;
-    
     const percentageTable = discipline ? percentageTableDisciplineTrue : percentageTableDisciplineFalse;
-    if (roundedDelt > 1.5) return 0;
+    // Misma regla que Vault/integration: si delta > 1.4, percentage = 0
+    if (delt > 1.4) return 0;
     if (dedInterval < 1 || dedInterval > 7) return 0;
 
-    // Encontrar el índice correcto en deltSteps
-    // Buscar el índice del valor más cercano sin exceder roundedDelt
-    let deltIndex = 0;
-    for (let i = 0; i < deltSteps.length; i++) {
-      if (Math.abs(deltSteps[i] - roundedDelt) < 0.01) {
-        // Valor exacto encontrado (con tolerancia de 0.01)
-        deltIndex = i;
-        break;
-      } else if (deltSteps[i] > roundedDelt) {
-        // Pasamos el valor, usar el anterior
-        deltIndex = Math.max(0, i - 1);
-        break;
-      } else if (i === deltSteps.length - 1) {
-        // Último elemento
-        deltIndex = i;
-      }
+    // Accuracy: redondear delta al step de 0.1 más cercano (ej: 0.267 -> 0.3)
+    const deltRounded = Math.round((delt + Number.EPSILON) * 10) / 10;
+
+    let deltIndex = deltSteps.findIndex((step) => Math.abs(step - deltRounded) < 1e-9);
+    if (deltIndex < 0) {
+      deltIndex = deltSteps.reduce((bestIdx, step, idx) => {
+        return Math.abs(step - deltRounded) < Math.abs(deltSteps[bestIdx] - deltRounded) ? idx : bestIdx;
+      }, 0);
     }
 
     return percentageTable[dedInterval - 1][deltIndex] || 0;
@@ -450,6 +473,16 @@ export default function GymnastFloor() {
       setLoading(true);
       const gymnastData = await getGymnastById(gymnastId);
       const allGymList = await getGymnastsByCompetition(competitionId);
+
+      // Si no llega discipline por params, inferirla desde la competencia
+      if (disciplineParam === null && competitionId) {
+        try {
+          const competition = await getCompetitionById(competitionId);
+          if (competition) setDiscipline(competition.gender);
+        } catch {
+          // noop
+        }
+      }
 
       if (!gymnastData) {
         Alert.alert("Error", "Gymnast not found");
@@ -520,7 +553,7 @@ export default function GymnastFloor() {
 
   const safeRound = (num: number, decimals: number = 1): number => {
     const factor = Math.pow(10, decimals);
-    return Math.round(num * factor) / factor;
+    return Math.round((num + Number.EPSILON) * factor) / factor;
   };
 
   const calculateDifficultyValues = (counts: ElementCounts): number => {
@@ -564,7 +597,8 @@ export default function GymnastFloor() {
 
       const newDifficulty = calculateDifficultyValues(newCounts);
       const newSv = newDifficulty + elementGroupsTotal + cv;
-      const newMyScore = safeRound(eScore + newSv + (stickBonus ? getStickBonusValue() : 0) - nd, 3);
+      const rawScore = eScore + newSv + (stickBonus ? getStickBonusValue() : 0) - nd;
+      const newMyScore = safeRound(adjustScoreFor99(rawScore), 3);
 
       setTotalElements(sum);
       setDifficultyValues(newDifficulty);
@@ -611,7 +645,8 @@ export default function GymnastFloor() {
     setElementGroupsTotal(total);
 
     const newSv = difficultyValues + total + cv;
-    const newMyScore = safeRound(eScore + newSv + (stickBonus ? getStickBonusValue() : 0) - nd, 3);
+    const rawScore = eScore + newSv + (stickBonus ? getStickBonusValue() : 0) - nd;
+    const newMyScore = safeRound(adjustScoreFor99(rawScore), 3);
 
     setSv(newSv);
     setMyScore(newMyScore);
@@ -651,7 +686,8 @@ export default function GymnastFloor() {
   const handleStickBonusChange = async (value: boolean) => {
     setStickBonus(value);
     const bonus = value ? getStickBonusValue() : 0;
-    const newMyScore = safeRound(eScore + sv + bonus - nd, 3);
+    const rawScore = eScore + sv + bonus - nd;
+    const newMyScore = safeRound(adjustScoreFor99(rawScore), 3);
     setMyScore(newMyScore);
 
     await recalculateScores({
@@ -797,7 +833,7 @@ export default function GymnastFloor() {
         ref={whiteboardRef}
         gymnastId={gymnastId}
         width={width}
-        height={height * 0.60}
+        height={height * 0.69}
         stickBonus={stickBonus}
         setStickBonus={handleStickBonusChange}
         discipline={discipline}
@@ -826,7 +862,7 @@ export default function GymnastFloor() {
             <View style={styles.infoTable}>
               <View style={styles.infoRow}>
                 <View style={styles.infoLabelCell}>
-                  <Text style={styles.infoLabelText}>NUMBER OF ELEMENTS</Text>
+                  <Text allowFontScaling={false} style={styles.infoLabelText}>NUMBER OF ELEMENTS</Text>
                 </View>
                 <View style={[
                   styles.infoValueCell,
@@ -933,12 +969,12 @@ export default function GymnastFloor() {
                       <>
                         <View style={styles.stickBonusCelltext}>
                           <TouchableOpacity style={styles.fullCellTouchable} onPress={() => handleStickBonusChange(!stickBonus)}>
-                            <Text style={styles.bonusLabelText}>SB</Text>
+                            <Text style={styles.bonusLabelText}>{discipline ? 'SB' : 'DT'}</Text>
                           </TouchableOpacity>
                         </View>
                         <View style={styles.stickBonusCell}>
                           <TouchableOpacity style={styles.fullCellTouchable} onPress={() => handleStickBonusChange(!stickBonus)}>
-                            <Text style={styles.bonusValueText}>{stickBonus ? "0.1" : "0.0"}</Text>
+                            <Text style={styles.bonusValueText}>{stickBonus ? getStickBonusValue().toFixed(1) : "0.0"}</Text>
                           </TouchableOpacity>
                         </View>
                       </>
@@ -952,7 +988,7 @@ export default function GymnastFloor() {
                         </View>
                         <View style={styles.stickBonusCell}>
                           <TouchableOpacity style={styles.fullCellTouchable} onPress={() => handleStickBonusChange(!stickBonus)}>
-                            <Text style={styles.bonusValueText}>{stickBonus ? "0.1" : "0.0"}</Text>
+                            <Text style={styles.bonusValueText}>{stickBonus ? getStickBonusValue().toFixed(1) : "0.0"}</Text>
                           </TouchableOpacity>
                         </View>
                       </>
@@ -1039,7 +1075,7 @@ export default function GymnastFloor() {
                       const finalScore = Math.round(compscorecalc * 1000) / 1000;
                       setCompScore(finalScore);
 
-                      const newdelt = Math.abs(Math.round((eScore - compE) * 10) / 10);
+                      const newdelt = Math.abs(Math.round((eScore - compE) * 1000) / 1000);
                       setDelta(newdelt);
 
                       const newded = 10 - compE;
@@ -1050,7 +1086,7 @@ export default function GymnastFloor() {
                       setPercentage(percentageValue);
                     }}
                   >
-                    <Text style={styles.infoValueText}>SB: {compSb ? "0.1" : "0.0"}</Text>
+                    <Text style={styles.infoValueText}>{discipline ? 'SB' : 'DMT' }: {compSb ? getStickBonusValue().toFixed(1) : "0.0"}</Text>
                   </TouchableOpacity>
                 </View>
                 <View style={styles.infoValueCellBlue}>
@@ -1339,6 +1375,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "bold",
     color: "#333",
+    
   },
   infoLabelTextCVTEXT: {
     fontSize: 12,

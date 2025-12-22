@@ -1,8 +1,27 @@
 import React, { forwardRef, memo, useCallback, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text as RNText, TouchableOpacity, View } from 'react-native';
 import WhiteboardScreen, { WhiteboardRef } from './WhiteboardScreen';
 import VaultSelectorModalWag from './ModalVaultWag';
 import VaultSelectorModalMag from './ModalVaultMag';
+
+const TEXT_FONT_DELTA = -3;
+
+const Text = ({ style, ...props }: React.ComponentProps<typeof RNText>) => {
+  const flattened = style ? (StyleSheet.flatten(style as any) as any) : undefined;
+  const adjustedStyle =
+    flattened && typeof flattened.fontSize === 'number'
+      ? ({ ...flattened, fontSize: Math.max(1, flattened.fontSize + TEXT_FONT_DELTA) } as any)
+      : flattened;
+
+  return (
+    <RNText
+      {...props}
+      allowFontScaling={false}
+      maxFontSizeMultiplier={1}
+      style={adjustedStyle}
+    />
+  );
+};
 
 export interface WhiteboardJumpProps {
   gymnastId: number;

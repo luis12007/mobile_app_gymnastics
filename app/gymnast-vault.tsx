@@ -12,7 +12,7 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  Text,
+  Text as RNText,
   TextInput,
   TouchableOpacity,
   View,
@@ -32,6 +32,25 @@ import ModalvaultMag from "../componentes/ModalVaultMag";
 import ModalvaultWag from "../componentes/ModalVaultWag";
 import WhiteboardScreen, { WhiteboardRef } from "../componentes/WhiteboardScreen_jump_new";
 import { ActivityIndicator } from "react-native";
+
+const TEXT_FONT_DELTA = -3;
+
+const Text = ({ style, ...props }: React.ComponentProps<typeof RNText>) => {
+  const flattened = style ? (StyleSheet.flatten(style as any) as any) : undefined;
+  const adjustedStyle =
+    flattened && typeof flattened.fontSize === "number"
+      ? ({ ...flattened, fontSize: Math.max(1, flattened.fontSize + TEXT_FONT_DELTA) } as any)
+      : flattened;
+
+  return (
+    <RNText
+      {...props}
+      allowFontScaling={false}
+      maxFontSizeMultiplier={1}
+      style={adjustedStyle}
+    />
+  );
+};
 
 const { width, height } = Dimensions.get("window");
 const isLargeScreen = width >= 1000 && height >= 700;
@@ -178,8 +197,8 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   const [commentsInput, setCommentsInput] = useState("");
   const commentsInputRef = useRef<any>(null);
 
-  // Valor de stick/bonus (siempre 0.1 para vault y floor)
-  const getStickBonusValue = () => 0.1;
+  // Valor dinámico de stick/bonus (0.1 si discipline true, 0.2 si false) - alineado con integration.txt
+  const getStickBonusValue = () => (discipline ? 0.1 : 0.2);
 
   // Eliminar animaciones: dejar los valores finales directamente
   const backButtonOpacity = { setValue: () => {}, _value: 1 };
@@ -292,7 +311,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
           setVaultNumber(gymnast.vault || '0');
           setVaultDescription(gymnast.vault_description || 'No Vault Assigned');
           setRateId(gymnast.id);
-          setStickBonus(gymnast.bonus === 0.1);
+          setStickBonus(safeNumber(gymnast.bonus, 0) > 0);
           setCommentsInput(gymnast.comments || '');
           setComments(gymnast.comments || '');
           setExecution(safeNumber(gymnast.execution, 0));
@@ -301,7 +320,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
           setD(safeNumber(gymnast.competition_d, 0));
           setScore(safeNumber(gymnast.competition_score, 0));
           setE(safeNumber(gymnast.competition_e, 0));
-          setSb(gymnast.competition_sb === 0.1);
+          setSb(safeNumber(gymnast.competition_sb, 0) > 0);
           setndcomp(safeNumber(gymnast.competition_nd, 0));
           setSetded(safeNumber(gymnast.dedded, 0));
         }
@@ -526,15 +545,13 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   }
 
   function getDeductionIntervalValue(newded: number): number {
-    // Redondear a 2 decimales para evitar problemas de precisión
-    const rounded = Math.round(newded * 100) / 100;
-    if (rounded >= 0.0 && rounded <= 0.4) return 1;
-    if (rounded > 0.4 && rounded <= 0.6) return 2;
-    if (rounded > 0.6 && rounded <= 1.0) return 3;
-    if (rounded > 1.0 && rounded <= 1.5) return 4;
-    if (rounded > 1.5 && rounded <= 2.0) return 5;
-    if (rounded > 2.0 && rounded <= 2.5) return 6;
-    if (rounded > 2.5 && rounded <= 10.0) return 7;
+    if (newded >= 0.0 && newded <= 0.4) return 1;
+    if (newded > 0.4 && newded <= 0.6) return 2;
+    if (newded > 0.6 && newded <= 1.0) return 3;
+    if (newded > 1.0 && newded <= 1.5) return 4;
+    if (newded > 1.5 && newded <= 2.0) return 5;
+    if (newded > 2.0 && newded <= 2.5) return 6;
+    if (newded > 2.5 && newded <= 10.0) return 7;
     return 0; // Out of range
   }
 
@@ -577,34 +594,22 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
    * When discipline = false: Uses the new percentage table with different ranges
    */
   function getPercentageFromTable(dedInterval: number, delt: number): number {
-    // Redondear delt a 2 decimales para evitar problemas de precisión
-    const roundedDelt = Math.round(delt * 100) / 100;
-    
     // Choose the appropriate table based on discipline
     const percentageTable = discipline
       ? percentageTableDisciplineTrue
       : percentageTableDisciplineFalse;
 
-    if (roundedDelt > 1.5) return 0;
+    if (delt > 1.4) return 0;
     if (dedInterval < 1 || dedInterval > 7) return 0;
 
-    // Encontrar el índice correcto en deltSteps
-    // Buscar el índice del valor más cercano sin exceder roundedDelt
-    let deltIndex = 0;
-    for (let i = 0; i < deltSteps.length; i++) {
-      if (Math.abs(deltSteps[i] - roundedDelt) < 0.01) {
-        // Valor exacto encontrado (con tolerancia de 0.01)
-        deltIndex = i;
-        break;
-      } else if (deltSteps[i] > roundedDelt) {
-        // Pasamos el valor, usar el anterior
-        deltIndex = Math.max(0, i - 1);
-        break;
-      } else if (i === deltSteps.length - 1) {
-        // Último elemento
-        deltIndex = i;
-      }
-    }
+    // Find the closest delt step index (without exceeding delt)
+    let deltIndex =
+      deltSteps.findIndex((step, idx) => delt < step && idx > 0) - 1;
+    if (deltIndex < 0) deltIndex = deltSteps.length - 1;
+    if (delt >= deltSteps[deltSteps.length - 1]) deltIndex = deltSteps.length - 1;
+
+    // If delt is less than the first step, use index 0
+    if (delt < deltSteps[0]) deltIndex = 0;
 
     // Table is 0-indexed, dedInterval is 1-indexed
     return percentageTable[dedInterval - 1][deltIndex] || 0;
@@ -700,7 +705,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             const num = parseFloat(inputString.replace(",", "."));
 
             if (!isNaN(num)) {
-              const rounded = Math.round(num * 10) / 10;
+              const rounded = Math.round(num * 100) / 100;
               setSv(rounded);
               console.log("Rounded SV:", String(rounded));
               console.log("eScore:", String(eScore));
@@ -727,7 +732,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
           }}
           title="Enter Start Value"
           allowDecimal={true}
-          maxLength={4}
+          maxLength={5}
         />
       )}
 
@@ -769,9 +774,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               setScore(finalScore);
 
               /* ============================================================== */
-              const newdelt = Math.abs(
-                Math.round((eScore - rounded) * 10) / 10
-              );
+              const newdelt = Math.abs(Math.round((eScore - rounded) * 1000) / 1000);
               setDelt(newdelt);
 
               const newded = 10 - rounded;
@@ -893,17 +896,16 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             const num = parseFloat(inputString.replace(",", "."));
 
             if (!isNaN(num)) {
-              // Mantener la precisión del valor ingresado (como en Floor)
-              // para que eScore/delta/percentage coincidan.
-              setExecution(num);
-              const eScore = Number((10 - num).toFixed(3));
+              const rounded = Math.round(num * 10) / 10;
+              setExecution(rounded);
+              const eScore = Number((10 - rounded).toFixed(3));
               const newmyscore = eScore + sv + (stickbonus ? getStickBonusValue() : 0) - nd;
               const finalScore = Math.round(newmyscore * 1000) / 1000;
 
               setMyScore(finalScore);
 
               /* Lógica de delt existente */
-              const newdelt = Math.abs(Math.round((eScore - e) * 10) / 10);
+              const newdelt = Math.abs(Math.round((eScore - e) * 1000) / 1000);
               setDelt(newdelt);
 
               const newded = 10 - e;
@@ -1105,6 +1107,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         ref={whiteboardRef}
         gymnastId={gymnastid}
         stickBonus={stickbonus}
+        height={height * 0.75}
         setStickBonus={handleStickBonusChange}
         percentage={percentage}
         oncodetable={oncodetable}
@@ -2300,36 +2303,28 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#000",
     textAlign: "center",
-    alignSelf: "center",
-    justifyContent: "center",
-    paddingTop: 6,
+    alignSelf: "stretch",
   },
   svValueTextMediumLarge: {
     fontSize: 18,
     fontWeight: "bold",
     color: "#000",
     textAlign: "center",
-    alignSelf: "center",
-    justifyContent: "center",
-    paddingTop: 5,
+    alignSelf: "stretch",
   },
   svValueTextSmall: {
     fontSize: 18,
     fontWeight: "bold",
     color: "#000",
     textAlign: "center",
-    alignSelf: "center",
-    height: "100%",
-    paddingTop: 5,
+    alignSelf: "stretch",
   },
   svValueTextTiny: {
     fontSize: 18,
     fontWeight: "bold",
     color: "#000",
     textAlign: "center",
-    alignSelf: "center",
-    justifyContent: "center",
-    paddingTop: 2,
+    alignSelf: "stretch",
   },
 
   // Value text styles
@@ -2378,7 +2373,7 @@ const styles = StyleSheet.create({
 
   // Competition deduction text styles
   compDeductionTextLarge: {
-    fontSize: 15,
+    fontSize: 21,
     fontWeight: "bold",
     color: "#000",
     textAlign: "left",
@@ -2386,7 +2381,7 @@ const styles = StyleSheet.create({
     paddingRight: 10,
   },
   compDeductionTextMediumLarge: {
-    fontSize: 8,
+    fontSize: 14,
     fontWeight: "bold",
     color: "#000",
     textAlign: "left",
@@ -2394,7 +2389,7 @@ const styles = StyleSheet.create({
     paddingRight: 9,
   },
   compDeductionTextSmall: {
-    fontSize: 8,
+    fontSize: 14,
     fontWeight: "bold",
     color: "#000",
     textAlign: "left",
@@ -2402,7 +2397,7 @@ const styles = StyleSheet.create({
     paddingRight: 8,
   },
   compDeductionTextTiny: {
-    fontSize: 8,
+    fontSize: 14,
     fontWeight: "bold",
     color: "#000",
     textAlign: "left",
@@ -2456,22 +2451,22 @@ const styles = StyleSheet.create({
 
   // Score small cell text styles
   ScoresmallCellTextLarge: {
-    fontSize: 16,
+    fontSize: 22,
     fontWeight: "bold",
     color: "#000",
   },
   ScoresmallCellTextMediumLarge: {
-    fontSize: 7,
+    fontSize: 13,
     fontWeight: "bold",
     color: "#000",
   },
   ScoresmallCellTextSmall: {
-    fontSize: 7,
+    fontSize: 13,
     fontWeight: "bold",
     color: "#000",
   },
   ScoresmallCellTextTiny: {
-    fontSize: 11,
+    fontSize: 17,
     fontWeight: "bold",
     color: "#000",
   },
@@ -2606,7 +2601,7 @@ const styles = StyleSheet.create({
 
   // Gymnast info text styles
   gymnastInfoTextLarge: {
-    fontSize: 12,
+    fontSize: 18,
     fontWeight: "bold",
     color: "#000",
     textAlign: "right",
@@ -2614,7 +2609,7 @@ const styles = StyleSheet.create({
     paddingRight: 10,
   },
   gymnastInfoTextMediumLarge: {
-    fontSize: 8,
+    fontSize: 14,
     fontWeight: "bold",
     color: "#000",
     textAlign: "right",
@@ -2622,7 +2617,7 @@ const styles = StyleSheet.create({
     paddingRight: 9,
   },
   gymnastInfoTextSmall: {
-    fontSize: 8,
+    fontSize: 14,
     fontWeight: "bold",
     color: "#000",
     textAlign: "right",
@@ -2630,7 +2625,7 @@ const styles = StyleSheet.create({
     paddingRight: 8,
   },
   gymnastInfoTextTiny: {
-    fontSize: 12,
+    fontSize: 18,
     fontWeight: "bold",
     color: "#000",
     textAlign: "right",

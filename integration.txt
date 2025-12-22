@@ -1,24 +1,47 @@
-import React, { useRef, useState, Children, useCallback, useEffect, memo, useMemo } from "react";
-import { View, StyleSheet, Dimensions, TouchableOpacity, Text, Animated, Platform, Alert } from "react-native";
-import { Gesture, GestureDetector, GestureHandlerRootView, GestureType } from "react-native-gesture-handler";
-import { runOnJS } from "react-native-reanimated";
-import { Path, SkPath, Skia, Canvas, Image as SkiaImage, Group, useImage } from "@shopify/react-native-skia";
-import { updateRateGeneral, getRateGeneralByTableId, getMainTableById, updateMainTable, getMainTablePaths, getPhotosForMainTable, addPhotoToMainTable, getPhotoItemsForMainTable, updatePhotoTransformForMainTable, removePhotoFromMainTable } from '../Database/database';
-import { useFocusEffect } from '@react-navigation/native';
-import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
+export const unstable_settings = {
+  unmountOnBlur: true,
+};
 
-// Detectar si estamos en entorno web
-const isWeb = Platform.OS === 'web';
+import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  Alert,
+  Animated,
+  Dimensions,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
-// Obtener dimensiones de la pantalla para responsividad
-const { width, height: screenHeight } = Dimensions.get("window");
+import CustomNumberPadOptimized from "../components/CustomNumberPadOptimized";
+import DebugPanel from "../components/DebugPanel";
+import {
+  getCompetenceById,
+  getMainTableById,
+  getMainTablesByCompetenceId,
+  getRateGeneralByTableId,
+  updateMainTable,
+  updateRateGeneral,
+} from "../Database/database";
+import ModalvaultMag from "../components/ModalVaultMag";
+import ModalvaultWag from "../components/ModalVaultWag";
+import WhiteboardScreen from "../components/WhiteboardScreen_jump";
+import { ActivityIndicator } from "react-native";
+import { get } from "http";
+
+const { width, height } = Dimensions.get("window");
+const isLargeScreen = width >= 1000 && height >= 700;
 var isLargeDevice = false;
 var isMediumLargeDevice = false;
 var isSmallDevice = false;
 var isTinyDevice = false;
-if (width >= 1368 ) {
+
+if (width >= 1368) {
   isLargeDevice = true;
 } else if (width >= 1200 && width < 1368) {
   isMediumLargeDevice = true;
@@ -28,2598 +51,2877 @@ if (width >= 1368 ) {
   isTinyDevice = true;
 }
 
-// Configuración de layout para botones más compactos
-const BUTTON_SIZE = 50; // Tamaño reducido de botones
-const BUTTON_GAP = 5; // Separación entre botones
-const BUTTON_START_X = 0; // Posición inicial X
-
-// Configuración global del pen (en memoria, se resetea al cerrar app)
-const PEN_CONFIG_KEY = '@whiteboard_pen_config';
-
-// Configuración por defecto del pen
-const DEFAULT_PEN_CONFIG = {
-  color: 'black',
-  strokeWidth: 2,
-  penType: 0, // 0: Normal, 1: Telestrator, 2: Highlighter
-};
-
-// Variable global para mantener la configuración en memoria
-let globalPenConfig = { ...DEFAULT_PEN_CONFIG };
-let globalInputMode = '';
-
-// Funciones utilitarias para manejar la configuración global del pen (solo en memoria)
-const loadGlobalPenConfig = () => {
-  return globalPenConfig;
-};
-
-const saveGlobalPenConfig = (config: typeof DEFAULT_PEN_CONFIG) => {
-  globalPenConfig = { ...config };
-  console.log('Saved pen config:', config);
-};
-
-const updateGlobalPenConfig = (updates: Partial<typeof DEFAULT_PEN_CONFIG>) => {
-  const newConfig = { ...globalPenConfig, ...updates };
-  saveGlobalPenConfig(newConfig);
-  return newConfig;
-};
-
-// Interfaces
-interface PathData {
-  path: string;
-  color: string;
-  strokeWidth: number;
-  isEraser?: boolean;
-  penType?: number; // 0: Normal, 1: Telestrator, 2: Highlighter
-}
-
-interface WhiteboardProps {
-  rateGeneralId?: number;
+interface MainRateGeneral {
+  id: number;
   tableId: number;
-  stickBonus?: boolean;
-  setStickBonusset?: Function;
-  percentage?: number;
-  discipline?: boolean;
-  event?: string; // Evento opcional para compatibilidad con web
-  onLoaded?: () => void;
+  stickBonus: boolean;
+  numberOfElements: number;
+  difficultyValues: number;
+  elementGroups1: number;
+  elementGroups2: number;
+  elementGroups3: number;
+  elementGroups4: number;
+  elementGroups5: number;
+  execution: number;
+  eScore: number;
+  myScore: number;
+  compD: number;
+  compE: number;
+  compSd: number;
+  compNd: number;
+  compScore: number;
+  comments: string;
+  paths: string;
+  ded: number;
+  dedexecution: number;
+  vaultNumber: string;
+  vaultDescription: string;
 }
 
-// Calcular altura del canvas optimizada para el contexto del padre
-const canvasHeight = (() => {
-  console.log("Screen dimensions:", { width, height: screenHeight });
-  
-  // Usar una altura fija más visible para debug
-  let canvasHeight = 300; // Altura base visible
-  
-  if (width >= 1368 && screenHeight >= 1025) {
-    canvasHeight = 720; // Dispositivos grandes
-  } else if (width >= 945 && screenHeight >= 700) {
-    canvasHeight = 600; // Dispositivos medianos
-  } else {
-    canvasHeight = 280; // Dispositivos pequeños
-  }
-  
-  console.log("Canvas height (fixed for visibility):", canvasHeight);
-  
-  return canvasHeight;
-})();
+interface MainTable {
+  id: number;
+  competenceId: number;
+  number: number;
+  name: string;
+  event: string;
+  noc: string;
+  bib: number;
+  j: number;
+  i: number;
+  h: number;
+  g: number;
+  f: number;
+  e: number;
+  d: number;
+  c: number;
+  b: number;
+  a: number;
+  dv: number;
+  eg: number;
+  sb: number;
+  nd: number;
+  cv: number;
+  sv: number;
+  e2: number;
+  d3: number;
+  e3: number;
+  delt: number;
+  percentage: number;
+}
 
-const DrawingCanvasInner = ({ 
-  rateGeneralId = 0, 
-  tableId, 
-  stickBonus = false, 
-  setStickBonusset, 
-  percentage = 0,
-  discipline = true,
-  event,
-  onLoaded
-}: WhiteboardProps) => {
-  // Defensive guard: if tableId is missing or invalid, render a safe placeholder and avoid DB/Skia work
-  if (!tableId || typeof tableId !== 'number' || tableId <= 0) {
-    return (
-      <View style={{ padding: 12, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: '#666' }}>Whiteboard not available</Text>
-      </View>
-    );
-  }
-  const currentPath = useRef<SkPath | null>(null);
-  const [paths, setPaths] = useState<SkPath[]>([]);
-  const [pathsData, setPathsData] = useState<PathData[]>([]);
-  const [photos, setPhotos] = useState<string[]>([]); // URIs
-  const [photoItems, setPhotoItems] = useState<any[]>([]); // objetos con transform
-  const [activePhoto, setActivePhoto] = useState<string | null>(null);
-  const [currentPathDisplay, setCurrentPathDisplay] = useState<SkPath | null>(null);
-  const isDrawingRef = useRef(false);
-  const lastPoint = useRef<{ x: number; y: number } | null>(null);
-  const saveTimeoutRef = useRef<number | null>(null);
+interface Competence {
+  id: number;
+  name: string;
+  description: string;
+  date: string; // ISO date string
+  type: string; // "Floor", "Jump", etc.
+  gender: boolean; // mag and wag
+  sessionId: number;
+  folderId: number;
+  userId: number;
+  numberOfParticipants: number;
+}
 
-  // Estados para los botones con límites de memoria
-  const [undoStack, setUndoStack] = useState<PathData[]>([]);
-  const [isEraser, setIsEraser] = useState<boolean>(false);
-  const [menuOpen, setMenuOpen] = useState<boolean>(false);
-  
-  // Estado de guardado para indicador visual
-  const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [lastSaved, setLastSaved] = useState<Date | null>(null);
-  
-  // Estados para configuración de pen/eraser
-  const [currentColor, setCurrentColor] = useState<string>(globalPenConfig.color); // Usar configuración global
-  const [currentStrokeWidth, setCurrentStrokeWidth] = useState<number>(globalPenConfig.strokeWidth); // Usar configuración global
-  const [selectedPen, setSelectedPen] = useState<number>(globalPenConfig.penType); // Usar configuración global
-  const [normalPenColor, setNormalPenColor] = useState<string>(globalPenConfig.color); // Recordar color del pen normal
-  const [previousStrokeWidth, setPreviousStrokeWidth] = useState<number>(globalPenConfig.strokeWidth); // Recordar grosor antes del eraser
-  
-  // Límites para optimización de memoria - REDUCIDOS PARA PREVENIR CRASHES
-  const MAX_UNDO_STACK = 10; // Limitar a 10 acciones de undo (reducido de 20)
-  const MAX_PATHS_MEMORY = 150; // Limitar paths en memoria (reducido de 500)
-  const MAX_PHOTOS_RENDERED = 7; // Máximo de fotos renderizadas simultáneamente
-  
-  // Animaciones para los botones (más cercanos)
-
-  const getButtonOffset = (index: number) => {
-  if (isTinyDevice) {
-    // Ejemplo: primer botón *1.2, segundo *1.4, tercero *1.6, etc.
-    const factors = [1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6];
-    return BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * factors[index];
-  }
-  return BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * index;
-};
-
-interface PhotoItem { uri: string; x: number; y: number; scale: number; rotation: number }
-
-// Componente de imagen en Skia memoizado - SIN indicador de activo, control multi-touch directo
-const SkiaPhoto = memo(({ item, registerMeta }: { item: PhotoItem; registerMeta: (uri: string, w: number, h: number) => void }) => {
-  const img = useImage(item.uri);
-  if (!img) return null;
-  let bw = img.width();
-  let bh = img.height();
-  const MAX_W = 400, MAX_H = 400;
-  if (bw > MAX_W) { const f = MAX_W / bw; bw = MAX_W; bh *= f; }
-  if (bh > MAX_H) { const f = MAX_H / bh; bh = MAX_H; bw *= f; }
-  const MIN_W = 90;
-  if (bw < MIN_W) { const f = MIN_W / bw; bw = MIN_W; bh *= f; }
-  registerMeta(item.uri, bw, bh);
-  const scale = item.scale || 1;
-  const rot = (item.rotation || 0) * Math.PI / 180;
-  return (
-    <Group
-      transform={[
-        { translateX: item.x + (bw * scale) / 2 },
-        { translateY: item.y + (bh * scale) / 2 },
-        { rotate: rot },
-        { scale: scale },
-        { translateX: -bw / 2 },
-        { translateY: -bh / 2 }
-      ]}
-    >
-      <SkiaImage image={img} x={0} y={0} width={bw} height={bh} fit="contain" />
-    </Group>
-  );
-}, (prev, next) => {
-  return prev.item.uri === next.item.uri &&
-    prev.item.x === next.item.x &&
-    prev.item.y === next.item.y &&
-    prev.item.scale === next.item.scale &&
-    prev.item.rotation === next.item.rotation;
-});
-
-  const menuButtonAnim = useRef(new Animated.Value(10)).current;
-const undoButtonAnim = useRef(new Animated.Value(getButtonOffset(1))).current;
-const redoButtonAnim = useRef(new Animated.Value(getButtonOffset(2))).current;
-const eraserButtonAnim = useRef(new Animated.Value(getButtonOffset(3))).current;
-const penButtonAnim = useRef(new Animated.Value(getButtonOffset(4))).current;
-const redPenButtonAnim = useRef(new Animated.Value(getButtonOffset(5))).current;
-const bluePenButtonAnim = useRef(new Animated.Value(getButtonOffset(6))).current;
-// Botón de foto ahora se posiciona absoluto bajo el toggle, sin animación horizontal
-const strokeBarAnim = useRef(new Animated.Value(getButtonOffset(7))).current; // barra corre una posición menos
-const stickButtonAnim = useRef(new Animated.Value(10)).current;
-
-// --- Skia Photo Support ---
-const [imageMeta, setImageMeta] = useState<Record<string, { w: number; h: number }>>({});
-const registerImageMeta = useCallback((uri: string, w: number, h: number) => {
-  setImageMeta(prev => prev[uri] ? prev : { ...prev, [uri]: { w, h } });
-}, []);
-
-  // Cargar paths guardados al montar el componente
-  useEffect(() => {
-    const initializeComponent = async () => {
-      // 1. Cargar configuración global del pen
-      const config = await loadGlobalPenConfig();
-      setCurrentColor(config.color);
-      setCurrentStrokeWidth(config.strokeWidth);
-      setSelectedPen(config.penType);
-      setNormalPenColor(config.color);
-      setPreviousStrokeWidth(config.strokeWidth);
-
-  // 2. Cargar paths guardados
-  await loadSavedPaths();
-  await loadPhotos();
-  await loadPhotoItems();
-
-      // 3. Asignar directamente los valores finales de toValue a cada Animated.Value (sin animación)
-
-      // Resolver inmediatamente
-      return Promise.resolve();
+interface VaultScoreDisplayProps {
+  onBack: () => void;
+  onFilter: () => void;
+  onNext: () => void;
+  vaultData?: {
+    score: number;
+    vaultNumbers: string;
+    sv: number;
+    nd: number;
+    sb: number;
+    execution: number;
+    myScore: number;
+    compDeduction: {
+      d: number;
+      e: number;
+      sd: string;
+      nd: string;
+      score: number;
     };
-    // Encadenar todo y llamar onLoaded SOLO al final
-    initializeComponent().then(() => {
-      if (onLoaded) {
-        setTimeout(() => {
-          // Verificar que la referencia siga siendo válida
-          if (onLoaded) onLoaded();
-        }, 1500);
-      }
-    });
-    return () => {
-      if (saveTimeoutRef.current) {
-        window.clearTimeout(saveTimeoutRef.current);
-      }
-      cleanup();
+    neutral: {
+      overtime: number;
+      line: number;
+      other: number;
+      total: number;
     };
-  }, [tableId]);
+    startValue: number;
+    description: string;
+    comments: string;
+  };
+}
 
-  // Auto-ocultar indicador de guardado después de 3 segundos
-  useEffect(() => {
-    if (lastSaved && !isSaving) {
-      const timer = setTimeout(() => {
-        setLastSaved(null);
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [lastSaved, isSaving]);
+const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
+  onBack,
+  onFilter,
+  onNext,
+  vaultData = {
+    score: 100,
+    vaultNumbers: "100",
+    sv: 2.0,
+    nd: 0.0,
+    sb: 0.0,
+    execution: 0.0,
+    myScore: 10.0,
+    compDeduction: {
+      d: 0.0,
+      e: 0.0,
+      sd: "##",
+      nd: "##",
+      score: 0.0,
+    },
+    neutral: {
+      overtime: 0,
+      line: 0,
+      other: 0,
+      total: 1,
+    },
+    startValue: 0,
+    description: "No vault assigned",
+    comments: "",
+  },
+}) => {
+  /* Declare params */
+  const params = useLocalSearchParams();
+  const discipline = params.discipline === "true";
+  const participants = params.participants;
+  const event = params.event;
+  const competenceId = params.competenceId;
+  const number = params.number;
+  const gymnastid = params.gymnast ? Number(params.gymnast) : 0;
+  const folderId = params.folderId;
 
-  // Cargar fotos simples (solo URIs)
-  const loadPhotos = useCallback( async () => {
-    try {
-      const list = await getPhotosForMainTable(tableId);
-      setPhotos(list);
-    } catch (e) {
-      console.warn('Error loading photos', e);
-    }
-  }, [tableId]);
+  const router = useRouter();
 
-  // Cargar items con metadatos
-  const loadPhotoItems = useCallback( async () => {
-    try {
-      console.log('📸 [loadPhotoItems] Loading photo items for tableId:', String(tableId));
-      const items = await getPhotoItemsForMainTable(tableId);
-      console.log('📸 [loadPhotoItems] Loaded', String(items?.length || 0), 'photo items from DB');
-      
-      const normalized = items.map((it, idx) => {
-        const item = {
-          ...it,
-          scale: (it.scale === undefined || it.scale === null || it.scale <= 0) ? 1 : it.scale,
-          rotation: typeof it.rotation === 'number' ? it.rotation : 0
-        };
-        console.log(`📸 [loadPhotoItems] Photo ${String(idx)}:`, {
-          uri: item.uri?.substring(0, 50) + '...',
-          x: String(item.x),
-          y: String(item.y),
-          scale: String(item.scale),
-          rotation: String(item.rotation)
-        });
-        return item;
-      });
-      
-      setPhotoItems(normalized);
-      console.log('✅ [loadPhotoItems] Photo items state updated with', String(normalized.length), 'items');
-    } catch (e) { 
-      console.error('❌ [loadPhotoItems] Error loading photo items:', e);
-    }
-  }, [tableId]);
+  /* Keyboard usestates - removed because CustomNumberPadOptimized handles everything internally */
 
-  // ✅ FIX iOS: Recargar fotos cuando la pantalla vuelve al foco
-  // Esto asegura que las imágenes se carguen correctamente cuando:
-  // 1. Vuelves de otra pantalla
-  // 2. Cambias de gimnasta
-  // 3. La app vuelve al foreground después de estar en background
-  useFocusEffect(
-    useCallback(() => {
-      console.log('🔄 [useFocusEffect] Screen focused - reloading photos');
-      let isMounted = true;
-      
-      const reloadPhotos = async () => {
-        try {
-          console.log('📸 [useFocusEffect] Reloading photo items...');
-          await loadPhotoItems();
-          if (isMounted) {
-            console.log('✅ [useFocusEffect] Photo items reloaded successfully');
-          }
-        } catch (error) {
-          console.error('❌ [useFocusEffect] Error reloading photos:', error);
-        }
-      };
-      
-      // Ejecutar recarga con un pequeño delay para asegurar que el componente esté listo
-      const timer = setTimeout(() => {
-        if (isMounted) {
-          reloadPhotos();
-        }
-      }, 100);
-      
-      return () => {
-        isMounted = false;
-        clearTimeout(timer);
-        console.log('🔄 [useFocusEffect] Screen unfocused - cleanup');
-      };
-    }, [loadPhotoItems])
-  );
+  // Debug and warning states
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [saveWarning, setSaveWarning] = useState("");
+  const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
+  const [saveAttempts, setSaveAttempts] = useState(0);
 
-  // Cleanup al desmontar componente: guardar cambios pendientes de fotos
-  useEffect(() => {
-    return () => {
-      // Guardar cambios pendientes antes de desmontar
-      const pendingUpdates = Array.from(pendingPhotoUpdatesRef.current.entries());
-      if (pendingUpdates.length > 0) {
-        console.log(`💾 [Unmount] Guardando ${String(pendingUpdates.length)} foto(s) pendientes`);
-        pendingUpdates.forEach(([photoUri, photoUpdates]) => {
-          updatePhotoTransformForMainTable(tableId, photoUri, photoUpdates);
-        });
-        pendingPhotoUpdatesRef.current.clear();
-      }
-      
-      // Limpiar timeout
-      if (photoSaveTimeoutRef.current) {
-        clearTimeout(photoSaveTimeoutRef.current);
-      }
-    };
-  }, [tableId]);
+  // Debug logs
+  const [logs, setLogs] = useState<
+    Array<{ id: number; timestamp: string; level: string; message: string }>
+  >([]);
 
-  // Helpers iOS: asegurar archivo accesible y formato soportado
-  // Log simplificado solo en consola (sin persistencia)
-  const appendPhotoImportLog = useCallback((entry: Record<string, any>) => {
-    const payload = {
-      ts: new Date().toISOString(),
-      platform: Platform.OS,
-      tableId,
-      ...entry,
-    };
-    console.log('[PhotoImport]', payload);
-  }, [tableId]);
-
-  const ensurePhotosDir = async () => {
-    const dir = FileSystem.cacheDirectory + 'photos/';
-    try { await FileSystem.makeDirectoryAsync(dir, { intermediates: true }); } catch {}
-    return dir;
+  const clearLogs = () => {
+    setLogs([]);
   };
 
-  const getExtFromUri = (uri: string) => {
-    const m = uri.split('?')[0].match(/\.([a-zA-Z0-9]+)$/);
-    return m ? m[1].toLowerCase() : 'jpg';
+  // Save warning and debugging functions
+  const showSaveWarning = (message: string) => {
+    setSaveWarning(message);
+    setTimeout(() => setSaveWarning(""), 5000); // Clear warning after 5 seconds
   };
 
-  const isHeic = (ext: string) => ext === 'heic' || ext === 'heif';
-
-  const copyToAppCache = async (srcUri: string): Promise<string> => {
-    const dir = await ensurePhotosDir();
-    const ext = getExtFromUri(srcUri);
-    const filename = `${Date.now()}_${Math.floor(Math.random()*1e6)}.${ext}`;
-    const dst = dir + filename;
-    try {
-      await FileSystem.copyAsync({ from: srcUri, to: dst });
-      const info = await FileSystem.getInfoAsync(dst);
-      if (info.exists && info.size && info.size > 0) return dst;
-    } catch (e) {
-      console.warn('copyToAppCache failed, fallback to original uri', e);
-    }
-    return srcUri;
-  };
-
-  const pickImageUriViaDocumentPicker = useCallback(async (): Promise<string | null> => {
-    try {
-      await appendPhotoImportLog({ step: 'ios_docpicker_start' });
-      const res: any = await DocumentPicker.getDocumentAsync({ type: ['image/*'], multiple: false, copyToCacheDirectory: false });
-      if ((res && 'canceled' in res && res.canceled) || res?.type === 'cancel') {
-        await appendPhotoImportLog({ step: 'ios_docpicker_canceled' });
-        return null;
-      }
-      const asset = (res as any).assets?.[0] ?? res;
-      const uri = asset?.uri ?? null;
-      await appendPhotoImportLog({ step: 'ios_docpicker_selected', assetUri: uri, fileName: asset?.name ?? null, size: asset?.size ?? null, mimeType: asset?.mimeType ?? null });
-      if (!uri) return null;
-      return uri;
-    } catch (e) {
-      const message = (typeof e === 'object' && e && 'message' in e) ? String((e as any).message) : String(e);
-      const stack = (typeof e === 'object' && e && 'stack' in e) ? String((e as any).stack) : null;
-      await appendPhotoImportLog({ step: 'ios_docpicker_error', message, stack });
-      return null;
-    }
-  }, [appendPhotoImportLog]);
-
-  const handleAddPhoto = useCallback(async () => {
-    try {
-      await appendPhotoImportLog({ step: 'start', msg: 'Add photo tapped' });
-
-      let pickedUri: string | null = null;
-      
-  // Mostrar diálogo de selección de origen en Android e iOS (incluye iPad)
-  if (Platform.OS === 'android' || Platform.OS === 'ios') {
-        await appendPhotoImportLog({ step: 'android_show_picker_options' });
-        
-        // Usar Alert con opciones para elegir entre Galería o Archivos (OneDrive, etc.)
-        const pickerChoice = await new Promise<'gallery' | 'files' | null>((resolve) => {
-          Alert.alert(
-            'Seleccionar imagen',
-            '¿De dónde deseas seleccionar la imagen?',
-            [
-              {
-                text: 'Galería',
-                onPress: () => resolve('gallery'),
-              },
-              {
-                text: 'Archivos (OneDrive, Drive, etc.)',
-                onPress: () => resolve('files'),
-              },
-              {
-                text: 'Cancelar',
-                onPress: () => resolve(null),
-                style: 'cancel',
-              },
-            ],
-            { cancelable: true, onDismiss: () => resolve(null) }
-          );
-        });
-
-        if (!pickerChoice) {
-          await appendPhotoImportLog({ step: 'picker_choice_canceled' });
-          return;
-        }
-
-        if (pickerChoice === 'gallery') {
-          // Usar ImagePicker para galería
-          await appendPhotoImportLog({ step: 'android_gallery_selected' });
-          const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-          if (!perm.granted) {
-            Alert.alert('Permiso requerido', 'Se necesita acceso a la galería.');
-            await appendPhotoImportLog({ step: 'permission_denied' });
-            return;
-          }
-          await appendPhotoImportLog({ step: 'permission_granted' });
-          const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsMultipleSelection: false,
-            base64: false,
-            quality: 0.8
-          });
-          if (result.canceled) {
-            await appendPhotoImportLog({ step: 'picker_canceled' });
-            return;
-          }
-          const asset = result.assets?.[0];
-          await appendPhotoImportLog({ step: 'asset_selected', assetUri: asset?.uri ?? null, fileName: (asset as any)?.fileName ?? null, mimeType: (asset as any)?.mimeType ?? null });
-          if (!asset?.uri) {
-            await appendPhotoImportLog({ step: 'asset_missing_uri' });
-            return;
-          }
-          pickedUri = asset.uri;
-        } else {
-          // Usar DocumentPicker para archivos (OneDrive, Drive, etc.)
-          await appendPhotoImportLog({ step: 'android_files_selected' });
-          pickedUri = await pickImageUriViaDocumentPicker();
-        }
-      } else {
-        // Web: usar ImagePicker
-        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (!perm.granted) {
-          Alert.alert('Permiso requerido', 'Se necesita acceso a la galería.');
-          await appendPhotoImportLog({ step: 'permission_denied' });
-          return;
-        }
-        await appendPhotoImportLog({ step: 'permission_granted' });
-        const result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
-          allowsMultipleSelection: false,
-          base64: false,
-          quality: 0.8
-        });
-        if (result.canceled) {
-          await appendPhotoImportLog({ step: 'picker_canceled' });
-          return;
-        }
-        const asset = result.assets?.[0];
-        await appendPhotoImportLog({ step: 'asset_selected', assetUri: asset?.uri ?? null, fileName: (asset as any)?.fileName ?? null, mimeType: (asset as any)?.mimeType ?? null });
-        if (!asset?.uri) {
-          await appendPhotoImportLog({ step: 'asset_missing_uri' });
-          return;
-        }
-        pickedUri = asset.uri;
-      }
-
-      // Pre-validaciones y normalización de URI
-      if (!pickedUri) return;
-      const ext = getExtFromUri(pickedUri);
-      
-      // Bloquear HEIC/HEIF en todos los sistemas
-      if (isHeic(ext)) {
-        Alert.alert('Formato no soportado', 'Las imágenes HEIC/HEIF no son compatibles para exportar. Por favor, selecciona una imagen JPEG o PNG.');
-        await appendPhotoImportLog({ step: 'blocked_heic_heif', ext, uri: pickedUri });
-        return;
-      }
-      
-      // Copiar a cache para archivos externos (iOS siempre, Android solo si es de DocumentPicker)
-      const needsCopy = Platform.OS === 'ios' || 
-                        pickedUri.startsWith('content://') || 
-                        pickedUri.includes('onedrive') || 
-                        pickedUri.includes('drive.google') ||
-                        pickedUri.includes('com.microsoft.skydrive') ||
-                        !pickedUri.startsWith('file://');
-      
-      if (needsCopy) {
-        const before = pickedUri;
-        pickedUri = await copyToAppCache(pickedUri);
-        await appendPhotoImportLog({ step: 'copied_to_cache', from: before, to: pickedUri, changed: before !== pickedUri });
-      }
-
-      // Verificar existencia y tamaño razonable
-      try {
-        const info = await FileSystem.getInfoAsync(pickedUri);
-        if (!info.exists || (info.size ?? 0) === 0) {
-          Alert.alert('Error', 'No se pudo acceder a la imagen seleccionada.');
-          await appendPhotoImportLog({ step: 'file_info_invalid', uri: pickedUri, info });
-          return;
-        }
-        // Límite blando 25MB
-        if ((info.size ?? 0) > 25 * 1024 * 1024) {
-          Alert.alert('Imagen muy grande', 'La imagen supera 25MB. Selecciona otra más pequeña.');
-          await appendPhotoImportLog({ step: 'file_too_large', size: info.size, uri: pickedUri });
-          return;
-        }
-        await appendPhotoImportLog({ step: 'file_info_ok', size: info.size, uri: pickedUri });
-      } catch {}
-
-      // Operación transaccional completa: agregar foto y configurar transformación
-      const success = await addPhotoToMainTable(tableId, pickedUri);
-      appendPhotoImportLog({ step: 'db_add_result', success, uri: pickedUri });
-      
-      if (!success) {
-        throw new Error('No se pudo agregar la foto a la base de datos');
-      }
-      
-      // Calcular centro basándonos en el ancho de pantalla y altura de canvas
-      const photoSize = 120; // base centrar (independiente de escala)
-      const centerX = Math.round((width - photoSize) / 2);
-      const centerY = Math.round((canvasHeight - photoSize) / 2);
-      
-      // Actualizar transform inicial para centrar (operación transaccional)
-      const transformSuccess = await updatePhotoTransformForMainTable(
-        tableId, 
-        pickedUri, 
-        { x: centerX, y: centerY, scale: 0.5 }
-      );
-      
-      if (!transformSuccess) {
-        throw new Error('No se pudo inicializar la transformación de la foto');
-      }
-      
-      appendPhotoImportLog({ step: 'transform_initialized', x: centerX, y: centerY, scale: 0.5, uri: pickedUri });
-      
-      // Recargar datos de la base de datos
-      await loadPhotos();
-      await loadPhotoItems();
-      setActivePhoto(pickedUri);
-      
-      appendPhotoImportLog({ step: 'success', uri: pickedUri });
-      console.log('✅ Foto agregada exitosamente:', pickedUri);
-    } catch (e) {
-      console.error('❌ handleAddPhoto error', e);
-      const message = (typeof e === 'object' && e && 'message' in e) ? String((e as any).message) : String(e);
-      const stack = (typeof e === 'object' && e && 'stack' in e) ? String((e as any).stack) : null;
-      appendPhotoImportLog({ step: 'error', message, stack });
-      Alert.alert(
-        'Error al Agregar Imagen',
-        `No se pudo añadir la imagen:\n${message}`,
-        [{ text: 'OK' }]
-      );
-    }
-  }, [tableId, loadPhotos]);
-
-  // Gestos para cada imagen: usaremos PanResponder manual simplificado con GestureHandler Pan + Pinch + Rotation
-  // Para minimizar cambios, implementamos un wrapper simple por foto
-  // Referencia para merges completos
-  const photoItemsRef = useRef<PhotoItem[]>([]);
-  useEffect(() => { photoItemsRef.current = photoItems as PhotoItem[]; }, [photoItems]);
-
-  const onUpdatePhotoTransform = useCallback(async (uri: string, data: {x?: number; y?: number; scale?: number; rotation?: number}) => {
-    // Guardar estado anterior para posible rollback
-    const previousState = photoItemsRef.current.find(p => p.uri === uri);
-    
-    // Verificar si la foto todavía existe (puede haber sido eliminada)
-    const photoExists = photoItemsRef.current.some(p => p.uri === uri);
-    if (!photoExists) {
-      console.log(`⚠️ Foto ya eliminada, saltando guardado: ${uri}`);
-      return;
-    }
-    
-    // IMPORTANTE: Actualizar ref INMEDIATAMENTE (antes de setState) para evitar race conditions
-    photoItemsRef.current = photoItemsRef.current.map(p => 
-      p.uri === uri ? { ...p, ...data } : p
-    );
-    
-    // Actualizar estado UI inmediatamente (optimistic update)
-    setPhotoItems(prev => prev.map(p => p.uri === uri ? { ...p, ...data } : p));
-    
-    try {
-      const existing = photoItemsRef.current.find(p => p.uri === uri);
-      const merged: PhotoItem = existing ? { ...existing, ...data } : { uri, x: 0, y: 0, scale: 1, rotation: 0, ...data } as PhotoItem;
-      if (merged.scale <= 0) merged.scale = 1;
-      
-      // Operación transaccional con manejo de errores
-      const success = await updatePhotoTransformForMainTable(
-        tableId, 
-        uri, 
-        { x: merged.x, y: merged.y, scale: merged.scale, rotation: merged.rotation }
-      );
-      
-      if (!success) {
-        // Si falla, puede ser porque la foto ya fue eliminada
-        const stillExists = photoItemsRef.current.some(p => p.uri === uri);
-        if (!stillExists) {
-          console.log(`ℹ️ Foto eliminada durante guardado: ${uri}`);
-          return; // No mostrar error, es esperado
-        }
-        throw new Error('La operación de actualización retornó false');
-      }
-      
-      photoItemsRef.current = photoItemsRef.current.map(p => p.uri === uri ? merged : p);
-      console.log('✅ Transformación de foto guardada:', { uri, ...data });
-    } catch (error) {
-      // Verificar si la foto todavía existe antes de mostrar error
-      const stillExists = photoItemsRef.current.some(p => p.uri === uri);
-      if (!stillExists) {
-        console.log(`ℹ️ Error ignorado, foto ya fue eliminada: ${uri}`);
-        return;
-      }
-      
-      console.error('❌ Error al guardar transformación de foto:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
-      Alert.alert(
-        'Error al Guardar',
-        `No se pudo guardar la transformación de la imagen:\n${errorMessage}`,
-        [{ text: 'OK' }]
-      );
-      // Revertir estado UI en caso de error
-      if (previousState) {
-        setPhotoItems(prev => prev.map(p => p.uri === uri ? previousState : p));
-      }
-    }
-  }, [tableId]);
-
-  // --- Sistema multi-touch: no necesitamos handleDeletePhoto antiguo ---
-  
-    // Estado para el modo de entrada: 'pen' o 'finger'
-  const [inputMode, setInputMode] = useState(() => {
-    // Inicializar desde variable global o por tamaño de dispositivo
-    if (globalInputMode) return globalInputMode;
-    return isTinyDevice ? 'finger' : 'pen';
-  });
-
-  const toggleInputMode = () => {
-    const newMode = inputMode === 'pen' ? 'finger' : 'pen';
-    setInputMode(newMode);
-    globalInputMode = newMode; // Guardar en memoria global
-  };
-
-  
-
-  // Función para limpiar memoria mejorada
-  const cleanup = useCallback(async () => {
-    // IMPORTANTE: Guardar cambios pendientes de fotos antes de limpiar
-    if (photoSaveTimeoutRef.current) {
-      clearTimeout(photoSaveTimeoutRef.current);
-      photoSaveTimeoutRef.current = null;
-    }
-    
-    // Guardar inmediatamente cualquier cambio pendiente
-    const pendingUpdates = Array.from(pendingPhotoUpdatesRef.current.entries());
-    if (pendingUpdates.length > 0) {
-        console.log(`💾 [Cleanup] Guardando ${String(pendingUpdates.length)} foto(s) pendientes antes de desmontar`);      // Guardar en paralelo para ser más rápido
-      await Promise.all(
-        pendingUpdates.map(([photoUri, photoUpdates]) => 
-          onUpdatePhotoTransform(photoUri, photoUpdates)
-        )
-      );
-      
-      pendingPhotoUpdatesRef.current.clear();
-    }
-    
-    // Limpiar arrays para liberar memoria
-    setPaths([]);
-    setPathsData([]);
-    setCurrentPathDisplay(null);
-    currentPath.current = null;
-    lastPoint.current = null;
-    
-    // Limpiar undo stack para liberar memoria
-    setUndoStack([]);
-    
-    // Limpiar timeouts de paths
-    if (saveTimeoutRef.current) {
-      window.clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = null;
-    }
-  }, [onUpdatePhotoTransform]);
-
-  // Cargar paths desde la base de datos
-  const loadSavedPaths = useCallback(async () => {
-    try {
-      const mainTable = await getMainTableById(tableId); // Fetch data by gymnastid
-      
-      if (mainTable) {
-        try {
-          const pathsString = await getMainTablePaths(mainTable.id);
-          const savedPathsData: PathData[] = JSON.parse(pathsString || '[]');
-          
-          // Convertir pathsData a SkPath objects de manera eficiente
-          const skPaths: SkPath[] = [];
-          
-          savedPathsData.forEach((pathData) => {
-            try {
-              const path = Skia.Path.MakeFromSVGString(pathData.path);
-              if (path) {
-                skPaths.push(path);
-              }
-            } catch (error) {
-              console.warn('Error loading path:', error);
-            }
-          });
-          
-          setPathsData(savedPathsData);
-          setPaths(skPaths);
-        } catch (parseError) {
-          console.warn('Error parsing saved paths:', parseError);
-          setPathsData([]);
-          setPaths([]);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading paths:', error);
-    }
-  }, [tableId]);
-
-  // Guardar paths de manera eficiente con debounce y manejo transaccional
-  const savePaths = useCallback(async (newPathsData: PathData[]) => {
-    setIsSaving(true);
-    try {
-      // 🔥 OPTIMIZACIÓN CRÍTICA: Limitar paths guardados a MAX_PATHS_MEMORY (150)
-      // Esto previene que el JSON crezca demasiado y cause OOM
-      const limitedPaths = newPathsData.slice(-MAX_PATHS_MEMORY);
-      
-      const pathsString = JSON.stringify(limitedPaths);
-      // Validación de tamaño antes de persistir (coherente con backend ~0.9MB)
-      const INLINE_HARD_LIMIT = 900_000; // bytes
-      const byteLengthUtf8 = (str: string): number => {
-        try { if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(str).length; } catch {}
-        try { return unescape(encodeURIComponent(str)).length; } catch { return str.length; }
-      };
-      const size = byteLengthUtf8(pathsString);
-      if (size > INLINE_HARD_LIMIT) {
-        setIsSaving(false);
-        Alert.alert(
-          'Límite alcanzado', 
-          'Has alcanzado el límite máximo de trazos. Por favor borra algunos antes de continuar.',
-          [{ text: 'OK' }]
-        );
-        console.warn(`[Whiteboard] Save blocked. paths size=${size} bytes > ${INLINE_HARD_LIMIT}`);
-        return; // No guardamos para evitar intento de fila gigante
-      }
-      
-      // Operación transaccional con SQLite
-      const mainTable = await getMainTableById(tableId);
-
-      if (!mainTable) {
-        throw new Error(`No se encontró la tabla con ID ${tableId}`);
-      }
-
-      const success = await updateMainTable(mainTable.id, { paths: pathsString });
-      
-      if (!success) {
-        throw new Error('No se pudo actualizar los paths en la base de datos');
-      }
-
-      setLastSaved(new Date());
-      console.log(`✅ Guardados ${String(limitedPaths.length)} trazos exitosamente`);
-    } catch (error) {
-      console.error('❌ Error saving paths:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
-      Alert.alert(
-        'Error al Guardar',
-        `No se pudieron guardar los trazos del whiteboard:\n${errorMessage}`,
-        [
-          { text: 'Reintentar', onPress: () => savePaths(newPathsData) },
-          { text: 'Cancelar', style: 'cancel' }
-        ]
-      );
-    } finally {
-      setIsSaving(false);
-    }
-  }, [tableId]);
-
-  // Guardar con debounce para evitar demasiadas escrituras
-  const debouncedSave = useCallback((newPathsData: PathData[]) => {
-    if (saveTimeoutRef.current) {
-      window.clearTimeout(saveTimeoutRef.current);
-    }
-    
-    saveTimeoutRef.current = window.setTimeout(() => {
-      savePaths(newPathsData);
-    }, 1000); // Esperar 1 segundo antes de guardar
-  }, [savePaths]);
-
-  const updatePaths = useCallback((newPath: SkPath) => {
-    // Obtener configuración actual según el modo y tipo de pen
-    let pathColor: string;
-    let pathStrokeWidth: number;
-    
-    if (isEraser) {
-      pathColor = '#e0e0e0'; // Eraser usa color de fondo
-      pathStrokeWidth = currentStrokeWidth * 4; // Eraser 4x más grueso
+  const trackSaveAttempt = (success: boolean, operation: string) => {
+    setSaveAttempts((prev) => prev + 1);
+    if (success) {
+      setLastSaveTime(new Date());
+      setSaveWarning("");
     } else {
-      // Configuración según el tipo de pen
-      switch (selectedPen) {
-        case 1: // Telestrator
-          pathColor = 'red';
-          pathStrokeWidth = 2; // Fijo para telestrator
-          break;
-        case 2: // Highlighter
-          pathColor = 'yellow';
-          pathStrokeWidth = currentStrokeWidth;
-          break;
-        default: // Normal pen
-          pathColor = currentColor;
-          pathStrokeWidth = currentStrokeWidth;
-          break;
-      }
+      showSaveWarning(
+        `Failed to save ${operation}. Please check your connection.`
+      );
     }
-    
-    // Convertir SkPath a string para guardar
-    const pathString = newPath.toSVGString();
-    const newPathData: PathData = {
-      path: pathString,
-      color: pathColor,
-      strokeWidth: pathStrokeWidth,
-      isEraser: isEraser,
-      penType: selectedPen
-    };
-    
-    // Limpiar undo stack cuando se agrega un nuevo path para ahorrar memoria
-    if (undoStack.length > 0) {
-      setUndoStack([]);
-    }
-    
-    // Actualizar estados con límite de memoria - AGRESIVO
-    setPaths((prevState) => {
-      const newPaths = [...prevState, newPath];
-      // 🔥 OPTIMIZACIÓN: Limitar paths AGRESIVAMENTE para prevenir GC stack overflow
-      if (newPaths.length > MAX_PATHS_MEMORY) {
-        console.log(`⚠️ Límite de paths alcanzado (${newPaths.length}), limpiando a ${MAX_PATHS_MEMORY}`);
-        return newPaths.slice(-MAX_PATHS_MEMORY);
-      }
-      return newPaths;
-    });
-    
-    setPathsData((prevData) => {
-      const newData = [...prevData, newPathData];
-      
-      // 🔥 OPTIMIZACIÓN: Limitar paths data AGRESIVAMENTE
-      const limitedData = newData.length > MAX_PATHS_MEMORY 
-        ? newData.slice(-MAX_PATHS_MEMORY) 
-        : newData;
-      
-      // Guardar de manera asíncrona con debounce
-      debouncedSave(limitedData);
-      
-      return limitedData;
-    });
-  }, [debouncedSave, isEraser, undoStack.length, currentColor, currentStrokeWidth, selectedPen]);
+  };
 
-  // Funciones para los botones con optimización de memoria
-  const toggleMenu = useCallback(() => {
-    setMenuOpen(!menuOpen);
-    // Eliminar animaciones de botones - mantener siempre visibles
-  }, [menuOpen]);
+  /* Define usestate */
+  const [showNdModal, setShowNdModal] = useState(false);
+  const [ndInput, setNdInput] = useState("");
+  const [nd, setNd] = useState(0);
 
-  const handleUndo = useCallback(() => {
-    if (paths.length > 0 && pathsData.length > 0) {
-      const lastPath = pathsData[pathsData.length - 1];
-      
-      // Agregar al stack de undo con límite de memoria
-      setUndoStack(prev => {
-        const newStack = [...prev, lastPath];
-        // Limitar el tamaño del stack para evitar problemas de memoria
-        return newStack.length > MAX_UNDO_STACK 
-          ? newStack.slice(-MAX_UNDO_STACK) 
-          : newStack;
-      });
-      
-      // Remover el último path
-      setPaths(prev => prev.slice(0, -1));
-      setPathsData(prev => {
-        const newData = prev.slice(0, -1);
-        debouncedSave(newData);
-        return newData;
-      });
-    }
-  }, [paths.length, pathsData, debouncedSave]);
+  const [showCommentsModal, setShowCommentsModal] = useState(false);
+  const [commentsInput, setCommentsInput] = useState("");
+  const commentsInputRef = useRef<any>(null);
 
-  const handleRedo = useCallback(() => {
-    if (undoStack.length > 0) {
-      const pathToRedo = undoStack[undoStack.length - 1];
-      
-      // Remover del undo stack
-      setUndoStack(prev => prev.slice(0, -1));
-      
-      // Recrear el SkPath y agregarlo
+  // Valor dinámico de stick/bonus (0.1 si discipline true, 0.2 si false)
+  const getStickBonusValue = () => (discipline ? 0.1 : 0.2);
+
+  // Eliminar animaciones: dejar los valores finales directamente
+  const backButtonOpacity = { setValue: () => {}, _value: 1 };
+  const backButtonTranslateX = { setValue: () => {}, _value: 0 };
+
+  const [showExecutionModal, setShowExecutionModal] = useState(false);
+  const [execution, setExecution] = useState(0);
+  const [executionInput, setExecutionInput] = useState("");
+
+  const [showDModal, setShowDModal] = useState(false);
+  const [dInput, setDInput] = useState("");
+  const [d, setD] = useState(0);
+
+  const [showEModal, setShowEModal] = useState(false);
+  const [eInput, setEInput] = useState("");
+  const [e, setE] = useState(0);
+
+  const [showNdModalcomp, setShowNdModalcomp] = useState(false);
+  const [ndInputcomp, setNdInputcomp] = useState("");
+
+  const [showSvModal, setShowSvModal] = useState(false);
+  const [svInput, setSvInput] = useState("");
+
+  // Track the total elements
+  const [totalElements, setTotalElements] = useState(0);
+  const [rateid, setRateId] = useState(0);
+  const [stickbonus, setStickBonus] = useState(false);
+  const [difficultyValues, setDifficultyValues] = useState(0);
+  const [gymnastName, setGymnastName] = useState("");
+  const [gymnastNoc, setGymnastNoc] = useState("");
+  const [gymnastBib, setGymnastBib] = useState("");
+  const [gymnastEvent, setGymnastEvent] = useState("");
+  const [elementGroupsTotal, setElementGroupsTotal] = useState(0);
+  const [cv, setCv] = useState(0);
+  const [myScore, setMyScore] = useState(0);
+  const [sv, setSv] = useState(0);
+
+  const [eScore, setEScore] = useState(0);
+  const [score, setScore] = useState(0);
+  const [sb, setSb] = useState(true);
+  const [ndcomp, setndcomp] = useState(0);
+  const [showNdCompModal, setShowNdCompModal] = useState(false);
+  const [showCvModal] = useState(false); // Not used in vault, but required by DebugPanel interface
+  const [comments, setComments] = useState("");
+  const [delt, setDelt] = useState(0);
+  const [ded, setSetded] = useState(0);
+  const [percentage, setpercentage] = useState(0);
+
+  // Element counts and groups (vault-specific - simplified)
+  const [elementCounts] = useState<{
+    [key: string]: { value: number; selected: boolean };
+  }>({});
+  const [elementGroupValues] = useState<{ [key: string]: number }>({});
+
+  /* DEFINE MODALS */
+  const [showmodalmag, setShowModalMag] = useState(false);
+  const [showmodalwag, setShowModalWag] = useState(false);
+  const [vaultnumber, setVaultNumber] = useState("0");
+  const [startValue, setStartValue] = useState(0);
+  const [vaultDescription, setVaultDescription] = useState("No Vault Assigned");
+
+  const [gender, setGender] = useState(false);
+  // Estado de carga para mostrar el modal hasta que todo esté listo
+  const [isLoading, setIsLoading] = useState(true);
+
+
+
+  /* Useffect */
+  useEffect(() => {
+    const fetchMainRateGeneral = async () => {
       try {
-        const skPath = Skia.Path.MakeFromSVGString(pathToRedo.path);
-        if (skPath) {
-          setPaths(prev => {
-            const newPaths = [...prev, skPath];
-            // Aplicar límite de memoria
-            return newPaths.length > MAX_PATHS_MEMORY 
-              ? newPaths.slice(-MAX_PATHS_MEMORY) 
-              : newPaths;
-          });
-          
-          setPathsData(prev => {
-            const newData = [...prev, pathToRedo];
-            const limitedData = newData.length > MAX_PATHS_MEMORY 
-              ? newData.slice(-MAX_PATHS_MEMORY) 
-              : newData;
-            debouncedSave(limitedData);
-            return limitedData;
-          });
+        const mainRateGeneral = await getMainTableById(gymnastid); // Fetch data by gymnastid
+        // ...resto del código igual...
+        const competence = await getCompetenceById(Number(competenceId));
+        if (competence) {
+          setGender(competence.gender);
+        }
+        if (mainRateGeneral) {
+          const mainRateGeneralId = mainRateGeneral.id;
+          const rateTable = await getRateGeneralByTableId(mainRateGeneralId);
+          setGymnastEvent(mainRateGeneral.event);
+          setCv(mainRateGeneral.cv);
+          setNd(mainRateGeneral.nd);
+          setDelt(mainRateGeneral.delt);
+          setpercentage(mainRateGeneral.percentage);
+          setGymnastName(mainRateGeneral.name);
+          setGymnastNoc(mainRateGeneral.noc);
+          setGymnastBib(mainRateGeneral.bib);
+          setSv(mainRateGeneral.sv);
+          setStartValue(mainRateGeneral.e2);
+          setNd(mainRateGeneral.nd);
+          if (mainRateGeneral) {
+            setVaultNumber(mainRateGeneral.vaultNumber);
+            setVaultDescription(mainRateGeneral.vaultDescription);
+            setRateId(mainRateGeneral.id);
+            setStickBonus(mainRateGeneral.stickBonus);
+            setCommentsInput(mainRateGeneral.comments);
+            setComments(mainRateGeneral.comments);
+            setExecution(mainRateGeneral.execution);
+            setEScore(mainRateGeneral.eScore);
+            setMyScore(mainRateGeneral.myScore);
+            setD(mainRateGeneral.compD);
+            setScore(mainRateGeneral.compScore);
+            setE(mainRateGeneral.compE);
+            setSb(mainRateGeneral.compSd === 0.1);
+            setndcomp(mainRateGeneral.compNd);
+            setSetded(mainRateGeneral.ded);
+          }
         }
       } catch (error) {
-        console.warn('Error recreating path for redo:', error);
+        console.error("Error fetching MainRateGeneral data:", error);
+      } finally {
+        setIsLoading(false);
       }
-    }
-  }, [undoStack, debouncedSave]);
+    };
+    fetchMainRateGeneral();
+  }, [gymnastid]);
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#0052b4" />
+        <Text style={styles.loadingText}>Loading data...</Text>
+      </SafeAreaView>
+    );
+  }
 
-  const toggleEraser = useCallback(() => {
-    if (!isEraser) {
-      // Activando eraser
-      // Validación: si no estamos en pen normal, cambiar a pen normal primero
-      if (selectedPen !== 0) {
-        // Guardar el color actual si estamos en pen normal
-        if (selectedPen === 0) {
-          setNormalPenColor(currentColor);
-        }
-        // Cambiar a pen normal antes de activar eraser
-        setSelectedPen(0);
-        setCurrentColor(normalPenColor);
-      }
-      
-      // Guardar el grosor actual antes de activar eraser
-      setPreviousStrokeWidth(currentStrokeWidth);
-      
-      // Establecer grosor máximo para eraser (limitado a 10 para que no se salga de la barra)
-      setCurrentStrokeWidth(Math.min(10, 15)); // Máximo 10 para mantener dentro del gráfico
-      
-      setIsEraser(true);
-    } else {
-      // Desactivando eraser - restaurar grosor previo
-      setCurrentStrokeWidth(previousStrokeWidth);
-      setIsEraser(false);
-    }
-  }, [isEraser, selectedPen, currentColor, normalPenColor, currentStrokeWidth, previousStrokeWidth]);
+  /* Buttons un the bottom */
 
-  const toggleStickBonus = useCallback(() => {
-    const newStickBonus = !stickBonus;
-    if (setStickBonusset) {
-      setStickBonusset(newStickBonus);
-    }
-  }, [stickBonus, setStickBonusset]);
+  const handleSelect = async () => {
 
-  // Funciones para cambiar color y grosor del pen/eraser
-  const changeColor = useCallback(async (color: string) => {
-    setCurrentColor(color);
-    // Si estamos en pen normal, recordar este color
-    if (selectedPen === 0) {
-      setNormalPenColor(color);
-      // Guardar globalmente solo para pen normal
-      await updateGlobalPenConfig({ color });
-    }
-  }, [selectedPen]);
+    const mainTableUpdate = {
+        sv: sv,
+        nd: nd,
+        delt: delt,
+        percentage: percentage,
+        cv: cv,
+        e2: startValue,
+        stickBonus: stickbonus,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+  compSd: sb ? getStickBonusValue() : 0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+        ded: ded,
+        vaultNumber: vaultnumber,
+        vaultDescription: vaultDescription,
+      };
+      await updateMainTable(gymnastid, mainTableUpdate);
 
-  const changeStrokeWidth = useCallback(async (width: number) => {
-    setCurrentStrokeWidth(width);
-    // Solo guardar globalmente si estamos en pen normal (no en eraser, telestrator o highlighter)
-    if (selectedPen === 0 && !isEraser) {
-      await updateGlobalPenConfig({ strokeWidth: width });
-    }
-  }, [selectedPen, isEraser]);
+/*       // 2. Guardar RateGeneral (todos los valores relevantes)
+      const rateGeneralUpdate = {
+        stickBonus: stickbonus,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+  compSd: sb ? getStickBonusValue() : 0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+        ded: ded,
+        vaultNumber: vaultnumber,
+        vaultDescription: vaultDescription,
+      };
+      await updateRateGeneral(rateid, rateGeneralUpdate); */
 
-  // Funciones para cambiar tipo de pen
-  const selectNormalPen = useCallback(async () => {
-    // Si estamos en eraser, restaurar grosor previo
-    if (isEraser) {
-      setCurrentStrokeWidth(previousStrokeWidth);
-    }
-    
-    setSelectedPen(0);
-    setCurrentColor('black'); // Siempre usar color negro para el lápiz principal
-    setIsEraser(false);
-    
-    // Guardar configuración global
-    await updateGlobalPenConfig({ 
-      penType: 0, 
-      color: 'black',
-      strokeWidth: isEraser ? previousStrokeWidth : currentStrokeWidth
-    });
-  }, [isEraser, previousStrokeWidth, currentStrokeWidth]);
 
-  const selectTelestrator = useCallback(async () => {
-    // Si estamos en eraser, guardar el grosor actual como previo
-    if (isEraser) {
-      setPreviousStrokeWidth(currentStrokeWidth);
-    }
-    
-    // Si estamos en pen normal, guardar el color actual
-    if (selectedPen === 0) {
-      setNormalPenColor(currentColor);
-      // Actualizar la configuración global con el color del pen normal
-      await updateGlobalPenConfig({ color: currentColor });
-    }
-    setSelectedPen(1);
-    setCurrentColor('red');
-    setCurrentStrokeWidth(2);
-    setIsEraser(false);
-  }, [selectedPen, currentColor, isEraser, currentStrokeWidth]);
-
-  const selectHighlighter = useCallback(async () => {
-    // Si estamos en eraser, guardar el grosor actual como previo
-    if (isEraser) {
-      setPreviousStrokeWidth(currentStrokeWidth);
-    }
-    
-    // Si estamos en pen normal, guardar el color actual
-    if (selectedPen === 0) {
-      setNormalPenColor(currentColor);
-      // Actualizar la configuración global con el color del pen normal
-      await updateGlobalPenConfig({ color: currentColor });
-    }
-    setSelectedPen(2);
-    setCurrentColor('yellow');
-    setIsEraser(false);
-  }, [selectedPen, currentColor, isEraser, currentStrokeWidth]);
-
-  // Función para seleccionar lápiz rojo
-  const selectRedPen = useCallback(async () => {
-    // Si estamos en eraser, restaurar grosor previo
-    if (isEraser) {
-      setCurrentStrokeWidth(previousStrokeWidth);
-    }
-    
-    setSelectedPen(0);
-    setCurrentColor('red');
-    setIsEraser(false);
-    
-    // Guardar configuración global
-    await updateGlobalPenConfig({ 
-      penType: 0, 
-      color: 'red',
-      strokeWidth: isEraser ? previousStrokeWidth : currentStrokeWidth
-    });
-  }, [isEraser, previousStrokeWidth, currentStrokeWidth]);
-
-  // Función para seleccionar lápiz azul
-  const selectBluePen = useCallback(async () => {
-    // Si estamos en eraser, restaurar grosor previo
-    if (isEraser) {
-      setCurrentStrokeWidth(previousStrokeWidth);
-    }
-    
-    setSelectedPen(0);
-    setCurrentColor('blue');
-    setIsEraser(false);
-    
-    // Guardar configuración global
-    await updateGlobalPenConfig({ 
-      penType: 0, 
-      color: 'blue',
-      strokeWidth: isEraser ? previousStrokeWidth : currentStrokeWidth
-    });
-  }, [isEraser, previousStrokeWidth, currentStrokeWidth]);
-
-  // Funciones para controlar el grosor del trazo
-  const increaseStrokeWidth = useCallback(async () => {
-    const newWidth = Math.min(currentStrokeWidth + 1, 10); // Máximo 10
-    setCurrentStrokeWidth(newWidth);
-    
-    // Guardar configuración global
-    await updateGlobalPenConfig({ 
-      penType: selectedPen, 
-      color: currentColor,
-      strokeWidth: newWidth
-    });
-  }, [currentStrokeWidth, selectedPen, currentColor]);
-
-  const decreaseStrokeWidth = useCallback(async () => {
-    const newWidth = Math.max(currentStrokeWidth - 1, 1); // Mínimo 1
-    setCurrentStrokeWidth(newWidth);
-    
-    // Guardar configuración global
-    await updateGlobalPenConfig({ 
-      penType: selectedPen, 
-      color: currentColor,
-      strokeWidth: newWidth
-    });
-  }, [currentStrokeWidth, selectedPen, currentColor]);
-
-  // Función para manejar el cambio en la barra de stroke
-  const handleStrokeBarChange = useCallback(async (event: any) => {
-    const { locationX } = event.nativeEvent;
-    const barWidth = 150; // Ancho efectivo más largo (160 - 10 de padding)
-    const percentage = Math.max(0, Math.min(1, locationX / barWidth));
-    const newWidth = Math.round(1 + (percentage * 9)); // De 1 a 10
-    
-    setCurrentStrokeWidth(newWidth);
-    
-    // Guardar configuración global
-    await updateGlobalPenConfig({ 
-      penType: selectedPen, 
-      color: currentColor,
-      strokeWidth: newWidth
-    });
-  }, [selectedPen, currentColor]);
-
-  // Gesture para la barra de stroke
-  const strokeSliderGesture = Gesture.Pan()
-    .runOnJS(true)
-    .onUpdate((event) => {
-      const { x } = event;
-      const barWidth = 150; // Ancho efectivo más largo (160 - 10 de padding)
-      const percentage = Math.max(0, Math.min(1, x / barWidth));
-      const newWidth = Math.round(1 + (percentage * 9)); // De 1 a 10
-      
-      if (newWidth !== currentStrokeWidth) {
-        runOnJS(setCurrentStrokeWidth)(newWidth);
-      }
-    })
-    .onEnd(async () => {
-      // Guardar configuración al final del gesto
-      runOnJS(async () => {
-        await updateGlobalPenConfig({ 
-          penType: selectedPen, 
-          color: currentColor,
-          strokeWidth: currentStrokeWidth
-        });
-      })();
-    });
-
-  // Función para suavizar puntos, ahora recibe pointerType
-  const addSmoothPoint = (path: SkPath, x: number, y: number, pointerType?: number) => {
-    // Si el modo es finger y el pointerType es 0 (dedo), suavizar menos para evitar saltos
-    const smoothSteps = (inputMode === 'finger' && pointerType === 0) ? 1 : 3;
-    if (lastPoint.current) {
-      const lastX = lastPoint.current.x;
-      const lastY = lastPoint.current.y;
-      const distance = Math.sqrt((x - lastX) ** 2 + (y - lastY) ** 2);
-      if (distance > 5) {
-        const steps = Math.ceil(distance / smoothSteps);
-        for (let i = 1; i <= steps; i++) {
-          const ratio = i / steps;
-          const interpX = lastX + (x - lastX) * ratio;
-          const interpY = lastY + (y - lastY) * ratio;
-          path.lineTo(interpX, interpY);
-        }
-      } else {
-        path.lineTo(x, y);
-      }
-    }
-    lastPoint.current = { x, y };
+    router.replace(
+      `/final-table?competenceId=${competenceId}&gymnastId=${discipline}&event=${event}&discipline=${discipline}&gymnast=${gymnastid}&number=${number}&participants=${participants}&folderId=${folderId}`
+    );
   };
 
-  // ==================== NUEVO SISTEMA MULTI-TOUCH ====================
-  // Estados para gestos multi-touch en fotos
-  const selectedPhotoRef = useRef<string | null>(null);
-  const photoGestureStartRef = useRef<{ scale: number; rotation: number; x: number; y: number } | null>(null);
-  const lastTapTimeRef = useRef<number>(0);
-  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const photoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Timeout para debounce de guardado
-  const pendingPhotoUpdatesRef = useRef<Map<string, Partial<PhotoItem>>>(new Map()); // Cambios pendientes
+  const handlegobacklist = async () => {
 
-  // Helper: Encontrar foto en punto
-  const findPhotoAtPoint = useCallback((x: number, y: number): string | null => {
-    for (let i = photoItems.length - 1; i >= 0; i--) {
-      const photo = photoItems[i];
-      const meta = imageMeta[photo.uri];
-      if (!meta) continue;
-      const baseW = meta.w;
-      const baseH = meta.h;
-      const w = baseW * (photo.scale || 1);
-      const h = baseH * (photo.scale || 1);
-      if (x >= photo.x && x <= photo.x + w && y >= photo.y && y <= photo.y + h) {
-        return photo.uri;
+    const mainTableUpdate = {
+        sv: sv,
+        nd: nd,
+        delt: delt,
+        percentage: percentage,
+        cv: cv,
+        e2: startValue,
+        stickBonus: stickbonus,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+  compSd: sb ? getStickBonusValue() : 0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+        ded: ded,
+        vaultNumber: vaultnumber,
+        vaultDescription: vaultDescription,
+      };
+      await updateMainTable(gymnastid, mainTableUpdate);
+
+      /* // 2. Guardar RateGeneral (todos los valores relevantes)
+      const rateGeneralUpdate = {
+        stickBonus: stickbonus,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+  compSd: sb ? getStickBonusValue() : 0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+        ded: ded,
+        vaultNumber: vaultnumber,
+        vaultDescription: vaultDescription,
+      };
+      await updateRateGeneral(rateid, rateGeneralUpdate); */
+
+
+    router.replace(
+      `/start-gudging?id=${competenceId}&discipline=${discipline}&participants=${participants}&number=${number}&gymnast=${gymnastid}&folderId=${folderId}`
+    ); // Pass the value as a query parameter
+  };
+
+  const handleGoForward = async () => {
+    try {
+      // Guardar todos los datos relevantes en la base de datos antes de avanzar
+      // 1. Guardar MainTable (SV, ND, delt, porcentaje, e2, etc.)
+      const mainTableUpdate = {
+        sv: sv,
+        nd: nd,
+        delt: delt,
+        percentage: percentage,
+        cv: cv,
+        e2: startValue,
+        stickBonus: stickbonus,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+  compSd: sb ? getStickBonusValue() : 0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+        ded: ded,
+        vaultNumber: vaultnumber,
+        vaultDescription: vaultDescription, 
+      };
+      await updateMainTable(gymnastid, mainTableUpdate);
+
+      /* // 2. Guardar RateGeneral (todos los valores relevantes)
+      const rateGeneralUpdate = {
+        stickBonus: stickbonus,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+  compSd: sb ? getStickBonusValue() : 0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+        ded: ded,
+        vaultNumber: vaultnumber,
+        vaultDescription: vaultDescription,
+      };
+      await updateRateGeneral(rateid, rateGeneralUpdate); */
+
+      // Navegación igual que antes
+      if (number === participants) {
+        router.replace(
+          `/final-table?competenceId=${competenceId}&gymnastId=${discipline}&event=${event}&discipline=${discipline}&gymnast=${gymnastid}&number=${number}&participants=${participants}&folderId=${folderId}`
+        );
+        return;
       }
-    }
-    return null;
-  }, [photoItems, imageMeta]);
-
-  // Actualizar transformaciones de foto CON DEBOUNCE de 3 segundos
-  const updatePhotoTransform = useCallback((uri: string, updates: Partial<PhotoItem>) => {
-    // 1. Actualizar UI inmediatamente (optimistic update)
-    setPhotoItems(prev => prev.map(p => {
-      if (p.uri === uri) {
-        return { ...p, ...updates };
+      const mainTables = await getMainTablesByCompetenceId(
+        Number(competenceId)
+      );
+      // Sort the main tables by number to ensure proper order
+      const sortedTables = mainTables.sort((a, b) => a.number - b.number);
+      // Start searching for the next valid gymnast
+      let nextNumber = Number(number) + 1;
+      let nextTable = null;
+      while (
+        !nextTable &&
+        nextNumber <= sortedTables[sortedTables.length - 1]?.number
+      ) {
+        nextTable = sortedTables.find((table) => table.number === nextNumber);
+        if (!nextTable) nextNumber++; // Increment if not found
       }
-      return p;
-    }));
-
-    // 2. Acumular cambios pendientes
-    const currentPending = pendingPhotoUpdatesRef.current.get(uri) || {};
-    pendingPhotoUpdatesRef.current.set(uri, { ...currentPending, ...updates });
-
-    // 3. Cancelar timeout anterior si existe
-    if (photoSaveTimeoutRef.current) {
-      clearTimeout(photoSaveTimeoutRef.current);
-    }
-
-    // 4. Programar guardado después de 3 segundos de inactividad
-    photoSaveTimeoutRef.current = setTimeout(() => {
-      // Guardar todos los cambios pendientes
-      const pendingUpdates = Array.from(pendingPhotoUpdatesRef.current.entries());
-      
-      if (pendingUpdates.length > 0) {
-        console.log(`💾 Guardando ${String(pendingUpdates.length)} foto(s) después de 3s de inactividad`);
-        
-        // Guardar cada foto con sus cambios acumulados
-        pendingUpdates.forEach(([photoUri, photoUpdates]) => {
-          onUpdatePhotoTransform(photoUri, photoUpdates);
-        });
-        
-        // Limpiar cambios pendientes
-        pendingPhotoUpdatesRef.current.clear();
-      }
-      
-      photoSaveTimeoutRef.current = null;
-    }, 3000); // 3 segundos de delay
-  }, [onUpdatePhotoTransform]);
-
-  // Eliminar foto
-  const deletePhoto = useCallback((uri: string) => {
-    Alert.alert(
-      "Eliminar foto",
-      "¿Estás seguro de que deseas eliminar esta foto?",
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Eliminar",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              const index = photoItems.findIndex(p => p.uri === uri);
-              if (index !== -1) {
-                // 1. Cancelar cualquier actualización pendiente de esta foto
-                pendingPhotoUpdatesRef.current.delete(uri);
-                console.log(`🗑️ Canceladas actualizaciones pendientes de foto: ${uri}`);
-                
-                // 2. Actualizar UI inmediatamente
-                setPhotoItems(prev => prev.filter(p => p.uri !== uri));
-                selectedPhotoRef.current = null;
-                
-                // 3. Eliminar de la base de datos
-                await removePhotoFromMainTable(tableId, index);
-                console.log(`✅ Foto eliminada: ${uri}`);
-              }
-            } catch (error) {
-              console.error('❌ Error al eliminar foto:', error);
-              // No mostrar alerta si es solo un problema de actualización pendiente
-              // La foto ya se eliminó de la UI, que es lo importante
-            }
-          }
-        }
-      ]
-    );
-  }, [tableId, photoItems]);
-
-  // GESTO 1: Single Tap - Seleccionar foto O iniciar dibujo
-  const singleTapGesture = Gesture.Tap()
-    .runOnJS(true)
-    .maxDuration(250)
-    .onStart((event) => {
-      const { x, y } = event;
-      const photoUri = findPhotoAtPoint(x, y);
-      
-      if (photoUri) {
-        // Tap en foto: seleccionar
-        selectedPhotoRef.current = photoUri;
-        const photo = photoItems.find(p => p.uri === photoUri);
-        if (photo) {
-          photoGestureStartRef.current = {
-            scale: photo.scale || 1,
-            rotation: photo.rotation || 0,
-            x: photo.x,
-            y: photo.y
-          };
+      if (nextTable) {
+        if (nextTable?.event === "VT") {
+          router.replace(
+            `/main-jump?competenceId=${competenceId}&gymnastId=${discipline}&event=${nextTable?.event}&discipline=${discipline}&gymnast=${nextTable.id}&number=${nextTable.number}&participants=${participants}&folderId=${folderId}`
+          );
+        } else {
+          router.replace(
+            `/main-floor?competenceId=${competenceId}&gymnastId=${discipline}&event=${nextTable?.event}&discipline=${discipline}&gymnast=${nextTable.id}&number=${nextTable.number}&participants=${participants}&folderId=${folderId}`
+          );
         }
       } else {
-        // Tap fuera: deseleccionar foto
-        selectedPhotoRef.current = null;
-        photoGestureStartRef.current = null;
+        router.replace(
+          `/final-table?competenceId=${competenceId}&gymnastId=${discipline}&event=${event}&discipline=${discipline}&gymnast=${gymnastid}&number=${number}&participants=${participants}&folderId=${folderId}`
+        );
       }
-    });
+    } catch (error) {
+      console.error("Error navegando o guardando datos:", error);
+    }
+  };
 
-  // GESTO 2: Double Tap - Resetear foto a transformaciones por defecto
-  const doubleTapGesture = Gesture.Tap()
-    .runOnJS(true)
-    .numberOfTaps(2)
-    .maxDuration(250)
-    .onEnd((event) => {
-      const { x, y } = event;
-      const photoUri = findPhotoAtPoint(x, y);
-      
-      if (photoUri) {
-        // Double tap en foto: resetear transformaciones
-        updatePhotoTransform(photoUri, { scale: 1, rotation: 0 });
-        console.log("✨ Foto reseteada a transformaciones por defecto");
-      }
-    });
+  const handleGoBack = async () => {
+    try {
+      // Fetch all MainTable entries for the current competenceId
 
-  // GESTO 3: Long Press - Eliminar foto
-  const longPressGesture = Gesture.LongPress()
-    .runOnJS(true)
-    .minDuration(500)
-    .onStart((event) => {
-      const { x, y } = event;
-      const photoUri = findPhotoAtPoint(x, y);
-      
-      if (photoUri) {
-        // Long press en foto: eliminar
-        deletePhoto(photoUri);
-      }
-    });
+      const mainTableUpdate = {
+        sv: sv,
+        nd: nd,
+        delt: delt,
+        percentage: percentage,
+        cv: cv,
+        e2: startValue,
+        stickBonus: stickbonus,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+  compSd: sb ? getStickBonusValue() : 0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+        ded: ded,
+        vaultNumber: vaultnumber,
+        vaultDescription: vaultDescription,
+      };
+      await updateMainTable(gymnastid, mainTableUpdate);
 
-  // GESTO 4: Pan (un dedo) - Mover foto O dibujar
-  const panGesture = Gesture.Pan()
-    .runOnJS(true)
-    .minDistance(5)
-    .onStart((event) => {
-  const { x, y } = event;
-  const pointerType = (event as any).pointerType ?? 0;
-      const photoUri = findPhotoAtPoint(x, y);
-      
-      if (photoUri) {
-        // Si tocamos una foto, actualizar la referencia de inicio SIEMPRE
-        selectedPhotoRef.current = photoUri;
-        const photo = photoItems.find(p => p.uri === photoUri);
-        if (photo) {
-          // IMPORTANTE: Actualizar con la posición ACTUAL de la foto
-          photoGestureStartRef.current = {
-            scale: photo.scale || 1,
-            rotation: photo.rotation || 0,
-            x: photo.x,
-            y: photo.y
-          };
-          console.log(`📌 Pan inicio en foto: x=${String(photo.x)}, y=${String(photo.y)}, scale=${String(photo.scale)}`);
-        }
-        // Preparar para mover foto, no dibujar
-        return;
-      }
-      
-      // Pan fuera de foto O no hay foto seleccionada: DIBUJAR
-      if (inputMode === 'pen' && pointerType === 0) return; // Pen mode + dedo = no dibujar
-      if (inputMode === 'finger' && pointerType !== 0 && isTinyDevice) return; // Finger mode + stylus en tiny = no dibujar
-      
-      isDrawingRef.current = true;
-      currentPath.current = Skia.Path.Make();
-      currentPath.current.moveTo(x, y);
-      lastPoint.current = { x, y };
-      setCurrentPathDisplay(currentPath.current.copy());
-    })
-    .onUpdate((event) => {
-  const { x, y, translationX, translationY } = event;
-  const pointerType = (event as any).pointerType ?? 0;
-      
-      // Si hay foto seleccionada, moverla
-      if (selectedPhotoRef.current && photoGestureStartRef.current) {
-        const newX = photoGestureStartRef.current.x + translationX;
-        const newY = photoGestureStartRef.current.y + translationY;
-        updatePhotoTransform(selectedPhotoRef.current, { x: newX, y: newY });
-        return;
-      }
-      
-      // Sino, dibujar
-      if (inputMode === 'pen' && pointerType === 0) return;
-      if (inputMode === 'finger' && pointerType !== 0 && isTinyDevice) return;
-      
-      if (currentPath.current && isDrawingRef.current) {
-        addSmoothPoint(currentPath.current, x, y, pointerType);
-        setCurrentPathDisplay(currentPath.current.copy());
-      }
-    })
-    .onEnd((event) => {
-  const pointerType = (event as any).pointerType ?? 0;
-      
-      // Resetear inicio de gesto de foto
-      if (selectedPhotoRef.current) {
-        const photo = photoItems.find(p => p.uri === selectedPhotoRef.current);
-        if (photo) {
-          photoGestureStartRef.current = {
-            scale: photo.scale || 1,
-            rotation: photo.rotation || 0,
-            x: photo.x,
-            y: photo.y
-          };
-        }
-      }
-      
-      // Finalizar dibujo
-      if (inputMode === 'pen' && pointerType === 0) return;
-      if (inputMode === 'finger' && pointerType !== 0 && isTinyDevice) return;
-      
-      if (currentPath.current && isDrawingRef.current) {
-        runOnJS(updatePaths)(currentPath.current.copy());
-        setCurrentPathDisplay(null);
-        currentPath.current = null;
-        isDrawingRef.current = false;
-        lastPoint.current = null;
-      }
-    });
+      /* // 2. Guardar RateGeneral (todos los valores relevantes)
+      const rateGeneralUpdate = {
+        stickBonus: stickbonus,
+        execution: execution,
+        eScore: eScore,
+        myScore: myScore,
+        compD: d,
+        compE: e,
+  compSd: sb ? getStickBonusValue() : 0,
+        compNd: ndcomp,
+        compScore: score,
+        comments: comments,
+        ded: ded,
+        vaultNumber: vaultnumber,
+        vaultDescription: vaultDescription,
+      };
+      await updateRateGeneral(rateid, rateGeneralUpdate); */
 
-  // GESTO 5: Pinch - Escalar foto
-  const pinchGesture = Gesture.Pinch()
-    .runOnJS(true)
-    .onStart((event) => {
-      const { focalX, focalY } = event;
-      const photoUri = findPhotoAtPoint(focalX, focalY);
       
-      if (photoUri) {
-        selectedPhotoRef.current = photoUri;
-        const photo = photoItems.find(p => p.uri === photoUri);
-        if (photo) {
-          // IMPORTANTE: Actualizar SIEMPRE con la posición ACTUAL de la foto
-          photoGestureStartRef.current = {
-            scale: photo.scale || 1,
-            rotation: photo.rotation || 0,
-            x: photo.x,
-            y: photo.y
-          };
-          console.log(`🤏 Pinch inicio en foto: scale=${photo.scale}`);
-        }
-      }
-    })
-    .onUpdate((event) => {
-      const { scale } = event;
-      
-      if (selectedPhotoRef.current && photoGestureStartRef.current) {
-        const newScale = Math.max(0.3, Math.min(3, photoGestureStartRef.current.scale * scale));
-        updatePhotoTransform(selectedPhotoRef.current, { scale: newScale });
-      }
-    })
-    .onEnd(() => {
-      // Actualizar el estado de inicio con la nueva escala
-      if (selectedPhotoRef.current) {
-        const photo = photoItems.find(p => p.uri === selectedPhotoRef.current);
-        if (photo) {
-          photoGestureStartRef.current = {
-            scale: photo.scale || 1,
-            rotation: photo.rotation || 0,
-            x: photo.x,
-            y: photo.y
-          };
-        }
-      }
-    });
-
-  // GESTO 6: Rotation - Rotar foto con dos dedos
-  const rotationGesture = Gesture.Rotation()
-    .runOnJS(true)
-    .onStart((event) => {
-      const { anchorX, anchorY } = event;
-      const photoUri = findPhotoAtPoint(anchorX, anchorY);
-      
-      if (photoUri) {
-        selectedPhotoRef.current = photoUri;
-        const photo = photoItems.find(p => p.uri === photoUri);
-        if (photo) {
-          // IMPORTANTE: Actualizar SIEMPRE con la posición ACTUAL de la foto
-          photoGestureStartRef.current = {
-            scale: photo.scale || 1,
-            rotation: photo.rotation || 0,
-            x: photo.x,
-            y: photo.y
-          };
-          console.log(`🔄 Rotation inicio en foto: rotation=${photo.rotation}`);
-        }
-      }
-    })
-    .onUpdate((event) => {
-      const { rotation } = event;
-      
-      if (selectedPhotoRef.current && photoGestureStartRef.current) {
-        const rotationDegrees = (rotation * 180) / Math.PI;
-        const newRotation = (photoGestureStartRef.current.rotation + rotationDegrees) % 360;
-        updatePhotoTransform(selectedPhotoRef.current, { rotation: newRotation });
-      }
-    })
-    .onEnd(() => {
-      // Actualizar el estado de inicio con la nueva rotación
-      if (selectedPhotoRef.current) {
-        const photo = photoItems.find(p => p.uri === selectedPhotoRef.current);
-        if (photo) {
-          photoGestureStartRef.current = {
-            scale: photo.scale || 1,
-            rotation: photo.rotation || 0,
-            x: photo.x,
-            y: photo.y
-          };
-        }
-      }
-    });
-
-  // Combinar todos los gestos con prioridades correctas
-  const combinedGesture = Gesture.Race(
-    doubleTapGesture,
-    longPressGesture,
-    Gesture.Simultaneous(
-      singleTapGesture,
-      Gesture.Simultaneous(
-        pinchGesture,
-        rotationGesture,
-        panGesture
-      )
-    )
-  );
-
-  // ==================== FIN NUEVO SISTEMA MULTI-TOUCH ====================
-
-  // --- Canvas memoizado para evitar flicker por cambios de UI externos ---
-  const DrawingSurface = useMemo(() => {
-    return memo(({
-      pathsData,
-      paths,
-      currentPathDisplay,
-      photoItems,
-      activePhoto,
-      registerImageMeta,
-      selectedPen,
-      isEraser,
-      currentColor,
-      currentStrokeWidth
-    }: any) => {
-      // 🔥 OPTIMIZACIÓN: Limitar fotos renderizadas a MAX_PHOTOS_RENDERED
-      const visiblePhotos = photoItems.slice(0, MAX_PHOTOS_RENDERED);
-      
-      // 🔥 OPTIMIZACIÓN: Usar useMemo para paths filtrados
-      const normalPaths = useMemo(() => 
-        pathsData
-          .filter((pd: any) => pd.penType === 0 || !pd.penType)
-          .map((pd: any, filterIdx: number) => {
-            const idx = pathsData.indexOf(pd);
-            const path = paths[idx];
-            if (!path) return null;
-            const displayColor = pd.isEraser ? '#e0e0e0' : pd.color;
-            return { idx, path, displayColor, strokeWidth: pd.strokeWidth };
-          })
-          .filter(Boolean),
-        [pathsData, paths]
+      const mainTables = await getMainTablesByCompetenceId(
+        Number(competenceId)
       );
 
-      const telePaths = useMemo(() =>
-        pathsData
-          .filter((pd: any) => pd.penType === 1)
-          .map((pd: any) => {
-            const idx = pathsData.indexOf(pd);
-            const path = paths[idx];
-            if (!path) return null;
-            return { idx, path, color: pd.color, strokeWidth: pd.strokeWidth };
-          })
-          .filter(Boolean),
-        [pathsData, paths]
-      );
+      // Sort the main tables by number to ensure proper order
+      const sortedTables = mainTables.sort((a, b) => a.number - b.number);
 
-      const highlightPaths = useMemo(() =>
-        pathsData
-          .filter((pd: any) => pd.penType === 2)
-          .map((pd: any) => {
-            const idx = pathsData.indexOf(pd);
-            const path = paths[idx];
-            if (!path) return null;
-            return { idx, path, color: pd.color, strokeWidth: pd.strokeWidth };
-          })
-          .filter(Boolean),
-        [pathsData, paths]
-      );
+      // Start searching for the previous valid gymnast
+      let previousNumber = Number(number) - 1;
+      let previousTable = null;
+
+      while (!previousTable && previousNumber >= sortedTables[0]?.number) {
+        previousTable = sortedTables.find(
+          (table) => table.number === previousNumber
+        );
+        if (!previousTable) previousNumber--; // Decrement if not found
+      }
+
+      if (previousTable) {
+        if (previousTable?.event === "VT") {
+          router.replace(
+            `/main-jump?competenceId=${competenceId}&gymnastId=${discipline}&event=${previousTable?.event}&discipline=${discipline}&gymnast=${previousTable.id}&number=${previousTable.number}&participants=${participants}&folderId=${folderId}`
+          );
+        } else {
+          router.replace(
+            `/main-floor?competenceId=${competenceId}&gymnastId=${discipline}&event=${previousTable?.event}&discipline=${discipline}&gymnast=${previousTable.id}&number=${previousTable.number}&participants=${participants}&folderId=${folderId}`
+          );
+        }
+      } else {
+        console.warn("No previous gymnast found.");
+        alert("No previous gymnast found.");
+      }
+    } catch (error) {
+      console.error("Error navigating to the previous gymnast:", error);
+    }
+  };
+
+  /* Logic ======================================================== */
+  const handleStickBonusChange = async (value: boolean) => {
+    console.log("handleStickBonusChange called with:", value);
+    console.log("Current values - eScore:", String(eScore), "sv:", String(sv), "nd:", String(nd));
+    setStickBonus(value);
+    
+    // Usar operación más robusta para evitar errores de punto flotante
+  const newmyscore = Math.round((eScore + sv + (value ? getStickBonusValue() : 0) - nd) * 1000) / 1000;
+  console.log("handleStickBonusChange calculation:", String(eScore), "+", String(sv), "+", String(value ? getStickBonusValue() : 0), "-", String(nd), "=", String(newmyscore));
+    const finalScore = newmyscore;
+    console.log("Final Score (handleStickBonusChange):", String(finalScore));
+
+    setMyScore(finalScore);
+
+    try {
+      // Save the stickBonus value in MainRateGeneral
+      const updateData: Partial<MainRateGeneral> = {
+        stickBonus: value,
+        myScore: finalScore,
+      };
+      console.log("Update Data:", updateData); // Debugging line
+      console.log("Rate ID:", String(rateid)); // Debugging line
       
-      // Derivar estilo actual sólo si hay path en progreso
-      let liveColor = isEraser ? '#e0e0e0' : selectedPen === 1 ? 'red' : selectedPen === 2 ? 'yellow' : currentColor;
-      let liveStrokeWidth = isEraser ? currentStrokeWidth * 4 : selectedPen === 1 ? 2 : currentStrokeWidth;
-      
-      return (
-        <Canvas style={[styles.canvas, { height: canvasHeight }]}> 
-          {Children.toArray(normalPaths.map((pathInfo: any) => (
-            <Path
-              key={`n-${pathInfo.idx}`}
-              path={pathInfo.path}
-              color={pathInfo.displayColor}
-              style="stroke"
-              strokeWidth={pathInfo.strokeWidth}
-              strokeCap="round"
-              strokeJoin="round"
-            />
-          )))}
-          {Children.toArray(telePaths.map((pathInfo: any) => (
-            <Path
-              key={`t-${pathInfo.idx}`}
-              path={pathInfo.path}
-              color={pathInfo.color}
-              style="stroke"
-              strokeWidth={pathInfo.strokeWidth}
-              strokeCap="round"
-              strokeJoin="round"
-              opacity={0.8}
-            />
-          )))}
-          {Children.toArray(highlightPaths.map((pathInfo: any) => (
-            <Group key={`h-${pathInfo.idx}`}>
-              <Path path={pathInfo.path} color={pathInfo.color} style="fill" opacity={0.3} />
-              <Path path={pathInfo.path} color={pathInfo.color} style="stroke" strokeWidth={pathInfo.strokeWidth} strokeCap="round" strokeJoin="round" opacity={0.5} />
-            </Group>
-          )))}
-          {visiblePhotos.map((item: any) => (
-            <SkiaPhoto key={item.uri} item={item} registerMeta={registerImageMeta} />
-          ))}
-          {currentPathDisplay && (
-            <Group>
-              {selectedPen === 2 && !isEraser && (
-                <Path path={currentPathDisplay} color="yellow" style="fill" opacity={0.3} />
-              )}
-              <Path
-                path={currentPathDisplay}
-                color={liveColor}
-                style="stroke"
-                strokeWidth={liveStrokeWidth}
-                strokeCap="round"
-                strokeJoin="round"
-                opacity={isEraser ? 1 : selectedPen === 1 ? 0.8 : selectedPen === 2 ? 0.5 : 1}
-              />
-            </Group>
-          )}
-        </Canvas>
-      );
-    });
-  }, []);
+    } catch (error) {
+      console.error("Error saving stickBonus to MainRateGeneral:", error);
+      trackSaveAttempt(false, "stick bonus");
+    }
+  };
+  /* Logic ======================================================== */
+
+  const oncodetable = async () => {
+    if (gender == true) {
+      setShowModalMag(true);
+    } else {
+      setShowModalWag(true);
+    }
+  };
+
+  const handleVaultSelect = (value: {
+    number: string;
+    value: number;
+    description: string;
+  }) => {
+    console.log("Selected vault from :", value);
+    setVaultNumber(value.number);
+    setStartValue(value.value);
+
+    setVaultDescription(value.description);
+
+    
+
+    
+  };
+
+  /* Helpers ============================================== */
+  function trimDecimals(num: number, decimals: number) {
+    const [int, dec] = String(num).split(".");
+    if (!dec) return int + "." + "0".repeat(decimals);
+    return int + "." + dec.slice(0, decimals).padEnd(decimals, "0");
+  }
+
+  function getDeductionIntervalValue(newded: number): number {
+    if (newded >= 0.0 && newded <= 0.4) return 1;
+    if (newded > 0.4 && newded <= 0.6) return 2;
+    if (newded > 0.6 && newded <= 1.0) return 3;
+    if (newded > 1.0 && newded <= 1.5) return 4;
+    if (newded > 1.5 && newded <= 2.0) return 5;
+    if (newded > 2.0 && newded <= 2.5) return 6;
+    if (newded > 2.5 && newded <= 10.0) return 7;
+    return 0; // Out of range
+  }
+
+  // Percentage table for discipline = true (current implementation)
+  const percentageTableDisciplineTrue = [
+    // 0.000 0.100 0.200 0.300 0.400 0.500 0.600 0.700 0.800 0.900 1.000 1.100 1.200 1.300 1.400 1.500 1.600
+    [100, 75, 65, 55, 45, 35, 25, 15, 5, 0, 0, 0, 0, 0, 0, 0, 0], // 1: 0 - 0.40
+    [100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0, 0, 0], // 2: > 0.40 - 0.60
+    [100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0, 0], // 3: > 0.60 - 1.00
+    [100, 100, 94, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0], // 4: > 1.00 - 1.50
+    [100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0], // 5: > 1.50 - 2.00
+    [100, 100, 100, 96, 88, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0], // 6: > 2.00 - 2.50
+    [100, 100, 100, 100, 93, 87, 80, 70, 60, 50, 40, 30, 20, 0, 0, 0, 0], // 7: > 2.50
+  ];
+
+  // Percentage table for discipline = false (new implementation based on image)
+  const percentageTableDisciplineFalse = [
+    // 0.000 0.100 0.200 0.300 0.400 0.500 0.600 0.700 0.800 0.900 1.000 1.100 1.200 1.300 1.400 >1.400
+    [100, 100, 75, 65, 55, 45, 35, 25, 15, 5, 0, 0, 0, 0, 0, 0], // 1: 0 - 0.40
+    [100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0], // 2: > 0.40 - 0.60
+    [100, 100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0], // 3: > 0.60 - 1.00
+    [100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0], // 4: > 1.00 - 1.50
+    [100, 100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0], // 5: > 1.50 - 2.00
+    [100, 100, 100, 100, 95, 85, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0], // 6: > 2.00 - 2.50
+    [100, 100, 100, 100, 100, 95, 85, 80, 70, 60, 50, 40, 30, 20, 10, 0], // 7: > 2.50
+  ];
+
+  const deltSteps = [
+    0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4,
+    1.5,
+  ];
+
+  /**
+   * Calculate percentage from examination table based on discipline type
+   * @param dedInterval - Deduction interval (1-7)
+   * @param delt - Delta value (difference from expert deductions)
+   * @returns Percentage value based on the appropriate table
+   *
+   * When discipline = true: Uses the original percentage table
+   * When discipline = false: Uses the new percentage table with different ranges
+   */
+  function getPercentageFromTable(dedInterval: number, delt: number): number {
+    // Choose the appropriate table based on discipline
+    const percentageTable = discipline
+      ? percentageTableDisciplineTrue
+      : percentageTableDisciplineFalse;
+
+    if (delt > 1.4) return 0;
+    if (dedInterval < 1 || dedInterval > 7) return 0;
+
+    // Find the closest delt step index (without exceeding delt)
+    let deltIndex =
+      deltSteps.findIndex((step, idx) => delt < step && idx > 0) - 1;
+    if (deltIndex < 0) deltIndex = deltSteps.length - 1;
+    if (delt >= deltSteps[deltSteps.length - 1])
+      deltIndex = deltSteps.length - 1;
+
+    // If delt is less than the first step, use index 0
+    if (delt < deltSteps[0]) deltIndex = 0;
+
+    // Table is 0-indexed, dedInterval is 1-indexed
+    return percentageTable[dedInterval - 1][deltIndex] || 0;
+  }
 
   return (
-    <View style={styles.container}>
-      {isWeb ? (
-        // Fallback para web - mostrar mensaje informativo
-        <View style={styles.webFallback}>
-          <Text style={styles.webFallbackText}>
-            Whiteboard no disponible en modo web.
-          </Text>
-          <Text style={styles.webFallbackSubtext}>
-            Use la aplicación móvil para acceder a la funcionalidad de dibujo.
-          </Text>
+    <SafeAreaView style={styles.container}>
+      {/* Save Warning Banner */}
+      {saveWarning ? (
+        <View style={styles.warningBanner}>
+          <Text style={styles.warningText}>⚠️ {saveWarning}</Text>
         </View>
-      ) : (
-        <GestureHandlerRootView style={{ flex: 1 }}>
-          <GestureDetector gesture={combinedGesture}>
-            <DrawingSurface
-              pathsData={pathsData}
-              paths={paths}
-              currentPathDisplay={currentPathDisplay}
-              photoItems={photoItems}
-              activePhoto={activePhoto}
-              registerImageMeta={registerImageMeta}
-              selectedPen={selectedPen}
-              isEraser={isEraser}
-              currentColor={currentColor}
-              currentStrokeWidth={currentStrokeWidth}
+      ) : null}
+
+      {showNdCompModal && (
+        <CustomNumberPadOptimized
+          visible={showNdCompModal}
+          value={ndInputcomp}
+          onValueChange={(value) => {
+            setNdInputcomp(value);
+          }}
+          onClose={(finalValue) => {
+            console.log("ndInputcomp:", String(finalValue));
+
+            // First check if finalValue exists and is not empty
+            if (!finalValue || finalValue === "" || finalValue === ".") {
+              Alert.alert("Invalid Input", "Please enter a ND value.", [
+                { text: "OK" },
+              ]);
+              return;
+            }
+
+            // Handle case where input ends with "." - add "0"
+            let processedInput = finalValue;
+            if (finalValue.endsWith(".")) {
+              processedInput = finalValue + "0";
+            }
+
+            // Make sure processedInput is a string before using replace
+            const inputString = processedInput.toString();
+            const num = parseFloat(inputString.replace(",", "."));
+
+            if (!isNaN(num)) {
+              const rounded = Math.round(num * 10) / 10;
+              setNdInputcomp(rounded.toString());
+              setndcomp(rounded);
+
+              const compscorecalc = d + e + (sb ? getStickBonusValue() : 0) - rounded;
+              const finalScore = Math.round(compscorecalc * 1000) / 1000;
+
+              setScore(finalScore);
+              
+            } else {
+              Alert.alert("Invalid Input", "Please enter a valid ND value.", [
+                { text: "OK" },
+              ]);
+              return;
+            }
+            setShowNdCompModal(false);
+          }}
+          title="Enter ND Competition Value"
+          allowDecimal={true}
+          maxLength={4}
+        />
+      )}
+
+      {showSvModal && (
+        <CustomNumberPadOptimized
+          visible={showSvModal}
+          value={svInput}
+          onValueChange={(value) => {
+            setSvInput(value);
+          }}
+          onClose={(finalValue) => {
+            console.log("svInput:", String(finalValue));
+
+            // First check if finalValue exists and is not empty
+            if (!finalValue || finalValue === "" || finalValue === ".") {
+              Alert.alert("Invalid Input", "Please enter a SV value.", [
+                { text: "OK" },
+              ]);
+              return;
+            }
+
+            // Handle case where input ends with "." - add "0"
+            let processedInput = finalValue;
+            if (finalValue.endsWith(".")) {
+              processedInput = finalValue + "0";
+            }
+
+            // Make sure processedInput is a string before using replace
+            const inputString = processedInput.toString();
+            const num = parseFloat(inputString.replace(",", "."));
+
+            if (!isNaN(num)) {
+              const rounded = Math.round(num * 10) / 10;
+              setSv(rounded);
+              console.log("Rounded SV:", String(rounded));
+              console.log("eScore:", String(eScore));
+              console.log("nd:", String(nd));
+              console.log("stickbonus:", String(stickbonus));
+              
+              // Usar operación más robusta para evitar errores de punto flotante
+              const newmyscore = Math.round((eScore + rounded + (stickbonus ? getStickBonusValue() : 0) - nd) * 1000) / 1000;
+              console.log("Calculation: ", String(eScore), "+", String(rounded), "+", String(stickbonus ? getStickBonusValue() : 0), "-", String(nd), "=", String(newmyscore));
+              const finalScore = newmyscore;
+
+              console.log("Final Score (SV Modal):", String(finalScore));
+              setMyScore(finalScore);
+
+              
+              
+            } else {
+              Alert.alert("Invalid Input", "Please enter a valid SV value.", [
+                { text: "OK" },
+              ]);
+              return;
+            }
+            setShowSvModal(false);
+          }}
+          title="Enter Start Value"
+          allowDecimal={true}
+          maxLength={4}
+        />
+      )}
+
+      {showEModal && (
+        <CustomNumberPadOptimized
+          visible={showEModal}
+          value={eInput}
+          onValueChange={(value) => {
+            setEInput(value);
+          }}
+          onClose={(finalValue) => {
+            console.log("eInput:", String(finalValue));
+
+            // First check if finalValue exists and is not empty
+            if (!finalValue || finalValue === "" || finalValue === ".") {
+              Alert.alert("Invalid Input", "Please enter an E value.", [
+                { text: "OK" },
+              ]);
+              return;
+            }
+
+            // Handle case where input ends with "." - add "0"
+            let processedInput = finalValue;
+            if (finalValue.endsWith(".")) {
+              processedInput = finalValue + "0";
+            }
+
+            // Make sure processedInput is a string before using replace
+            const inputString = processedInput.toString();
+            const num = parseFloat(inputString.replace(",", "."));
+
+            if (!isNaN(num)) {
+              const rounded = Math.round(num * 1000) / 1000;
+              setE(rounded);
+              // Save to database
+              const compscorecalc = d + rounded + (sb ? getStickBonusValue() : 0) - ndcomp;
+              const finalScore = Math.round(compscorecalc * 1000) / 1000;
+
+              setScore(finalScore);
+
+              /* ============================================================== */
+              const newdelt = Math.abs(
+                Math.round((eScore - rounded) * 10) / 10
+              );
+              setDelt(newdelt);
+
+              const newded = 10 - rounded;
+              setSetded(Number(newded));
+
+              const dedInterval = getDeductionIntervalValue(Number(newded));
+              const percentageValue = getPercentageFromTable(
+                dedInterval,
+                newdelt
+              );
+              setpercentage(percentageValue);
+
+              
+
+              /* ============================================================== */
+              
+            } else {
+              Alert.alert("Invalid Input", "Please enter a valid E value.", [
+                { text: "OK" },
+              ]);
+              return;
+            }
+            setShowEModal(false);
+          }}
+          title="Enter E Score"
+          allowDecimal={true}
+          maxLength={5}
+        />
+      )}
+
+      {showDModal && (
+        <CustomNumberPadOptimized
+          visible={showDModal}
+          value={dInput}
+          onValueChange={(value) => {
+            setDInput(value);
+          }}
+          onClose={(finalValue) => {
+            console.log("dInput:", String(finalValue));
+
+            // First check if finalValue exists and is not empty
+            if (!finalValue || finalValue === "" || finalValue === ".") {
+              Alert.alert("Invalid Input", "Please enter a D value.", [
+                { text: "OK" },
+              ]);
+              return;
+            }
+
+            // Handle case where input ends with "." - add "0"
+            let processedInput = finalValue;
+            if (finalValue.endsWith(".")) {
+              processedInput = finalValue + "0";
+            }
+
+            // Make sure processedInput is a string before using replace
+            const inputString = processedInput.toString();
+            const num = parseFloat(inputString.replace(",", "."));
+
+            if (!isNaN(num)) {
+              const rounded = Math.round(num * 10) / 10;
+              setD(rounded);
+
+              const compscorecalc = rounded + e + (sb ? getStickBonusValue() : 0) - ndcomp;
+              const finalScore = Math.round(compscorecalc * 1000) / 1000;
+
+              setScore(finalScore);
+              
+            } else {
+              Alert.alert("Invalid Input", "Please enter a valid D value.", [
+                { text: "OK" },
+              ]);
+              return;
+            }
+            setShowDModal(false);
+          }}
+          title="Enter D Score"
+          allowDecimal={true}
+          maxLength={4}
+        />
+      )}
+
+      {showExecutionModal && (
+        <CustomNumberPadOptimized
+          visible={showExecutionModal}
+          value={executionInput}
+          onValueChange={(value) => {
+            setExecutionInput(value);
+          }}
+          onClose={(finalValue) => {
+            console.log("executionInput:", String(finalValue));
+
+            // First check if finalValue exists and is not empty
+            if (!finalValue || finalValue === "" || finalValue === ".") {
+              Alert.alert("Invalid Input", "Please enter an Execution value.", [
+                { text: "OK" },
+              ]);
+              return;
+            }
+
+            // Handle case where input ends with "." - add "0"
+            let processedInput = finalValue;
+            if (finalValue.endsWith(".")) {
+              processedInput = finalValue + "0";
+            }
+
+            // Make sure processedInput is a string before using replace
+            const inputString = processedInput.toString();
+            const num = parseFloat(inputString.replace(",", "."));
+
+            if (!isNaN(num)) {
+              const rounded = Math.round(num * 10) / 10;
+              setExecution(rounded);
+              const eScore = Number((10 - rounded).toFixed(3));
+              const newmyscore = eScore + sv + (stickbonus ? getStickBonusValue() : 0) - nd;
+              const finalScore = Math.round(newmyscore * 1000) / 1000;
+
+              setMyScore(finalScore);
+
+              /* Lógica de delt existente */
+              const newdelt = Math.abs(Math.round((eScore - e) * 10) / 10);
+              setDelt(newdelt);
+
+              const newded = 10 - e;
+              setSetded(Number(newded));
+
+              const dedInterval = getDeductionIntervalValue(Number(newded));
+              const percentageValue = getPercentageFromTable(
+                dedInterval,
+                newdelt
+              );
+              setpercentage(percentageValue);
+
+              
+
+              setEScore(eScore);
+              
+            } else {
+              Alert.alert(
+                "Invalid Input",
+                "Please enter a valid Execution value.",
+                [{ text: "OK" }]
+              );
+              return;
+            }
+            setShowExecutionModal(false);
+          }}
+          title="Enter Execution Score"
+          allowDecimal={true}
+          maxLength={5}
+        />
+      )}
+
+      {showCommentsModal && (
+        <View
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: 0,
+            bottom: 0,
+            zIndex: 10000,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0,0,0,0.3)",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#fff",
+              borderRadius: 16,
+              padding: 24,
+              minWidth: 350,
+              width: "80%",
+              maxWidth: 700,
+
+              alignItems: "center",
+              elevation: 10,
+              marginBottom: "30%",
+            }}
+          >
+            <Text
+              style={{ fontWeight: "bold", fontSize: 12, marginBottom: 10 }}
+            >
+              Edit Comments
+            </Text>
+            <TextInput
+              ref={commentsInputRef}
+              style={{
+                width: "100%",
+                minHeight: 120,
+                maxHeight: 250,
+                borderColor: "#ccc",
+                borderWidth: 1,
+                borderRadius: 10,
+                padding: 12,
+                fontSize: 18,
+                textAlignVertical: "top",
+                backgroundColor: "#f9f9f9",
+              }}
+              multiline
+              value={commentsInput}
+              onChangeText={setCommentsInput}
+              autoFocus
             />
-        </GestureDetector>
-        {/* Multi-touch gestures - no necesitamos controles flotantes */}
-
-        {/* Stroke Width Control Bar con GestureDetector dentro del GestureHandlerRootView */}
-        <View style={[
-          styles.strokeBarContainer
-        ]}>
-          <View style={styles.strokeBar}>
-            {/* Indicador de grosor actual */}
-            <View style={styles.strokeIndicator}>
-              <View style={[
-                styles.strokePreview, 
-                { 
-                  width: currentStrokeWidth * 2, 
-                  height: currentStrokeWidth * 2,
-                  backgroundColor: currentColor 
-                }
-              ]} />
-              <Text style={styles.strokeValue}>{String(currentStrokeWidth)}</Text>
-            </View>
-            
-            {/* Barra interactiva */}
-            <GestureDetector gesture={strokeSliderGesture}>
-              <TouchableOpacity 
-                style={styles.strokeSliderContainer}
-                onPress={handleStrokeBarChange}
-                activeOpacity={1}
+            <View style={{ flexDirection: "row", marginTop: 18 }}>
+              <TouchableOpacity
+                style={{
+                  marginRight: 16,
+                  padding: 10,
+                  backgroundColor: "#0052b4",
+                  borderRadius: 8,
+                  minWidth: 80,
+                  alignItems: "center",
+                }}
+                onPress={async () => {
+                  setComments(commentsInput);
+                  setShowCommentsModal(false);
+                  
+                }}
               >
-                <View style={styles.strokeSliderTrack}>
-                  {/* Progreso de la barra */}
-                  <View style={[
-                    styles.strokeSliderProgress,
-                    { width: `${((currentStrokeWidth - 1) / 9) * 100}%` }
-                  ]} />
-                  {/* Indicador circular */}
-                  <View style={[
-                    styles.strokeSliderThumb,
-                    { left: `${((currentStrokeWidth - 1) / 9) * 100}%` }
-                  ]} />
-                </View>
+                <Text style={{ color: "#fff", fontWeight: "bold" }}>Save</Text>
               </TouchableOpacity>
-            </GestureDetector>
+              <TouchableOpacity
+                style={{
+                  padding: 10,
+                  backgroundColor: "#ccc",
+                  borderRadius: 8,
+                  minWidth: 80,
+                  alignItems: "center",
+                }}
+                onPress={() => setShowCommentsModal(false)}
+              >
+                <Text style={{ color: "#333", fontWeight: "bold" }}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
-      </GestureHandlerRootView>
       )}
 
-      {/* Menu button */}
-      <View style={[
-        styles.menuButtonContainer
-      ]}>
-        <TouchableOpacity 
-          style={[styles.menuButton, menuOpen && styles.activeButton]}
-          onPress={toggleMenu}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Text style={styles.buttonText}>☰</Text>
-        </TouchableOpacity>
-      </View>
+      {showNdModal && (
+        <CustomNumberPadOptimized
+          visible={showNdModal}
+          value={ndInput}
+          onValueChange={(value) => {
+            setNdInput(value);
+          }}
+          onClose={(finalValue) => {
+            console.log("ndInput:", String(finalValue));
 
-      {/* Menu desplegable responsivo */}
-      {menuOpen && (
-        <View style={styles.menuDropdown}>
-          <Text style={styles.menuTitle}>Drawing Tools</Text>
+            // First check if finalValue exists and is not empty
+            if (!finalValue || finalValue === "" || finalValue === ".") {
+              Alert.alert("Invalid Input", "Please enter a ND value.", [
+                { text: "OK" },
+              ]);
+              return;
+            }
 
-          {/* Selector de color */}
-          <View style={styles.menuSection}>
-            <Text style={styles.menuSectionTitle}>Colors:</Text>
-            <View style={styles.colorRow}>
-              {['black', 'red', 'blue', 'green', 'orange'].map((color) => (
-                <TouchableOpacity
-                  key={color}
-                  style={[
-                    styles.colorButton,
-                    { backgroundColor: color },
-                    currentColor === color && styles.selectedColorButton
-                  ]}
-                  onPress={() => changeColor(color)}
-                />
-              ))}
-            </View>
-          </View>
+            // Handle case where input ends with "." - add "0"
+            let processedInput = finalValue;
+            if (finalValue.endsWith(".")) {
+              processedInput = finalValue + "0";
+            }
 
-          {/* Selector de grosor */}
-          <View style={styles.menuSection}>
-            <Text style={styles.menuSectionTitle}>Stroke: {currentStrokeWidth}px</Text>
-            <View style={styles.strokeRow}>
-              {[2, 5, 10, 15].map((width) => (
-                <TouchableOpacity
-                  key={width}
-                  style={[
-                    styles.strokeButton,
-                    currentStrokeWidth === width && styles.selectedStrokeButton
-                  ]}
-                  onPress={() => changeStrokeWidth(width)}
-                >
-                  <View style={[
-                    styles.strokeDot,
-                    { 
-                      width: Math.max(6, width * 1.5), 
-                      height: Math.max(6, width * 1.5),
-                      borderRadius: Math.max(3, width * 0.75)
-                    }
-                  ]} />
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
+            // Make sure processedInput is a string before using replace
+            const inputString = processedInput.toString();
+            const num = parseFloat(inputString.replace(",", "."));
 
-          {/* Selector de tipo de pen */}
-          <View style={styles.menuSection}>
-            <Text style={styles.menuSectionTitle}>Pen Type:</Text>
-            <View style={styles.penTypeRow}>
-              <TouchableOpacity
-                style={[
-                  styles.penTypeButton,
-                  selectedPen === 0 && styles.selectedPenTypeButton
-                ]}
-                onPress={selectNormalPen}
-              >
-                <Text style={styles.penTypeIcon}>✏️</Text>
-                <Text style={styles.penTypeLabel}>Normal</Text>
-              </TouchableOpacity>
+            if (!isNaN(num)) {
+              const rounded = Math.round(num * 10) / 10;
+              setNd(rounded);
+              const newmyscore =
+                eScore + sv + (stickbonus ? getStickBonusValue() : 0) - rounded;
+              const finalScore = Math.round(newmyscore * 1000) / 1000;
+
+              setMyScore(finalScore);
               
-              <TouchableOpacity
-                style={[
-                  styles.penTypeButton,
-                  selectedPen === 1 && styles.selectedPenTypeButton
-                ]}
-                onPress={selectTelestrator}
-              >
-                <Text style={styles.penTypeIcon}>🖍️</Text>
-                <Text style={styles.penTypeLabel}>Telestrator</Text>
-              </TouchableOpacity>
+
               
-              <TouchableOpacity
+            } else {
+              Alert.alert("Invalid Input", "Please enter a valid ND value.", [
+                { text: "OK" },
+              ]);
+              return;
+            }
+            setShowNdModal(false);
+          }}
+          title="Enter ND Value"
+          allowDecimal={true}
+          maxLength={4}
+        />
+      )}
+
+      {showmodalmag && (
+        <ModalvaultMag
+          visible={showmodalmag}
+          onClose={() => setShowModalMag(false)}
+          onSelect={(value) => {
+            handleVaultSelect(value);
+          }}
+        />
+      )}
+
+      {showmodalwag && (
+        <ModalvaultWag
+          visible={showmodalwag}
+          onClose={() => setShowModalWag(false)}
+          onSelect={(value) => {
+            handleVaultSelect(value);
+          }}
+        />
+      )}
+
+      {/* Whiteboard Screen */}
+      <WhiteboardScreen
+        rateGeneralId={0}
+        tableId={gymnastid}
+        stickBonus={stickbonus}
+        setStickBonus={handleStickBonusChange}
+        percentage={percentage}
+        oncodetable={oncodetable}
+        discipline={discipline}
+      />
+      <ScrollView contentContainerStyle={styles.scrollContainer}>
+        {/* Main Table */}
+        <View style={styles.tableContainer}>
+          {/* Header Row */}
+          <View style={styles.tableRow}>
+            <View style={styles.vaultNumbersCell}>
+              <Text
                 style={[
-                  styles.penTypeButton,
-                  selectedPen === 2 && styles.selectedPenTypeButton
+                  isLargeDevice ? styles.cellHeaderTextLarge : null,
+                  isMediumLargeDevice ? styles.cellHeaderTextMediumLarge : null,
+                  isSmallDevice ? styles.cellHeaderTextSmall : null,
+                  isTinyDevice ? styles.cellHeaderTextTiny : null,
                 ]}
-                onPress={selectHighlighter}
               >
-                <Text style={styles.penTypeIcon}>⭐</Text>
-                <Text style={styles.penTypeLabel}>Highlighter</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Botón para cerrar menú */}
-          <TouchableOpacity 
-            style={styles.closeMenuButton}
-            onPress={toggleMenu}
-          >
-            <Text style={styles.closeMenuText}>Close</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Undo button */}
-      <View style={[
-        styles.undoButtonContainer
-      ]}>
-        <TouchableOpacity 
-          style={[
-            styles.actionButton,
-            paths.length === 0 && styles.disabledButton
-          ]}
-          onPress={handleUndo}
-          disabled={paths.length === 0}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Text style={styles.buttonText}>↩</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Redo button */}
-      <View style={[
-        styles.redoButtonContainer
-      ]}>
-        <TouchableOpacity 
-          style={[
-            styles.actionButton,
-            undoStack.length === 0 && styles.disabledButton
-          ]}
-          onPress={handleRedo}
-          disabled={undoStack.length === 0}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Text style={styles.buttonText}>↪</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Eraser button */}
-      <View style={[
-        styles.eraserButtonContainer
-      ]}>
-        <TouchableOpacity 
-          style={[
-            styles.actionButton,
-            isEraser && styles.activeButton
-          ]}
-          onPress={toggleEraser}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Text style={styles.buttonText}>🧽</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Pen button */}
-      <View style={[
-        styles.penButtonContainer
-      ]}>
-        <TouchableOpacity 
-          style={[
-            styles.actionButton,
-            !isEraser && selectedPen === 0 && currentColor === 'black' && styles.activeButton
-          ]}
-          onPress={selectNormalPen}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Text style={styles.buttonText}>✏️</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Red Pen button */}
-      <View style={[
-        styles.redPenButtonContainer
-      ]}>
-        <TouchableOpacity 
-          style={[
-            styles.actionButton,
-            !isEraser && currentColor === 'red' && styles.activeButton
-          ]}
-          onPress={selectRedPen}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Text style={styles.buttonText}>🔴</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Blue Pen button */}
-      <View style={[styles.bluePenButtonContainer]}> 
-        <TouchableOpacity 
-          style={[styles.actionButton, !isEraser && currentColor === 'blue' && styles.activeButton]}
-          onPress={selectBluePen}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Text style={styles.buttonText}>🔵</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Add Photo button */}
-      <View style={styles.photoButtonContainer}> 
-        <TouchableOpacity 
-          style={styles.actionButton}
-          onPress={handleAddPhoto}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Text style={styles.buttonText}>🖼️</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Botón de alternancia pen/finger */}
-      <View style={[styles.toggleInputModeButtonContainer]}> 
-        <TouchableOpacity 
-          style={[styles.actionButton, inputMode === 'finger' && { backgroundColor: '#d1e7dd' }]} 
-          onPress={toggleInputMode}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Text style={styles.buttonText}>{inputMode === 'pen' ? '✍️ ' : '🖐️'}</Text>
-        </TouchableOpacity>
-      </View>
-
-
-
-      {/* Stick Bonus button - bottom right - Only show for discipline=true and if the event is not 'PH' */}
-      {event !== 'PH' && (
-        <View style={[
-          styles.stickButtonContainer
-        ]}>
-          <TouchableOpacity 
-            style={[
-              styles.stickButton,
-              stickBonus && styles.stickButtonActive
-            ]}
-            onPress={toggleStickBonus}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Text style={styles.stickButtonText}>{discipline ? "STICK BONUS" : "DMT BONUS"}</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Indicador de guardado - top right */}
-      {(isSaving || lastSaved) && (
-        <View style={styles.saveIndicatorContainer}>
-          {isSaving ? (
-            <View style={styles.saveIndicator}>
-              <Text style={styles.saveIndicatorText}>💾 Guardando...</Text>
-            </View>
-          ) : lastSaved && (
-            <View style={styles.saveIndicator}>
-              <Text style={styles.saveIndicatorTextSuccess}>
-                ✅ Guardado {new Date().getTime() - lastSaved.getTime() < 3000 ? 'ahora' : 'hace un momento'}
+                ANNOUNCED VAULT
               </Text>
             </View>
-          )}
+            <View style={styles.svValueCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.cellHeaderTextLarge : null,
+                  isMediumLargeDevice ? styles.cellHeaderTextMediumLarge : null,
+                  isSmallDevice ? styles.cellHeaderTextSmall : null,
+                  isTinyDevice ? styles.cellHeaderTextTiny : null,
+                ]}
+              >
+                SV
+              </Text>
+            </View>
+            <View style={styles.ndCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.cellHeaderTextLarge : null,
+                  isMediumLargeDevice ? styles.cellHeaderTextMediumLarge : null,
+                  isSmallDevice ? styles.cellHeaderTextSmall : null,
+                  isTinyDevice ? styles.cellHeaderTextTiny : null,
+                ]}
+              >
+                ND
+              </Text>
+            </View>
+              <View style={styles.sbCell}>
+                <Text
+                  style={[
+                    isLargeDevice ? styles.cellHeaderTextLarge : null,
+                    isMediumLargeDevice
+                      ? styles.cellHeaderTextMediumLarge
+                      : null,
+                    isSmallDevice ? styles.cellHeaderTextSmall : null,
+                    isTinyDevice ? styles.cellHeaderTextTiny : null,
+                  ]}
+                >
+                  {discipline ? "SB" : "B"}
+                </Text>
+              </View>
+            <View style={styles.executionCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.cellHeaderTextLarge : null,
+                  isMediumLargeDevice ? styles.cellHeaderTextMediumLarge : null,
+                  isSmallDevice ? styles.cellHeaderTextSmall : null,
+                  isTinyDevice ? styles.cellHeaderTextTiny : null,
+                ]}
+              >
+                EXECUTION
+              </Text>
+            </View>
+            <View style={styles.myScoreCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.cellHeaderTextLarge : null,
+                  isMediumLargeDevice ? styles.cellHeaderTextMediumLarge : null,
+                  isSmallDevice ? styles.cellHeaderTextSmall : null,
+                  isTinyDevice ? styles.cellHeaderTextTiny : null,
+                ]}
+              >
+                MY SCORE
+              </Text>
+            </View>
+          </View>
+
+          {/* Values Row */}
+          <View style={styles.tableRow}>
+            <View style={styles.vaultValueCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.vaultValueTextLarge : null,
+                  isMediumLargeDevice ? styles.vaultValueTextMediumLarge : null,
+                  isSmallDevice ? styles.vaultValueTextSmall : null,
+                  isTinyDevice ? styles.vaultValueTextTiny : null,
+                ]}
+              >
+                {vaultnumber}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[
+                styles.emptyBlueCell,
+                {
+                  width: isLargeDevice
+                    ? 210
+                    : isMediumLargeDevice
+                    ? 180
+                    : isSmallDevice
+                    ? 160
+                    : 110,
+                  justifyContent: "center",
+                  alignItems: "center",
+                },
+              ]}
+              onPress={() => {
+                setSvInput(sv.toFixed(1)); // Set current value before opening modal
+                setShowSvModal(true);
+              }}
+            >
+              <Text
+                style={[
+                  isLargeDevice ? styles.svValueTextLarge : null,
+                  isMediumLargeDevice ? styles.svValueTextMediumLarge : null,
+                  isSmallDevice ? styles.svValueTextSmall : null,
+                  isTinyDevice ? styles.svValueTextTiny : null,
+                ]}
+              >
+                {sv.toFixed(1)}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.ndValueCell}
+              onPress={() => {
+                setNdInput(nd.toFixed(1)); // Set current value before opening modal
+                setShowNdModal(true);
+              }}
+            >
+              <Text
+                style={[
+                  isLargeDevice ? styles.valueTextLarge : null,
+                  isMediumLargeDevice ? styles.valueTextMediumLarge : null,
+                  isSmallDevice ? styles.valueTextSmall : null,
+                  isTinyDevice ? styles.valueTextTiny : null,
+                ]}
+              >
+                {nd.toFixed(1)}
+              </Text>{" "}
+            </TouchableOpacity>
+              <View style={styles.sbValueCell}>
+                <Text
+                  style={[
+                    isLargeDevice ? styles.valueTextLarge : null,
+                    isMediumLargeDevice ? styles.valueTextMediumLarge : null,
+                    isSmallDevice ? styles.valueTextSmall : null,
+                    isTinyDevice ? styles.valueTextTiny : null,
+                  ]}
+                >
+                  {stickbonus ? getStickBonusValue() : "0.0"}
+                </Text>
+              </View>
+            <View style={styles.executionValueCellflex}>
+              <View style={styles.executionValueCell}>
+                <Text
+                  style={[
+                    isLargeDevice ? styles.valueTextLarge : null,
+                    isMediumLargeDevice ? styles.valueTextMediumLarge : null,
+                    isSmallDevice ? styles.valueTextSmall : null,
+                    isTinyDevice ? styles.valueTextTiny : null,
+                  ]}
+                >
+                  <TouchableOpacity
+                    onPress={() => {
+                      setExecutionInput(execution.toFixed(1)); // Set current value before opening modal
+                      setShowExecutionModal(true);
+                    }}
+                  >
+                    <Text style={styles.infoValueText}>
+                      {execution.toFixed(1)}
+                    </Text>
+                  </TouchableOpacity>
+                </Text>
+              </View>
+              <View style={styles.executionValueCell}>
+                <Text
+                  style={[
+                    isLargeDevice ? styles.valueTextLarge : null,
+                    isMediumLargeDevice ? styles.valueTextMediumLarge : null,
+                    isSmallDevice ? styles.valueTextSmall : null,
+                    isTinyDevice ? styles.valueTextTiny : null,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      isLargeDevice ? styles.scoreValueTextLarge : null,
+                      isMediumLargeDevice
+                        ? styles.scoreValueTextMediumLarge
+                        : null,
+                      isSmallDevice ? styles.scoreValueTextSmall : null,
+                      isTinyDevice ? styles.scoreValueTextTiny : null,
+                    ]}
+                  >
+                    {eScore.toFixed(3)}
+                  </Text>
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.myScoreValueCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.scoreValueTextLarge : null,
+                  isMediumLargeDevice ? styles.scoreValueTextMediumLarge : null,
+                  isSmallDevice ? styles.scoreValueTextSmall : null,
+                  isTinyDevice ? styles.scoreValueTextTiny : null,
+                ]}
+              >
+                {myScore.toFixed(3)}
+              </Text>
+            </View>
+          </View>
+
+          {/* Start Value / Description Row */}
+          <View style={styles.tableRow}>
+            <View style={styles.startValueCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.cellHeaderTextLarge : null,
+                  isMediumLargeDevice ? styles.cellHeaderTextMediumLarge : null,
+                  isSmallDevice ? styles.cellHeaderTextSmall : null,
+                  isTinyDevice ? styles.cellHeaderTextTiny : null,
+                ]}
+              >
+                START VALUE
+              </Text>
+            </View>
+            <View style={styles.descriptionCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.cellHeaderTextLarge : null,
+                  isMediumLargeDevice ? styles.cellHeaderTextMediumLarge : null,
+                  isSmallDevice ? styles.cellHeaderTextSmall : null,
+                  isTinyDevice ? styles.cellHeaderTextTiny : null,
+                ]}
+              >
+                DESCRIPTION
+              </Text>
+            </View>
+            <View style={styles.compDeductionHeaderCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.compDeductionTextLarge : null,
+                  isMediumLargeDevice
+                    ? styles.compDeductionTextMediumLarge
+                    : null,
+                  isSmallDevice ? styles.compDeductionTextSmall : null,
+                  isTinyDevice ? styles.compDeductionTextTiny : null,
+                ]}
+              >
+                COMPETITION
+              </Text>
+              <Text
+                style={[
+                  isLargeDevice ? styles.compDeductionTextLarge : null,
+                  isMediumLargeDevice
+                    ? styles.compDeductionTextMediumLarge
+                    : null,
+                  isSmallDevice ? styles.compDeductionTextSmall : null,
+                  isTinyDevice ? styles.compDeductionTextTiny : null,
+                ]}
+              >
+                DEDUCTION
+              </Text>
+            </View>
+            <View style={styles.dCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.smallCellTextLarge : null,
+                  isMediumLargeDevice ? styles.smallCellTextMediumLarge : null,
+                  isSmallDevice ? styles.smallCellTextSmall : null,
+                  isTinyDevice ? styles.smallCellTextTiny : null,
+                ]}
+              >
+                D
+              </Text>
+            </View>
+            <View style={styles.dValueCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.smallValueTextLarge : null,
+                  isMediumLargeDevice ? styles.smallValueTextMediumLarge : null,
+                  isSmallDevice ? styles.smallValueTextSmall : null,
+                  isTinyDevice ? styles.smallValueTextTiny : null,
+                ]}
+              >
+                <TouchableOpacity
+                  onPress={() => {
+                    setDInput(d.toFixed(1)); // Set current value before opening modal
+                    setShowDModal(true);
+                  }}
+                >
+                  <Text
+                    style={[
+                      isLargeDevice ? styles.dValueTextLarge : null,
+                      isMediumLargeDevice ? styles.dValueTextMediumLarge : null,
+                      isSmallDevice ? styles.dValueTextSmall : null,
+                      isTinyDevice ? styles.dValueTextTiny : null,
+                    ]}
+                  >
+                    {d.toFixed(1)}
+                  </Text>
+                </TouchableOpacity>
+              </Text>
+            </View>
+            <View style={styles.eCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.smallCellTextLarge : null,
+                  isMediumLargeDevice ? styles.smallCellTextMediumLarge : null,
+                  isSmallDevice ? styles.smallCellTextSmall : null,
+                  isTinyDevice ? styles.smallCellTextTiny : null,
+                ]}
+              >
+                E
+              </Text>
+            </View>
+            <View style={styles.eValueCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.smallValueTextLarge : null,
+                  isMediumLargeDevice ? styles.smallValueTextMediumLarge : null,
+                  isSmallDevice ? styles.smallValueTextSmall : null,
+                  isTinyDevice ? styles.smallValueTextTiny : null,
+                ]}
+              >
+                <TouchableOpacity
+                  onPress={() => {
+                    setEInput(e.toFixed(3)); // Set current value before opening modal
+                    setShowEModal(true);
+                  }}
+                >
+                  <Text
+                    style={[
+                      isLargeDevice ? styles.eValueTextLarge : null,
+                      isMediumLargeDevice ? styles.eValueTextMediumLarge : null,
+                      isSmallDevice ? styles.eValueTextSmall : null,
+                      isTinyDevice ? styles.eValueTextTiny : null,
+                    ]}
+                  >
+                    {e.toFixed(3)}
+                  </Text>
+                </TouchableOpacity>
+              </Text>
+            </View>
+              <>
+                <View style={styles.sdCell}>
+                  <Text
+                    style={[
+                      isLargeDevice ? styles.smallCellTextLarge : null,
+                      isMediumLargeDevice
+                        ? styles.smallCellTextMediumLarge
+                        : null,
+                      isSmallDevice ? styles.smallCellTextSmall : null,
+                      isTinyDevice ? styles.smallCellTextTiny : null,
+                    ]}
+                  >
+                    {discipline ? "SB" : "B"}
+                  </Text>
+                </View>
+                <View style={styles.sdValueCell}>
+                  <Text
+                    style={[
+                      isLargeDevice ? styles.smallValueTextLarge : null,
+                      isMediumLargeDevice
+                        ? styles.smallValueTextMediumLarge
+                        : null,
+                      isSmallDevice ? styles.smallValueTextSmall : null,
+                      isTinyDevice ? styles.smallValueTextTiny : null,
+                    ]}
+                  >
+                    <TouchableOpacity
+                      onPress={() => {
+                        const newValue = !sb;
+                        setSb(newValue);
+                        const compscorecalc =
+                          d + e + (newValue ? getStickBonusValue() : 0) - ndcomp;
+                        const finalScore = Math.round(compscorecalc * 1000) / 1000;
+
+                        setScore(finalScore);
+                        
+                      }}
+                    >
+                      <Text
+                        style={[
+                          isLargeDevice ? styles.sdValueTextLarge : null,
+                          isMediumLargeDevice
+                            ? styles.sdValueTextMediumLarge
+                            : null,
+                          isSmallDevice ? styles.sdValueTextSmall : null,
+                          isTinyDevice ? styles.sdValueTextTiny : null,
+                        ]}
+                      >
+                        {sb ? getStickBonusValue() : "0.0"}
+                      </Text>
+                    </TouchableOpacity>
+                  </Text>
+                </View>
+              </>
+            <View style={styles.ndDeductionCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.smallCellTextLarge : null,
+                  isMediumLargeDevice ? styles.smallCellTextMediumLarge : null,
+                  isSmallDevice ? styles.smallCellTextSmall : null,
+                  isTinyDevice ? styles.smallCellTextTiny : null,
+                ]}
+              >
+                ND
+              </Text>
+            </View>
+            <View style={styles.ndDeductionValueCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.smallValueTextLarge : null,
+                  isMediumLargeDevice ? styles.smallValueTextMediumLarge : null,
+                  isSmallDevice ? styles.smallValueTextSmall : null,
+                  isTinyDevice ? styles.smallValueTextTiny : null,
+                ]}
+              >
+                <TouchableOpacity
+                  onPress={() => {
+                    setNdInputcomp(ndcomp.toFixed(1)); // Set current value before opening modal
+                    setShowNdCompModal(true);
+                  }}
+                >
+                  <Text
+                    style={[
+                      isLargeDevice ? styles.ndValueTextLarge : null,
+                      isMediumLargeDevice
+                        ? styles.ndValueTextMediumLarge
+                        : null,
+                      isSmallDevice ? styles.ndValueTextSmall : null,
+                      isTinyDevice ? styles.ndValueTextTiny : null,
+                    ]}
+                  >
+                    {ndcomp.toFixed(1)}
+                  </Text>
+                </TouchableOpacity>
+              </Text>
+            </View>
+            <View style={styles.scoreHeaderCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.ScoresmallCellTextLarge : null,
+                  isMediumLargeDevice
+                    ? styles.ScoresmallCellTextMediumLarge
+                    : null,
+                  isSmallDevice ? styles.ScoresmallCellTextSmall : null,
+                  isTinyDevice ? styles.ScoresmallCellTextTiny : null,
+                ]}
+              >
+                SCORE
+              </Text>
+            </View>
+            <View style={styles.scoreTotalCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.smallValueTextLarge : null,
+                  isMediumLargeDevice ? styles.smallValueTextMediumLarge : null,
+                  isSmallDevice ? styles.smallValueTextSmall : null,
+                  isTinyDevice ? styles.smallValueTextTiny : null,
+                ]}
+              >
+                {trimDecimals(score, 3)}
+              </Text>
+            </View>
+          </View>
+
+          {/* Data Row */}
+          <View style={styles.tableRow}>
+            <View style={styles.startValueValueCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.startValueValueTextLarge : null,
+                  isMediumLargeDevice
+                    ? styles.startValueValueTextMediumLarge
+                    : null,
+                  isSmallDevice ? styles.startValueValueTextSmall : null,
+                  isTinyDevice ? styles.startValueValueTextTiny : null,
+                ]}
+              >
+                {startValue.toFixed(1)}
+              </Text>
+            </View>
+            <View style={styles.descriptionValueCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.descriptionValueTextLarge : null,
+                  isMediumLargeDevice
+                    ? styles.descriptionValueTextMediumLarge
+                    : null,
+                  isSmallDevice ? styles.descriptionValueTextSmall : null,
+                  isTinyDevice ? styles.descriptionValueTextTiny : null,
+                ]}
+              >
+                {vaultDescription}
+              </Text>
+            </View>
+            <View style={styles.gymnastInfoCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.gymnastInfoTextLarge : null,
+                  isMediumLargeDevice
+                    ? styles.gymnastInfoTextMediumLarge
+                    : null,
+                  isSmallDevice ? styles.gymnastInfoTextSmall : null,
+                  isTinyDevice ? styles.gymnastInfoTextTiny : null,
+                ]}
+              >
+                GYMNAST
+              </Text>
+              <Text
+                style={[
+                  isLargeDevice ? styles.gymnastInfoTextLarge : null,
+                  isMediumLargeDevice
+                    ? styles.gymnastInfoTextMediumLarge
+                    : null,
+                  isSmallDevice ? styles.gymnastInfoTextSmall : null,
+                  isTinyDevice ? styles.gymnastInfoTextTiny : null,
+                ]}
+              >
+                INFO
+              </Text>
+            </View>
+            <View style={styles.neutralValueCellname}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.neutralTextLarge : null,
+                  isMediumLargeDevice ? styles.neutralTextMediumLarge : null,
+                  isSmallDevice ? styles.neutralTextSmall : null,
+                  isTinyDevice ? styles.neutralTextTiny : null,
+                ]}
+              >
+                {String(gymnastName || '')}
+              </Text>
+            </View>
+            <View style={styles.neutralValueCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.neutralTextLarge : null,
+                  isMediumLargeDevice ? styles.neutralTextMediumLarge : null,
+                  isSmallDevice ? styles.neutralTextSmall : null,
+                  isTinyDevice ? styles.neutralTextTiny : null,
+                ]}
+              >
+                {String(gymnastNoc || '')}
+              </Text>
+            </View>
+            <View style={styles.neutralValueCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.neutralTextLarge : null,
+                  isMediumLargeDevice ? styles.neutralTextMediumLarge : null,
+                  isSmallDevice ? styles.neutralTextSmall : null,
+                  isTinyDevice ? styles.neutralTextTiny : null,
+                ]}
+              >
+                {String(gymnastBib || '')}
+              </Text>
+            </View>
+            <View style={styles.neutralValueCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.neutralTextLarge : null,
+                  isMediumLargeDevice ? styles.neutralTextMediumLarge : null,
+                  isSmallDevice ? styles.neutralTextSmall : null,
+                  isTinyDevice ? styles.neutralTextTiny : null,
+                ]}
+              >
+                {String(gymnastEvent || '')}
+              </Text>
+            </View>
+            <View style={styles.neutralTotalCell}>
+              <Text
+                style={[
+                  isLargeDevice ? styles.neutralTotalTextLarge : null,
+                  isMediumLargeDevice
+                    ? styles.neutralTotalTextMediumLarge
+                    : null,
+                  isSmallDevice ? styles.neutralTotalTextSmall : null,
+                  isTinyDevice ? styles.neutralTotalTextTiny : null,
+                ]}
+              >
+                {String(number || '')}
+              </Text>
+            </View>
+          </View>
         </View>
-      )}
 
-      {/* Percentage display */}
-      <Text style={styles.percentageText}>{String(percentage ?? '0.0')}</Text>
+        {/* Comments Section */}
+        <View style={styles.commentsSection}>
+          <TouchableOpacity
+            onPress={() => {
+              setCommentsInput(comments); // Set current comments before opening
+              setShowCommentsModal(true);
+            }}
+            style={styles.commentsBoxTouchable}
+          >
+            <Text numberOfLines={3} style={styles.commentsBoxTextPreview}>
+              {comments ? comments : "Tap to add comments..."}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-  {/* Lista de miniaturas eliminada según solicitud */}
-    </View>
+        {/* Buttons */}
+        <View style={styles.buttonContainer}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => handleGoBack()}
+          >
+            <Text style={styles.buttonText}>BACK</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.mainTableButton}
+            onPress={() => handlegobacklist()}
+          >
+            <Text style={styles.buttonText}>START LIST</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.mainTableButton}
+            onPress={() => handleSelect()}
+          >
+            <Text style={styles.buttonText}>MAIN TABLE</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.nextButton,
+              {
+                backgroundColor:
+                  number === participants ? "#DC3545" : "#0052b4",
+              },
+            ]}
+            onPress={() => handleGoForward()}
+          >
+            <Text style={styles.buttonText}>
+              {number === participants ? "FINISH" : "NEXT"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Debug Panel */}
+        <DebugPanel
+          showDebugPanel={showDebugPanel}
+          setShowDebugPanel={setShowDebugPanel}
+          currentPath="/main-jump"
+          competenceId={competenceId}
+          event={event}
+          number={number}
+          participants={participants}
+          folderId={folderId}
+          discipline={discipline}
+          gymnastid={gymnastid}
+          gymnastName={gymnastName}
+          gymnastNoc={gymnastNoc}
+          gymnastBib={String(gymnastBib)}
+          gymnastEvent={gymnastEvent}
+          rateid={rateid}
+          totalElements={totalElements}
+          difficultyValues={difficultyValues}
+          elementGroupsTotal={elementGroupsTotal}
+          cv={cv}
+          sv={sv}
+          nd={nd}
+          stickbonus={stickbonus}
+          execution={execution}
+          eScore={eScore}
+          myScore={myScore}
+          score={score}
+          delt={delt}
+          ded={ded}
+          percentage={percentage}
+          elementCounts={elementCounts}
+          elementGroupValues={elementGroupValues}
+          d={d}
+          e={e}
+          ndcomp={ndcomp}
+          sb={sb}
+          saveAttempts={saveAttempts}
+          lastSaveTime={lastSaveTime}
+          saveWarning={saveWarning}
+          showCvModal={showCvModal}
+          showNdModal={showNdModal}
+          showExecutionModal={showExecutionModal}
+          showCommentsModal={showCommentsModal}
+          showDModal={showDModal}
+          showEModal={showEModal}
+          showNdCompModal={showNdCompModal}
+          showSvModal={showSvModal}
+          vaultnumber={vaultnumber}
+          vaultDescription={vaultDescription}
+          startValue={startValue}
+          gender={gender}
+          showmodalmag={showmodalmag}
+          showmodalwag={showmodalwag}
+          comments={comments}
+          logs={logs}
+          width={width}
+          height={height}
+          isLargeDevice={isLargeDevice}
+          isSmallDevice={isSmallDevice}
+          isTinyDevice={isTinyDevice}
+          clearLogs={clearLogs}
+        />
+      </ScrollView>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  toggleInputModeButtonContainer: {
-    position: 'absolute',
-    right: 10,
-    top: 60,
-    zIndex: 10,
-  },
   container: {
-    backgroundColor: '#e0e0e0',
-    marginVertical: 8,
-    marginHorizontal: 4,
-    minHeight: canvasHeight - 20,
+    flex: 1,
+    backgroundColor: "#e0e0e0",
   },
-  canvas: {
-    width: '100%',
-    backgroundColor: '#e0e0e0',
+  scrollContainer: {
+    flexGrow: 1,
   },
-  // Estilos para los botones (posiciones calculadas dinámicamente)
-  menuButtonContainer: {
-    position: 'absolute',
-    top: 10,
-    left: BUTTON_START_X, // Botón 0: posición inicial
-    zIndex: 1000,
+  tableContainer: {
+    width: "100%",
   },
-  undoButtonContainer: {
-    position: 'absolute',
-    top: 10,
-    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 1, // Botón 1
-    zIndex: 1000,
+
+  // Table row styles based on device size
+  tableRow: {
+    flexDirection: "row",
+    height: isLargeDevice
+      ? 55
+      : isMediumLargeDevice
+      ? 50
+      : isSmallDevice
+      ? 45
+      : 35,
   },
-  redoButtonContainer: {
-    position: 'absolute',
-    top: 10,
-    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 2, // Botón 2
-    zIndex: 1000,
+
+  // Dynamic cell widths and styles based on device size
+  vaultNumbersCell: {
+    width: isLargeDevice
+      ? 700
+      : isMediumLargeDevice
+      ? 600
+      : isSmallDevice
+      ? 500
+      : 400,
+    backgroundColor: "#64b5f6",
+    justifyContent: "center",
+    paddingLeft: 10,
+    borderWidth: 1,
+    borderColor: "black",
   },
-  eraserButtonContainer: {
-    position: 'absolute',
-    top: 10,
-    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 3, // Botón 3
-    zIndex: 1000,
+
+  svValueCell: {
+    width: isLargeDevice
+      ? 210
+      : isMediumLargeDevice
+      ? 180
+      : isSmallDevice
+      ? 160
+      : 110,
+    backgroundColor: "#ffca28",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
   },
-  penButtonContainer: {
-    position: 'absolute',
-    top: 10,
-    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 4, // Botón 4
-    zIndex: 1000,
+
+  ndCell: {
+    width: isLargeDevice
+      ? 105
+      : isMediumLargeDevice
+      ? 90
+      : isSmallDevice
+      ? 80
+      : 60,
+    backgroundColor: "#64b5f6",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
   },
-  // Red Pen button
-  redPenButtonContainer: {
-    position: 'absolute',
-    top: 10,
-    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 5, // Botón 5
-    zIndex: 1000,
+
+  sbCell: {
+    width: isLargeDevice
+      ? 105
+      : isMediumLargeDevice
+      ? 90
+      : isSmallDevice
+      ? 80
+      : 60,
+    backgroundColor: "#64b5f6",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
   },
-  // Blue Pen button
-  bluePenButtonContainer: {
-    position: 'absolute',
-    top: 10,
-    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 6, // Botón 6
-    zIndex: 1000,
+
+  executionCell: {
+    width: isLargeDevice
+      ? 210
+      : isMediumLargeDevice
+      ? 180
+      : isSmallDevice
+      ? 160
+      : 120,
+    backgroundColor: "#64b5f6",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
   },
-  photoButtonContainer: {
-    position: 'absolute',
-    right: 10,
-    top: 120, // debajo del toggle (toggle top 60 + BUTTON_SIZE 50 + margen 10)
-    zIndex: 1000,
+
+  myScoreCell: {
+    flex: 1,
+    backgroundColor: "#64b5f6",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
   },
-  // Stroke Width Control Bar
-  strokeBarContainer: {
-    position: 'absolute',
-    top: 10,
-    left: BUTTON_START_X + (BUTTON_SIZE + BUTTON_GAP) * 7, // vuelve a su índice original al quitar el botón foto de la fila
-    zIndex: 1000,
+
+  vaultValueCell: {
+    width: isLargeDevice
+      ? 700
+      : isMediumLargeDevice
+      ? 600
+      : isSmallDevice
+      ? 500
+      : 400,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
   },
-  strokeBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: 25,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    minWidth: 160, // Ancho mínimo más grande para la barra
+
+  emptyBlueCell: {
+    backgroundColor: "#f5f5f5",
+    borderLeftWidth: 0.5,
+    borderRightWidth: 0.5,
+    borderBottomWidth: 0.5,
+    borderColor: "black",
+    zIndex: -1,
   },
-  menuButton: {
-    width: BUTTON_SIZE,
-    height: BUTTON_SIZE,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: BUTTON_SIZE / 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+
+  ndValueCell: {
+    width: isLargeDevice
+      ? 105
+      : isMediumLargeDevice
+      ? 90
+      : isSmallDevice
+      ? 80
+      : 60,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
   },
-  actionButton: {
-    width: BUTTON_SIZE,
-    height: BUTTON_SIZE,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: BUTTON_SIZE / 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+
+  sbValueCell: {
+    width: isLargeDevice
+      ? 105
+      : isMediumLargeDevice
+      ? 90
+      : isSmallDevice
+      ? 80
+      : 60,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  executionValueCell: {
+    flex: 1,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    height: "100%",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  executionValueCellflex: {
+    width: isLargeDevice
+      ? 210
+      : isMediumLargeDevice
+      ? 180
+      : isSmallDevice
+      ? 160
+      : 120,
+    flexDirection: "row",
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderColor: "black",
+  },
+
+  myScoreValueCell: {
+    flex: 1,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  startValueCell: {
+    width: isLargeDevice
+      ? 250
+      : isMediumLargeDevice
+      ? 220
+      : isSmallDevice
+      ? 180
+      : 120,
+    backgroundColor: "#64b5f6",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  descriptionCell: {
+    width: isLargeDevice
+      ? 450
+      : isMediumLargeDevice
+      ? 380
+      : isSmallDevice
+      ? 320
+      : 180,
+    backgroundColor: "#64b5f6",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  compDeductionHeaderCell: {
+    width: isLargeDevice
+      ? 210
+      : isMediumLargeDevice
+      ? 180
+      : isSmallDevice
+      ? 160
+      : 110,
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  dCell: {
+    flex: 0.5,
+    backgroundColor: "#A3A3A3",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  dValueCell: {
+    flex: 0.5,
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  eCell: {
+    flex: 0.5,
+    backgroundColor: "#A3A3A3",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  eValueCell: {
+    flex: 0.7,
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  sdCell: {
+    flex: 0.5,
+    backgroundColor: "#A3A3A3",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  sdValueCell: {
+    flex: 0.5,
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  ndDeductionCell: {
+    flex: 0.5,
+    backgroundColor: "#A3A3A3",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  ndDeductionValueCell: {
+    flex: 0.5,
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  scoreHeaderCell: {
+    flex: 0.5,
+    backgroundColor: "#A3A3A3",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  scoreTotalCell: {
+    flex: 0.7,
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  startValueValueCell: {
+    width: isLargeDevice
+      ? 250
+      : isMediumLargeDevice
+      ? 220
+      : isSmallDevice
+      ? 180
+      : 120,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  descriptionValueCell: {
+    width: isLargeDevice
+      ? 450
+      : isMediumLargeDevice
+      ? 380
+      : isSmallDevice
+      ? 320
+      : 180,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  gymnastInfoCell: {
+    width: isLargeDevice
+      ? 210
+      : isMediumLargeDevice
+      ? 180
+      : isSmallDevice
+      ? 160
+      : 110,
+    backgroundColor: "#4caf50",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  neutralValueCell: {
+    flex: 0.5,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  neutralValueCellname: {
+    flex: 2.0,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  neutralTotalCell: {
+    flex: 0.4,
+    backgroundColor: "rgb(150, 150, 150)",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "black",
+  },
+
+  // Cell header text styles
+  cellHeaderTextLarge: {
+    fontSize: 25,
+    fontWeight: "bold",
+    alignSelf: "center",
+    color: "#000",
+  },
+  cellHeaderTextMediumLarge: {
+    fontSize: 12,
+    fontWeight: "bold",
+    alignSelf: "center",
+    color: "#000",
+  },
+  cellHeaderTextSmall: {
+    fontSize: 12,
+    fontWeight: "bold",
+    alignSelf: "center",
+    color: "#000",
+  },
+  cellHeaderTextTiny: {
+    fontSize: 15,
+    fontWeight: "bold",
+    alignSelf: "center",
+    color: "#000",
+  },
+
+  // Vault value text styles
+  vaultValueTextLarge: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  vaultValueTextMediumLarge: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  vaultValueTextSmall: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  vaultValueTextTiny: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#000",
+  },
+
+  // SV value text styles
+  svValueTextLarge: {
+    fontSize: 26,
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "center",
+    alignSelf: "center",
+    justifyContent: "center",
+    paddingTop: 6,
+  },
+  svValueTextMediumLarge: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "center",
+    alignSelf: "center",
+    justifyContent: "center",
+    paddingTop: 5,
+  },
+  svValueTextSmall: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "center",
+    alignSelf: "center",
+    height: "100%",
+    paddingTop: 5,
+  },
+  svValueTextTiny: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "center",
+    alignSelf: "center",
+    justifyContent: "center",
+    paddingTop: 2,
+  },
+
+  // Value text styles
+  valueTextLarge: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  valueTextMediumLarge: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  valueTextSmall: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  valueTextTiny: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#000",
+  },
+
+  // Score value text styles
+  scoreValueTextLarge: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  scoreValueTextMediumLarge: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  scoreValueTextSmall: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  scoreValueTextTiny: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#000",
+  },
+
+  // Competition deduction text styles
+  compDeductionTextLarge: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "left",
+    alignSelf: "flex-end",
+    paddingRight: 10,
+  },
+  compDeductionTextMediumLarge: {
+    fontSize: 8,
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "left",
+    alignSelf: "flex-end",
+    paddingRight: 9,
+  },
+  compDeductionTextSmall: {
+    fontSize: 8,
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "left",
+    alignSelf: "flex-end",
+    paddingRight: 8,
+  },
+  compDeductionTextTiny: {
+    fontSize: 8,
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "left",
+    alignSelf: "flex-end",
+    paddingRight: 5,
+  },
+
+  // Small cell text styles
+  smallCellTextLarge: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  smallCellTextMediumLarge: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  smallCellTextSmall: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  smallCellTextTiny: {
+    fontSize: 11,
+    fontWeight: "bold",
+    color: "#000",
+  },
+
+  // Small value text styles
+  smallValueTextLarge: {
+    fontSize: 17,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  smallValueTextMediumLarge: {
+    fontSize: 11,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  smallValueTextSmall: {
+    fontSize: 11,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  smallValueTextTiny: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#000",
+  },
+
+  // Score small cell text styles
+  ScoresmallCellTextLarge: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  ScoresmallCellTextMediumLarge: {
+    fontSize: 7,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  ScoresmallCellTextSmall: {
+    fontSize: 7,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  ScoresmallCellTextTiny: {
+    fontSize: 11,
+    fontWeight: "bold",
+    color: "#000",
+  },
+
+  // ND value text styles
+  ndValueTextLarge: {
+    fontSize: 25,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  ndValueTextMediumLarge: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  ndValueTextSmall: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  ndValueTextTiny: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#333",
+  },
+
+  // SD value text styles
+  sdValueTextLarge: {
+    fontSize: 25,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  sdValueTextMediumLarge: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  sdValueTextSmall: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  sdValueTextTiny: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#333",
+  },
+
+  // E value text styles
+  eValueTextLarge: {
+    fontSize: 25,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  eValueTextMediumLarge: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  eValueTextSmall: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  eValueTextTiny: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#333",
+  },
+
+  // D value text styles
+  dValueTextLarge: {
+    fontSize: 25,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  dValueTextMediumLarge: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  dValueTextSmall: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  dValueTextTiny: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#333",
+  },
+
+  // Start value text styles
+  startValueValueTextLarge: {
+    fontSize: 30,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  startValueValueTextMediumLarge: {
+    fontSize: 17,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  startValueValueTextSmall: {
+    fontSize: 17,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  startValueValueTextTiny: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#000",
+  },
+
+  // Description value text styles
+  descriptionValueTextLarge: {
+    fontSize: 14,
+    color: "#000",
+  },
+  descriptionValueTextMediumLarge: {
+    fontSize: 10,
+    color: "#000",
+  },
+  descriptionValueTextSmall: {
+    fontSize: 10,
+    color: "#000",
+  },
+  descriptionValueTextTiny: {
+    fontSize: 18,
+    color: "#000",
+  },
+
+  // Gymnast info text styles
+  gymnastInfoTextLarge: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "right",
+    alignSelf: "flex-end",
+    paddingRight: 10,
+  },
+  gymnastInfoTextMediumLarge: {
+    fontSize: 8,
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "right",
+    alignSelf: "flex-end",
+    paddingRight: 9,
+  },
+  gymnastInfoTextSmall: {
+    fontSize: 8,
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "right",
+    alignSelf: "flex-end",
+    paddingRight: 8,
+  },
+  gymnastInfoTextTiny: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "right",
+    alignSelf: "flex-end",
+    paddingRight: 5,
+  },
+
+  // Neutral text styles
+  neutralTextLarge: {
+    fontSize: 30,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  neutralTextMediumLarge: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  neutralTextSmall: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  neutralTextTiny: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#000",
+  },
+
+  // Neutral total text styles
+  neutralTotalTextLarge: {
+    fontSize: 30,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  neutralTotalTextMediumLarge: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  neutralTotalTextSmall: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  neutralTotalTextTiny: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#000",
+  },
+
+  // Comments section
+  commentsSection: {
+    padding: 10,
+  },
+  commentsBoxTouchable: {
+    backgroundColor: "#fff",
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    padding: 10,
+    minHeight: 60,
+    justifyContent: "center",
+  },
+  commentsBoxTextPreview: {
+    fontSize: 16,
+    color: "#333",
+  },
+
+  // Button styles
+  buttonContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    padding: 10,
+    marginTop: isLargeDevice
+      ? 30
+      : isMediumLargeDevice
+      ? 25
+      : isSmallDevice
+      ? 20
+      : 15,
+  },
+  backButton: {
+    flex: 3,
+    backgroundColor: "#0052b4",
+    padding: isLargeDevice
+      ? 15
+      : isMediumLargeDevice
+      ? 13
+      : isSmallDevice
+      ? 12
+      : 10,
+    borderRadius: 5,
+    marginRight: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mainTableButton: {
+    flex: 1,
+    backgroundColor: "#0052b4",
+    padding: 12,
+    borderRadius: 5,
+    marginRight: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  nextButton: {
+    flex: 3,
+    backgroundColor: "#0052b4",
+    padding: isLargeDevice
+      ? 15
+      : isMediumLargeDevice
+      ? 13
+      : isSmallDevice
+      ? 12
+      : 10,
+    borderRadius: 5,
+    alignItems: "center",
+    justifyContent: "center",
   },
   buttonText: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
+    fontSize: 12,
+    color: "#fff",
+    fontWeight: "bold",
   },
-  activeButton: {
-    backgroundColor: 'rgba(76, 175, 80, 0.9)',
-  },
-  disabledButton: {
-    backgroundColor: 'rgba(200, 200, 200, 0.5)',
-    opacity: 0.6,
-  },
-  // Estilos específicos para stick bonus
-  stickButton: {
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    backgroundColor: '#DC3545',
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    minWidth: 120,
-  },
-  stickButtonActive: {
-    backgroundColor: '#3AAA35', // Color verde como el original
-  },
-  stickButtonText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#333',
-    textAlign: 'center',
-  },
-  percentageText: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
-    zIndex: 999, // Menor que los botones para no interferir
-  },
-  // Estilos para el menú desplegable responsivo
-  menuDropdown: {
-    position: 'absolute',
-    top: 70,
-    left: 10,
-    right: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: 15,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 8,
-    zIndex: 1001,
-    maxWidth: Math.min(width * 0.8, 400), // Responsivo: máximo 80% del ancho o 400px
-    alignSelf: 'center',
-  },
-  menuTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    textAlign: 'center',
-    marginBottom: 15,
-  },
-  menuSection: {
-    marginBottom: 15,
-  },
-  menuSectionTitle: {
+
+  // Modal and input styles
+  infoValueText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
+    fontWeight: "bold",
+    color: "#333",
   },
-  colorRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    flexWrap: 'wrap',
-    gap: 8,
+  modalWithKeyboard: {
+    marginBottom: "50%",
   },
-  colorButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 3,
-    borderColor: 'transparent',
+  modalWithoutKeyboard: {
+    marginBottom: "30%",
   },
-  selectedColorButton: {
-    borderColor: '#333',
-    borderWidth: 3,
+
+  // Warning banner styles
+  warningBanner: {
+    backgroundColor: "#ffecb3",
+    borderBottomColor: "#ffc107",
+    borderBottomWidth: 2,
+    padding: 12,
+    alignItems: "center",
   },
-  strokeRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  strokeButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(240, 240, 240, 0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  selectedStrokeButton: {
-    backgroundColor: 'rgba(76, 175, 80, 0.8)',
-    borderColor: '#333',
-  },
-  strokeButtonText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  strokeDot: {
-    backgroundColor: '#333',
-    borderRadius: 10,
-  },
-  closeMenuButton: {
-    backgroundColor: 'rgba(220, 53, 69, 0.8)',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 20,
-    alignSelf: 'center',
-    marginTop: 10,
-  },
-  closeMenuText: {
-    color: 'white',
-    fontWeight: 'bold',
+  warningText: {
+    color: "#e65100",
     fontSize: 14,
+    fontWeight: "bold",
+    textAlign: "center",
   },
-  // Estilos para tipos de pen
-  penTypeRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  penTypeButton: {
-    flex: 1,
-    minWidth: 80,
-    padding: 10,
-    backgroundColor: 'rgba(240, 240, 240, 0.8)',
-    borderRadius: 10,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  selectedPenTypeButton: {
-    backgroundColor: 'rgba(76, 175, 80, 0.8)',
-    borderColor: '#333',
-  },
-  penTypeIcon: {
-    fontSize: 20,
-    marginBottom: 4,
-  },
-  penTypeLabel: {
-    fontSize: 8,
-    fontWeight: '600',
-    color: '#333',
-    textAlign: 'center',
-  },
-  strokeControlButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: 'rgba(240, 240, 240, 0.9)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginHorizontal: 2,
-  },
-  strokeControlText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  strokeDisplay: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-    minWidth: 40,
-  },
-  strokePreview: {
-    borderRadius: 10,
-    marginBottom: 2,
-  },
-  strokeValue: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  // Estilos para la nueva barra interactiva de stroke
-  strokeIndicator: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-    minWidth: 40,
-  },
-  strokeSliderContainer: {
-    width: 160, // Hacer la barra más larga
-    height: 30,
-    justifyContent: 'center',
-    paddingHorizontal: 5,
-  },
-  strokeSliderTrack: {
-    height: 8,
-    backgroundColor: 'rgba(200, 200, 200, 0.8)',
-    borderRadius: 4,
-    position: 'relative',
-  },
-  strokeSliderProgress: {
-    height: 8,
-    backgroundColor: '#4CAF50',
-    borderRadius: 4,
-  },
-  strokeSliderThumb: {
-    position: 'absolute',
-    top: -5,
-    width: 18,
-    height: 18,
-    backgroundColor: '#4CAF50',
-    borderRadius: 9,
-    borderWidth: 2,
-    borderColor: 'white',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    marginLeft: -9, // Centrar el thumb
-  },
-  // Stick bonus button container
-  stickButtonContainer: {
-    position: 'absolute',
-    bottom: 10,
-    right: 10,
-    zIndex: 1000,
-  },
-  // Web fallback styles
-  webFallback: {
+    loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f0f0f0',
-    padding: 20,
+    backgroundColor: '#fff',
   },
-  webFallbackText: {
+  loadingText: {
+    marginTop: 16,
     fontSize: 18,
+    color: '#0052b4',
     fontWeight: 'bold',
-    color: '#333',
-    textAlign: 'center',
-    marginBottom: 10,
   },
-  webFallbackSubtext: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-  },
-  photoThumbnailsContainer: {
-    position: 'absolute',
-    bottom: 60,
-    left: 10,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    padding: 6,
-    borderRadius: 10,
-    maxWidth: '70%'
-  },
-  photoThumb: {
-    width: 40,
-    height: 40,
-    borderRadius: 6,
-    backgroundColor: '#bbb'
-  },
-  photoWrapper: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    zIndex: 500, // debajo de los controles de botones (1000) pero encima del canvas
-  },
-  photoDraggable: {
-  resizeMode: 'contain',
-  backgroundColor: 'transparent'
-  },
-  photoActiveBorder: {
-  // Sin borde; si se quiere algún indicador se podría usar sombra
-  },
-  photoDeleteBtn: {
-    position: 'absolute',
-    top: -12,
-    right: -12,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(220,53,69,0.9)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 4
-  },
-  photoDeleteText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 14
-  },
-  // Nuevo set de controles para foto (escala/rotación/eliminar)
-  photoControls: {
-    position: 'absolute',
-    top: -48, // Ajustado para botones más grandes
-    left: 0,
-    flexDirection: 'row',
-    backgroundColor: 'rgba(0,0,0,0.7)', // Más opaco para mejor visibilidad
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 10,
-    gap: 6, // Mayor separación entre botones
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5, // Sombra en Android
-  },
-  photoControlBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 6,
-    minWidth: 44, // Aumentado de 28 a 44 (cerca del estándar de 48dp)
-    minHeight: 44, // Añadido para altura mínima
-    alignItems: 'center',
-    justifyContent: 'center', // Centrar contenido verticalmente
-  },
-  photoControlText: {
-    color: '#fff',
-    fontWeight: '700', // Más bold para mejor legibilidad
-    fontSize: 16, // Aumentado de 14 a 16
-  },
-  photoDeleteCtrl: {
-    backgroundColor: 'rgba(220,53,69,0.9)' // Más opaco para destacar
-  },
-  // Estilos específicos para dispositivos tiny (< 960px)
-  photoControlsTiny: {
-    position: 'absolute',
-    top: -38, // Más compacto para tiny
-    left: 0,
-    flexDirection: 'row',
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    paddingHorizontal: 4, // Menos padding
-    paddingVertical: 4,
-    borderRadius: 8,
-    gap: 3, // Menos espacio entre botones
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  photoControlBtnTiny: {
-    paddingHorizontal: 5, // Más compacto
-    paddingVertical: 5,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 5,
-    minWidth: 32, // Más pequeño para tiny (32px en lugar de 44px)
-    minHeight: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  photoControlTextTiny: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 13, // Más pequeño para tiny (13px en lugar de 16px)
-  },
-  photoControlsColumn: {
-    position: 'absolute',
-    left: 0,
-    flexDirection: 'column',
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    padding: 4,
-    borderRadius: 8,
-    gap: 4,
-    alignItems: 'center'
-  },
-  photosLayer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: canvasHeight,
-    zIndex: 400, // debajo de botones (1000) pero encima del canvas
-  },
-  photoControlsFloating: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    zIndex: 1200,
-  },
-  deselectOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: canvasHeight,
-    zIndex: 500, // debajo de controles (1200) encima del canvas
-    backgroundColor: 'transparent'
-  },
-  // Indicador de guardado
-  saveIndicatorContainer: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    zIndex: 1100,
-  },
-  saveIndicator: {
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  saveIndicatorText: {
-    color: '#FFF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  saveIndicatorTextSuccess: {
-    color: '#4CAF50',
-    fontSize: 12,
-    fontWeight: '600',
-  },
+
 });
 
-// Simple Error Boundary to catch render-time errors inside the whiteboard and avoid crashing the whole app
-class WhiteboardErrorBoundary extends React.Component<any, any> {
-  constructor(props:any) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-  static getDerivedStateFromError(error:any) {
-    return { hasError: true, error };
-  }
-  componentDidCatch(error:any, info:any) {
-    console.error('[WhiteboardErrorBoundary] caught error:', error, info);
-  }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <View style={{ padding: 12, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ color: '#b00' }}>An error occurred while loading the whiteboard.</Text>
-        </View>
-      );
-    }
-    return this.props.children;
-  }
-}
-
-const DrawingCanvas = (props: WhiteboardProps) => (
-  <WhiteboardErrorBoundary>
-    <DrawingCanvasInner {...props} />
-  </WhiteboardErrorBoundary>
-);
-
-export default DrawingCanvas;
+export default VaultScoreDisplay;

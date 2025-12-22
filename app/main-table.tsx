@@ -7,7 +7,7 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  Text,
+  Text as RNText,
   TouchableOpacity,
   View,
   Modal,
@@ -18,6 +18,25 @@ import FolderExportModal from '../componentes/FolderExportModal';
 import FolderImportModal from '../componentes/FolderImportModal';
 
 const { width, height } = Dimensions.get("window");
+
+const TEXT_FONT_DELTA = -3;
+
+const Text = ({ style, ...props }: React.ComponentProps<typeof RNText>) => {
+  const flattened = style ? (StyleSheet.flatten(style as any) as any) : undefined;
+  const adjustedStyle =
+    flattened && typeof flattened.fontSize === "number"
+      ? ({ ...flattened, fontSize: Math.max(1, flattened.fontSize + TEXT_FONT_DELTA) } as any)
+      : flattened;
+
+  return (
+    <RNText
+      {...props}
+      allowFontScaling={false}
+      maxFontSizeMultiplier={1}
+      style={adjustedStyle}
+    />
+  );
+};
 
 interface TableRow {
   id: number;
@@ -380,6 +399,32 @@ const MainTable: React.FC = () => {
     let cellStyle = styles.dataCell;
     let styleProps: any = { width };
 
+    if (
+      columnType === 'j' ||
+      columnType === 'i' ||
+      columnType === 'h' ||
+      columnType === 'g' ||
+      columnType === 'f' ||
+      columnType === 'e' ||
+      columnType === 'd' ||
+      columnType === 'c' ||
+      columnType === 'b' ||
+      columnType === 'a'
+    ) {
+      const numValue =
+        typeof value === 'number'
+          ? value
+          : parseFloat(value.toString().replace('%', ''));
+      if (Number.isFinite(numValue) && numValue > 0) {
+        styleProps.backgroundColor = '#d1f2eb';
+      }
+      return (
+        <View style={[cellStyle, styleProps, isFirst && styles.firstCell]}>
+          <Text style={styles.dataText} numberOfLines={1}>{value}</Text>
+        </View>
+      );
+    }
+
     if (columnType === 'percentage') {
       const stringValue = value.toString().replace('%', '');
       const numValue = parseFloat(stringValue);
@@ -445,16 +490,16 @@ const MainTable: React.FC = () => {
       {renderDataCell(item.evento, 60)}
       {renderDataCell(item.noc, 60)}
       {renderDataCell(item.bib, 60)}
-      {renderDataCell(item.j === 0 ? '-' : item.j.toFixed(2), 50)}
-      {renderDataCell(item.i === 0 ? '-' : item.i.toFixed(2), 50)}
-      {renderDataCell(item.h === 0 ? '-' : item.h.toFixed(2), 50)}
-      {renderDataCell(item.g === 0 ? '-' : item.g.toFixed(2), 50)}
-      {renderDataCell(item.f === 0 ? '-' : item.f.toFixed(2), 50)}
-      {renderDataCell(item.e === 0 ? '-' : item.e.toFixed(2), 50)}
-      {renderDataCell(item.d === 0 ? '-' : item.d.toFixed(2), 50)}
-      {renderDataCell(item.c === 0 ? '-' : item.c.toFixed(2), 50)}
-      {renderDataCell(item.b === 0 ? '-' : item.b.toFixed(2), 50)}
-      {renderDataCell(item.a === 0 ? '-' : item.a.toFixed(2), 50)}
+      {renderDataCell(item.j === 0 ? '-' : item.j.toFixed(2), 50, false, 'j')}
+      {renderDataCell(item.i === 0 ? '-' : item.i.toFixed(2), 50, false, 'i')}
+      {renderDataCell(item.h === 0 ? '-' : item.h.toFixed(2), 50, false, 'h')}
+      {renderDataCell(item.g === 0 ? '-' : item.g.toFixed(2), 50, false, 'g')}
+      {renderDataCell(item.f === 0 ? '-' : item.f.toFixed(2), 50, false, 'f')}
+      {renderDataCell(item.e === 0 ? '-' : item.e.toFixed(2), 50, false, 'e')}
+      {renderDataCell(item.d === 0 ? '-' : item.d.toFixed(2), 50, false, 'd')}
+      {renderDataCell(item.c === 0 ? '-' : item.c.toFixed(2), 50, false, 'c')}
+      {renderDataCell(item.b === 0 ? '-' : item.b.toFixed(2), 50, false, 'b')}
+      {renderDataCell(item.a === 0 ? '-' : item.a.toFixed(2), 50, false, 'a')}
       {renderDataCell(item.dv.toFixed(2), 60, false, 'dv')}
       {renderDataCell(item.eg.toFixed(2), 50)}
       {renderDataCell(item.sb.toFixed(2), 50)}
@@ -513,7 +558,7 @@ const MainTable: React.FC = () => {
               {renderHeaderCell('A', 50)}
               {renderHeaderCell('DV', 60)}
               {renderHeaderCell('EG', 50)}
-              {renderHeaderCell('SB', 50)}
+              {renderHeaderCell(competition?.gender ? 'SB' : 'DMT', 50)}
               {renderHeaderCell('ND', 50)}
               {renderHeaderCell('CV', 50)}
               {renderHeaderCell('SV', 60)}
@@ -552,12 +597,12 @@ const MainTable: React.FC = () => {
                   {renderDataCell(item.c, 50, false, 'c')}
                   {renderDataCell(item.b, 50, false, 'b')}
                   {renderDataCell(item.a, 50, false, 'a')}
-                  {renderDataCell(item.dv, 60, false, 'dv')}
-                  {renderDataCell(item.eg, 50, false, 'eg')}
+                  {renderDataCell(item.dv.toFixed(2), 60, false, 'dv')}
+                  {renderDataCell(item.eg.toFixed(2), 50, false, 'eg')}
                   {renderDataCell(item.sb, 50, false, 'sb')}
                   {renderDataCell(item.nd, 50, false, 'nd')}
                   {renderDataCell(item.cv, 50, false, 'cv')}
-                  {renderDataCell(item.sv,60 , false, 'sv')}
+                  {renderDataCell(item.sv.toFixed(2), 60, false, 'sv')}
                   {renderDataCell(item.eScore.toFixed(2), 70, false, 'eScore')}
                   {renderDataCell(item.dScore.toFixed(2), 70, false, 'dScore')}
                   {renderDataCell(item.eDelta.toFixed(2), 70, false, 'eDelta')}

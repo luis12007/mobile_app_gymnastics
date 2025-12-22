@@ -1,5 +1,5 @@
 import React, { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { Alert, Dimensions, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Dimensions, Platform, ScrollView, StyleSheet, Text as RNText, TouchableOpacity, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 import { Canvas, Group, Image as SkiaImage, Path, Skia, SkPath, useImage } from '@shopify/react-native-skia';
@@ -7,6 +7,25 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { db } from '../lib/database';
+
+const TEXT_FONT_DELTA = -3;
+
+const Text = ({ style, ...props }: React.ComponentProps<typeof RNText>) => {
+  const flattened = style ? (StyleSheet.flatten(style as any) as any) : undefined;
+  const adjustedStyle =
+    flattened && typeof flattened.fontSize === 'number'
+      ? ({ ...flattened, fontSize: Math.max(1, flattened.fontSize + TEXT_FONT_DELTA) } as any)
+      : flattened;
+
+  return (
+    <RNText
+      {...props}
+      allowFontScaling={false}
+      maxFontSizeMultiplier={1}
+      style={adjustedStyle}
+    />
+  );
+};
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -1507,7 +1526,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <Text style={styles.stickButtonText}>
-                {discipline ? (event === 'PB' ? 'BONUS' : 'STICK BONUS') : 'DMT BONUS'}
+                {discipline ?  'STICK BONUS' :  'DMT BONUS'}
               </Text>
             </TouchableOpacity>
           </View>
