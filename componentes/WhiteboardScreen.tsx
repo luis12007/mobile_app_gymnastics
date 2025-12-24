@@ -91,6 +91,8 @@ const STROKE_BAR_WIDTH = 160;
 const MAX_PATHS_MEMORY = 300;
 const MAX_PHOTOS_RENDERED = 7;
 
+const PHOTO_DELETE_BUTTON_SIZE = 28;
+
 const getExtFromUri = (uri: string) => {
   const m = uri.split('?')[0].match(/\.([a-zA-Z0-9]+)$/);
   return m ? m[1].toLowerCase() : 'jpg';
@@ -322,6 +324,9 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
   // Selected photo / gesture start
   const selectedPhotoRef = useRef<number | null>(null);
   const photoGestureStartRef = useRef<{ scale: number; rotation: number; x: number; y: number } | null>(null);
+
+  // Selected photo for UI overlays
+  const [selectedPhotoId, setSelectedPhotoId] = useState<number | null>(null);
 
   // Minimal pen config (no UI)
   const penConfigRef = useRef(DEFAULT_PEN);
@@ -1050,6 +1055,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
               pendingPhotoUpdatesRef.current.delete(photoId);
               setPhotoItems(prev => prev.filter(p => p.id !== photoId));
               selectedPhotoRef.current = null;
+              setSelectedPhotoId(null);
               photoGestureStartRef.current = null;
               await db.runAsync('DELETE FROM gymnast_images WHERE id = ?', [photoId]);
             } catch {
@@ -1062,6 +1068,24 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     []
   );
 
+  const selectedPhotoDeleteButtonPos = useMemo(() => {
+    if (!selectedPhotoId) return null;
+    const photo = photoItems.find(p => p.id === selectedPhotoId);
+    if (!photo) return null;
+    const meta = imageMeta[selectedPhotoId];
+    if (!meta) return null;
+
+    const w = meta.w * (photo.scale || 1);
+    const h = meta.h * (photo.scale || 1);
+    if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+
+    // Place circle centered on the top-right corner of the (axis-aligned) photo bounds.
+    const left = clamp(photo.x + w - PHOTO_DELETE_BUTTON_SIZE / 2, 0, width - PHOTO_DELETE_BUTTON_SIZE);
+    const top = clamp(photo.y - PHOTO_DELETE_BUTTON_SIZE / 2, 0, height - PHOTO_DELETE_BUTTON_SIZE);
+
+    return { left, top };
+  }, [height, imageMeta, photoItems, selectedPhotoId, width]);
+
   // ======= Gestures =======
 
   // Single tap: select/deselect photo
@@ -1073,12 +1097,14 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       const photoId = findPhotoAtPoint(x, y);
       if (photoId) {
         selectedPhotoRef.current = photoId;
+        setSelectedPhotoId(photoId);
         const photo = photoItems.find(p => p.id === photoId);
         if (photo) {
           photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
         }
       } else {
         selectedPhotoRef.current = null;
+        setSelectedPhotoId(null);
         photoGestureStartRef.current = null;
       }
     });
@@ -1098,15 +1124,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       }
     });
 
-  // Long press: delete photo if hit
-  const longPressGesture = Gesture.LongPress()
-    .runOnJS(true)
-    .minDuration(500)
-    .onStart(event => {
-      const { x, y } = event;
-      const photoId = findPhotoAtPoint(x, y);
-      if (photoId) deletePhoto(photoId);
-    });
+  // Long press delete removed: deletion is via the X button overlay on the selected image.
 
   // Pan: move photo (any pointer) or draw (depends on Pen/Hand mode)
   const panGesture = Gesture.Pan()
@@ -1121,6 +1139,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       const photoId = findPhotoAtPoint(x, y);
       if (photoId) {
         selectedPhotoRef.current = photoId;
+        setSelectedPhotoId(photoId);
         const photo = photoItems.find(p => p.id === photoId);
         if (photo) {
           photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
@@ -1206,6 +1225,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       const photoId = findPhotoAtPoint(focalX, focalY);
       if (photoId) {
         selectedPhotoRef.current = photoId;
+        setSelectedPhotoId(photoId);
         const photo = photoItems.find(p => p.id === photoId);
         if (photo) {
           photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
@@ -1236,6 +1256,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       const photoId = findPhotoAtPoint(anchorX, anchorY);
       if (photoId) {
         selectedPhotoRef.current = photoId;
+        setSelectedPhotoId(photoId);
         const photo = photoItems.find(p => p.id === photoId);
         if (photo) {
           photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
@@ -1261,7 +1282,6 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
   const combinedGesture = Gesture.Race(
     doubleTapGesture,
-    longPressGesture,
     Gesture.Simultaneous(singleTapGesture, Gesture.Simultaneous(pinchGesture, rotationGesture, panGesture))
   );
 
@@ -1412,7 +1432,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     <View style={[styles.container, { width, height }]}>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <GestureDetector gesture={combinedGesture}>
-          <View style={{ flex: 1 }}>
+          <View style={styles.drawingContainer}>
             <DrawingSurface
               canvasWidth={width}
               canvasHeight={height}
@@ -1431,6 +1451,24 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
             />
           </View>
         </GestureDetector>
+
+        {selectedPhotoId && selectedPhotoDeleteButtonPos ? (
+          <View
+            pointerEvents="box-none"
+            style={[
+              styles.photoDeleteButtonWrapper,
+              { left: selectedPhotoDeleteButtonPos.left, top: selectedPhotoDeleteButtonPos.top },
+            ]}
+          >
+            <TouchableOpacity
+              style={styles.photoDeleteButton}
+              onPress={() => deletePhoto(selectedPhotoId)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.photoDeleteButtonText}>×</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         {/* Menu button */}
         <View style={styles.menuButtonContainer}>
@@ -1664,8 +1702,33 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
   },
+  drawingContainer: {
+    flex: 1,
+  },
   canvas: {
     backgroundColor: '#f9f9f9',
+  },
+  photoDeleteButtonWrapper: {
+    position: 'absolute',
+    width: PHOTO_DELETE_BUTTON_SIZE,
+    height: PHOTO_DELETE_BUTTON_SIZE,
+    zIndex: 1500,
+  },
+  photoDeleteButton: {
+    width: PHOTO_DELETE_BUTTON_SIZE,
+    height: PHOTO_DELETE_BUTTON_SIZE,
+    borderRadius: PHOTO_DELETE_BUTTON_SIZE / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#DC3545',
+    borderWidth: 1,
+    borderColor: 'black',
+  },
+  photoDeleteButtonText: {
+    color: '#f9f9f9',
+    fontSize: 18,
+    lineHeight: 18,
+    fontWeight: 'bold',
   },
   menuButtonContainer: {
     position: 'absolute',
