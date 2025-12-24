@@ -361,25 +361,102 @@ export async function generateCompetitionPDF(
  * Carga la imagen del salto y la convierte a base64 para usar en el PDF
  */
 async function getJumpImageBase64(): Promise<string> {
-  try {
-    // Cargar el asset de la imagen
-    const asset = Asset.fromModule(require('../assets/images/Jump1.png'));
-    await asset.downloadAsync();
-    
-    if (!asset.localUri) {
-      console.warn('[PDF] No se pudo obtener URI local de la imagen');
-      return '';
+  // Fallback vacío: NO renderizar placeholder si no hay imagen
+  const JUMP_IMAGE_FALLBACK = '';
+
+  const candidateRequires = [
+    () => require('../assets/images/Jump1.png'),
+    () => require('../assets/images/Jump2.webp'),
+    () => require('../assets/images/Jump3.jpg'),
+    () => require('../assets/images/Jump4.jpeg'),
+  ];
+
+  const guessMime = (u: string) => {
+    const lower = String(u || '').toLowerCase();
+    if (/\.jpe?g$/i.test(lower)) return 'image/jpeg';
+    if (/\.webp$/i.test(lower)) return 'image/webp';
+    return 'image/png';
+  };
+
+  const arrayBufferToBase64 = (buf: ArrayBuffer): string => {
+    const anyBuf: any = (globalThis as any).Buffer;
+    if (anyBuf?.from) {
+      return anyBuf.from(buf).toString('base64');
     }
-    
-    // Leer el archivo como base64
-    const base64 = await FileSystem.readAsStringAsync(asset.localUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    
-    return `data:image/png;base64,${base64}`;
+    const anyGlobal: any = globalThis as any;
+    if (typeof anyGlobal?.btoa === 'function') {
+      const bytes = new Uint8Array(buf);
+      let binary = '';
+      // chunk to avoid call stack limits
+      const CHUNK = 0x8000;
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        const slice = bytes.subarray(i, i + CHUNK);
+        binary += String.fromCharCode(...slice);
+      }
+      return anyGlobal.btoa(binary);
+    }
+    throw new Error('[PDF] Could not convert jump image to base64 (no Buffer/btoa available)');
+  };
+
+  try {
+    let asset: any = null;
+    for (const fn of candidateRequires) {
+      try {
+        asset = Asset.fromModule(fn());
+        break;
+      } catch {
+        asset = null;
+      }
+    }
+
+    if (!asset) return JUMP_IMAGE_FALLBACK;
+
+    try {
+      await asset.downloadAsync();
+    } catch {
+      // ignore
+    }
+
+    const primaryUri = asset.localUri || asset.uri;
+    if (!primaryUri) return JUMP_IMAGE_FALLBACK;
+
+    const mime = guessMime(primaryUri);
+
+    // 1) Prefer fetch -> arrayBuffer -> base64 (works for http(s) URIs)
+    try {
+      const res = await fetch(primaryUri);
+      if (res.ok) {
+        const buf = await res.arrayBuffer();
+        const b64 = arrayBufferToBase64(buf);
+        if (b64 && b64.length > 100) {
+          return `data:${mime};base64,${b64}`;
+        }
+      }
+    } catch (e) {
+      console.warn('[PDF][JumpImage] fetch failed', e);
+    }
+
+    // 2) Try FileSystem read for file:// URIs
+    try {
+      const base64 = await FileSystem.readAsStringAsync(primaryUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      if (base64 && base64.length > 100) {
+        return `data:${mime};base64,${base64}`;
+      }
+    } catch (e) {
+      console.warn('[PDF][JumpImage] FileSystem read failed', e);
+    }
+
+    // 3) Last resort: allow http(s) uri directly (SVG <image href="..."></image> may resolve it)
+    if (/^https?:/i.test(primaryUri)) {
+      return primaryUri;
+    }
+
+    return JUMP_IMAGE_FALLBACK;
   } catch (error) {
-    console.warn('[PDF] Error al cargar imagen del salto:', error);
-    return '';
+    console.warn('[PDF] Error loading jump image:', error);
+    return JUMP_IMAGE_FALLBACK;
   }
 }
 
@@ -1235,7 +1312,7 @@ export async function generateAndSharePDF(
  */
 async function generateFloorPage(
   row: TableRow,
-  gymnast: Gymnast | undefined,
+  gymnast: Gymnast,
   opts?: { whiteboardMode?: 'full' | 'perImage' | 'pathsOnly' }
 ): Promise<string> {
   const elements = ['J', 'I', 'H', 'G', 'F', 'E', 'D', 'C', 'B', 'A'];
@@ -1278,7 +1355,8 @@ async function generateFloorPage(
         <strong>Gymnast:</strong> ${row.gymnasta || 'N/A'} | 
         <strong>NOC:</strong> ${row.noc || 'N/A'} | 
         <strong>Event:</strong> ${row.evento || 'FX'} | 
-        <strong>BIB:</strong> ${row.bib || 'N/A'}
+        <strong>BIB:</strong> ${row.bib || 'N/A'} | 
+        <strong>Execution Performance:</strong> ${row.percentage.toFixed(1)}%
       </div>
 
       <!-- Whiteboard Section -->
@@ -1315,7 +1393,7 @@ async function generateFloorPage(
           <table class="info-table">
             <tr>
               <td class="info-label">NUMBER OF ELEMENTS</td>
-              <td class="info-value ${row.dv >= 6 && row.dv <= 8 ? 'green' : 'red'}">${row.dv.toFixed(0)}</td>
+              <td class="info-value ${gymnast.number_of_element >= 6 && gymnast.number_of_element <= 8 ? 'green' : 'red'}">${gymnast.number_of_element.toFixed(0)}</td>
             </tr>
             <tr>
               <td class="info-label">DIFFICULTY VALUES</td>
@@ -1349,15 +1427,15 @@ async function generateFloorPage(
             </tr>
             <tr>
               <td class="info-label">EXECUTION</td>
-              <td class="info-value">${row.eScore.toFixed(3)}</td>
+              <td class="info-value">${gymnast.execution.toFixed(1)}</td>
             </tr>
             <tr>
                   <td class="info-label">E SCORE</td>
-                  <td class="info-value">${(row.eScore || 0).toFixed(3)}</td>
+                  <td class="info-value">${(gymnast.escore || 0).toFixed(3)}</td>
                 </tr>
             <tr>
               <td class="info-label">MY SCORE</td>
-              <td class="info-value orange">${(row.eScore + row.dScore).toFixed(3)}</td>
+              <td class="info-value orange">${(gymnast.myscore || 0).toFixed(3)}</td>
             </tr>
           </table>
         </div>
@@ -1370,7 +1448,7 @@ async function generateFloorPage(
           <div class="comp-cell">D</div>
           <div class="comp-value">${row.dScore.toFixed(1)}</div>
           <div class="comp-cell">E</div>
-          <div class="comp-value">${row.eScore.toFixed(3)}</div>
+          <div class="comp-value">${row.eScore.toFixed(1)}</div>
           <div class="comp-cell">SB</div>
           <div class="comp-value">${row.sb.toFixed(1)}</div>
           <div class="comp-cell">ND</div>
@@ -1479,7 +1557,7 @@ async function generateVaultPage(
             </tr>
             <tr>
               <td class="info-label">E SCORE</td>
-              <td class="info-value">${row.eScore.toFixed(3)}</td>
+              <td class="info-value">${row.eScore.toFixed(1)}</td>
             </tr>
             <tr>
               <td class="info-label">MY SCORE</td>
@@ -1500,7 +1578,7 @@ async function generateVaultPage(
           <div class="comp-cell">D</div>
           <div class="comp-value">${row.dScore.toFixed(1)}</div>
           <div class="comp-cell">E</div>
-          <div class="comp-value">${row.eScore.toFixed(3)}</div>
+          <div class="comp-value">${row.eScore.toFixed(1)}</div>
           <div class="comp-cell">SB</div>
           <div class="comp-value">${row.sb.toFixed(1)}</div>
           <div class="comp-cell">ND</div>
@@ -1559,16 +1637,17 @@ async function generatePDFHTML(
     });
   }
 
-  // Calcular estadísticas
-  const totalParticipants = tableData.filter(p => p.eScore > 0).length;
+  // Calcular estadísticas (usar solo participantes reales: con E Score > 0)
+  const realParticipants = tableData.filter(p => p.eScore > 0);
+  const totalParticipants = realParticipants.length;
   const avgPercentage = totalParticipants > 0
-    ? (tableData.filter(p => p.eScore > 0).reduce((sum, p) => sum + p.percentage, 0) / totalParticipants)
+    ? (realParticipants.reduce((sum, p) => sum + p.percentage, 0) / totalParticipants)
     : 0;
   const maxPercentage = totalParticipants > 0
-    ? Math.max(...tableData.filter(p => p.eScore > 0).map(p => p.percentage))
+    ? Math.max(...realParticipants.map(p => p.percentage))
     : 0;
   const minPercentage = totalParticipants > 0
-    ? Math.min(...tableData.filter(p => p.eScore > 0).map(p => p.percentage))
+    ? Math.min(...realParticipants.map(p => p.percentage))
     : 0;
 
   // Generar páginas individuales para los gimnastas (incluyendo VT)
@@ -1578,8 +1657,8 @@ async function generatePDFHTML(
           const gymnast = gymnasts.find(g => g.id === row.id);
           const isVault = row.evento === 'VT';
           return isVault
-            ? await generateVaultPage(row, gymnast, { whiteboardMode })
-            : await generateFloorPage(row, gymnast, { whiteboardMode });
+            ? await generateVaultPage(row, gymnast!, { whiteboardMode })
+            : await generateFloorPage(row, gymnast!, { whiteboardMode });
         })
       )).join('\n')
     : '';
@@ -1597,14 +1676,14 @@ async function generatePDFHTML(
         
         <!-- Results Table -->
         <div class="table-container">
-          <table>
+          <table class="summary-table">
             <thead>
               <tr>
-                <th>No.</th>
-                <th>Gymnast</th>
-                <th>Event</th>
-                <th>NOC</th>
-                <th>BIB</th>
+                <th class="col-no">No.</th>
+                <th class="col-gymnast">Gymnast</th>
+                <th class="col-event">Event</th>
+                <th class="col-noc">NOC</th>
+                <th class="col-bib">BIB</th>
                 <th>J</th>
                 <th>I</th>
                 <th>H</th>
@@ -1615,26 +1694,26 @@ async function generatePDFHTML(
                 <th>C</th>
                 <th>B</th>
                 <th>A</th>
-                <th>DV</th>
+                <th class="col-dv">DV</th>
                 <th>EG</th>
                 <th>SB</th>
                 <th>ND</th>
                 <th>CV</th>
                 <th>SV</th>
-                <th>E Score</th>
-                <th>D Score</th>
+                <th>E</th>
+                <th class="col-dv">D</th>
                 <th>E Δ</th>
                 <th>Δ</th>
-                <th>%</th>
-                <th>Comments</th>
+                <th class="col-perc">%</th>
               </tr>
             </thead>
             <tbody>
               ${tableData.map(row => {
-                // Validation for DV (6-8 range)
-                let dvClass = '';
-                if (row.dv >= 6 && row.dv <= 8) dvClass = 'text-green';
-                else dvClass = 'text-red';
+                // SV validation (same idea as Main Table): highlight SV if it doesn't match D Score
+                // Compare using the displayed precision (1 decimal) to avoid false mismatches.
+                const svShown = Number(row.sv.toFixed(1));
+                const dShown = Number(row.dScore.toFixed(1));
+                const svClass = Math.abs(svShown - dShown) < 0.0001 ? 'text-green' : 'text-red';
                 
                 // Validation for Delta (absolute value)
                 let deltaClass = '';
@@ -1651,11 +1730,11 @@ async function generatePDFHTML(
                 
                 return `
                   <tr>
-                    <td>${row.numero}</td>
-                    <td class="gymnast-name">${row.gymnasta || '-'}</td>
-                    <td>${row.evento || '-'}</td>
-                    <td>${row.noc || '-'}</td>
-                    <td>${row.bib || '-'}</td>
+                    <td class="col-no">${row.numero}</td>
+                    <td class="gymnast-name col-gymnast">${row.gymnasta || '-'}</td>
+                    <td class="col-event">${row.evento || '-'}</td>
+                    <td class="col-noc">${row.noc || '-'}</td>
+                    <td class="col-bib">${row.bib || '-'}</td>
                     <td>${row.j}</td>
                     <td>${row.i}</td>
                     <td>${row.h}</td>
@@ -1666,18 +1745,17 @@ async function generatePDFHTML(
                     <td>${row.c}</td>
                     <td>${row.b}</td>
                     <td>${row.a}</td>
-                    <td class="${dvClass}">${row.dv.toFixed(1)}</td>
+                    <td class="col-dv">${row.dv.toFixed(1)}</td>
                     <td>${row.eg.toFixed(1)}</td>
                     <td>${row.sb.toFixed(1)}</td>
                     <td>${row.nd.toFixed(1)}</td>
                     <td>${row.cv.toFixed(1)}</td>
-                    <td>${row.sv.toFixed(1)}</td>
-                    <td>${row.eScore.toFixed(3)}</td>
-                    <td>${row.dScore.toFixed(2)}</td>
+                    <td class="${svClass}">${row.sv.toFixed(1)}</td>
+                    <td>${row.eScore.toFixed(1)}</td>
+                    <td class="col-dv">${row.dScore.toFixed(1)}</td>
                     <td>${row.eDelta.toFixed(2)}</td>
-                    <td class="${deltaClass}">${row.delta.toFixed(3)}</td>
-                    <td class="${percentageTextClass}">${row.percentage.toFixed(1)}%</td>
-                    <td style="text-align: left; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${row.comments || '-'}</td>
+                    <td class="${deltaClass}">${row.delta.toFixed(1)}</td>
+                    <td class="${percentageTextClass} col-perc">${row.percentage.toFixed(1)}%</td>
                   </tr>
                 `;
               }).join('')}
@@ -1702,22 +1780,6 @@ async function generatePDFHTML(
               <div class="stat-label">Lowest</div>
             </div>
           </div>
-        </div>
-        
-        <!-- Comments Summary Section -->
-        <div class="comments-summary">
-          <h3>💬 Comments Summary</h3>
-          ${tableData
-            .filter(row => row.comments && row.comments.trim() !== '')
-            .map(row => `
-              <div class="comment-item">
-                <div class="comment-header">
-                  <strong>No. ${row.numero} - ${row.gymnasta}</strong>
-                  <span class="comment-event">${row.evento || '-'}</span>
-                </div>
-                <div class="comment-body">${row.comments}</div>
-              </div>
-            `).join('') || '<p class="no-comments">No comments were recorded for this competition.</p>'}
         </div>
         
         <!-- Footer -->
@@ -2117,23 +2179,46 @@ async function generatePDFHTML(
         .table-container {
           background: white;
           border-radius: 8px;
-          overflow: hidden;
+          /* IMPORTANT: avoid clipping right-most columns on PDF render */
+          overflow: visible;
           box-shadow: 0 2px 8px rgba(0,0,0,0.1);
           margin-bottom: 20px;
         }
-        
-        table {
+
+        /* SUMMARY table needs fixed layout to prevent width growth & clipping */
+        .summary-table {
           width: 100%;
           border-collapse: collapse;
+          table-layout: fixed;
+        }
+
+        .summary-table th,
+        .summary-table td {
+          overflow-wrap: anywhere;
+          word-break: break-word;
+          line-height: 1.1;
+        }
+
+        /* Column sizing helpers */
+        .col-no { width: 34px; }
+        .col-gymnast { width: 150px; }
+        .col-event { width: 40px; }
+        .col-noc { width: 44px; }
+        .col-bib { width: 44px; }
+        .col-perc { width: 46px; }
+
+        /* Column sizing helpers (keep E/D Score same width as DV) */
+        .col-dv {
+          width: 36px;
         }
         
         th {
           background: #0052b4;
           color: white;
-          padding: 10px 6px;
+          padding: 6px 3px;
           text-align: center;
           font-weight: bold;
-          font-size: 8px;
+          font-size: 7px;
           border-right: 1px solid rgba(255,255,255,0.2);
         }
         
@@ -2142,11 +2227,11 @@ async function generatePDFHTML(
         }
         
         td {
-          padding: 8px 6px;
+          padding: 5px 3px;
           text-align: center;
           border-bottom: 1px solid #e0e0e0;
           border-right: 1px solid #e0e0e0;
-          font-size: 8px;
+          font-size: 7px;
         }
         
         td:last-child {
@@ -2165,6 +2250,7 @@ async function generatePDFHTML(
           text-align: left !important;
           font-weight: bold;
           padding-left: 10px !important;
+          white-space: normal;
         }
         
         .percentage-high {

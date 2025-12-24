@@ -6,7 +6,7 @@ import { Canvas, Group, Image as SkiaImage, Path, Skia, SkPath, useImage } from 
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import { db } from '../lib/database';
+import { db, getPenColor, getPenStroke, getPenType, setPenColor, setPenStroke, setPenType } from '../lib/database';
 
 const TEXT_FONT_DELTA = -3;
 
@@ -86,6 +86,7 @@ const BUTTON_START_X = 10;
 const STROKE_MIN = 1;
 const STROKE_MAX = 15;
 const STROKE_BAR_WIDTH = 160;
+
 
 const MAX_PATHS_MEMORY = 300;
 const MAX_PHOTOS_RENDERED = 7;
@@ -325,6 +326,88 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
   // Minimal pen config (no UI)
   const penConfigRef = useRef(DEFAULT_PEN);
 
+  // Persistencia global (DB) de herramienta: color + stroke + tipo.
+  // Se usa como default tanto para Floor como para Salto.
+  const penPrefsHydratedRef = useRef(false);
+  const penPrefsSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clampStrokeWidth = useCallback((w: number) => Math.max(STROKE_MIN, Math.min(STROKE_MAX, w)), []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const [savedColor, savedStroke, savedType] = await Promise.all([
+          getPenColor(),
+          getPenStroke(),
+          getPenType(),
+        ]);
+
+        if (cancelled) return;
+
+        const stroke = clampStrokeWidth(Number(savedStroke));
+        const type = String(savedType || 'normal');
+
+        // No restauramos borrador: solo pen tool.
+        setIsEraser(false);
+
+        if (type === 'telestrator') {
+          setSelectedPen(1);
+          setCurrentColor('red');
+          setCurrentStrokeWidth(2);
+          setPreviousStrokeWidth(2);
+        } else if (type === 'highlighter') {
+          setSelectedPen(2);
+          setCurrentColor('yellow');
+          setCurrentStrokeWidth(stroke);
+          setPreviousStrokeWidth(stroke);
+        } else {
+          setSelectedPen(0);
+          setCurrentColor(savedColor || DEFAULT_PEN.color);
+          setCurrentStrokeWidth(stroke);
+          setPreviousStrokeWidth(stroke);
+        }
+      } catch {
+        // ignore
+      } finally {
+        penPrefsHydratedRef.current = true;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [clampStrokeWidth]);
+
+  useEffect(() => {
+    // Evitar pisar el valor guardado con el DEFAULT antes de hidratar.
+    if (!penPrefsHydratedRef.current) return;
+
+    // No guardar el estado del borrador (cambia stroke a STROKE_MAX temporalmente).
+    if (isEraser) return;
+
+    if (penPrefsSaveTimeoutRef.current) clearTimeout(penPrefsSaveTimeoutRef.current);
+    penPrefsSaveTimeoutRef.current = setTimeout(() => {
+      const type = selectedPen === 1 ? 'telestrator' : selectedPen === 2 ? 'highlighter' : 'normal';
+      Promise.all([
+        setPenType(type),
+        setPenColor(currentColor),
+        setPenStroke(currentStrokeWidth),
+      ]).catch(() => {
+        // ignore
+      });
+      penPrefsSaveTimeoutRef.current = null;
+    }, 250);
+
+    return () => {
+      if (penPrefsSaveTimeoutRef.current) {
+        clearTimeout(penPrefsSaveTimeoutRef.current);
+        penPrefsSaveTimeoutRef.current = null;
+      }
+    };
+  }, [currentColor, currentStrokeWidth, isEraser, selectedPen]);
+
   // Keep penConfigRef in sync with UI state
   useEffect(() => {
     penConfigRef.current = {
@@ -447,6 +530,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       if (photoSaveTimeoutRef.current) clearTimeout(photoSaveTimeoutRef.current);
       if (photosRefreshTimeoutRef.current) clearTimeout(photosRefreshTimeoutRef.current);
+      if (penPrefsSaveTimeoutRef.current) clearTimeout(penPrefsSaveTimeoutRef.current);
       pendingTraceInsertsRef.current = [];
       if (rafRef.current != null) {
         cancelAnimationFrame(rafRef.current);

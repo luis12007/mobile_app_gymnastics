@@ -1,9 +1,10 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  FlatList,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -12,7 +13,7 @@ import {
   View,
   Modal,
 } from 'react-native';
-import { getCompetitionById, Competition, getGymnastsByCompetition, Gymnast } from '../lib/database';
+import { getCompetitionById, Competition, getGymnastsByCompetition } from '../lib/database';
 import { generateAndSharePDF } from '../lib/pdfGenerator';
 import FolderExportModal from '../componentes/FolderExportModal';
 import FolderImportModal from '../componentes/FolderImportModal';
@@ -76,8 +77,11 @@ const MainTable: React.FC = () => {
   const params = useLocalSearchParams();
   const competitionId = params.competitionId ? Number(params.competitionId) : 0;
 
+  const TABLE_ROW_HEIGHT = 50;
+  const TABLE_MIN_WIDTH = 1730;
+  const DATA_CHUNK_SIZE = 60;
+
   const [competition, setCompetition] = useState<Competition | null>(null);
-  const [gymnasts, setGymnasts] = useState<Gymnast[]>([]);
   const [tableData, setTableData] = useState<TableRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showFinishModal, setShowFinishModal] = useState(false);
@@ -88,6 +92,9 @@ const MainTable: React.FC = () => {
   const [exportModalVisible, setExportModalVisible] = useState(false);
   const [importModalVisible, setImportModalVisible] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
+
+  // Cancela cargas previas si el usuario navega rápido
+  const loadSeqRef = useRef(0);
 
   // PDF generation control (UX + safe cancellation)
   const pdfCancelledRef = useRef(false);
@@ -158,70 +165,65 @@ const MainTable: React.FC = () => {
     return () => cancelAnimationFrame(raf);
   }, [generatingPDF]);
 
+  const yieldToUI = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
   const loadData = async () => {
+    const seq = ++loadSeqRef.current;
     try {
       setLoading(true);
+      setTableData([]);
       const comp = await getCompetitionById(competitionId);
       const gymList = await getGymnastsByCompetition(competitionId);
+
+      if (seq !== loadSeqRef.current) return;
       
       setCompetition(comp);
-      setGymnasts(gymList);
       
-      // Convert gymnasts to table rows with actual data
-      const rows: TableRow[] = gymList.map(g => {
-        // Calculate element group total from individual groups
-        const egTotal = (g.element_group1 || 0) + (g.element_group2 || 0) + 
-                       (g.element_group3 || 0) + (g.element_group4 || 0);
-        
-        // Calculate total difficulty score (D Score)
-        const dScore = (g.difficulty_values || 0) + egTotal + (g.cv || 0);
-        
-        // Calculate execution score (E Score)
-        const eScore = g.escore || 0;
-        
-        // Calculate total score
-        const totalScore = dScore + eScore + (g.bonus || 0) - (g.nd || 0);
-        
-        // Calculate execution delta (difference from perfect 10.0)
-        const eDelta = 10.0 - (g.execution || 0);
-        
-        // Calculate percentage (assuming max possible score)
-        const maxPossibleScore = dScore + 10.0;
-        const percentage = maxPossibleScore > 0 ? (totalScore / maxPossibleScore) * 100 : 0;
-        
-        return {
-          id: g.id,
-          numero: g.numero,
-          gymnasta: g.gymnasta || '',
-          evento: g.evento || '',
-          noc: g.noc || '',
-          bib: g.bib || '',
-          // Judge scores (deductions)
-          j: g.j || 0,
-          i: g.i || 0,
-          h: g.h || 0,
-          g: g.g || 0,
-          f: g.f || 0,
-          e: g.e || 0,
-          d: g.d || 0,
-          c: g.c || 0,
-          b: g.b || 0,
-          a: g.a || 0,
-          // Difficulty & Execution components
-          dv: g.difficulty_values || 0,  // Difficulty Value
-          eg: egTotal,  // Element Group total
-          sb: g.bonus || 0,  // Stick Bonus
-          nd: g.nd || 0,  // Neutral Deduction
-          cv: g.cv || 0,  // Connection Value
-          sv: g.sv || 0,  // Start Value
-          eScore: eScore,  // Execution Score
-          dScore: dScore,  // Difficulty Score
-          eDelta: eDelta,  // Execution Delta
-          delta: g.delta || 0,  // Overall Delta
-          percentage: percentage,  // Performance percentage
-          comments: g.comments || ''
-        };
-      });
+      // Convert gymnasts to table rows in chunks (avoid blocking UI / reduce crash risk)
+      const rows: TableRow[] = [];
+      for (let i = 0; i < gymList.length; i += DATA_CHUNK_SIZE) {
+        if (seq !== loadSeqRef.current) return;
+
+        const slice = gymList.slice(i, i + DATA_CHUNK_SIZE);
+        for (const g of slice) {
+          rows.push({
+            id: g.id,
+            numero: g.numero,
+            gymnasta: g.gymnasta || '',
+            evento: g.evento || '',
+            noc: g.noc || '',
+            bib: g.bib || '',
+            j: g.j || 0,
+            i: g.i || 0,
+            h: g.h || 0,
+            g: g.g || 0,
+            f: g.f || 0,
+            e: g.e || 0,
+            d: g.d || 0,
+            c: g.c || 0,
+            b: g.b || 0,
+            a: g.a || 0,
+            // IMPORTANT: do not recalculate values here; use persisted DB fields.
+            dv: g.difficulty_values || 0,
+            eg: g.element_group_total || 0,
+            sb: g.bonus || 0,
+            nd: g.nd || 0,
+            cv: g.cv || 0,
+            sv: g.sv || 0,
+            eScore: g.escore || 0,
+            dScore: g.competition_d || 0,
+            eDelta: g.dedded || 0,
+            delta: g.delta || 0,
+            percentage: g.percentage || 0,
+            comments: g.comments || '',
+          });
+        }
+
+        // Yield to event loop so spinner stays responsive
+        await yieldToUI();
+      }
+
+      if (seq !== loadSeqRef.current) return;
       
       setTableData(rows);
     } catch (error) {
@@ -395,7 +397,8 @@ const MainTable: React.FC = () => {
     width: number;
     isFirst?: boolean;
     columnType?: string;
-  }> = ({ value, width, isFirst, columnType }) => {
+    compareValue?: number;
+  }> = ({ value, width, isFirst, columnType, compareValue }) => {
     let cellStyle = styles.dataCell;
     let styleProps: any = { width };
 
@@ -443,24 +446,19 @@ const MainTable: React.FC = () => {
         </View>
       );
     }
-    console.log('Rendering DataCell:', { value, columnType });
 
     if (columnType === 'sv') {
-      // Validación: verde si dScore === sv, rojo si no
-      const dScoreValue = typeof value === 'number' ? value : parseFloat(value.toString());
-            const stringValue = value.toString().replace('%', '');
-      const numValue = parseFloat(stringValue);
-      console.log('Validando SV vs D Score:', { dScoreValue, styleProps });
-      console.log('Validando SV vs D Score:', { dScoreValue, styleProps });
-
-      // Buscar el SV correspondiente en la fila
-      // El valor SV se pasa en la misma fila, así que se puede acceder por props si se modifica el renderDataCell
-      // Aquí, como workaround, se puede usar styleProps.extraSv si se pasa como prop
-      if (Math.abs(numValue - dScoreValue) < 0.001) {
+      // Validación: verde si SV === D Score, rojo si no
+      const numValue =
+        typeof value === 'number' ? value : parseFloat(value.toString().replace('%', ''));
+      if (Number.isFinite(numValue) && typeof compareValue === 'number' && Number.isFinite(compareValue)) {
+        // Como mostramos 2 decimales, toleramos diferencias por redondeo
+        if (Math.abs(numValue - compareValue) < 0.01) {
           styleProps.backgroundColor = '#d1f2eb'; // verde
         } else {
           styleProps.backgroundColor = '#f8d7da'; // rojo
         }
+      }
       return (
         <View style={[cellStyle, styleProps, isFirst && styles.firstCell]}>
           <Text style={styles.dataText} numberOfLines={1}>{value}</Text>
@@ -475,8 +473,22 @@ const MainTable: React.FC = () => {
     );
   };
 
-  const renderDataCell = (value: string | number, width: number, isFirst?: boolean, columnType?: string) => {
-    return <DataCell value={value} width={width} isFirst={isFirst} columnType={columnType} />;
+  const renderDataCell = (
+    value: string | number,
+    width: number,
+    isFirst?: boolean,
+    columnType?: string,
+    compareValue?: number
+  ) => {
+    return (
+      <DataCell
+        value={value}
+        width={width}
+        isFirst={isFirst}
+        columnType={columnType}
+        compareValue={compareValue}
+      />
+    );
   };
 
   const renderRow = useCallback(({ item }: { item: TableRow }) => (
@@ -490,26 +502,26 @@ const MainTable: React.FC = () => {
       {renderDataCell(item.evento, 60)}
       {renderDataCell(item.noc, 60)}
       {renderDataCell(item.bib, 60)}
-      {renderDataCell(item.j === 0 ? '-' : item.j.toFixed(2), 50, false, 'j')}
-      {renderDataCell(item.i === 0 ? '-' : item.i.toFixed(2), 50, false, 'i')}
-      {renderDataCell(item.h === 0 ? '-' : item.h.toFixed(2), 50, false, 'h')}
-      {renderDataCell(item.g === 0 ? '-' : item.g.toFixed(2), 50, false, 'g')}
-      {renderDataCell(item.f === 0 ? '-' : item.f.toFixed(2), 50, false, 'f')}
-      {renderDataCell(item.e === 0 ? '-' : item.e.toFixed(2), 50, false, 'e')}
-      {renderDataCell(item.d === 0 ? '-' : item.d.toFixed(2), 50, false, 'd')}
-      {renderDataCell(item.c === 0 ? '-' : item.c.toFixed(2), 50, false, 'c')}
-      {renderDataCell(item.b === 0 ? '-' : item.b.toFixed(2), 50, false, 'b')}
-      {renderDataCell(item.a === 0 ? '-' : item.a.toFixed(2), 50, false, 'a')}
+      {renderDataCell(item.j === 0 ? '-' : item.j.toFixed(0), 50, false, 'j')}
+      {renderDataCell(item.i === 0 ? '-' : item.i.toFixed(0), 50, false, 'i')}
+      {renderDataCell(item.h === 0 ? '-' : item.h.toFixed(0), 50, false, 'h')}
+      {renderDataCell(item.g === 0 ? '-' : item.g.toFixed(0), 50, false, 'g')}
+      {renderDataCell(item.f === 0 ? '-' : item.f.toFixed(0), 50, false, 'f')}
+      {renderDataCell(item.e === 0 ? '-' : item.e.toFixed(0), 50, false, 'e')}
+      {renderDataCell(item.d === 0 ? '-' : item.d.toFixed(0), 50, false, 'd')}
+      {renderDataCell(item.c === 0 ? '-' : item.c.toFixed(0), 50, false, 'c')}
+      {renderDataCell(item.b === 0 ? '-' : item.b.toFixed(0), 50, false, 'b')}
+      {renderDataCell(item.a === 0 ? '-' : item.a.toFixed(0), 50, false, 'a')}
       {renderDataCell(item.dv.toFixed(2), 60, false, 'dv')}
       {renderDataCell(item.eg.toFixed(2), 50)}
       {renderDataCell(item.sb.toFixed(2), 50)}
       {renderDataCell(item.nd.toFixed(2), 50)}
       {renderDataCell(item.cv.toFixed(2), 50)}
-      {renderDataCell(item.sv.toFixed(2), 60)}
+      {renderDataCell(item.sv.toFixed(2), 60, false, 'sv', item.dScore)}
       {renderDataCell(item.eScore.toFixed(3), 70)}
       {renderDataCell(item.dScore.toFixed(2), 70)}
-      {renderDataCell(item.eDelta.toFixed(2), 70)}
-      {renderDataCell(item.delta.toFixed(3), 70, false, 'delta')}
+      {renderDataCell(item.eDelta.toFixed(3), 70)}
+      {renderDataCell(item.delta.toFixed(1), 70, false, 'delta')}
       {renderDataCell(item.percentage.toFixed(1) + '%', 70, false, 'percentage')}
       {renderDataCell(item.comments || '-', 120)}
     </TouchableOpacity>
@@ -537,8 +549,9 @@ const MainTable: React.FC = () => {
           horizontal 
           showsHorizontalScrollIndicator={true}
           scrollEventThrottle={16}
+          contentContainerStyle={{ flexGrow: 1 }}
         >
-          <View style={styles.tableWrapper}>
+          <View style={[styles.tableWrapper, { minWidth: TABLE_MIN_WIDTH, flex: 1 }]}>
             {/* Header Row */}
             <View style={styles.headerRow}>
               {renderHeaderCell('No.', 60, true)}
@@ -570,48 +583,21 @@ const MainTable: React.FC = () => {
               {renderHeaderCell('Comments', 120)}
             </View>
 
-            {/* Data Rows */}
-            <ScrollView 
-              showsVerticalScrollIndicator={true}
-              nestedScrollEnabled
-            >
-              {tableData.map((item) => (
-                <TouchableOpacity 
-                  key={item.id}
-                  style={styles.row} 
-                  onPress={() => handleRowPress(item)}
-                  activeOpacity={0.7}
-                >
-                  {renderDataCell(item.numero, 60, true, 'numero')}
-                  {renderDataCell(item.gymnasta, 150, false, 'gymnasta')}
-                  {renderDataCell(item.evento, 60, false, 'evento')}
-                  {renderDataCell(item.noc, 60, false, 'noc')}
-                  {renderDataCell(item.bib, 60, false, 'bib')}
-                  {renderDataCell(item.j, 50, false, 'j')}
-                  {renderDataCell(item.i, 50, false, 'i')}
-                  {renderDataCell(item.h, 50, false, 'h')}
-                  {renderDataCell(item.g, 50, false, 'g')}
-                  {renderDataCell(item.f, 50, false, 'f')}
-                  {renderDataCell(item.e, 50, false, 'e')}
-                  {renderDataCell(item.d, 50, false, 'd')}
-                  {renderDataCell(item.c, 50, false, 'c')}
-                  {renderDataCell(item.b, 50, false, 'b')}
-                  {renderDataCell(item.a, 50, false, 'a')}
-                  {renderDataCell(item.dv.toFixed(2), 60, false, 'dv')}
-                  {renderDataCell(item.eg.toFixed(2), 50, false, 'eg')}
-                  {renderDataCell(item.sb, 50, false, 'sb')}
-                  {renderDataCell(item.nd, 50, false, 'nd')}
-                  {renderDataCell(item.cv, 50, false, 'cv')}
-                  {renderDataCell(item.sv.toFixed(2), 60, false, 'sv')}
-                  {renderDataCell(item.eScore.toFixed(2), 70, false, 'eScore')}
-                  {renderDataCell(item.dScore.toFixed(2), 70, false, 'dScore')}
-                  {renderDataCell(item.eDelta.toFixed(2), 70, false, 'eDelta')}
-                  {renderDataCell(item.delta.toFixed(3), 70, false, 'delta')}
-                  {renderDataCell(item.percentage.toFixed(1) + '%', 70, false, 'percentage')}
-                  {renderDataCell(item.comments || '-', 120, false, 'comments')}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+            {/* Data Rows (virtualized) */}
+            <FlatList
+              data={tableData}
+              renderItem={renderRow as any}
+              keyExtractor={keyExtractor}
+              style={{ flex: 1 }}
+              contentContainerStyle={{ minWidth: TABLE_MIN_WIDTH }}
+              showsVerticalScrollIndicator
+              removeClippedSubviews
+              initialNumToRender={12}
+              maxToRenderPerBatch={18}
+              updateCellsBatchingPeriod={60}
+              windowSize={7}
+              getItemLayout={(_, index) => ({ length: TABLE_ROW_HEIGHT, offset: TABLE_ROW_HEIGHT * index, index })}
+            />
           </View>
         </ScrollView>
       </View>

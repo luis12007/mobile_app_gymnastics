@@ -327,7 +327,7 @@ export default function GymnastFloor() {
       }
     } else {
       // Grupos I, II, III: Solo dependen de discipline
-      return isDiscipline ?  [0.0, 0.5] :  [0.0, 0.3, 0.5];
+      return isDiscipline ?  [0.0, 0.3, 0.5] :   [0.0, 0.5];
     }
   };
 
@@ -1021,7 +1021,7 @@ export default function GymnastFloor() {
                 </View>
                 <View style={styles.infoValueCellBlue}>
                   <TouchableOpacity style={styles.fullCellTouchable} onPress={() => openNumberPadModal("EXECUTION", execution)}>
-                    <Text style={styles.infoValueText}>{execution}</Text>
+                    <Text style={styles.infoValueText}>{execution.toFixed(1)}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -1031,7 +1031,7 @@ export default function GymnastFloor() {
                   <Text style={styles.infoLabelText}>E SCORE</Text>
                 </View>
                 <View style={styles.scoreValueCell}>
-                  <Text style={styles.scoreValueText}>{eScore.toFixed(3)}</Text>
+                  <Text style={styles.scoreValueText}>{eScore.toFixed(1)}</Text>
                 </View>
                 <View style={styles.myScoreCellScore}>
                   <Text style={styles.myScoreLabelTextSmall}>MY SCORE</Text>
@@ -1046,7 +1046,7 @@ export default function GymnastFloor() {
                   <Text style={styles.infoLabelText}>DELTA (Δ)</Text>
                 </View>
                 <View style={styles.infoValueCellBlue}>
-                  <Text style={styles.infoValueText}>{delta.toFixed(3)}</Text>
+                  <Text style={styles.infoValueText}>{delta.toFixed(1)}</Text>
                 </View>
               </View>
 
