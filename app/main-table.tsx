@@ -64,8 +64,13 @@ interface TableRow {
   nd: number;  // Neutral Deduction
   cv: number;  // Connection Value
   sv: number;  // Start Value
+  myscore: number;  // My Score
   eScore: number;  // Execution Score
-  dScore: number;  // Difficulty Score
+  compd: number;  // Difficulty Score
+  compe: number;  // Difficulty Score
+  compsb: number;  // Difficulty Score
+  compnd: number;  // Difficulty Score
+  compscore: number;  // Difficulty Score
   eDelta: number;
   delta: number;
   percentage: number;
@@ -211,11 +216,17 @@ const MainTable: React.FC = () => {
             cv: g.cv || 0,
             sv: g.sv || 0,
             eScore: g.escore || 0,
-            dScore: g.competition_d || 0,
+            compd: g.competition_d || 0,
+            myscore: g.myscore || 0,
             eDelta: g.dedded || 0,
             delta: g.delta || 0,
             percentage: g.percentage || 0,
             comments: g.comments || '',
+            compe: g.competition_e || 0,
+            compsb: g.competition_sb || 0,
+            compnd: g.competition_nd || 0,
+            compscore: g.competition_score || 0,
+
           });
         }
 
@@ -517,9 +528,9 @@ const MainTable: React.FC = () => {
       {renderDataCell(item.sb.toFixed(2), 50)}
       {renderDataCell(item.nd.toFixed(2), 50)}
       {renderDataCell(item.cv.toFixed(2), 50)}
-      {renderDataCell(item.sv.toFixed(2), 60, false, 'sv', item.dScore)}
+      {renderDataCell(item.sv.toFixed(2), 60, false, 'sv', item.compd)}
       {renderDataCell(item.eScore.toFixed(3), 70)}
-      {renderDataCell(item.dScore.toFixed(2), 70)}
+      {renderDataCell(item.compd.toFixed(2), 70)}
       {renderDataCell(item.eDelta.toFixed(3), 70)}
       {renderDataCell(item.delta.toFixed(1), 70, false, 'delta')}
       {renderDataCell(item.percentage.toFixed(1) + '%', 70, false, 'percentage')}

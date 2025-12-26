@@ -28,6 +28,7 @@ export interface WhiteboardJumpProps {
   width?: number;
   height?: number;
   onLoaded?: () => void;
+  onBeforeAddImage?: () => void | Promise<void>;
   percentage?: number;
   stickBonus?: boolean;
   setStickBonus?: (value: boolean) => void;
@@ -42,6 +43,7 @@ const WhiteboardJump = memo(forwardRef<WhiteboardRef, WhiteboardJumpProps>(({
   width,
   height,
   onLoaded,
+  onBeforeAddImage,
   percentage,
   stickBonus,
   setStickBonus,
@@ -72,6 +74,7 @@ const WhiteboardJump = memo(forwardRef<WhiteboardRef, WhiteboardJumpProps>(({
         width={width}
         height={height}
         onLoaded={onLoaded}
+        onBeforeAddImage={onBeforeAddImage}
         percentage={percentage}
         stickBonus={stickBonus}
         setStickBonus={setStickBonus}

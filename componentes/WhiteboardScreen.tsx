@@ -60,6 +60,7 @@ interface WhiteboardMinimalProps {
   width?: number;
   height?: number;
   onLoaded?: () => void;
+  onBeforeAddImage?: () => void | Promise<void>;
   percentage?: number;
   stickBonus?: boolean;
   setStickBonus?: (value: boolean) => void;
@@ -100,8 +101,11 @@ const getExtFromUri = (uri: string) => {
 
 const isHeic = (ext: string) => ext === 'heic' || ext === 'heif';
 
-const ensurePhotosDir = async () => {
-  const dir = FileSystem.cacheDirectory + 'photos/';
+const ensurePhotosDir = async (): Promise<string | null> => {
+  const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+  if (!baseDir) return null;
+
+  const dir = baseDir + 'photos/';
   try {
     await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
   } catch {
@@ -112,6 +116,7 @@ const ensurePhotosDir = async () => {
 
 const copyToAppCache = async (srcUri: string): Promise<string> => {
   const dir = await ensurePhotosDir();
+  if (!dir) return srcUri;
   const ext = getExtFromUri(srcUri);
   const filename = `${Date.now()}_${Math.floor(Math.random() * 1e6)}.${ext}`;
   const dst = dir + filename;
@@ -198,6 +203,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
   width = SCREEN_WIDTH,
   height = canvasHeight,
   onLoaded,
+  onBeforeAddImage,
   percentage,
   stickBonus,
   setStickBonus,
@@ -544,16 +550,8 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     };
   }, [loadPathsFromDatabase, loadPhotosFromDatabase, onLoaded]);
 
-  const scheduleInsertTrace = useCallback((newPathData: PathData) => {
-    // Debounced BATCH insert: no pierde trazos si el usuario dibuja rápido.
-    pendingTraceInsertsRef.current.push(newPathData);
-
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(async () => {
-      const batch = pendingTraceInsertsRef.current;
-      pendingTraceInsertsRef.current = [];
-      saveTimeoutRef.current = null;
-
+  const persistTraceBatch = useCallback(
+    async (batch: PathData[]) => {
       if (batch.length === 0) return;
       try {
         const maxRow = await db.getFirstAsync<any>(
@@ -573,8 +571,34 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       } catch {
         // ignore
       }
-    }, 250);
-  }, [gymnastId]);
+    },
+    [gymnastId]
+  );
+
+  const flushPendingTracesNow = useCallback(async () => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+
+    const batch = pendingTraceInsertsRef.current;
+    pendingTraceInsertsRef.current = [];
+
+    await persistTraceBatch(batch);
+  }, [persistTraceBatch]);
+
+  const scheduleInsertTrace = useCallback(
+    (newPathData: PathData) => {
+      // Debounced BATCH insert: no pierde trazos si el usuario dibuja rápido.
+      pendingTraceInsertsRef.current.push(newPathData);
+
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = setTimeout(() => {
+        void flushPendingTracesNow();
+      }, 250);
+    },
+    [flushPendingTracesNow]
+  );
 
   const updatePaths = useCallback((newPath: SkPath) => {
     // Match integration.txt: eraser uses background; telestrator fixed red+2; highlighter yellow; normal uses currentColor.
@@ -877,14 +901,23 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
   }, [photoItems]);
 
   const forceSave = useCallback(async () => {
-    // Trazos: guardado con debounce corto; esperamos un poco.
-    if (saveTimeoutRef.current) {
-      await new Promise(resolve => setTimeout(resolve, 300));
+    // No debe crashear: best-effort flush.
+    try {
+      await flushPendingTracesNow();
+    } catch {
+      // ignore
     }
 
-    // Fotos: guardado con debounce largo; flush inmediato.
-    await flushPendingPhotoUpdates();
-  }, [flushPendingPhotoUpdates]);
+    try {
+      if (photoSaveTimeoutRef.current) {
+        clearTimeout(photoSaveTimeoutRef.current);
+        photoSaveTimeoutRef.current = null;
+      }
+      await flushPendingPhotoUpdates();
+    } catch {
+      // ignore
+    }
+  }, [flushPendingPhotoUpdates, flushPendingTracesNow]);
 
   useImperativeHandle(ref, () => ({ forceSave }), [forceSave]);
 
@@ -977,6 +1010,16 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
       if (!pickedUri) return;
 
+      // Antes de tocar file system / DB de imágenes, guardar el estado del gimnasta.
+      if (typeof onBeforeAddImage === 'function') {
+        try {
+          await onBeforeAddImage();
+        } catch (e) {
+          console.error('[Whiteboard] onBeforeAddImage failed', e);
+          // No bloqueamos Add Image: esto es best-effort para evitar pérdida de datos.
+        }
+      }
+
       const ext = getExtFromUri(pickedUri);
       if (isHeic(ext)) {
         Alert.alert(
@@ -1041,7 +1084,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       const msg = e instanceof Error ? e.message : String(e);
       Alert.alert('Error Adding Image', `Could not add the image:\n${msg}`);
     }
-  }, [gymnastId, height, loadPhotosFromDatabase, pickImageUriViaDocumentPicker, width]);
+  }, [gymnastId, height, loadPhotosFromDatabase, onBeforeAddImage, pickImageUriViaDocumentPicker, width]);
 
   const deletePhoto = useCallback(
     (photoId: number) => {

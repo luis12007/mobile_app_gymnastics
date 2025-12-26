@@ -350,7 +350,11 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
       console.log("handleFinish: Data saved, forcing whiteboard save...");
       // Forzar guardado de whiteboard inmediatamente
       if (whiteboardRef.current) {
-        await whiteboardRef.current.forceSave();
+        try {
+          await whiteboardRef.current.forceSave();
+        } catch (e) {
+          console.error('Whiteboard forceSave failed:', e);
+        }
       }
       console.log("handleFinish: Navigating to main table...");
       
@@ -371,7 +375,11 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
       console.log("handleGoBack: Data saved, forcing whiteboard save...");
       // Forzar guardado de whiteboard inmediatamente
       if (whiteboardRef.current) {
-        await whiteboardRef.current.forceSave();
+        try {
+          await whiteboardRef.current.forceSave();
+        } catch (e) {
+          console.error('Whiteboard forceSave failed:', e);
+        }
       }
       console.log("handleGoBack: Navigating to start judging...");
 
@@ -396,7 +404,11 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
       console.log("handleNext: Data saved, forcing whiteboard save...");
       // Forzar guardado de whiteboard inmediatamente
       if (whiteboardRef.current) {
-        await whiteboardRef.current.forceSave();
+        try {
+          await whiteboardRef.current.forceSave();
+        } catch (e) {
+          console.error('Whiteboard forceSave failed:', e);
+        }
       }
       console.log("handleNext: Navigating...");
       
@@ -1112,6 +1124,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         percentage={percentage}
         oncodetable={oncodetable}
         discipline={discipline}
+        onBeforeAddImage={saveGymnastData}
       />
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         {/* Main Table */}

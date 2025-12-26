@@ -39,11 +39,16 @@ export interface TableRow {
   cv: number;
   sv: number;
   eScore: number;
-  dScore: number;
   eDelta: number;
+  myscore: number;
   delta: number;
   percentage: number;
   comments: string;
+  compd: number;
+  compe: number;
+  compsb: number;
+  compnd: number;
+  compscore: number;
 }
 
 function isPdfOutOfMemoryError(error: any): boolean {
@@ -285,6 +290,23 @@ async function generateCompetitionPDFChunked(
       });
       summaryUri = await printHtmlToPdf(summaryHtml, '[PDF][Chunk] Summary');
 
+      // Sometimes ExpoPrint returns a tiny/blank PDF without throwing.
+      const summarySize = summaryUri ? await getFileSizeBytes(summaryUri) : 0;
+      if (Platform.OS === 'android' && summaryUri && summarySize > 0 && summarySize < PDF_MIN_VALID_BYTES) {
+        console.warn('[PDF][Chunk] Tiny SUMMARY PDF detected; retrying with compact summary table', {
+          size: summarySize,
+        });
+        await safeDeleteUris([summaryUri], 'tiny summary PDF');
+
+        const summaryHtmlCompact = await generatePDFHTML(competition, tableData, gymnasts, {
+          includeIndividualPages: false,
+          includeSummary: true,
+          debugLabel: 'summary-compact',
+          summaryCompact: true,
+        });
+        summaryUri = await printHtmlToPdf(summaryHtmlCompact, '[PDF][Chunk] Summary (compact)');
+      }
+
       const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
       const outputUri = `${baseDir}Competition_${competitionId}_${timestamp}_merged.pdf`;
       const mergedUri = await mergePdfUrisToSinglePdf([...chunkUris, summaryUri], outputUri);
@@ -364,11 +386,13 @@ async function getJumpImageBase64(): Promise<string> {
   // Fallback vacío: NO renderizar placeholder si no hay imagen
   const JUMP_IMAGE_FALLBACK = '';
 
-  const candidateRequires = [
-    () => require('../assets/images/Jump1.png'),
-    () => require('../assets/images/Jump2.webp'),
-    () => require('../assets/images/Jump3.jpg'),
-    () => require('../assets/images/Jump4.jpeg'),
+  // IMPORTANT (production builds): use static require so Metro bundles the asset.
+  // Prefer PNG/JPEG first for better HTML->PDF compatibility; keep WEBP as last fallback.
+  const candidateModules = [
+    require('../assets/images/Jump1.png'),
+    require('../assets/images/Jump3.jpg'),
+    require('../assets/images/Jump4.jpeg'),
+    require('../assets/images/Jump2.webp'),
   ];
 
   const guessMime = (u: string) => {
@@ -399,58 +423,69 @@ async function getJumpImageBase64(): Promise<string> {
   };
 
   try {
-    let asset: any = null;
-    for (const fn of candidateRequires) {
+    for (const moduleId of candidateModules) {
+      let asset: any = null;
       try {
-        asset = Asset.fromModule(fn());
-        break;
-      } catch {
+        asset = Asset.fromModule(moduleId);
+      } catch (e) {
+        console.warn('[PDF][JumpImage] Asset.fromModule failed', e);
         asset = null;
       }
-    }
 
-    if (!asset) return JUMP_IMAGE_FALLBACK;
+      if (!asset) continue;
 
-    try {
-      await asset.downloadAsync();
-    } catch {
-      // ignore
-    }
-
-    const primaryUri = asset.localUri || asset.uri;
-    if (!primaryUri) return JUMP_IMAGE_FALLBACK;
-
-    const mime = guessMime(primaryUri);
-
-    // 1) Prefer fetch -> arrayBuffer -> base64 (works for http(s) URIs)
-    try {
-      const res = await fetch(primaryUri);
-      if (res.ok) {
-        const buf = await res.arrayBuffer();
-        const b64 = arrayBufferToBase64(buf);
-        if (b64 && b64.length > 100) {
-          return `data:${mime};base64,${b64}`;
+      // In production, Asset.uri can be "asset:/..." and not directly readable.
+      // Force a local file URI.
+      try {
+        await Asset.loadAsync([moduleId]);
+      } catch {
+        try {
+          await asset.downloadAsync();
+        } catch {
+          // ignore
         }
       }
-    } catch (e) {
-      console.warn('[PDF][JumpImage] fetch failed', e);
-    }
 
-    // 2) Try FileSystem read for file:// URIs
-    try {
-      const base64 = await FileSystem.readAsStringAsync(primaryUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      if (base64 && base64.length > 100) {
-        return `data:${mime};base64,${base64}`;
+      const primaryUri = asset.localUri || asset.uri;
+      if (!primaryUri) continue;
+
+      const mime = guessMime(primaryUri);
+
+      // 1) Prefer local file read (most reliable for production builds)
+      if (asset.localUri || /^file:/i.test(primaryUri)) {
+        const fileUri = asset.localUri || primaryUri;
+        try {
+          const base64 = await FileSystem.readAsStringAsync(fileUri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          if (base64 && base64.length > 100) {
+            return `data:${mime};base64,${base64}`;
+          }
+        } catch (e) {
+          console.warn('[PDF][JumpImage] FileSystem read failed', { fileUri, e });
+        }
       }
-    } catch (e) {
-      console.warn('[PDF][JumpImage] FileSystem read failed', e);
-    }
 
-    // 3) Last resort: allow http(s) uri directly (SVG <image href="..."></image> may resolve it)
-    if (/^https?:/i.test(primaryUri)) {
-      return primaryUri;
+      // 2) Fallback fetch (mainly Expo Go/dev; sometimes works in prod too)
+      if (/^https?:/i.test(primaryUri)) {
+        try {
+          const res = await fetch(primaryUri);
+          if (res.ok) {
+            const buf = await res.arrayBuffer();
+            const b64 = arrayBufferToBase64(buf);
+            if (b64 && b64.length > 100) {
+              return `data:${mime};base64,${b64}`;
+            }
+          }
+        } catch (e) {
+          console.warn('[PDF][JumpImage] fetch failed', e);
+        }
+      }
+
+      // 3) Very last resort (won't usually work in prod PDF renderer)
+      if (/^https?:/i.test(primaryUri)) {
+        return primaryUri;
+      }
     }
 
     return JUMP_IMAGE_FALLBACK;
@@ -1446,15 +1481,15 @@ async function generateFloorPage(
         <div class="comp-row">
           <div class="comp-label">COMPETITION</div>
           <div class="comp-cell">D</div>
-          <div class="comp-value">${row.dScore.toFixed(1)}</div>
+          <div class="comp-value">${row.compd.toFixed(1)}</div>
           <div class="comp-cell">E</div>
-          <div class="comp-value">${row.eScore.toFixed(1)}</div>
+          <div class="comp-value">${row.compe.toFixed(1)}</div>
           <div class="comp-cell">SB</div>
-          <div class="comp-value">${row.sb.toFixed(1)}</div>
+          <div class="comp-value">${row.compsb.toFixed(1)}</div>
           <div class="comp-cell">ND</div>
-          <div class="comp-value">${row.nd.toFixed(1)}</div>
+          <div class="comp-value">${row.compnd.toFixed(1)}</div>
           <div class="comp-cell">SCORE</div>
-          <div class="comp-value">${(row.eScore + row.dScore).toFixed(3)}</div>
+          <div class="comp-value">${row.compscore.toFixed(3)}</div>
         </div>
       </div>
 
@@ -1561,7 +1596,7 @@ async function generateVaultPage(
             </tr>
             <tr>
               <td class="info-label">MY SCORE</td>
-              <td class="info-value orange">${(row.eScore + row.dScore).toFixed(3)}</td>
+              <td class="info-value orange">${(row.myscore).toFixed(3)}</td>
             </tr>
             <tr>
               <td class="info-label">EXECUTION PERFORMANCE</td>
@@ -1576,15 +1611,15 @@ async function generateVaultPage(
         <div class="comp-row">
           <div class="comp-label">COMPETITION</div>
           <div class="comp-cell">D</div>
-          <div class="comp-value">${row.dScore.toFixed(1)}</div>
+          <div class="comp-value">${row.compd.toFixed(1)}</div>
           <div class="comp-cell">E</div>
-          <div class="comp-value">${row.eScore.toFixed(1)}</div>
+          <div class="comp-value">${row.compe.toFixed(1)}</div>
           <div class="comp-cell">SB</div>
-          <div class="comp-value">${row.sb.toFixed(1)}</div>
+          <div class="comp-value">${row.compsb.toFixed(1)}</div>
           <div class="comp-cell">ND</div>
-          <div class="comp-value">${row.nd.toFixed(1)}</div>
+          <div class="comp-value">${row.compnd.toFixed(1)}</div>
           <div class="comp-cell">SCORE</div>
-          <div class="comp-value">${(row.eScore + row.dScore).toFixed(3)}</div>
+          <div class="comp-value">${row.compscore.toFixed(3)}</div>
         </div>
       </div>
 
@@ -1606,6 +1641,7 @@ type GeneratePdfHtmlOptions = {
   includeSummary?: boolean;
   debugLabel?: string;
   whiteboardMode?: 'full' | 'perImage' | 'pathsOnly';
+  summaryCompact?: boolean;
 };
 
 async function generatePDFHTML(
@@ -1623,6 +1659,7 @@ async function generatePDFHTML(
   const includeIndividualPages = options?.includeIndividualPages ?? true;
   const includeSummary = options?.includeSummary ?? true;
   const whiteboardMode = options?.whiteboardMode ?? 'full';
+  const summaryCompact = options?.summaryCompact ?? false;
   const rowsForIndividualPages = (options?.rowsForIndividualPages ?? tableData).filter(
     row => row.gymnasta && row.gymnasta.trim() !== ''
   );
@@ -1637,16 +1674,19 @@ async function generatePDFHTML(
     });
   }
 
-  // Calcular estadísticas (usar solo participantes reales: con E Score > 0)
+  // Total participants should include ALL valid rows (not only those with eScore > 0).
+  const totalParticipants = rowsForIndividualPages.length;
+
+  // Percentage statistics: use only real participants (with E Score > 0).
   const realParticipants = tableData.filter(p => p.eScore > 0);
-  const totalParticipants = realParticipants.length;
-  const avgPercentage = totalParticipants > 0
-    ? (realParticipants.reduce((sum, p) => sum + p.percentage, 0) / totalParticipants)
+  const realParticipantsCount = realParticipants.length;
+  const avgPercentage = realParticipantsCount > 0
+    ? (realParticipants.reduce((sum, p) => sum + p.percentage, 0) / realParticipantsCount)
     : 0;
-  const maxPercentage = totalParticipants > 0
+  const maxPercentage = realParticipantsCount > 0
     ? Math.max(...realParticipants.map(p => p.percentage))
     : 0;
-  const minPercentage = totalParticipants > 0
+  const minPercentage = realParticipantsCount > 0
     ? Math.min(...realParticipants.map(p => p.percentage))
     : 0;
 
@@ -1665,7 +1705,7 @@ async function generatePDFHTML(
 
   const summaryHtml = includeSummary
     ? `
-      <div class="page">
+      <div class="page${summaryCompact ? ' summary-compact' : ''}">
         <div class="header">
           <h1>SUMMARY</h1>
           <h2>${competition.name}</h2>
@@ -1695,15 +1735,15 @@ async function generatePDFHTML(
                 <th>B</th>
                 <th>A</th>
                 <th class="col-dv">DV</th>
-                <th>EG</th>
-                <th>SB</th>
-                <th>ND</th>
-                <th>CV</th>
-                <th>SV</th>
-                <th>E</th>
-                <th class="col-dv">D</th>
-                <th>E Δ</th>
-                <th>Δ</th>
+                <th class="col-subscore">EG</th>
+                <th class="col-subscore">SB</th>
+                <th class="col-subscore">ND</th>
+                <th class="col-subscore">CV</th>
+                <th class="col-subscore">SV</th>
+                <th class="col-subscore">E</th>
+                <th class="col-dscore">D</th>
+                <th class="col-edelta">E Δ</th>
+                <th class="col-delta">Δ</th>
                 <th class="col-perc">%</th>
               </tr>
             </thead>
@@ -1712,7 +1752,7 @@ async function generatePDFHTML(
                 // SV validation (same idea as Main Table): highlight SV if it doesn't match D Score
                 // Compare using the displayed precision (1 decimal) to avoid false mismatches.
                 const svShown = Number(row.sv.toFixed(1));
-                const dShown = Number(row.dScore.toFixed(1));
+                const dShown = Number(row.compd.toFixed(1));
                 const svClass = Math.abs(svShown - dShown) < 0.0001 ? 'text-green' : 'text-red';
                 
                 // Validation for Delta (absolute value)
@@ -1746,15 +1786,15 @@ async function generatePDFHTML(
                     <td>${row.b}</td>
                     <td>${row.a}</td>
                     <td class="col-dv">${row.dv.toFixed(1)}</td>
-                    <td>${row.eg.toFixed(1)}</td>
-                    <td>${row.sb.toFixed(1)}</td>
-                    <td>${row.nd.toFixed(1)}</td>
-                    <td>${row.cv.toFixed(1)}</td>
-                    <td class="${svClass}">${row.sv.toFixed(1)}</td>
-                    <td>${row.eScore.toFixed(1)}</td>
-                    <td class="col-dv">${row.dScore.toFixed(1)}</td>
-                    <td>${row.eDelta.toFixed(2)}</td>
-                    <td class="${deltaClass}">${row.delta.toFixed(1)}</td>
+                    <td class="col-subscore">${row.eg.toFixed(1)}</td>
+                    <td class="col-subscore">${row.sb.toFixed(1)}</td>
+                    <td class="col-subscore">${row.nd.toFixed(1)}</td>
+                    <td class="col-subscore">${row.cv.toFixed(1)}</td>
+                    <td class="${svClass} col-subscore">${row.sv.toFixed(1)}</td>
+                    <td class="col-subscore">${row.compe.toFixed(1)}</td>
+                    <td class="col-dscore">${row.compd.toFixed(1)}</td>
+                    <td class="col-edelta">${row.eDelta.toFixed(2)}</td>
+                    <td class="${deltaClass} col-delta">${row.delta.toFixed(1)}</td>
                     <td class="${percentageTextClass} col-perc">${row.percentage.toFixed(1)}%</td>
                   </tr>
                 `;
@@ -1763,13 +1803,13 @@ async function generatePDFHTML(
           </table>
         </div>
         
-        <!-- Statistics -->
+        <!-- Statistics Area-->
         <div class="statistics">
           <h3>📊 Competition Statistics</h3>
           <div class="stats-grid">
             <div class="stat-box">
-              <div class="stat-number">${maxPercentage.toFixed(2)}%</div>
-              <div class="stat-label">Highest</div>
+              <div class="stat-number">${totalParticipants}</div>
+              <div class="stat-label">Total Participants</div>
             </div>
             <div class="stat-box">
               <div class="stat-number">${avgPercentage.toFixed(2)}%</div>
@@ -2199,17 +2239,50 @@ async function generatePDFHTML(
           line-height: 1.1;
         }
 
-        /* Column sizing helpers */
-        .col-no { width: 34px; }
-        .col-gymnast { width: 150px; }
-        .col-event { width: 40px; }
-        .col-noc { width: 44px; }
-        .col-bib { width: 44px; }
-        .col-perc { width: 46px; }
+        /* Column sizing helpers (scoped to SUMMARY table only) */
+        .summary-table .col-no { width: 17px; }
+        .summary-table .col-gymnast { width: 50px; }
+        .summary-table .col-event { width: 36px; }
+        .summary-table .col-noc { width: 40px; }
 
-        /* Column sizing helpers (keep E/D Score same width as DV) */
-        .col-dv {
-          width: 36px;
+        /* Keep BIB + J..A as current */
+        .summary-table .col-bib { width: 44px; }
+
+        /* DV cut a little bit */
+        .summary-table .col-dv { width: 34px; }
+
+        /* Make these larger to show values like 2,0 */
+        .summary-table .col-subscore { width: 32px; }
+
+        /* D cut a little bit */
+        .summary-table .col-dscore { width: 34px; }
+
+        /* Percentage cut a little bit */
+        .summary-table .col-perc { width: 42px; }
+
+        /* Give more space to E Δ (more decimals) + Δ (1 decimal) */
+        .summary-table .col-edelta { width: 48px; }
+        .summary-table .col-delta { width: 30px; }
+
+        /* Help readability of decimals without affecting other tables */
+        .summary-table .col-dv,
+        .summary-table .col-subscore,
+        .summary-table .col-dscore,
+        .summary-table .col-edelta,
+        .summary-table .col-delta,
+        .summary-table .col-perc {
+          white-space: nowrap;
+          font-variant-numeric: tabular-nums;
+        }
+
+        /* Compact mode for Android fallback (summary-only) */
+        .summary-compact .summary-table th {
+          font-size: 6px;
+          padding: 4px 2px;
+        }
+        .summary-compact .summary-table td {
+          font-size: 6px;
+          padding: 3px 2px;
         }
         
         th {

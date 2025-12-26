@@ -621,7 +621,6 @@ export default function GymnastFloor() {
   const handleElementGroupChange = async (group: string, value: number) => {
     // Validaciones según el evento
     const evento = gymnast?.evento || '';
-    const maxGroups = getMaxGroupsForEvent(evento);
     
     // Validar rango de valores según disciplina y evento
     const maxValue = getMaxValueForGroup(evento, discipline);
@@ -632,14 +631,6 @@ export default function GymnastFloor() {
     
     const updated = { ...elementGroupValues, [group]: value };
     const total = updated.I + updated.II + updated.III + updated.IV;
-    
-    // Validar total máximo según evento y disciplina
-    const maxValuePerGroup = getMaxValueForGroup(evento, discipline);
-    const maxTotal = maxGroups * maxValuePerGroup;
-    if (total > maxTotal) {
-      Alert.alert('Error', `El total de grupos para ${evento} no puede exceder ${maxTotal.toFixed(1)}`);
-      return;
-    }
 
     setElementGroupValues(updated);
     setElementGroupsTotal(total);
@@ -700,7 +691,12 @@ export default function GymnastFloor() {
     try {
       await saveGymnastData();
       if (whiteboardRef.current) {
-        await whiteboardRef.current.forceSave();
+        try {
+          await whiteboardRef.current.forceSave();
+        } catch (e) {
+          console.error('Whiteboard forceSave failed:', e);
+          // No bloquear navegación por whiteboard; evitar crash.
+        }
       }
 
       if (nextGymnast) {
@@ -749,7 +745,12 @@ export default function GymnastFloor() {
     try {
       await saveGymnastData();
       if (whiteboardRef.current) {
-        await whiteboardRef.current.forceSave();
+        try {
+          await whiteboardRef.current.forceSave();
+        } catch (e) {
+          console.error('Whiteboard forceSave failed:', e);
+          // No bloquear navegación por whiteboard; evitar crash.
+        }
       }
 
       router.push({
@@ -839,6 +840,7 @@ export default function GymnastFloor() {
         discipline={discipline}
         event={gymnast?.evento}
         percentage={percentage}
+        onBeforeAddImage={saveGymnastData}
       />
       
       <ScrollView>
