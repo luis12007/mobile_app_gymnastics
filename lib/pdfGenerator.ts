@@ -1,6 +1,6 @@
 import * as Print from 'expo-print';
 import { shareAsync, isAvailableAsync } from 'expo-sharing';
-import { Platform, Alert, Image } from 'react-native';
+import { Platform, Alert, Image, Dimensions } from 'react-native';
 import { PDFDocument } from 'pdf-lib';
 import { 
   getCompetitionById, 
@@ -437,13 +437,18 @@ async function getJumpImageBase64(): Promise<string> {
       // In production, Asset.uri can be "asset:/..." and not directly readable.
       // Force a local file URI.
       try {
+        // loadAsync alone often leaves `localUri` unset on Android production.
+        // downloadAsync is what guarantees a readable file:// URI.
         await Asset.loadAsync([moduleId]);
       } catch {
-        try {
-          await asset.downloadAsync();
-        } catch {
-          // ignore
-        }
+        // ignore
+      }
+
+      try {
+        await asset.downloadAsync();
+      } catch (e) {
+        // It's ok if this fails in some runtimes, we'll try best-effort below.
+        console.warn('[PDF][JumpImage] asset.downloadAsync failed', e);
       }
 
       const primaryUri = asset.localUri || asset.uri;
@@ -462,7 +467,7 @@ async function getJumpImageBase64(): Promise<string> {
             return `data:${mime};base64,${base64}`;
           }
         } catch (e) {
-          console.warn('[PDF][JumpImage] FileSystem read failed', { fileUri, e });
+          console.warn('[PDF][JumpImage] FileSystem read failed', { fileUri, primaryUri, e });
         }
       }
 
@@ -749,6 +754,24 @@ type ParsedWhiteboardPath = {
 
 const PDF_WHITEBOARD_W = 650;
 const PDF_WHITEBOARD_H = 390;
+
+type WhiteboardCanvasPreset = 'floor' | 'vault';
+
+function getWhiteboardCanvasSizeForPreset(preset: WhiteboardCanvasPreset): { width: number; height: number } {
+  // Match the runtime canvas size used by WhiteboardScreen callers.
+  // This is critical: if we infer src size from drawn content, the background shifts/scales
+  // depending on how much was drawn. Using a fixed canvas size keeps alignment stable.
+  const { width, height } = Dimensions.get('window');
+
+  // These multipliers mirror the screens:
+  // - Floor: height={height * 0.69} and width={width}
+  // - Vault: height={height * 0.75} and width defaults to SCREEN_WIDTH
+  const h = preset === 'vault' ? height * 0.75 : height * 0.69;
+  return {
+    width: Math.max(1, width),
+    height: Math.max(1, h),
+  };
+}
 
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 
@@ -1085,6 +1108,86 @@ function inferCanvasSizeFromContent(
   return { width: maxX, height: maxY };
 }
 
+function buildJumpBackgroundFallbackPath(x: number, y: number, w: number, h: number): string {
+  // Production-safe vector fallback for the vault/jump background.
+  // Target look: one red baseline, centered square (no bottom border),
+  // plus vertical dashed guide lines that appear "cut" by the square.
+
+  // IMPORTANT: mimic the raster Jump image behavior (fit="contain")
+  // by drawing in a fixed template coordinate system, then fitting it into the bg box.
+  // This keeps alignment stable across different inferred canvas sizes.
+  const TEMPLATE_W = 650;
+  const TEMPLATE_H = 390;
+  const scale = Math.min(w / TEMPLATE_W, h / TEMPLATE_H);
+  const tx = x + (w - TEMPLATE_W * scale) / 2;
+  const ty = y + (h - TEMPLATE_H * scale) / 2;
+
+  const left = 0;
+  const right = TEMPLATE_W;
+  const top = 0;
+
+  // Tune these to align with the jump template.
+  // baselineYFrac: 1.0 is bottom; smaller moves it up.
+  // squareCenterXFrac: 0.5 is centered; smaller moves it left.
+  const baselineYFrac = 0.86;
+  const squareCenterXFrac = 0.42;
+  const baseY = TEMPLATE_H * baselineYFrac;
+
+  // Center square geometry
+  // Make it a bit wider, but ONLY extend to the left (keep right edge stable).
+  const squareWBase = TEMPLATE_W * 0.19;
+  const squareW = TEMPLATE_W * 0.205;
+  const squareH = TEMPLATE_H * 0.28;
+  const squareRightX = TEMPLATE_W * squareCenterXFrac + squareWBase / 2;
+  const squareX = squareRightX - squareW;
+  const squareYTop = baseY - squareH;
+
+  // Vertical dashed guide lines: one at the start of the square (left edge),
+  // one at the end (right edge), and one further to the right.
+  const v1x = squareX;
+  const v2x = squareX + squareW;
+  const v3x = Math.min(right - TEMPLATE_W * 0.05, v2x + TEMPLATE_W * 0.22);
+
+  // Dash lines should reach the red baseline (baseY), not the canvas bottom.
+  const dashed = (vx: number) => `M ${vx} ${top} L ${vx} ${baseY}`;
+
+  // White "mask" rectangle (same as whiteboard background) to cut the dashed lines
+  // behind the centered square.
+  const maskRect = `
+    <rect x="${squareX}" y="${squareYTop}" width="${squareW}" height="${squareH}" fill="#f9f9f9" />
+  `;
+
+  // Square border: top + left + right only (no bottom border)
+  const squareLeft = `M ${squareX} ${baseY} L ${squareX} ${squareYTop}`;
+  const squareTop = `M ${squareX} ${squareYTop} L ${squareX + squareW} ${squareYTop}`;
+  const squareRight = `M ${squareX + squareW} ${squareYTop} L ${squareX + squareW} ${baseY}`;
+
+  // Baseline: split into 2 segments so it doesn't look like the square's bottom border
+  const baselineLeft = `M ${left} ${baseY} L ${squareX} ${baseY}`;
+  const baselineRight = `M ${squareX + squareW} ${baseY} L ${right} ${baseY}`;
+
+  return `
+    <g transform="translate(${tx} ${ty}) scale(${scale})" opacity="0.6">
+      <path d="${dashed(v1x)}" fill="none" stroke="#000" stroke-width="1.5" stroke-dasharray="7 7" opacity="0.6" />
+      <path d="${dashed(v2x)}" fill="none" stroke="#000" stroke-width="1.5" stroke-dasharray="7 7" opacity="0.6" />
+      <path d="${dashed(v3x)}" fill="none" stroke="#000" stroke-width="1.5" stroke-dasharray="7 7" opacity="0.6" />
+
+      ${maskRect}
+
+      <path d="${squareLeft}" fill="none" stroke="#d11" stroke-width="2" />
+      <path d="${squareTop}" fill="none" stroke="#d11" stroke-width="2" />
+      <path d="${squareRight}" fill="none" stroke="#d11" stroke-width="2" />
+
+      <path d="${baselineLeft}" fill="none" stroke="#d11" stroke-width="2" />
+      <path d="${baselineRight}" fill="none" stroke="#d11" stroke-width="2" />
+    </g>
+  `;
+}
+
+// Testing switch: set to true to force the vector fallback even when the raster jump image loads.
+// Keep false for final production behavior (prefer image when available).
+const FORCE_JUMP_BG_FALLBACK = true;
+
 async function buildWhiteboardSvgForPdf(opts: {
   tracesJSON: string;
   gymnastImages: GymnastImage[];
@@ -1092,6 +1195,7 @@ async function buildWhiteboardSvgForPdf(opts: {
   jumpImageBase64?: string;
   omitImages?: boolean;
   imageMode?: 'full' | 'perImage';
+  canvasSize?: { width: number; height: number };
 }): Promise<string> {
   const tracesChars = typeof opts.tracesJSON === 'string' ? opts.tracesJSON.length : 0;
   const paths = parseWhiteboardPaths(opts.tracesJSON);
@@ -1118,33 +1222,46 @@ async function buildWhiteboardSvgForPdf(opts: {
     // ignore
   }
 
-  const src = inferCanvasSizeFromContent(paths, loadedImages);
+  const src = opts.canvasSize ?? inferCanvasSizeFromContent(paths, loadedImages);
   const { scale, tx, ty } = containTransform(src.width, src.height, PDF_WHITEBOARD_W, PDF_WHITEBOARD_H);
 
-  const bgW = src.width * 0.9;
-  const bgH = src.height * 0.9;
+  // Match WhiteboardScreen semantics but make the jump background bigger on small/tiny devices.
+  // On small canvases, the 0.9 factor leaves too much margin and the template looks tiny.
+  const jumpBgScale = opts.showJumpBackground
+    ? ((src.height < 420 || src.width < 820) ? 0.98 : 0.9)
+    : 0.9;
+
+  const bgW = src.width * jumpBgScale;
+  const bgH = src.height * jumpBgScale;
   const bgX = (src.width - bgW) / 2;
   const bgY = (src.height - bgH) / 2;
 
-  const jumpLayer = opts.showJumpBackground && opts.jumpImageBase64
-    ? `
-      <image
-        x="${bgX}"
-        y="${bgY}"
-        width="${bgW}"
-        height="${bgH}"
-        href="${opts.jumpImageBase64}"
-        opacity="0.6"
-        preserveAspectRatio="xMidYMid meet"
-      />
-    `
+  const shouldShowJump = !!opts.showJumpBackground;
+  const hasJumpImage = typeof opts.jumpImageBase64 === 'string' && opts.jumpImageBase64.length > 0;
+
+  const jumpLayer = shouldShowJump
+    ? ((FORCE_JUMP_BG_FALLBACK || !hasJumpImage)
+      ? buildJumpBackgroundFallbackPath(bgX, bgY, bgW, bgH)
+      : `
+          <image
+            x="${bgX}"
+            y="${bgY}"
+            width="${bgW}"
+            height="${bgH}"
+            href="${opts.jumpImageBase64}"
+            xlink:href="${opts.jumpImageBase64}"
+            opacity="0.6"
+            preserveAspectRatio="xMidYMid meet"
+          />
+        `
+    )
     : '';
 
   const imagesLayer = opts.omitImages ? '' : renderGymnastImagesAsSvg(loadedImages);
   const pathsLayer = renderPathsAsSvg(paths);
 
   const svg = `
-    <svg class="whiteboard-canvas" viewBox="0 0 ${PDF_WHITEBOARD_W} ${PDF_WHITEBOARD_H}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+    <svg class="whiteboard-canvas" viewBox="0 0 ${PDF_WHITEBOARD_W} ${PDF_WHITEBOARD_H}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="xMidYMid meet">
       <rect width="${PDF_WHITEBOARD_W}" height="${PDF_WHITEBOARD_H}" fill="#f9f9f9" />
       <g transform="translate(${tx} ${ty}) scale(${scale})">
         ${jumpLayer}
@@ -1366,12 +1483,14 @@ async function generateFloorPage(
     try {
       const tracesJSON = await getGymnastTracesAsJSON(gymnast.id);
       const images = await getGymnastImages(gymnast.id);
+      const canvasSize = getWhiteboardCanvasSizeForPreset('floor');
       whiteboardSvg = await buildWhiteboardSvgForPdf({
         tracesJSON,
         gymnastImages: images,
         showJumpBackground: false,
         omitImages: opts?.whiteboardMode === 'pathsOnly',
         imageMode: opts?.whiteboardMode === 'perImage' ? 'perImage' : 'full',
+        canvasSize,
       });
     } catch (error) {
       console.warn('[PDF] Error getting traces for gymnast:', gymnast.id, error);
@@ -1519,6 +1638,7 @@ async function generateVaultPage(
       const images = await getGymnastImages(gymnast.id);
       // Cargar imagen del salto como base64
       const jumpImageBase64 = await getJumpImageBase64();
+      const canvasSize = getWhiteboardCanvasSizeForPreset('vault');
       whiteboardSvg = await buildWhiteboardSvgForPdf({
         tracesJSON,
         gymnastImages: images,
@@ -1526,6 +1646,7 @@ async function generateVaultPage(
         jumpImageBase64,
         omitImages: opts?.whiteboardMode === 'pathsOnly',
         imageMode: opts?.whiteboardMode === 'perImage' ? 'perImage' : 'full',
+        canvasSize,
       });
     } catch (error) {
       console.warn('[PDF] Error getting traces for gymnast:', gymnast.id, error);

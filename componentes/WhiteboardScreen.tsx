@@ -1406,66 +1406,72 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
             </Group>
           ) : null}
 
-          {visiblePhotos.map(item => (
-            <SkiaPhoto key={item.id} item={item} registerMeta={registerImageMeta} renderNonce={photosRenderNonce} />
-          ))}
+          {/* Draw everything user-generated on an offscreen layer.
+              This allows the eraser to use blendMode="clear" without affecting the jump background. */}
+          <Group layer>
+            {visiblePhotos.map(item => (
+              <SkiaPhoto key={item.id} item={item} registerMeta={registerImageMeta} renderNonce={photosRenderNonce} />
+            ))}
 
-          {normalPaths.map(({ pd, idx, path }) => (
-            <Path
-              key={`n-${idx}`}
-              path={path as SkPath}
-              color={pd.isEraser ? '#f9f9f9' : pd.color}
-              style="stroke"
-              strokeWidth={pd.isEraser ? getEraserStrokeWidth(pd.strokeWidth) : pd.strokeWidth}
-              strokeJoin="round"
-              strokeCap="round"
-            />
-          ))}
-
-          {telePaths.map(({ pd, idx, path }) => (
-            <Path
-              key={`t-${idx}`}
-              path={path as SkPath}
-              color={pd.color}
-              style="stroke"
-              strokeWidth={pd.strokeWidth}
-              strokeJoin="round"
-              strokeCap="round"
-              opacity={0.8}
-            />
-          ))}
-
-          {highlightPaths.map(({ pd, idx, path }) => (
-            <Group key={`h-${idx}`}>
-              <Path path={path as SkPath} color={pd.color} style="fill" opacity={0.3} />
+            {normalPaths.map(({ pd, idx, path }) => (
               <Path
+                key={`n-${idx}`}
+                path={path as SkPath}
+                color={pd.isEraser ? 'transparent' : pd.color}
+                style="stroke"
+                strokeWidth={pd.isEraser ? getEraserStrokeWidth(pd.strokeWidth) : pd.strokeWidth}
+                strokeJoin="round"
+                strokeCap="round"
+                blendMode={pd.isEraser ? 'clear' : 'srcOver'}
+              />
+            ))}
+
+            {telePaths.map(({ pd, idx, path }) => (
+              <Path
+                key={`t-${idx}`}
                 path={path as SkPath}
                 color={pd.color}
                 style="stroke"
                 strokeWidth={pd.strokeWidth}
                 strokeJoin="round"
                 strokeCap="round"
-                opacity={0.5}
+                opacity={0.8}
               />
-            </Group>
-          ))}
+            ))}
 
-          {currentPathDisplay ? (
-            <Group>
-              {selectedPen === 2 && !isEraser ? (
-                <Path path={currentPathDisplay} color="yellow" style="fill" opacity={0.3} />
-              ) : null}
-              <Path
-                path={currentPathDisplay}
-                color={liveColor}
-                style="stroke"
-                strokeWidth={liveStrokeWidth}
-                strokeJoin="round"
-                strokeCap="round"
-                opacity={isEraser ? 1 : selectedPen === 1 ? 0.8 : selectedPen === 2 ? 0.5 : 1}
-              />
-            </Group>
-          ) : null}
+            {highlightPaths.map(({ pd, idx, path }) => (
+              <Group key={`h-${idx}`}>
+                <Path path={path as SkPath} color={pd.color} style="fill" opacity={0.3} />
+                <Path
+                  path={path as SkPath}
+                  color={pd.color}
+                  style="stroke"
+                  strokeWidth={pd.strokeWidth}
+                  strokeJoin="round"
+                  strokeCap="round"
+                  opacity={0.5}
+                />
+              </Group>
+            ))}
+
+            {currentPathDisplay ? (
+              <Group>
+                {selectedPen === 2 && !isEraser ? (
+                  <Path path={currentPathDisplay} color="yellow" style="fill" opacity={0.3} />
+                ) : null}
+                <Path
+                  path={currentPathDisplay}
+                  color={isEraser ? 'transparent' : liveColor}
+                  style="stroke"
+                  strokeWidth={liveStrokeWidth}
+                  strokeJoin="round"
+                  strokeCap="round"
+                  opacity={isEraser ? 1 : selectedPen === 1 ? 0.8 : selectedPen === 2 ? 0.5 : 1}
+                  blendMode={isEraser ? 'clear' : 'srcOver'}
+                />
+              </Group>
+            ) : null}
+          </Group>
         </Canvas>
       );
     });
