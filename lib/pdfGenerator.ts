@@ -1602,7 +1602,7 @@ async function generateFloorPage(
           <div class="comp-cell">D</div>
           <div class="comp-value">${row.compd.toFixed(1)}</div>
           <div class="comp-cell">E</div>
-          <div class="comp-value">${row.compe.toFixed(1)}</div>
+          <div class="comp-value">${row.compe.toFixed(3)}</div>
           <div class="comp-cell">SB</div>
           <div class="comp-value">${row.compsb.toFixed(1)}</div>
           <div class="comp-cell">ND</div>
@@ -1734,7 +1734,7 @@ async function generateVaultPage(
           <div class="comp-cell">D</div>
           <div class="comp-value">${row.compd.toFixed(1)}</div>
           <div class="comp-cell">E</div>
-          <div class="comp-value">${row.compe.toFixed(1)}</div>
+          <div class="comp-value">${row.compe.toFixed(3)}</div>
           <div class="comp-cell">SB</div>
           <div class="comp-value">${row.compsb.toFixed(1)}</div>
           <div class="comp-cell">ND</div>
@@ -1912,7 +1912,7 @@ async function generatePDFHTML(
                     <td class="col-subscore">${row.nd.toFixed(1)}</td>
                     <td class="col-subscore">${row.cv.toFixed(1)}</td>
                     <td class="${svClass} col-subscore">${row.sv.toFixed(1)}</td>
-                    <td class="col-subscore">${row.compe.toFixed(1)}</td>
+                    <td class="col-subscore">${row.compe.toFixed(3)}</td>
                     <td class="col-dscore">${row.compd.toFixed(1)}</td>
                     <td class="col-edelta">${row.eDelta.toFixed(2)}</td>
                     <td class="${deltaClass} col-delta">${row.delta.toFixed(1)}</td>

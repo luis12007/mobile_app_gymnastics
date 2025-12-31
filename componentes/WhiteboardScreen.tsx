@@ -482,18 +482,35 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
         })
         .filter(Boolean);
 
-      const skPaths: SkPath[] = [];
+      // IMPORTANT: mantenemos alineación 1:1 entre pathsData y paths.
+      // Si un SVG está corrupto o no se puede parsear, se descarta (skip) para evitar crashes.
+      const alignedData: PathData[] = [];
+      const alignedPaths: SkPath[] = [];
       for (const pd of loaded) {
+        const pathStr = typeof pd.path === 'string' ? pd.path : '';
+        if (!pathStr) continue;
+
+        const strokeW = Number(pd.strokeWidth);
+        const safePd: PathData = {
+          path: pathStr,
+          color: pd.color ?? penConfigRef.current.color,
+          strokeWidth: Number.isFinite(strokeW) && strokeW > 0 ? strokeW : 1,
+          penType: (pd.penType ?? 0) as PenType,
+          isEraser: !!pd.isEraser,
+        };
+
         try {
-          const sk = Skia.Path.MakeFromSVGString(pd.path);
-          if (sk) skPaths.push(sk);
+          const sk = Skia.Path.MakeFromSVGString(safePd.path);
+          if (!sk) continue;
+          alignedData.push(safePd);
+          alignedPaths.push(sk);
         } catch {
           // ignore
         }
       }
 
-      setPathsData(loaded.slice(-MAX_PATHS_MEMORY));
-      setPaths(skPaths.slice(-MAX_PATHS_MEMORY));
+      setPathsData(alignedData.slice(-MAX_PATHS_MEMORY));
+      setPaths(alignedPaths.slice(-MAX_PATHS_MEMORY));
     } catch {
       setPaths([]);
       setPathsData([]);
@@ -625,7 +642,18 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       }
     }
 
-    const pathString = newPath.toSVGString();
+    let pathString = '';
+    try {
+      pathString = newPath.toSVGString();
+    } catch {
+      return;
+    }
+    if (typeof pathString !== 'string' || pathString.length === 0) return;
+
+    // Sanitizar strokeWidth por seguridad
+    if (!Number.isFinite(pathStrokeWidth) || pathStrokeWidth <= 0) {
+      pathStrokeWidth = STROKE_MIN;
+    }
 
     const newPathData: PathData = {
       path: pathString,
@@ -793,14 +821,29 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     return Gesture.Pan()
       .runOnJS(true)
       .onUpdate(event => {
-        const { x } = event;
-        const pct = Math.max(0, Math.min(1, x / STROKE_BAR_WIDTH));
-        const newWidth = Math.round(STROKE_MIN + pct * (STROKE_MAX - STROKE_MIN));
-        runOnJS(changeStrokeWidth)(newWidth);
+        try {
+          const { x } = event;
+          if (!Number.isFinite(x)) return;
+          const pct = Math.max(0, Math.min(1, x / STROKE_BAR_WIDTH));
+          const newWidth = Math.round(STROKE_MIN + pct * (STROKE_MAX - STROKE_MIN));
+          if (!Number.isFinite(newWidth)) return;
+          runOnJS(changeStrokeWidth)(newWidth);
+        } catch {
+          // ignore
+        }
       });
   }, [changeStrokeWidth]);
 
   const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+
+  const safeCopyPath = useCallback((p: SkPath | null): SkPath | null => {
+    if (!p) return null;
+    try {
+      return p.copy();
+    } catch {
+      return null;
+    }
+  }, []);
 
   const scheduleDisplayPath = useCallback((pathCopy: SkPath | null) => {
     pendingDisplayPathRef.current = pathCopy;
@@ -808,12 +851,14 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
     rafRef.current = requestAnimationFrame(() => {
       const p = pendingDisplayPathRef.current;
-      setCurrentPathDisplay(p ? p.copy() : null);
+      // `pathCopy` ya debería ser una copia segura; no hacemos otro copy aquí.
+      setCurrentPathDisplay(p ?? null);
       rafRef.current = null;
     });
   }, []);
 
   const addSmoothedPoint = (path: SkPath, x: number, y: number, timestamp?: number) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     const now = typeof timestamp === 'number' ? timestamp : Date.now();
 
     const prevRaw = lastRawPoint.current;
@@ -822,7 +867,11 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
     // First point
     if (!prevRaw || !prevFiltered || prevT == null) {
-      path.moveTo(x, y);
+      try {
+        path.moveTo(x, y);
+      } catch {
+        return;
+      }
       lastRawPoint.current = { x, y };
       lastFilteredPoint.current = { x, y };
       lastTimestampRef.current = now;
@@ -847,7 +896,11 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     // Quadratic smoothing using midpoint
     const midX = (prevFiltered.x + fx) / 2;
     const midY = (prevFiltered.y + fy) / 2;
-    path.quadTo(prevFiltered.x, prevFiltered.y, midX, midY);
+    try {
+      path.quadTo(prevFiltered.x, prevFiltered.y, midX, midY);
+    } catch {
+      return;
+    }
 
     lastRawPoint.current = { x, y };
     lastFilteredPoint.current = { x: fx, y: fy };
@@ -856,17 +909,25 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
   const finalizeSmoothedPath = (path: SkPath) => {
     const last = lastFilteredPoint.current;
-    if (last) path.lineTo(last.x, last.y);
+    if (!last) return;
+    if (!Number.isFinite(last.x) || !Number.isFinite(last.y)) return;
+    try {
+      path.lineTo(last.x, last.y);
+    } catch {
+      // ignore
+    }
   };
 
   const findPhotoAtPoint = useCallback(
     (x: number, y: number): number | null => {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
       for (let i = photoItems.length - 1; i >= 0; i--) {
         const photo = photoItems[i];
         const meta = imageMeta[photo.id];
         if (!meta) continue;
         const w = meta.w * (photo.scale || 1);
         const h = meta.h * (photo.scale || 1);
+        if (!Number.isFinite(w) || !Number.isFinite(h)) continue;
         if (x >= photo.x && x <= photo.x + w && y >= photo.y && y <= photo.y + h) {
           return photo.id;
         }
@@ -902,6 +963,27 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
   const forceSave = useCallback(async () => {
     // No debe crashear: best-effort flush.
+    // 1) Commit del trazo activo para evitar perder el último stroke si se guarda mientras dibuja.
+    try {
+      if (currentPath.current && isDrawingRef.current) {
+        finalizeSmoothedPath(currentPath.current);
+        const copy = safeCopyPath(currentPath.current);
+        if (copy) {
+          // Aquí NO usamos runOnJS: ya estamos en JS thread.
+          updatePaths(copy);
+        }
+        scheduleDisplayPath(null);
+        currentPath.current = null;
+        isDrawingRef.current = false;
+        lastRawPoint.current = null;
+        lastFilteredPoint.current = null;
+        lastTimestampRef.current = null;
+      }
+    } catch {
+      // ignore
+    }
+
+    // 2) Flush de trazos pendientes
     try {
       await flushPendingTracesNow();
     } catch {
@@ -917,7 +999,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     } catch {
       // ignore
     }
-  }, [flushPendingPhotoUpdates, flushPendingTracesNow]);
+  }, [flushPendingPhotoUpdates, flushPendingTracesNow, safeCopyPath, scheduleDisplayPath, updatePaths]);
 
   useImperativeHandle(ref, () => ({ forceSave }), [forceSave]);
 
@@ -1174,89 +1256,112 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     .runOnJS(true)
     .minDistance(1)
     .onStart(event => {
-      const { x, y } = event;
-      const pointerType = (event as any).pointerType ?? 0; // 0=finger
+      try {
+        const { x, y } = event;
+        const pointerType = (event as any).pointerType ?? 0; // 0=finger
 
-      handBlockLoggedRef.current = false;
+        handBlockLoggedRef.current = false;
 
-      const photoId = findPhotoAtPoint(x, y);
-      if (photoId) {
-        selectedPhotoRef.current = photoId;
-        setSelectedPhotoId(photoId);
-        const photo = photoItems.find(p => p.id === photoId);
-        if (photo) {
-          photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
+        const photoId = findPhotoAtPoint(x, y);
+        if (photoId) {
+          selectedPhotoRef.current = photoId;
+          setSelectedPhotoId(photoId);
+          const photo = photoItems.find(p => p.id === photoId);
+          if (photo) {
+            photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
+          }
+          return;
         }
-        return;
-      }
 
-      // Validation (flipped):
-      // - HAND mode 🤚: only finger can draw
-      // - PEN mode ✍️: only stylus/mouse can draw
-      const canDraw = handMode ? pointerType === 0 : pointerType !== 0;
-      if (!canDraw) {
-        if (__DEV__ && !handBlockLoggedRef.current) {
-          console.log('[Whiteboard] blocked draw by pointerType', {
-            pointerType,
-            handMode,
-            mode: handMode ? 'HAND' : 'PEN',
-          });
-          handBlockLoggedRef.current = true;
+        // Validation (flipped):
+        // - HAND mode 🤚: only finger can draw
+        // - PEN mode ✍️: only stylus/mouse can draw
+        const canDraw = handMode ? pointerType === 0 : pointerType !== 0;
+        if (!canDraw) {
+          if (__DEV__ && !handBlockLoggedRef.current) {
+            console.log('[Whiteboard] blocked draw by pointerType', {
+              pointerType,
+              handMode,
+              mode: handMode ? 'HAND' : 'PEN',
+            });
+            handBlockLoggedRef.current = true;
+          }
+          return;
         }
-        return;
-      }
 
-      isDrawingRef.current = true;
-      currentPath.current = Skia.Path.Make();
-      lastRawPoint.current = null;
-      lastFilteredPoint.current = null;
-      lastTimestampRef.current = null;
-      addSmoothedPoint(currentPath.current, x, y, (event as any)?.timestamp);
-      scheduleDisplayPath(currentPath.current.copy());
-    })
-    .onUpdate(event => {
-      const { x, y, translationX, translationY } = event;
-      const pointerType = (event as any).pointerType ?? 0;
+        let p: SkPath | null = null;
+        try {
+          p = Skia.Path.Make();
+        } catch {
+          p = null;
+        }
+        if (!p) return;
 
-      if (selectedPhotoRef.current && photoGestureStartRef.current) {
-        const nx = photoGestureStartRef.current.x + translationX;
-        const ny = photoGestureStartRef.current.y + translationY;
-        updatePhotoTransform(selectedPhotoRef.current, { x: nx, y: ny });
-        return;
-      }
-
-      const canDraw = handMode ? pointerType === 0 : pointerType !== 0;
-      if (!canDraw) return;
-
-      if (currentPath.current && isDrawingRef.current) {
-        addSmoothedPoint(currentPath.current, x, y, (event as any)?.timestamp);
-        scheduleDisplayPath(currentPath.current.copy());
-      }
-    })
-    .onEnd(event => {
-      const pointerType = (event as any).pointerType ?? 0;
-
-      // finalize draw
-      const canDraw = handMode ? pointerType === 0 : pointerType !== 0;
-      if (!canDraw) return;
-
-      if (currentPath.current && isDrawingRef.current) {
-        finalizeSmoothedPath(currentPath.current);
-        runOnJS(updatePaths)(currentPath.current.copy());
-        scheduleDisplayPath(null);
-        currentPath.current = null;
-        isDrawingRef.current = false;
+        isDrawingRef.current = true;
+        currentPath.current = p;
         lastRawPoint.current = null;
         lastFilteredPoint.current = null;
         lastTimestampRef.current = null;
+        addSmoothedPoint(currentPath.current, x, y, (event as any)?.timestamp);
+        scheduleDisplayPath(safeCopyPath(currentPath.current));
+      } catch {
+        // ignore
       }
+    })
+    .onUpdate(event => {
+      try {
+        const { x, y, translationX, translationY } = event;
+        const pointerType = (event as any).pointerType ?? 0;
 
-      // update gesture start for photo
-      if (selectedPhotoRef.current) {
-        const photo = photoItems.find(p => p.id === selectedPhotoRef.current);
-        if (photo) {
-          photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
+        if (selectedPhotoRef.current && photoGestureStartRef.current) {
+          const nx = photoGestureStartRef.current.x + translationX;
+          const ny = photoGestureStartRef.current.y + translationY;
+          updatePhotoTransform(selectedPhotoRef.current, { x: nx, y: ny });
+          return;
         }
+
+        const canDraw = handMode ? pointerType === 0 : pointerType !== 0;
+        if (!canDraw) return;
+
+        if (currentPath.current && isDrawingRef.current) {
+          addSmoothedPoint(currentPath.current, x, y, (event as any)?.timestamp);
+          scheduleDisplayPath(safeCopyPath(currentPath.current));
+        }
+      } catch {
+        // ignore
+      }
+    })
+    .onEnd(event => {
+      try {
+        const pointerType = (event as any).pointerType ?? 0;
+
+        // finalize draw
+        const canDraw = handMode ? pointerType === 0 : pointerType !== 0;
+        if (!canDraw) return;
+
+        if (currentPath.current && isDrawingRef.current) {
+          finalizeSmoothedPath(currentPath.current);
+          const copy = safeCopyPath(currentPath.current);
+          if (copy) {
+            runOnJS(updatePaths)(copy);
+          }
+          scheduleDisplayPath(null);
+          currentPath.current = null;
+          isDrawingRef.current = false;
+          lastRawPoint.current = null;
+          lastFilteredPoint.current = null;
+          lastTimestampRef.current = null;
+        }
+
+        // update gesture start for photo
+        if (selectedPhotoRef.current) {
+          const photo = photoItems.find(p => p.id === selectedPhotoRef.current);
+          if (photo) {
+            photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
+          }
+        }
+      } catch {
+        // ignore
       }
     });
 
@@ -1380,6 +1485,11 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       // Back-compat: older eraser traces stored un-multiplied widths
       const getEraserStrokeWidth = (w: number) => (w <= 10 ? w * 4 : w);
 
+      const safeStrokeWidth = (w: unknown, fallback = 1) => {
+        const n = Number(w);
+        return Number.isFinite(n) && n > 0 ? n : fallback;
+      };
+
       const liveColor = isEraser
         ? '#f9f9f9'
         : selectedPen === 1
@@ -1388,10 +1498,10 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
             ? 'yellow'
             : currentColor;
       const liveStrokeWidth = isEraser
-        ? currentStrokeWidth * 4
+        ? safeStrokeWidth(currentStrokeWidth) * 4
         : selectedPen === 1
           ? 2
-          : currentStrokeWidth;
+          : safeStrokeWidth(currentStrokeWidth);
 
       const bgW = canvasWidth * 0.9;
       const bgH = canvasHeight * 0.9;
@@ -1419,7 +1529,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
                 path={path as SkPath}
                 color={pd.isEraser ? 'transparent' : pd.color}
                 style="stroke"
-                strokeWidth={pd.isEraser ? getEraserStrokeWidth(pd.strokeWidth) : pd.strokeWidth}
+                strokeWidth={pd.isEraser ? getEraserStrokeWidth(safeStrokeWidth(pd.strokeWidth)) : safeStrokeWidth(pd.strokeWidth)}
                 strokeJoin="round"
                 strokeCap="round"
                 blendMode={pd.isEraser ? 'clear' : 'srcOver'}
@@ -1432,7 +1542,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
                 path={path as SkPath}
                 color={pd.color}
                 style="stroke"
-                strokeWidth={pd.strokeWidth}
+                strokeWidth={safeStrokeWidth(pd.strokeWidth)}
                 strokeJoin="round"
                 strokeCap="round"
                 opacity={0.8}
@@ -1446,7 +1556,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
                   path={path as SkPath}
                   color={pd.color}
                   style="stroke"
-                  strokeWidth={pd.strokeWidth}
+                  strokeWidth={safeStrokeWidth(pd.strokeWidth)}
                   strokeJoin="round"
                   strokeCap="round"
                   opacity={0.5}
@@ -1463,7 +1573,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
                   path={currentPathDisplay}
                   color={isEraser ? 'transparent' : liveColor}
                   style="stroke"
-                  strokeWidth={liveStrokeWidth}
+                  strokeWidth={safeStrokeWidth(liveStrokeWidth)}
                   strokeJoin="round"
                   strokeCap="round"
                   opacity={isEraser ? 1 : selectedPen === 1 ? 0.8 : selectedPen === 2 ? 0.5 : 1}

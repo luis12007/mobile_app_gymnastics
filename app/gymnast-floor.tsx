@@ -1545,7 +1545,7 @@ const styles = StyleSheet.create({
   ndCell: {
     flex: 1,
     flexDirection: "row",
-    backgroundColor: "#00b050",
+    backgroundColor: "#f8c471" ,
     justifyContent: "space-around",
     alignItems: "center",
     borderWidth: 1,
@@ -1554,7 +1554,7 @@ const styles = StyleSheet.create({
   ndCellText: {
     flex: 1,
     flexDirection: "row",
-    backgroundColor: "#f8c471",
+    backgroundColor:  "#00b050",
     justifyContent: "space-around",
     alignItems: "center",
     borderWidth: 1,
