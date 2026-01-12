@@ -1,4 +1,4 @@
-import React, { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import React, { Component, forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Alert, Dimensions, Platform, ScrollView, StyleSheet, Text as RNText, TouchableOpacity, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
@@ -7,6 +7,34 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { db, getPenColor, getPenStroke, getPenType, setPenColor, setPenStroke, setPenType } from '../lib/database';
+
+// ErrorBoundary to catch any rendering errors and prevent app crashes
+class SkiaErrorBoundary extends Component<
+  { children: React.ReactNode; fallback?: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode; fallback?: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(_error: Error) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    if (__DEV__) {
+      console.warn('[SkiaErrorBoundary] Caught error:', error, errorInfo);
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback ?? <View style={{ flex: 1, backgroundColor: '#f9f9f9' }} />;
+    }
+    return this.props.children;
+  }
+}
 
 const TEXT_FONT_DELTA = -3;
 
@@ -91,6 +119,11 @@ const STROKE_BAR_WIDTH = 160;
 
 const MAX_PATHS_MEMORY = 300;
 const MAX_PHOTOS_RENDERED = 7;
+// Maximum number of points in a single path before we finalize and start a new one
+// This prevents paths from becoming too large and causing memory/performance issues
+const MAX_POINTS_PER_PATH = 150;
+// Minimum time between display updates (throttling) in ms
+const DISPLAY_THROTTLE_MS = 16; // ~60fps
 
 const PHOTO_DELETE_BUTTON_SIZE = 28;
 
@@ -130,22 +163,69 @@ const copyToAppCache = async (srcUri: string): Promise<string> => {
   return srcUri;
 };
 
-// Memoized Skia image
+// Track loaded image IDs globally to trigger re-renders when images load
+const loadedImageIds = new Set<number>();
+
+// Memoized Skia image with robust error handling and loading state
 const SkiaPhoto = memo(
   ({
     item,
     registerMeta,
     renderNonce,
+    onImageLoaded,
   }: {
     item: PhotoItem;
     registerMeta: (id: number, w: number, h: number) => void;
     renderNonce: number;
+    onImageLoaded?: (id: number) => void;
   }) => {
-    const img = useImage(item.uri);
-    if (!img) return null;
+    // Track if we've registered and notified for this image instance
+    const hasRegisteredRef = useRef(false);
+    const hasNotifiedRef = useRef(false);
+    const itemIdRef = useRef(item.id);
 
-    let bw = img.width();
-    let bh = img.height();
+    // Reset refs if item ID changes (new image)
+    if (itemIdRef.current !== item.id) {
+      itemIdRef.current = item.id;
+      hasRegisteredRef.current = false;
+      hasNotifiedRef.current = false;
+    }
+
+    // useImage can throw or return null; wrap in try-catch conceptually
+    let img: ReturnType<typeof useImage> = null;
+    try {
+      img = useImage(item.uri);
+    } catch (e) {
+      // Skia useImage failed - likely corrupted URI or native error
+      if (__DEV__) console.warn('[SkiaPhoto] useImage error for', item.id, e);
+      return null;
+    }
+
+    // Image not yet loaded - notify parent to keep polling
+    if (!img) {
+      // Remove from loaded set so parent knows to keep polling
+      loadedImageIds.delete(item.id);
+      return null;
+    }
+
+    // Mark as loaded
+    loadedImageIds.add(item.id);
+
+    // Safe dimension extraction with fallbacks
+    let bw: number;
+    let bh: number;
+    try {
+      bw = img.width();
+      bh = img.height();
+      // Validate dimensions
+      if (!Number.isFinite(bw) || !Number.isFinite(bh) || bw <= 0 || bh <= 0) {
+        if (__DEV__) console.warn('[SkiaPhoto] Invalid dimensions for', item.id, bw, bh);
+        return null;
+      }
+    } catch (e) {
+      if (__DEV__) console.warn('[SkiaPhoto] Error getting dimensions for', item.id, e);
+      return null;
+    }
 
     const MAX_W = 400;
     const MAX_H = 400;
@@ -167,25 +247,52 @@ const SkiaPhoto = memo(
       bh *= f;
     }
 
-    registerMeta(item.id, bw, bh);
+    // Only register once per image load to avoid loops
+    if (!hasRegisteredRef.current) {
+      hasRegisteredRef.current = true;
+      // Use setTimeout to avoid calling during render
+      setTimeout(() => {
+        registerMeta(item.id, bw, bh);
+      }, 0);
+    }
+
+    // Notify parent that image loaded (for forcing re-render)
+    if (!hasNotifiedRef.current && onImageLoaded) {
+      hasNotifiedRef.current = true;
+      setTimeout(() => {
+        onImageLoaded(item.id);
+      }, 50);
+    }
 
     const scale = item.scale || 1;
     const rot = (item.rotation || 0) * (Math.PI / 180);
 
-    return (
-      <Group
-        transform={[
-          { translateX: item.x + (bw * scale) / 2 },
-          { translateY: item.y + (bh * scale) / 2 },
-          { rotate: rot },
-          { scale },
-          { translateX: -bw / 2 },
-          { translateY: -bh / 2 },
-        ]}
-      >
-        <SkiaImage image={img} x={0} y={0} width={bw} height={bh} fit="contain" />
-      </Group>
-    );
+    // Validate transform values
+    const safeX = Number.isFinite(item.x) ? item.x : 0;
+    const safeY = Number.isFinite(item.y) ? item.y : 0;
+    const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+    const safeRot = Number.isFinite(rot) ? rot : 0;
+
+    // Wrap rendering in try-catch to prevent crashes
+    try {
+      return (
+        <Group
+          transform={[
+            { translateX: safeX + (bw * safeScale) / 2 },
+            { translateY: safeY + (bh * safeScale) / 2 },
+            { rotate: safeRot },
+            { scale: safeScale },
+            { translateX: -bw / 2 },
+            { translateY: -bh / 2 },
+          ]}
+        >
+          <SkiaImage image={img} x={0} y={0} width={bw} height={bh} fit="contain" />
+        </Group>
+      );
+    } catch (e) {
+      if (__DEV__) console.warn('[SkiaPhoto] Render error for', item.id, e);
+      return null;
+    }
   },
   (prev, next) =>
     prev.renderNonce === next.renderNonce &&
@@ -274,10 +381,17 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
   const lastRawPoint = useRef<{ x: number; y: number } | null>(null);
   const lastFilteredPoint = useRef<{ x: number; y: number } | null>(null);
   const lastTimestampRef = useRef<number | null>(null);
+  // Counter for points in current path to prevent overly long paths
+  const currentPathPointCount = useRef(0);
+  // Throttle display updates
+  const lastDisplayUpdateTime = useRef(0);
 
   // Avoid React re-render on every pointer update (smoother)
   const rafRef = useRef<number | null>(null);
   const pendingDisplayPathRef = useRef<SkPath | null>(null);
+
+  // Track if component is mounted to prevent state updates after unmount
+  const isMountedRef = useRef(true);
 
   const [paths, setPaths] = useState<SkPath[]>([]);
   const [pathsData, setPathsData] = useState<PathData[]>([]);
@@ -548,6 +662,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
   }, [gymnastId]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     let mounted = true;
     (async () => {
       await Promise.all([loadPathsFromDatabase(), loadPhotosFromDatabase()]);
@@ -555,6 +670,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     })();
     return () => {
       mounted = false;
+      isMountedRef.current = false;
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       if (photoSaveTimeoutRef.current) clearTimeout(photoSaveTimeoutRef.current);
       if (photosRefreshTimeoutRef.current) clearTimeout(photosRefreshTimeoutRef.current);
@@ -564,8 +680,60 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
+      // Clear loaded image tracking for this component instance
+      loadedImageIds.clear();
     };
   }, [loadPathsFromDatabase, loadPhotosFromDatabase, onLoaded]);
+
+  // Polling mechanism to ensure images become visible
+  // This runs when there are photos and keeps checking until all are loaded
+  const imagePollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollingAttemptsRef = useRef(0);
+  const MAX_POLLING_ATTEMPTS = 20; // Max 20 attempts (4 seconds at 200ms interval)
+
+  useEffect(() => {
+    // Clear any existing polling
+    if (imagePollingRef.current) {
+      clearInterval(imagePollingRef.current);
+      imagePollingRef.current = null;
+    }
+    pollingAttemptsRef.current = 0;
+
+    // No photos to poll for
+    if (photoItems.length === 0) return;
+
+    // Check if all images are loaded
+    const checkAllLoaded = () => {
+      const allLoaded = photoItems.every(p => loadedImageIds.has(p.id));
+      return allLoaded;
+    };
+
+    // If already all loaded, no need to poll
+    if (checkAllLoaded()) return;
+
+    // Start polling
+    imagePollingRef.current = setInterval(() => {
+      pollingAttemptsRef.current += 1;
+
+      // Force re-render to give useImage a chance to resolve
+      setPhotosRenderNonce(n => n + 1);
+
+      // Check if all loaded or max attempts reached
+      if (checkAllLoaded() || pollingAttemptsRef.current >= MAX_POLLING_ATTEMPTS) {
+        if (imagePollingRef.current) {
+          clearInterval(imagePollingRef.current);
+          imagePollingRef.current = null;
+        }
+      }
+    }, 200);
+
+    return () => {
+      if (imagePollingRef.current) {
+        clearInterval(imagePollingRef.current);
+        imagePollingRef.current = null;
+      }
+    };
+  }, [photoItems]);
 
   const persistTraceBatch = useCallback(
     async (batch: PathData[]) => {
@@ -606,77 +774,106 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
   const scheduleInsertTrace = useCallback(
     (newPathData: PathData) => {
-      // Debounced BATCH insert: no pierde trazos si el usuario dibuja rápido.
-      pendingTraceInsertsRef.current.push(newPathData);
+      try {
+        // Validate input
+        if (!newPathData || !newPathData.path) return;
 
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = setTimeout(() => {
-        void flushPendingTracesNow();
-      }, 250);
+        // Debounced BATCH insert: no pierde trazos si el usuario dibuja rápido.
+        if (!pendingTraceInsertsRef.current) {
+          pendingTraceInsertsRef.current = [];
+        }
+        pendingTraceInsertsRef.current.push(newPathData);
+
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = setTimeout(() => {
+          try {
+            void flushPendingTracesNow();
+          } catch {
+            // ignore
+          }
+        }, 250);
+      } catch {
+        // ignore
+      }
     },
     [flushPendingTracesNow]
   );
 
   const updatePaths = useCallback((newPath: SkPath) => {
-    // Match integration.txt: eraser uses background; telestrator fixed red+2; highlighter yellow; normal uses currentColor.
-    let pathColor: string;
-    let pathStrokeWidth: number;
-
-    if (isEraser) {
-      pathColor = '#f9f9f9';
-      pathStrokeWidth = currentStrokeWidth * 4;
-    } else {
-      switch (selectedPen) {
-        case 1:
-          pathColor = 'red';
-          pathStrokeWidth = 2;
-          break;
-        case 2:
-          pathColor = 'yellow';
-          pathStrokeWidth = currentStrokeWidth;
-          break;
-        default:
-          pathColor = currentColor;
-          pathStrokeWidth = currentStrokeWidth;
-          break;
-      }
-    }
-
-    let pathString = '';
     try {
-      pathString = newPath.toSVGString();
-    } catch {
-      return;
+      // Validate input
+      if (!newPath) return;
+
+      // Match integration.txt: eraser uses background; telestrator fixed red+2; highlighter yellow; normal uses currentColor.
+      let pathColor: string;
+      let pathStrokeWidth: number;
+
+      if (isEraser) {
+        pathColor = '#f9f9f9';
+        pathStrokeWidth = currentStrokeWidth * 4;
+      } else {
+        switch (selectedPen) {
+          case 1:
+            pathColor = 'red';
+            pathStrokeWidth = 2;
+            break;
+          case 2:
+            pathColor = 'yellow';
+            pathStrokeWidth = currentStrokeWidth;
+            break;
+          default:
+            pathColor = currentColor;
+            pathStrokeWidth = currentStrokeWidth;
+            break;
+        }
+      }
+
+      let pathString = '';
+      try {
+        pathString = newPath.toSVGString();
+      } catch {
+        return;
+      }
+      if (typeof pathString !== 'string' || pathString.length === 0) return;
+
+      // Sanitizar strokeWidth por seguridad
+      if (!Number.isFinite(pathStrokeWidth) || pathStrokeWidth <= 0) {
+        pathStrokeWidth = STROKE_MIN;
+      }
+
+      const newPathData: PathData = {
+        path: pathString,
+        color: pathColor,
+        strokeWidth: pathStrokeWidth,
+        penType: selectedPen,
+        isEraser,
+      };
+
+      // Once we draw a new stroke, redo is no longer valid
+      setRedoStack([]);
+
+      setPaths(prev => {
+        try {
+          const next = [...prev, newPath];
+          return next.length > MAX_PATHS_MEMORY ? next.slice(-MAX_PATHS_MEMORY) : next;
+        } catch {
+          return prev;
+        }
+      });
+
+      setPathsData(prev => {
+        try {
+          const next = [...prev, newPathData];
+          const limited = next.length > MAX_PATHS_MEMORY ? next.slice(-MAX_PATHS_MEMORY) : next;
+          scheduleInsertTrace(newPathData);
+          return limited;
+        } catch {
+          return prev;
+        }
+      });
+    } catch (e) {
+      if (__DEV__) console.warn('[updatePaths] Error:', e);
     }
-    if (typeof pathString !== 'string' || pathString.length === 0) return;
-
-    // Sanitizar strokeWidth por seguridad
-    if (!Number.isFinite(pathStrokeWidth) || pathStrokeWidth <= 0) {
-      pathStrokeWidth = STROKE_MIN;
-    }
-
-    const newPathData: PathData = {
-      path: pathString,
-      color: pathColor,
-      strokeWidth: pathStrokeWidth,
-      penType: selectedPen,
-      isEraser,
-    };
-
-    // Once we draw a new stroke, redo is no longer valid
-    setRedoStack([]);
-
-    setPaths(prev => {
-      const next = [...prev, newPath];
-      return next.length > MAX_PATHS_MEMORY ? next.slice(-MAX_PATHS_MEMORY) : next;
-    });
-
-    setPathsData(prev => {
-      const next = [...prev, newPathData];
-      const limited = next.length > MAX_PATHS_MEMORY ? next.slice(-MAX_PATHS_MEMORY) : next;
-      scheduleInsertTrace(newPathData);
-      return limited;
-    });
   }, [currentColor, currentStrokeWidth, isEraser, scheduleInsertTrace, selectedPen]);
 
   const toggleMenu = useCallback(() => setMenuOpen(v => !v), []);
@@ -751,62 +948,109 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
   }, [gymnastId]);
 
   const handleUndo = useCallback(async () => {
-    const current = pathsDataRef.current;
-    if (current.length === 0) return;
-
-    // Cancel any in-progress stroke preview
-    setCurrentPathDisplay(null);
-    currentPath.current = null;
-    isDrawingRef.current = false;
-
-    const undone = current[current.length - 1];
-
-    setPaths(prev => (prev.length ? prev.slice(0, -1) : prev));
-    setPathsData(prev => (prev.length ? prev.slice(0, -1) : prev));
-
-    setRedoStack(prev => {
-      const next = [...prev, undone];
-      return next.length > MAX_REDO_STACK ? next.slice(-MAX_REDO_STACK) : next;
-    });
-
-    // DB sync: if the last stroke is still pending (not flushed), pop it from pending instead of deleting DB.
-    if (pendingTraceInsertsRef.current.length > 0) {
-      pendingTraceInsertsRef.current.pop();
-      if (pendingTraceInsertsRef.current.length === 0 && saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = null;
-      }
-      return;
-    }
-
-    await deleteLastTraceRow();
-  }, [deleteLastTraceRow]);
-
-  const handleRedo = useCallback(async () => {
-    const stack = redoStackRef.current;
-    if (stack.length === 0) return;
-
-    const toRestore = stack[stack.length - 1];
-    setRedoStack(prev => (prev.length ? prev.slice(0, -1) : prev));
-
     try {
-      const sk = Skia.Path.MakeFromSVGString(toRestore.path);
-      if (!sk) return;
+      const current = pathsDataRef.current;
+      if (!current || current.length === 0) return;
+
+      // Cancel any in-progress stroke preview
+      try {
+        setCurrentPathDisplay(null);
+        currentPath.current = null;
+        isDrawingRef.current = false;
+        currentPathPointCount.current = 0;
+      } catch {
+        // ignore
+      }
+
+      const undone = current[current.length - 1];
+      if (!undone) return;
 
       setPaths(prev => {
-        const next = [...prev, sk];
-        return next.length > MAX_PATHS_MEMORY ? next.slice(-MAX_PATHS_MEMORY) : next;
+        try {
+          return prev.length ? prev.slice(0, -1) : prev;
+        } catch {
+          return prev;
+        }
       });
 
       setPathsData(prev => {
-        const next = [...prev, toRestore];
-        return next.length > MAX_PATHS_MEMORY ? next.slice(-MAX_PATHS_MEMORY) : next;
+        try {
+          return prev.length ? prev.slice(0, -1) : prev;
+        } catch {
+          return prev;
+        }
       });
 
-      // Persist (debounced batch)
-      scheduleInsertTrace(toRestore);
-    } catch {
-      // ignore
+      setRedoStack(prev => {
+        try {
+          const next = [...prev, undone];
+          return next.length > MAX_REDO_STACK ? next.slice(-MAX_REDO_STACK) : next;
+        } catch {
+          return prev;
+        }
+      });
+
+      // DB sync: if the last stroke is still pending (not flushed), pop it from pending instead of deleting DB.
+      if (pendingTraceInsertsRef.current && pendingTraceInsertsRef.current.length > 0) {
+        pendingTraceInsertsRef.current.pop();
+        if (pendingTraceInsertsRef.current.length === 0 && saveTimeoutRef.current) {
+          clearTimeout(saveTimeoutRef.current);
+          saveTimeoutRef.current = null;
+        }
+        return;
+      }
+
+      await deleteLastTraceRow();
+    } catch (e) {
+      if (__DEV__) console.warn('[handleUndo] Error:', e);
+    }
+  }, [deleteLastTraceRow]);
+
+  const handleRedo = useCallback(async () => {
+    try {
+      const stack = redoStackRef.current;
+      if (!stack || stack.length === 0) return;
+
+      const toRestore = stack[stack.length - 1];
+      if (!toRestore || !toRestore.path) return;
+
+      setRedoStack(prev => {
+        try {
+          return prev.length ? prev.slice(0, -1) : prev;
+        } catch {
+          return prev;
+        }
+      });
+
+      try {
+        const sk = Skia.Path.MakeFromSVGString(toRestore.path);
+        if (!sk) return;
+
+        setPaths(prev => {
+          try {
+            const next = [...prev, sk];
+            return next.length > MAX_PATHS_MEMORY ? next.slice(-MAX_PATHS_MEMORY) : next;
+          } catch {
+            return prev;
+          }
+        });
+
+        setPathsData(prev => {
+          try {
+            const next = [...prev, toRestore];
+            return next.length > MAX_PATHS_MEMORY ? next.slice(-MAX_PATHS_MEMORY) : next;
+          } catch {
+            return prev;
+          }
+        });
+
+        // Persist (debounced batch)
+        scheduleInsertTrace(toRestore);
+      } catch {
+        // ignore
+      }
+    } catch (e) {
+      if (__DEV__) console.warn('[handleRedo] Error:', e);
     }
   }, [scheduleInsertTrace]);
 
@@ -850,6 +1094,11 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     if (rafRef.current != null) return;
 
     rafRef.current = requestAnimationFrame(() => {
+      // Check if component is still mounted before updating state
+      if (!isMountedRef.current) {
+        rafRef.current = null;
+        return;
+      }
       const p = pendingDisplayPathRef.current;
       // `pathCopy` ya debería ser una copia segura; no hacemos otro copy aquí.
       setCurrentPathDisplay(p ?? null);
@@ -857,8 +1106,8 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     });
   }, []);
 
-  const addSmoothedPoint = (path: SkPath, x: number, y: number, timestamp?: number) => {
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  const addSmoothedPoint = (path: SkPath, x: number, y: number, timestamp?: number): boolean => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
     const now = typeof timestamp === 'number' ? timestamp : Date.now();
 
     const prevRaw = lastRawPoint.current;
@@ -869,13 +1118,14 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     if (!prevRaw || !prevFiltered || prevT == null) {
       try {
         path.moveTo(x, y);
+        currentPathPointCount.current = 1;
       } catch {
-        return;
+        return false;
       }
       lastRawPoint.current = { x, y };
       lastFilteredPoint.current = { x, y };
       lastTimestampRef.current = now;
-      return;
+      return true;
     }
 
     const dx = x - prevRaw.x;
@@ -883,7 +1133,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     const dist = Math.sqrt(dx * dx + dy * dy);
 
     // Ignore ultra tiny jitter
-    if (dist < 0.75) return;
+    if (dist < 0.75) return false;
 
     const dtMs = Math.max(1, now - prevT);
     const speedPxPerSec = (dist / dtMs) * 1000;
@@ -898,13 +1148,15 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     const midY = (prevFiltered.y + fy) / 2;
     try {
       path.quadTo(prevFiltered.x, prevFiltered.y, midX, midY);
+      currentPathPointCount.current += 1;
     } catch {
-      return;
+      return false;
     }
 
     lastRawPoint.current = { x, y };
     lastFilteredPoint.current = { x: fx, y: fy };
     lastTimestampRef.current = now;
+    return true;
   };
 
   const finalizeSmoothedPath = (path: SkPath) => {
@@ -920,45 +1172,56 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
   const findPhotoAtPoint = useCallback(
     (x: number, y: number): number | null => {
-      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-      for (let i = photoItems.length - 1; i >= 0; i--) {
-        const photo = photoItems[i];
-        const meta = imageMeta[photo.id];
-        if (!meta) continue;
-        const w = meta.w * (photo.scale || 1);
-        const h = meta.h * (photo.scale || 1);
-        if (!Number.isFinite(w) || !Number.isFinite(h)) continue;
-        if (x >= photo.x && x <= photo.x + w && y >= photo.y && y <= photo.y + h) {
-          return photo.id;
+      try {
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+        if (!photoItems || !Array.isArray(photoItems)) return null;
+        for (let i = photoItems.length - 1; i >= 0; i--) {
+          const photo = photoItems[i];
+          if (!photo) continue;
+          const meta = imageMeta[photo.id];
+          if (!meta) continue;
+          const w = meta.w * (photo.scale || 1);
+          const h = meta.h * (photo.scale || 1);
+          if (!Number.isFinite(w) || !Number.isFinite(h)) continue;
+          if (x >= photo.x && x <= photo.x + w && y >= photo.y && y <= photo.y + h) {
+            return photo.id;
+          }
         }
+        return null;
+      } catch {
+        return null;
       }
-      return null;
     },
     [photoItems, imageMeta]
   );
 
   const flushPendingPhotoUpdates = useCallback(async () => {
-    const pending = Array.from(pendingPhotoUpdatesRef.current.entries());
-    if (pending.length === 0) return;
+    try {
+      if (!pendingPhotoUpdatesRef.current) return;
+      const pending = Array.from(pendingPhotoUpdatesRef.current.entries());
+      if (pending.length === 0) return;
 
-    pendingPhotoUpdatesRef.current.clear();
+      pendingPhotoUpdatesRef.current.clear();
 
-    await Promise.all(
-      pending.map(async ([photoId, updates]) => {
-        const photo = photoItems.find(p => p.id === photoId);
-        const merged: PhotoItem | null = photo ? { ...photo, ...updates } as PhotoItem : null;
-        if (!merged) return;
+      await Promise.all(
+        pending.map(async ([photoId, updates]) => {
+          try {
+            const photo = photoItems.find(p => p.id === photoId);
+            const merged: PhotoItem | null = photo ? { ...photo, ...updates } as PhotoItem : null;
+            if (!merged) return;
 
-        try {
-          await db.runAsync(
-            'UPDATE gymnast_images SET position_x = ?, position_y = ?, rotation = ?, scale = ? WHERE id = ?',
-            [merged.x, merged.y, merged.rotation, merged.scale, merged.id]
-          );
-        } catch {
-          // ignore
-        }
-      })
-    );
+            await db.runAsync(
+              'UPDATE gymnast_images SET position_x = ?, position_y = ?, rotation = ?, scale = ? WHERE id = ?',
+              [merged.x, merged.y, merged.rotation, merged.scale, merged.id]
+            );
+          } catch {
+            // ignore individual update failure
+          }
+        })
+      );
+    } catch (e) {
+      if (__DEV__) console.warn('[flushPendingPhotoUpdates] Error:', e);
+    }
   }, [photoItems]);
 
   const forceSave = useCallback(async () => {
@@ -1005,16 +1268,33 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
   const updatePhotoTransform = useCallback(
     (photoId: number, updates: Partial<PhotoItem>) => {
-      setPhotoItems(prev => prev.map(p => (p.id === photoId ? { ...p, ...updates } : p)));
+      try {
+        if (!photoId || typeof photoId !== 'number') return;
+        if (!updates || typeof updates !== 'object') return;
 
-      const currentPending = pendingPhotoUpdatesRef.current.get(photoId) || {};
-      pendingPhotoUpdatesRef.current.set(photoId, { ...currentPending, ...updates });
+        setPhotoItems(prev => {
+          try {
+            return prev.map(p => (p.id === photoId ? { ...p, ...updates } : p));
+          } catch {
+            return prev;
+          }
+        });
 
-      if (photoSaveTimeoutRef.current) clearTimeout(photoSaveTimeoutRef.current);
-      photoSaveTimeoutRef.current = setTimeout(() => {
-        flushPendingPhotoUpdates();
-        photoSaveTimeoutRef.current = null;
-      }, 3000);
+        const currentPending = pendingPhotoUpdatesRef.current?.get(photoId) || {};
+        pendingPhotoUpdatesRef.current?.set(photoId, { ...currentPending, ...updates });
+
+        if (photoSaveTimeoutRef.current) clearTimeout(photoSaveTimeoutRef.current);
+        photoSaveTimeoutRef.current = setTimeout(() => {
+          try {
+            flushPendingPhotoUpdates();
+          } catch {
+            // ignore
+          }
+          photoSaveTimeoutRef.current = null;
+        }, 3000);
+      } catch (e) {
+        if (__DEV__) console.warn('[updatePhotoTransform] Error:', e);
+      }
     },
     [flushPendingPhotoUpdates]
   );
@@ -1133,6 +1413,18 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
         return;
       }
 
+      // Check if component is still mounted
+      if (!isMountedRef.current) return;
+
+      // Limit number of images to prevent memory issues
+      if (photoItems.length >= MAX_PHOTOS_RENDERED) {
+        Alert.alert(
+          'Image limit reached',
+          `Maximum of ${MAX_PHOTOS_RENDERED} images allowed per gymnast. Please delete an existing image first.`
+        );
+        return;
+      }
+
       const existingMax = await db.getFirstAsync<any>(
         'SELECT MAX(order_index) as max_order FROM gymnast_images WHERE gymnast_id = ?',
         [gymnastId]
@@ -1158,15 +1450,32 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
         return;
       }
 
-      setPhotoItems(prev => [
-        ...prev,
-        { id: insertedId, uri: pickedUri, x: centerX, y: centerY, scale: initialScale, rotation: 0 },
-      ]);
+      const newPhoto: PhotoItem = { id: insertedId, uri: pickedUri, x: centerX, y: centerY, scale: initialScale, rotation: 0 };
+
+      setPhotoItems(prev => [...prev, newPhoto]);
+
+      // Force multiple re-renders to ensure the image becomes visible
+      // This addresses the async nature of Skia's useImage hook
+      setPhotosRenderNonce(n => n + 1);
+      
+      // Schedule additional re-render nudges to ensure visibility
+      // Check isMountedRef before each update to prevent crashes after unmount
+      setTimeout(() => {
+        if (isMountedRef.current) setPhotosRenderNonce(n => n + 1);
+      }, 100);
+      
+      setTimeout(() => {
+        if (isMountedRef.current) setPhotosRenderNonce(n => n + 1);
+      }, 300);
+
+      setTimeout(() => {
+        if (isMountedRef.current) setPhotosRenderNonce(n => n + 1);
+      }, 600);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       Alert.alert('Error Adding Image', `Could not add the image:\n${msg}`);
     }
-  }, [gymnastId, height, loadPhotosFromDatabase, onBeforeAddImage, pickImageUriViaDocumentPicker, width]);
+  }, [gymnastId, height, loadPhotosFromDatabase, onBeforeAddImage, photoItems.length, pickImageUriViaDocumentPicker, width]);
 
   const deletePhoto = useCallback(
     (photoId: number) => {
@@ -1218,20 +1527,25 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     .runOnJS(true)
     .maxDuration(250)
     .onStart(event => {
-      const { x, y } = event;
-      const photoId = findPhotoAtPoint(x, y);
-      if (photoId) {
-        selectedPhotoRef.current = photoId;
-        setSelectedPhotoId(photoId);
-        const photo = photoItems.find(p => p.id === photoId);
-        if (photo) {
-          photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
+      try {
+        const { x, y } = event;
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+        const photoId = findPhotoAtPoint(x, y);
+        if (photoId) {
+          selectedPhotoRef.current = photoId;
+          setSelectedPhotoId(photoId);
+          const photo = photoItems.find(p => p.id === photoId);
+          if (photo) {
+            photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
+          }
+        } else {
+          selectedPhotoRef.current = null;
+          setSelectedPhotoId(null);
+          photoGestureStartRef.current = null;
         }
-      } else {
-        selectedPhotoRef.current = null;
-        setSelectedPhotoId(null);
-        photoGestureStartRef.current = null;
-      }
+      } catch {
+        // ignore
+    }
     });
 
   // Double tap: reset photo if hit; else add photo
@@ -1240,12 +1554,17 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     .numberOfTaps(2)
     .maxDuration(250)
     .onEnd(event => {
-      const { x, y } = event;
-      const photoId = findPhotoAtPoint(x, y);
-      if (photoId) {
-        updatePhotoTransform(photoId, { scale: 1, rotation: 0 });
-      } else {
-        handleAddPhoto();
+      try {
+        const { x, y } = event;
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+        const photoId = findPhotoAtPoint(x, y);
+        if (photoId) {
+          updatePhotoTransform(photoId, { scale: 1, rotation: 0 });
+        } else {
+          handleAddPhoto();
+        }
+      } catch {
+        // ignore
       }
     });
 
@@ -1299,9 +1618,11 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
         isDrawingRef.current = true;
         currentPath.current = p;
+        currentPathPointCount.current = 0;
         lastRawPoint.current = null;
         lastFilteredPoint.current = null;
         lastTimestampRef.current = null;
+        lastDisplayUpdateTime.current = 0;
         addSmoothedPoint(currentPath.current, x, y, (event as any)?.timestamp);
         scheduleDisplayPath(safeCopyPath(currentPath.current));
       } catch {
@@ -1324,8 +1645,46 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
         if (!canDraw) return;
 
         if (currentPath.current && isDrawingRef.current) {
-          addSmoothedPoint(currentPath.current, x, y, (event as any)?.timestamp);
-          scheduleDisplayPath(safeCopyPath(currentPath.current));
+          const pointAdded = addSmoothedPoint(currentPath.current, x, y, (event as any)?.timestamp);
+          
+          // Check if path has too many points - if so, finalize current and start new
+          if (pointAdded && currentPathPointCount.current >= MAX_POINTS_PER_PATH) {
+            // Finalize current path
+            finalizeSmoothedPath(currentPath.current);
+            const completedPath = safeCopyPath(currentPath.current);
+            if (completedPath) {
+              runOnJS(updatePaths)(completedPath);
+            }
+            
+            // Start a new path from the current position
+            let newPath: SkPath | null = null;
+            try {
+              newPath = Skia.Path.Make();
+            } catch {
+              newPath = null;
+            }
+            
+            if (newPath) {
+              currentPath.current = newPath;
+              currentPathPointCount.current = 0;
+              // Reset smoothing state but keep last position for continuity
+              const lastPos = lastFilteredPoint.current;
+              lastRawPoint.current = null;
+              lastFilteredPoint.current = null;
+              lastTimestampRef.current = null;
+              // Start new path at the current position
+              if (lastPos) {
+                addSmoothedPoint(newPath, lastPos.x, lastPos.y, Date.now());
+              }
+            }
+          }
+          
+          // Throttle display updates to prevent excessive re-renders
+          const now = Date.now();
+          if (now - lastDisplayUpdateTime.current >= DISPLAY_THROTTLE_MS) {
+            lastDisplayUpdateTime.current = now;
+            scheduleDisplayPath(safeCopyPath(currentPath.current));
+          }
         }
       } catch {
         // ignore
@@ -1351,6 +1710,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
           lastRawPoint.current = null;
           lastFilteredPoint.current = null;
           lastTimestampRef.current = null;
+          currentPathPointCount.current = 0;
         }
 
         // update gesture start for photo
@@ -1369,30 +1729,46 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
   const pinchGesture = Gesture.Pinch()
     .runOnJS(true)
     .onStart(event => {
-      const { focalX, focalY } = event;
-      const photoId = findPhotoAtPoint(focalX, focalY);
-      if (photoId) {
-        selectedPhotoRef.current = photoId;
-        setSelectedPhotoId(photoId);
-        const photo = photoItems.find(p => p.id === photoId);
-        if (photo) {
-          photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
+      try {
+        const { focalX, focalY } = event;
+        if (!Number.isFinite(focalX) || !Number.isFinite(focalY)) return;
+        const photoId = findPhotoAtPoint(focalX, focalY);
+        if (photoId) {
+          selectedPhotoRef.current = photoId;
+          setSelectedPhotoId(photoId);
+          const photo = photoItems.find(p => p.id === photoId);
+          if (photo) {
+            photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
+          }
         }
+      } catch {
+        // ignore
       }
     })
     .onUpdate(event => {
-      const { scale } = event;
-      if (selectedPhotoRef.current && photoGestureStartRef.current) {
-        const nextScale = Math.max(0.3, Math.min(3, photoGestureStartRef.current.scale * scale));
-        updatePhotoTransform(selectedPhotoRef.current, { scale: nextScale });
+      try {
+        const { scale } = event;
+        if (!Number.isFinite(scale)) return;
+        if (selectedPhotoRef.current && photoGestureStartRef.current) {
+          const nextScale = Math.max(0.3, Math.min(3, photoGestureStartRef.current.scale * scale));
+          if (Number.isFinite(nextScale)) {
+            updatePhotoTransform(selectedPhotoRef.current, { scale: nextScale });
+          }
+        }
+      } catch {
+        // ignore
       }
     })
     .onEnd(() => {
-      if (selectedPhotoRef.current) {
-        const photo = photoItems.find(p => p.id === selectedPhotoRef.current);
-        if (photo) {
-          photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
+      try {
+        if (selectedPhotoRef.current) {
+          const photo = photoItems.find(p => p.id === selectedPhotoRef.current);
+          if (photo) {
+            photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
+          }
         }
+      } catch {
+        // ignore
       }
     });
 
@@ -1400,31 +1776,47 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
   const rotationGesture = Gesture.Rotation()
     .runOnJS(true)
     .onStart(event => {
-      const { anchorX, anchorY } = event;
-      const photoId = findPhotoAtPoint(anchorX, anchorY);
-      if (photoId) {
-        selectedPhotoRef.current = photoId;
-        setSelectedPhotoId(photoId);
-        const photo = photoItems.find(p => p.id === photoId);
-        if (photo) {
-          photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
+      try {
+        const { anchorX, anchorY } = event;
+        if (!Number.isFinite(anchorX) || !Number.isFinite(anchorY)) return;
+        const photoId = findPhotoAtPoint(anchorX, anchorY);
+        if (photoId) {
+          selectedPhotoRef.current = photoId;
+          setSelectedPhotoId(photoId);
+          const photo = photoItems.find(p => p.id === photoId);
+          if (photo) {
+            photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
+          }
         }
+      } catch {
+        // ignore
       }
     })
     .onUpdate(event => {
-      const { rotation } = event;
-      if (selectedPhotoRef.current && photoGestureStartRef.current) {
-        const rotationDegrees = (rotation * 180) / Math.PI;
-        const nextRotation = (photoGestureStartRef.current.rotation + rotationDegrees) % 360;
-        updatePhotoTransform(selectedPhotoRef.current, { rotation: nextRotation });
+      try {
+        const { rotation } = event;
+        if (!Number.isFinite(rotation)) return;
+        if (selectedPhotoRef.current && photoGestureStartRef.current) {
+          const rotationDegrees = (rotation * 180) / Math.PI;
+          const nextRotation = (photoGestureStartRef.current.rotation + rotationDegrees) % 360;
+          if (Number.isFinite(nextRotation)) {
+            updatePhotoTransform(selectedPhotoRef.current, { rotation: nextRotation });
+          }
+        }
+      } catch {
+        // ignore
       }
     })
     .onEnd(() => {
-      if (selectedPhotoRef.current) {
-        const photo = photoItems.find(p => p.id === selectedPhotoRef.current);
-        if (photo) {
-          photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
+      try {
+        if (selectedPhotoRef.current) {
+          const photo = photoItems.find(p => p.id === selectedPhotoRef.current);
+          if (photo) {
+            photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
+          }
         }
+      } catch {
+        // ignore
       }
     });
 
@@ -1432,6 +1824,12 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     doubleTapGesture,
     Gesture.Simultaneous(singleTapGesture, Gesture.Simultaneous(pinchGesture, rotationGesture, panGesture))
   );
+
+  // Callback when an image finishes loading - forces re-render for visibility
+  const handleImageLoaded = useCallback((photoId: number) => {
+    // Force a re-render to ensure the image is visible
+    setPhotosRenderNonce(n => n + 1);
+  }, []);
 
   const DrawingSurface = useMemo(() => {
     return memo(({
@@ -1442,6 +1840,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       currentPathDisplay,
       photoItems,
       registerImageMeta,
+      onImageLoaded,
       currentColor,
       currentStrokeWidth,
       isEraser,
@@ -1457,6 +1856,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       currentPathDisplay: SkPath | null;
       photoItems: PhotoItem[];
       registerImageMeta: (id: number, w: number, h: number) => void;
+      onImageLoaded?: (id: number) => void;
       currentColor: string;
       currentStrokeWidth: number;
       isEraser: boolean;
@@ -1465,21 +1865,25 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       jumpBg: any;
       photosRenderNonce: number;
     }) => {
-      const visiblePhotos = photoItems.slice(0, MAX_PHOTOS_RENDERED);
+      const visiblePhotos = (photoItems || []).slice(0, MAX_PHOTOS_RENDERED);
 
-      const normalPaths = pathsData
-        .map((pd, idx) => ({ pd, idx, path: paths[idx] }))
-        .filter(x => !!x.path)
+      // Safely filter paths with validation
+      const safePaths = (paths || []);
+      const safePathsData = (pathsData || []);
+
+      const normalPaths = safePathsData
+        .map((pd, idx) => ({ pd, idx, path: safePaths[idx] }))
+        .filter(x => !!x.path && !!x.pd)
         .filter(x => (x.pd.penType ?? 0) === 0 || x.pd.isEraser);
 
-      const telePaths = pathsData
-        .map((pd, idx) => ({ pd, idx, path: paths[idx] }))
-        .filter(x => !!x.path)
+      const telePaths = safePathsData
+        .map((pd, idx) => ({ pd, idx, path: safePaths[idx] }))
+        .filter(x => !!x.path && !!x.pd)
         .filter(x => (x.pd.penType ?? 0) === 1);
 
-      const highlightPaths = pathsData
-        .map((pd, idx) => ({ pd, idx, path: paths[idx] }))
-        .filter(x => !!x.path)
+      const highlightPaths = safePathsData
+        .map((pd, idx) => ({ pd, idx, path: safePaths[idx] }))
+        .filter(x => !!x.path && !!x.pd)
         .filter(x => (x.pd.penType ?? 0) === 2);
 
       // Back-compat: older eraser traces stored un-multiplied widths
@@ -1520,7 +1924,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
               This allows the eraser to use blendMode="clear" without affecting the jump background. */}
           <Group layer>
             {visiblePhotos.map(item => (
-              <SkiaPhoto key={item.id} item={item} registerMeta={registerImageMeta} renderNonce={photosRenderNonce} />
+              <SkiaPhoto key={item.id} item={item} registerMeta={registerImageMeta} renderNonce={photosRenderNonce} onImageLoaded={onImageLoaded} />
             ))}
 
             {normalPaths.map(({ pd, idx, path }) => (
@@ -1592,22 +1996,25 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <GestureDetector gesture={combinedGesture}>
           <View style={styles.drawingContainer}>
-            <DrawingSurface
-              canvasWidth={width}
-              canvasHeight={height}
-              pathsData={pathsData}
-              paths={paths}
-              currentPathDisplay={currentPathDisplay}
-              photoItems={photoItems}
-              registerImageMeta={registerImageMeta}
-              currentColor={currentColor}
-              currentStrokeWidth={currentStrokeWidth}
-              isEraser={isEraser}
-              selectedPen={selectedPen}
-              showJumpBackground={showJumpBackground}
-              jumpBg={jumpBg}
-              photosRenderNonce={photosRenderNonce}
-            />
+            <SkiaErrorBoundary>
+              <DrawingSurface
+                canvasWidth={width}
+                canvasHeight={height}
+                pathsData={pathsData}
+                paths={paths}
+                currentPathDisplay={currentPathDisplay}
+                photoItems={photoItems}
+                registerImageMeta={registerImageMeta}
+                onImageLoaded={handleImageLoaded}
+                currentColor={currentColor}
+                currentStrokeWidth={currentStrokeWidth}
+                isEraser={isEraser}
+                selectedPen={selectedPen}
+                showJumpBackground={showJumpBackground}
+                jumpBg={jumpBg}
+                photosRenderNonce={photosRenderNonce}
+              />
+            </SkiaErrorBoundary>
           </View>
         </GestureDetector>
 
