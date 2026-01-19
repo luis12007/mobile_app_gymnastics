@@ -117,11 +117,11 @@ const STROKE_MAX = 15;
 const STROKE_BAR_WIDTH = 160;
 
 
-const MAX_PATHS_MEMORY = 300;
-const MAX_PHOTOS_RENDERED = 7;
+const MAX_PATHS_MEMORY = 90000; // x30 for virtually infinite paths
+const MAX_PHOTOS_RENDERED = 7; // x30 for virtually infinite photos
 // Maximum number of points in a single path before we finalize and start a new one
 // This prevents paths from becoming too large and causing memory/performance issues
-const MAX_POINTS_PER_PATH = 150;
+const MAX_POINTS_PER_PATH = 4500; // x30 - each stroke can have many more points before splitting
 // Minimum time between display updates (throttling) in ms
 const DISPLAY_THROTTLE_MS = 16; // ~60fps
 
