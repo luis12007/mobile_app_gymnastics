@@ -1863,7 +1863,7 @@ async function generatePDFHTML(
                 <th class="col-subscore">SV</th>
                 <th class="col-subscore">E</th>
                 <th class="col-dscore">D</th>
-                <th class="col-edelta">E Δ</th>
+                <th class="col-edelta">Comp E</th>
                 <th class="col-delta">Δ</th>
                 <th class="col-perc">%</th>
               </tr>
@@ -1912,9 +1912,9 @@ async function generatePDFHTML(
                     <td class="col-subscore">${row.nd.toFixed(1)}</td>
                     <td class="col-subscore">${row.cv.toFixed(1)}</td>
                     <td class="${svClass} col-subscore">${row.sv.toFixed(1)}</td>
-                    <td class="col-subscore">${row.compe.toFixed(3)}</td>
+                    <td class="col-subscore">${row.e.toFixed(3)}</td>
                     <td class="col-dscore">${row.compd.toFixed(1)}</td>
-                    <td class="col-edelta">${row.eDelta.toFixed(2)}</td>
+                    <td class="col-edelta">${row.compe.toFixed(2)}</td>
                     <td class="${deltaClass} col-delta">${row.delta.toFixed(1)}</td>
                     <td class="${percentageTextClass} col-perc">${row.percentage.toFixed(1)}%</td>
                   </tr>

@@ -124,21 +124,27 @@ export default function GymnastFloor() {
 
   // Función para abrir el modal y definir el target
   const openNumberPadModal = (target: string, value: number) => {
-    // Normalizar target para ND y EXECUTION
-    let normalizedTarget = target;
-    if (target === "COMP_ND") normalizedTarget = "COMP_ND";
-    else if (target === "ND") normalizedTarget = "ND";
-    else if (target === "EXECUTION") normalizedTarget = "EXECUTION";
-    setNumberPadTarget(normalizedTarget);
-    setNumberPadValue(safeNumber(value).toString());
-    setShowNumberPadModal(true);
+    try {
+      // Normalizar target para ND y EXECUTION
+      let normalizedTarget = target;
+      if (target === "COMP_ND") normalizedTarget = "COMP_ND";
+      else if (target === "ND") normalizedTarget = "ND";
+      else if (target === "EXECUTION") normalizedTarget = "EXECUTION";
+      setNumberPadTarget(normalizedTarget);
+      setNumberPadValue(safeNumber(value).toString());
+      setShowNumberPadModal(true);
+    } catch (error) {
+      console.error('Error opening number pad:', error);
+      Alert.alert('Error', 'Could not open input. Please try again.');
+    }
   };
 
   // Función para guardar el valor editado
   const saveNumberPadValue = (value: string) => {
-    const parsed = parseFloat(value);
-    const num = Number.isFinite(parsed) ? parsed : 0;
-    switch (numberPadTarget) {
+    try {
+      const parsed = parseFloat(value);
+      const num = Number.isFinite(parsed) ? parsed : 0;
+      switch (numberPadTarget) {
       case "CV": {
         setCv(num);
         // Recalcular SV y myScore según integración
@@ -280,8 +286,13 @@ export default function GymnastFloor() {
         break;
       default:
         break;
+      }
+      setShowNumberPadModal(false);
+    } catch (error) {
+      console.error('Error in saveNumberPadValue:', error);
+      Alert.alert('Error', 'Could not save the value. Please try again.');
+      setShowNumberPadModal(false);
     }
-    setShowNumberPadModal(false);
   };
 
   // Bonus
@@ -582,22 +593,24 @@ export default function GymnastFloor() {
   };
 
   const toggleElement = async (element: string, num: number) => {
-    setElementCounts((prev) => {
-      const newCounts = { ...prev };
-      if (newCounts[element].selected && newCounts[element].value === num) {
-        newCounts[element] = { value: 0, selected: false };
-      } else {
-        newCounts[element] = { value: num, selected: true };
-      }
+    try {
+      setElementCounts((prev) => {
+        try {
+          const newCounts = { ...prev };
+          if (newCounts[element].selected && newCounts[element].value === num) {
+            newCounts[element] = { value: 0, selected: false };
+          } else {
+            newCounts[element] = { value: num, selected: true };
+          }
 
-      const sum = Object.values(newCounts).reduce(
-        (acc, item) => (item.selected ? acc + item.value : acc),
-        0
-      );
+          const sum = Object.values(newCounts).reduce(
+            (acc, item) => (item.selected ? acc + item.value : acc),
+            0
+          );
 
-      const newDifficulty = calculateDifficultyValues(newCounts);
-      const newSv = newDifficulty + elementGroupsTotal + cv;
-      const rawScore = eScore + newSv + (stickBonus ? getStickBonusValue() : 0) - nd;
+          const newDifficulty = calculateDifficultyValues(newCounts);
+          const newSv = newDifficulty + elementGroupsTotal + cv;
+          const rawScore = eScore + newSv + (stickBonus ? getStickBonusValue() : 0) - nd;
       const newMyScore = safeRound(adjustScoreFor99(rawScore), 3);
 
       setTotalElements(sum);
@@ -614,45 +627,60 @@ export default function GymnastFloor() {
         myscore: newMyScore,
       });
 
-      return newCounts;
-    });
+          return newCounts;
+        } catch (innerError) {
+          console.error('Error in toggleElement state update:', innerError);
+          Alert.alert('Error', 'Could not update element. Please try again.');
+          return prev;
+        }
+      });
+    } catch (error) {
+      console.error('Error in toggleElement:', error);
+      Alert.alert('Error', 'Could not update element. Please try again.');
+    }
   };
 
   const handleElementGroupChange = async (group: string, value: number) => {
-    // Validaciones según el evento
-    const evento = gymnast?.evento || '';
-    
-    // Validar rango de valores según disciplina y evento
-    const maxValue = getMaxValueForGroup(evento, discipline);
-    if (value < 0 || value > maxValue) {
-      Alert.alert('Error', `El valor debe estar entre 0.0 y ${maxValue.toFixed(1)}`);
-      return;
+    try {
+      // Validaciones según el evento
+      const evento = gymnast?.evento || '';
+      
+      // Validar rango de valores según disciplina y evento
+      const maxValue = getMaxValueForGroup(evento, discipline);
+      if (value < 0 || value > maxValue) {
+        Alert.alert('Error', `El valor debe estar entre 0.0 y ${maxValue.toFixed(1)}`);
+        return;
+      }
+      
+      const updated = { ...elementGroupValues, [group]: value };
+      const total = updated.I + updated.II + updated.III + updated.IV;
+
+      setElementGroupValues(updated);
+      setElementGroupsTotal(total);
+
+      const newSv = difficultyValues + total + cv;
+      const rawScore = eScore + newSv + (stickBonus ? getStickBonusValue() : 0) - nd;
+      const newMyScore = safeRound(adjustScoreFor99(rawScore), 3);
+
+      setSv(newSv);
+      setMyScore(newMyScore);
+
+      setShowElementGroupModal((prev) => ({ ...prev, [group]: false }));
+
+      await recalculateScores({
+        element_group1: updated.I,
+        element_group2: updated.II,
+        element_group3: updated.III,
+        element_group4: updated.IV,
+        element_group_total: total,
+        sv: newSv,
+        myscore: newMyScore,
+      });
+    } catch (error) {
+      console.error('Error in handleElementGroupChange:', error);
+      Alert.alert('Error', 'Could not save element group. Please try again.');
+      setShowElementGroupModal((prev) => ({ ...prev, [group]: false }));
     }
-    
-    const updated = { ...elementGroupValues, [group]: value };
-    const total = updated.I + updated.II + updated.III + updated.IV;
-
-    setElementGroupValues(updated);
-    setElementGroupsTotal(total);
-
-    const newSv = difficultyValues + total + cv;
-    const rawScore = eScore + newSv + (stickBonus ? getStickBonusValue() : 0) - nd;
-    const newMyScore = safeRound(adjustScoreFor99(rawScore), 3);
-
-    setSv(newSv);
-    setMyScore(newMyScore);
-
-    setShowElementGroupModal((prev) => ({ ...prev, [group]: false }));
-
-    await recalculateScores({
-      element_group1: updated.I,
-      element_group2: updated.II,
-      element_group3: updated.III,
-      element_group4: updated.IV,
-      element_group_total: total,
-      sv: newSv,
-      myscore: newMyScore,
-    });
   };
   
   const getMaxGroupsForEvent = (evento: string): number => {
@@ -675,16 +703,21 @@ export default function GymnastFloor() {
   };
 
   const handleStickBonusChange = async (value: boolean) => {
-    setStickBonus(value);
-    const bonus = value ? getStickBonusValue() : 0;
-    const rawScore = eScore + sv + bonus - nd;
-    const newMyScore = safeRound(adjustScoreFor99(rawScore), 3);
-    setMyScore(newMyScore);
+    try {
+      setStickBonus(value);
+      const bonus = value ? getStickBonusValue() : 0;
+      const rawScore = eScore + sv + bonus - nd;
+      const newMyScore = safeRound(adjustScoreFor99(rawScore), 3);
+      setMyScore(newMyScore);
 
-    await recalculateScores({
-      bonus: bonus,
-      myscore: newMyScore,
-    });
+      await recalculateScores({
+        bonus: bonus,
+        myscore: newMyScore,
+      });
+    } catch (error) {
+      console.error('Error in handleStickBonusChange:', error);
+      Alert.alert('Error', 'Could not save bonus. Please try again.');
+    }
   };
 
   const saveGymnastDataAndNavigate = async (nextGymnast?: Gymnast) => {
@@ -722,23 +755,38 @@ export default function GymnastFloor() {
   };
 
   const handleNext = async () => {
-    const nextIndex = currentIndex + 1;
-    if (nextIndex < allGymnasts.length) {
-      const nextGymnast = allGymnasts[nextIndex];
-      await saveGymnastDataAndNavigate(nextGymnast);
+    try {
+      const nextIndex = currentIndex + 1;
+      if (nextIndex < allGymnasts.length) {
+        const nextGymnast = allGymnasts[nextIndex];
+        await saveGymnastDataAndNavigate(nextGymnast);
+      }
+    } catch (error) {
+      console.error('Error in handleNext:', error);
+      Alert.alert('Error', 'Could not navigate to next gymnast. Please try again.');
     }
   };
 
   const handlePrevious = async () => {
-    const prevIndex = currentIndex - 1;
-    if (prevIndex >= 0) {
-      const prevGymnast = allGymnasts[prevIndex];
-      await saveGymnastDataAndNavigate(prevGymnast);
+    try {
+      const prevIndex = currentIndex - 1;
+      if (prevIndex >= 0) {
+        const prevGymnast = allGymnasts[prevIndex];
+        await saveGymnastDataAndNavigate(prevGymnast);
+      }
+    } catch (error) {
+      console.error('Error in handlePrevious:', error);
+      Alert.alert('Error', 'Could not navigate to previous gymnast. Please try again.');
     }
   };
 
   const handleFinish = async () => {
-    await saveGymnastDataAndNavigate();
+    try {
+      await saveGymnastDataAndNavigate();
+    } catch (error) {
+      console.error('Error in handleFinish:', error);
+      Alert.alert('Error', 'Could not save data. Please try again.');
+    }
   };
 
   const handleGoBack = async () => {
@@ -1070,22 +1118,27 @@ export default function GymnastFloor() {
                   <TouchableOpacity
                     style={styles.fullCellTouchable}
                     onPress={() => {
-                      const nextCompSb = !compSb;
-                      setCompSb(nextCompSb);
+                      try {
+                        const nextCompSb = !compSb;
+                        setCompSb(nextCompSb);
 
-                      const compscorecalc = compD + compE + (nextCompSb ? getStickBonusValue() : 0) - compNd;
-                      const finalScore = Math.round(compscorecalc * 1000) / 1000;
-                      setCompScore(finalScore);
+                        const compscorecalc = compD + compE + (nextCompSb ? getStickBonusValue() : 0) - compNd;
+                        const finalScore = Math.round(compscorecalc * 1000) / 1000;
+                        setCompScore(finalScore);
 
-                      const newdelt = Math.abs(Math.round((eScore - compE) * 1000) / 1000);
-                      setDelta(newdelt);
+                        const newdelt = Math.abs(Math.round((eScore - compE) * 1000) / 1000);
+                        setDelta(newdelt);
 
-                      const newded = 10 - compE;
-                      setDedded(Number(newded));
+                        const newded = 10 - compE;
+                        setDedded(Number(newded));
 
-                      const dedInterval = getDeductionIntervalValue(Number(newded));   
-                      const percentageValue = getPercentageFromTable(dedInterval, newdelt);
-                      setPercentage(percentageValue);
+                        const dedInterval = getDeductionIntervalValue(Number(newded));   
+                        const percentageValue = getPercentageFromTable(dedInterval, newdelt);
+                        setPercentage(percentageValue);
+                      } catch (error) {
+                        console.error('Error toggling compSb:', error);
+                        Alert.alert('Error', 'Could not update SB. Please try again.');
+                      }
                     }}
                   >
                     <Text style={styles.infoValueText}>{discipline ? 'SB' : 'DMT' }: {compSb ? getStickBonusValue().toFixed(1) : "0.0"}</Text>
@@ -1227,7 +1280,15 @@ export default function GymnastFloor() {
               <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => setShowCommentsModal(false)}>
                 <Text style={styles.modalButtonText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.modalButton} onPress={() => { setComments(commentsInput); setShowCommentsModal(false); }}>
+              <TouchableOpacity style={styles.modalButton} onPress={() => { 
+                try {
+                  setComments(commentsInput); 
+                  setShowCommentsModal(false); 
+                } catch (error) {
+                  console.error('Error saving comments:', error);
+                  Alert.alert('Error', 'Could not save comments. Please try again.');
+                }
+              }}>
                 <Text style={styles.modalButtonText}>Save</Text>
               </TouchableOpacity>
             </View>

@@ -531,7 +531,7 @@ const MainTable: React.FC = () => {
       {renderDataCell(item.sv.toFixed(2), 60, false, 'sv', item.compd)}
       {renderDataCell(item.eScore.toFixed(3), 70)}
       {renderDataCell(item.compd.toFixed(2), 70)}
-      {renderDataCell(item.eDelta.toFixed(3), 70)}
+      {renderDataCell(item.compe.toFixed(3), 70)}
       {renderDataCell(item.delta.toFixed(1), 70, false, 'delta')}
       {renderDataCell(item.percentage.toFixed(1) + '%', 70, false, 'percentage')}
       {renderDataCell(item.comments || '-', 120)}
@@ -588,7 +588,7 @@ const MainTable: React.FC = () => {
               {renderHeaderCell('SV', 60)}
               {renderHeaderCell('E Score', 70)}
               {renderHeaderCell('D Score', 70)}
-              {renderHeaderCell('E Δ', 70)}
+              {renderHeaderCell('Comp E', 70)}
               {renderHeaderCell('Δ', 70)}
               {renderHeaderCell('%', 70)}
               {renderHeaderCell('Comments', 120)}

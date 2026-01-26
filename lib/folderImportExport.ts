@@ -188,9 +188,9 @@ async function exportFolderRecursive(
     competitions: []
   };
 
-  // Exportar subfolders recursivamente
+  // Exportar subfolders recursivamente (ordered by display_order to preserve order)
   const subfolders = await database.getAllAsync<Folder>(
-    'SELECT * FROM folders WHERE parent_folder_id = ? ORDER BY id',
+    'SELECT * FROM folders WHERE parent_folder_id = ? ORDER BY IFNULL(display_order, id) ASC',
     [folderId]
   );
 
@@ -199,9 +199,9 @@ async function exportFolderRecursive(
     folderData.subfolders.push(subfolderData);
   }
 
-  // Exportar competencias
+  // Exportar competencias (ordered by display_order to preserve order)
   const competitions = await database.getAllAsync<Competition>(
-    'SELECT * FROM competitions WHERE folder_id = ? ORDER BY id',
+    'SELECT * FROM competitions WHERE folder_id = ? ORDER BY IFNULL(display_order, id) ASC',
     [folderId]
   );
 
@@ -436,33 +436,103 @@ async function importFolderRecursive(
   parentFolderId: number | null,
   callbacks: ImportCallbacks
 ): Promise<number> {
-  // Crear folder (sin el ID original)
-  const result = await database.runAsync(
-    `INSERT INTO folders (titulo, descripcion, fecha_creacion, nivel_profundidad, parent_folder_id)
-     VALUES (?, ?, ?, ?, ?)`,
-    [
-      folderData.folder.titulo,
-      folderData.folder.descripcion,
-      folderData.folder.fecha_creacion,
-      parentFolderId === null ? 0 : (folderData.folder.nivel_profundidad || 0),
-      parentFolderId
-    ]
-  );
+  try {
+    // Validar que folderData tenga la estructura correcta
+    if (!folderData || !folderData.folder || typeof folderData.folder !== 'object') {
+      console.warn('Invalid folder data, skipping');
+      return -1;
+    }
 
-  const newFolderId = result.lastInsertRowId;
+    // Get the next display_order for folders at this level
+  // Use try-catch to handle case where display_order column might not exist yet
+  let nextDisplayOrder = 1;
+  try {
+    if (parentFolderId === null) {
+      // Root level folders
+      const maxOrder = await database.getFirstAsync<{max_order: number | null}>(
+        'SELECT MAX(IFNULL(display_order, id)) as max_order FROM folders WHERE parent_folder_id IS NULL OR parent_folder_id = 0'
+      );
+      nextDisplayOrder = (maxOrder?.max_order ?? 0) + 1;
+    } else {
+      // Subfolders
+      const maxOrder = await database.getFirstAsync<{max_order: number | null}>(
+        'SELECT MAX(IFNULL(display_order, id)) as max_order FROM folders WHERE parent_folder_id = ?',
+        [parentFolderId]
+      );
+      nextDisplayOrder = (maxOrder?.max_order ?? 0) + 1;
+    }
+  } catch (error) {
+    // If display_order doesn't exist, use count + 1
+    console.log('display_order column not found, using fallback for folder order');
+    if (parentFolderId === null) {
+      const count = await database.getFirstAsync<{cnt: number}>('SELECT COUNT(*) as cnt FROM folders WHERE parent_folder_id IS NULL OR parent_folder_id = 0');
+      nextDisplayOrder = (count?.cnt ?? 0) + 1;
+    } else {
+      const count = await database.getFirstAsync<{cnt: number}>('SELECT COUNT(*) as cnt FROM folders WHERE parent_folder_id = ?', [parentFolderId]);
+      nextDisplayOrder = (count?.cnt ?? 0) + 1;
+    }
+  }
+
+  // Crear folder (sin el ID original, with new display_order)
+  // Try with display_order first, fallback to without if column doesn't exist
+  let newFolderId: number;
+  try {
+    const result = await database.runAsync(
+      `INSERT INTO folders (titulo, descripcion, fecha_creacion, nivel_profundidad, parent_folder_id, display_order)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        folderData.folder.titulo,
+        folderData.folder.descripcion,
+        folderData.folder.fecha_creacion,
+        parentFolderId === null ? 0 : (folderData.folder.nivel_profundidad || 0),
+        parentFolderId,
+        nextDisplayOrder
+      ]
+    );
+    newFolderId = result.lastInsertRowId;
+  } catch (insertError) {
+    // Fallback: insert without display_order
+    console.log('Inserting folder without display_order column');
+    const result = await database.runAsync(
+      `INSERT INTO folders (titulo, descripcion, fecha_creacion, nivel_profundidad, parent_folder_id)
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        folderData.folder.titulo,
+        folderData.folder.descripcion,
+        folderData.folder.fecha_creacion,
+        parentFolderId === null ? 0 : (folderData.folder.nivel_profundidad || 0),
+        parentFolderId
+      ]
+    );
+    newFolderId = result.lastInsertRowId;
+  }
+
   callbacks.onFolderImported();
 
   // Importar competencias de este folder
-  for (const competitionData of folderData.competitions) {
-    await importCompetition(database, competitionData, newFolderId, callbacks);
+  for (const competitionData of folderData.competitions || []) {
+    try {
+      await importCompetition(database, competitionData, newFolderId, callbacks);
+    } catch (compError) {
+      console.warn('Error importing competition, continuing with others:', compError);
+    }
   }
 
   // Importar subfolders recursivamente
-  for (const subfolderData of folderData.subfolders) {
-    await importFolderRecursive(database, subfolderData, newFolderId, callbacks);
+  for (const subfolderData of folderData.subfolders || []) {
+    try {
+      await importFolderRecursive(database, subfolderData, newFolderId, callbacks);
+    } catch (subfolderError) {
+      console.warn('Error importing subfolder, continuing with others:', subfolderError);
+    }
   }
 
   return newFolderId;
+  } catch (error) {
+    console.error('Error importing folder:', error);
+    // Return -1 to indicate failure but don't crash the app
+    return -1;
+  }
 }
 
 /**
@@ -474,33 +544,88 @@ async function importCompetition(
   newFolderId: number,
   callbacks: ImportCallbacks
 ): Promise<number> {
-  const comp = competitionData.competition;
+  try {
+    const comp = competitionData.competition;
 
-  // Crear competencia
-  const result = await database.runAsync(
-    `INSERT INTO competitions (name, description, date, gender, folder_id, number_of_participants, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [
-      comp.name,
-      comp.description,
-      comp.date,
-      comp.gender ? 1 : 0,
-      newFolderId,
-      comp.number_of_participants,
-      comp.created_at
-    ]
-  );
+    // Validar que competitionData tenga la estructura correcta
+    if (!comp || typeof comp !== 'object') {
+      console.warn('Invalid competition data, skipping');
+      return -1;
+    }
 
-  const newCompetitionId = result.lastInsertRowId;
+  // Get the next display_order for competitions in this folder
+  // Use try-catch to handle case where display_order column might not exist yet
+  let nextDisplayOrder = 1;
+  try {
+    const maxOrder = await database.getFirstAsync<{max_order: number | null}>(
+      'SELECT MAX(IFNULL(display_order, id)) as max_order FROM competitions WHERE folder_id = ?',
+      [newFolderId]
+    );
+    nextDisplayOrder = (maxOrder?.max_order ?? 0) + 1;
+  } catch (error) {
+    // If display_order doesn't exist, use count + 1
+    console.log('display_order column not found, using fallback for competition order');
+    const count = await database.getFirstAsync<{cnt: number}>('SELECT COUNT(*) as cnt FROM competitions WHERE folder_id = ?', [newFolderId]);
+    nextDisplayOrder = (count?.cnt ?? 0) + 1;
+  }
+
+  // Crear competencia with new display_order
+  // Try with display_order first, fallback to without if column doesn't exist
+  let newCompetitionId: number;
+  try {
+    const result = await database.runAsync(
+      `INSERT INTO competitions (name, description, date, gender, folder_id, number_of_participants, created_at, display_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        comp.name,
+        comp.description,
+        comp.date,
+        comp.gender ? 1 : 0,
+        newFolderId,
+        comp.number_of_participants,
+        comp.created_at,
+        nextDisplayOrder
+      ]
+    );
+    newCompetitionId = result.lastInsertRowId;
+  } catch (insertError) {
+    // Fallback: insert without display_order
+    console.log('Inserting competition without display_order column');
+    const result = await database.runAsync(
+      `INSERT INTO competitions (name, description, date, gender, folder_id, number_of_participants, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        comp.name,
+        comp.description,
+        comp.date,
+        comp.gender ? 1 : 0,
+        newFolderId,
+        comp.number_of_participants,
+        comp.created_at
+      ]
+    );
+    newCompetitionId = result.lastInsertRowId;
+  }
+
   callbacks.onCompetitionImported();
 
   // Importar gimnastas
-  for (const gymnastData of competitionData.gymnasts) {
-    await importGymnast(db, gymnastData, newCompetitionId);
-    callbacks.onGymnastImported();
+  for (const gymnastData of competitionData.gymnasts || []) {
+    try {
+      await importGymnast(db, gymnastData, newCompetitionId);
+      callbacks.onGymnastImported();
+    } catch (gymnastError) {
+      console.warn('Error importing gymnast, continuing with others:', gymnastError);
+      callbacks.onGymnastImported(); // Still count as processed
+    }
   }
 
   return newCompetitionId;
+  } catch (error) {
+    console.error('Error importing competition:', error);
+    // Return -1 to indicate failure but don't crash the app
+    return -1;
+  }
 }
 
 /**
@@ -511,10 +636,17 @@ async function importGymnast(
   gymnastData: GymnastExportData,
   newCompetitionId: number
 ): Promise<number> {
-  const g = gymnastData.gymnast;
+  try {
+    const g = gymnastData.gymnast;
 
-  // Crear gimnasta
-  const result = await database.runAsync(
+    // Validar que gymnastData tenga la estructura correcta
+    if (!g || typeof g !== 'object') {
+      console.warn('Invalid gymnast data, skipping');
+      return -1;
+    }
+
+    // Crear gimnasta
+    const result = await database.runAsync(
     `INSERT INTO gymnasts (
       competence_id, numero, gymnasta, evento, noc, bib,
       a, b, c, d, e, f, g, h, i, j,
@@ -541,7 +673,7 @@ async function importGymnast(
   const cacheDir = `${FileSystem.documentDirectory}imported_images/`;
   await FileSystem.makeDirectoryAsync(cacheDir, { intermediates: true }).catch(() => {});
 
-  for (const imageData of gymnastData.images) {
+  for (const imageData of gymnastData.images || []) {
     try {
       // Guardar imagen desde base64
       const fileName = `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.jpg`;
@@ -573,22 +705,32 @@ async function importGymnast(
   }
 
   // Importar trazos de whiteboard
-  for (const trace of gymnastData.traces) {
-    await database.runAsync(
-      `INSERT INTO whiteboard_traces (gymnast_id, trace_data, color, stroke_width, pen_type, order_index)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        newGymnastId,
-        trace.trace_data,
-        trace.color,
-        trace.stroke_width,
-        trace.pen_type,
-        trace.order_index
-      ]
-    );
+  for (const trace of gymnastData.traces || []) {
+    try {
+      await database.runAsync(
+        `INSERT INTO whiteboard_traces (gymnast_id, trace_data, color, stroke_width, pen_type, order_index)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          newGymnastId,
+          trace.trace_data,
+          trace.color,
+          trace.stroke_width,
+          trace.pen_type,
+          trace.order_index
+        ]
+      );
+    } catch (traceError) {
+      console.warn('Error importing trace:', traceError);
+      // Continue with other traces
+    }
   }
 
   return newGymnastId;
+  } catch (error) {
+    console.error('Error importing gymnast:', error);
+    // Return -1 to indicate failure but don't crash
+    return -1;
+  }
 }
 
 /**

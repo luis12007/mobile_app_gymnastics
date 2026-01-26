@@ -350,6 +350,59 @@ async function migrateGymnastsTable() {
 }
 
 /**
+ * Migrar tabla folders y competitions para agregar display_order
+ */
+async function migrateFoldersAndCompetitionsAddDisplayOrder() {
+  try {
+    // Check folders table
+    const folderTableInfo = await db.getAllAsync<any>(
+      "PRAGMA table_info(folders)"
+    );
+    
+    if (folderTableInfo.length > 0) {
+      const hasDisplayOrder = folderTableInfo.some((col: any) => col.name === 'display_order');
+      if (!hasDisplayOrder) {
+        console.log('Adding display_order column to folders table...');
+        await db.execAsync(`
+          ALTER TABLE folders ADD COLUMN display_order INTEGER DEFAULT 0;
+        `);
+        console.log('display_order column added to folders');
+      }
+      // Always ensure display_order has proper values (fix for existing 0 values)
+      console.log('Updating folders display_order values...');
+      await db.execAsync(`
+        UPDATE folders SET display_order = id WHERE display_order = 0 OR display_order IS NULL;
+      `);
+      console.log('folders display_order updated successfully');
+    }
+    
+    // Check competitions table
+    const compTableInfo = await db.getAllAsync<any>(
+      "PRAGMA table_info(competitions)"
+    );
+    
+    if (compTableInfo.length > 0) {
+      const hasDisplayOrder = compTableInfo.some((col: any) => col.name === 'display_order');
+      if (!hasDisplayOrder) {
+        console.log('Adding display_order column to competitions table...');
+        await db.execAsync(`
+          ALTER TABLE competitions ADD COLUMN display_order INTEGER DEFAULT 0;
+        `);
+        console.log('display_order column added to competitions');
+      }
+      // Always ensure display_order has proper values (fix for existing 0 values)
+      console.log('Updating competitions display_order values...');
+      await db.execAsync(`
+        UPDATE competitions SET display_order = id WHERE display_order = 0 OR display_order IS NULL;
+      `);
+      console.log('competitions display_order updated successfully');
+    }
+  } catch (error) {
+    console.error('Error adding display_order columns:', error);
+  }
+}
+
+/**
  * Migrar tabla gymnasts para agregar columnas percentage y dedded
  */
 async function migrateGymnastsAddPercentageAndDedded() {
@@ -407,6 +460,9 @@ export async function initDatabase() {
 
       // Agregar columnas percentage y dedded si es necesario
       await migrateGymnastsAddPercentageAndDedded();
+
+      // Agregar columnas display_order a folders y competitions
+      await migrateFoldersAndCompetitionsAddDisplayOrder();
 
       await db.execAsync(`
       -- Tabla de carpetas
@@ -728,13 +784,30 @@ export async function createFolder(
       }
     }
 
+    // Get the next display_order for folders at this level
+    let nextDisplayOrder = 1;
+    if (parentFolderId === null) {
+      // Root level folders
+      const maxOrder = await db.getFirstAsync<{max_order: number | null}>(
+        'SELECT MAX(display_order) as max_order FROM folders WHERE parent_folder_id IS NULL OR parent_folder_id = 0'
+      );
+      nextDisplayOrder = (maxOrder?.max_order ?? 0) + 1;
+    } else {
+      // Subfolders
+      const maxOrder = await db.getFirstAsync<{max_order: number | null}>(
+        'SELECT MAX(display_order) as max_order FROM folders WHERE parent_folder_id = ?',
+        [parentFolderId]
+      );
+      nextDisplayOrder = (maxOrder?.max_order ?? 0) + 1;
+    }
+
     const result = await db.runAsync(
-      `INSERT INTO folders (titulo, descripcion, nivel_profundidad, parent_folder_id) 
-       VALUES (?, ?, ?, ?)`,
-      [titulo, descripcion, nivel, parentFolderId]
+      `INSERT INTO folders (titulo, descripcion, nivel_profundidad, parent_folder_id, display_order) 
+       VALUES (?, ?, ?, ?, ?)`,
+      [titulo, descripcion, nivel, parentFolderId, nextDisplayOrder]
     );
 
-    console.log(`Carpeta creada: ${titulo} (ID: ${result.lastInsertRowId})`);
+    console.log(`Carpeta creada: ${titulo} (ID: ${result.lastInsertRowId}, display_order: ${nextDisplayOrder})`);
     return result.lastInsertRowId;
   } catch (error) {
     console.error('Error al crear carpeta:', error);
@@ -763,17 +836,33 @@ export async function getFolderById(id: number): Promise<Folder | null> {
  */
 export async function getRootFolders(): Promise<Folder[]> {
   try {
-    const result = await db.getAllAsync<Folder>(
-      // Some legacy data may store root as 0 instead of NULL.
-      `SELECT
-        f.*,
-        (SELECT COUNT(*) FROM folders sf WHERE sf.parent_folder_id = f.id) AS child_count,
-        (SELECT COUNT(*) FROM competitions c WHERE c.folder_id = f.id) AS competition_count
-      FROM folders f
-      WHERE f.parent_folder_id IS NULL OR f.parent_folder_id = 0
-      ORDER BY f.fecha_creacion DESC`
-    );
-    return result;
+    // First try with display_order
+    try {
+      const result = await db.getAllAsync<Folder>(
+        `SELECT
+          f.*,
+          (SELECT COUNT(*) FROM folders sf WHERE sf.parent_folder_id = f.id) AS child_count,
+          (SELECT COUNT(*) FROM competitions c WHERE c.folder_id = f.id) AS competition_count
+        FROM folders f
+        WHERE f.parent_folder_id IS NULL OR f.parent_folder_id = 0
+        ORDER BY IFNULL(f.display_order, f.id) ASC, f.fecha_creacion DESC`
+      );
+      return result;
+    } catch (innerError) {
+      // If display_order column doesn't exist, run migration and retry
+      console.log('display_order column not found, running migration...');
+      await migrateFoldersAndCompetitionsAddDisplayOrder();
+      const result = await db.getAllAsync<Folder>(
+        `SELECT
+          f.*,
+          (SELECT COUNT(*) FROM folders sf WHERE sf.parent_folder_id = f.id) AS child_count,
+          (SELECT COUNT(*) FROM competitions c WHERE c.folder_id = f.id) AS competition_count
+        FROM folders f
+        WHERE f.parent_folder_id IS NULL OR f.parent_folder_id = 0
+        ORDER BY IFNULL(f.display_order, f.id) ASC, f.fecha_creacion DESC`
+      );
+      return result;
+    }
   } catch (error) {
     console.error('Error al obtener carpetas raíz:', error);
     throw error;
@@ -785,17 +874,35 @@ export async function getRootFolders(): Promise<Folder[]> {
  */
 export async function getSubfolders(parentFolderId: number): Promise<Folder[]> {
   try {
-    const result = await db.getAllAsync<Folder>(
-      `SELECT
-        f.*,
-        (SELECT COUNT(*) FROM folders sf WHERE sf.parent_folder_id = f.id) AS child_count,
-        (SELECT COUNT(*) FROM competitions c WHERE c.folder_id = f.id) AS competition_count
-      FROM folders f
-      WHERE f.parent_folder_id = ?
-      ORDER BY f.fecha_creacion DESC`,
-      [parentFolderId]
-    );
-    return result;
+    // First try with display_order
+    try {
+      const result = await db.getAllAsync<Folder>(
+        `SELECT
+          f.*,
+          (SELECT COUNT(*) FROM folders sf WHERE sf.parent_folder_id = f.id) AS child_count,
+          (SELECT COUNT(*) FROM competitions c WHERE c.folder_id = f.id) AS competition_count
+        FROM folders f
+        WHERE f.parent_folder_id = ?
+        ORDER BY IFNULL(f.display_order, f.id) ASC, f.fecha_creacion DESC`,
+        [parentFolderId]
+      );
+      return result;
+    } catch (innerError) {
+      // If display_order column doesn't exist, run migration and retry
+      console.log('display_order column not found in subfolders, running migration...');
+      await migrateFoldersAndCompetitionsAddDisplayOrder();
+      const result = await db.getAllAsync<Folder>(
+        `SELECT
+          f.*,
+          (SELECT COUNT(*) FROM folders sf WHERE sf.parent_folder_id = f.id) AS child_count,
+          (SELECT COUNT(*) FROM competitions c WHERE c.folder_id = f.id) AS competition_count
+        FROM folders f
+        WHERE f.parent_folder_id = ?
+        ORDER BY IFNULL(f.display_order, f.id) ASC, f.fecha_creacion DESC`,
+        [parentFolderId]
+      );
+      return result;
+    }
   } catch (error) {
     console.error('Error al obtener subcarpetas:', error);
     throw error;
@@ -967,14 +1074,21 @@ export async function createCompetition(
   numberOfParticipants: number = 0
 ): Promise<number> {
   try {
+    // Get the next display_order for competitions in this folder
+    const maxOrder = await db.getFirstAsync<{max_order: number | null}>(
+      'SELECT MAX(display_order) as max_order FROM competitions WHERE folder_id = ?',
+      [folderId]
+    );
+    const nextDisplayOrder = (maxOrder?.max_order ?? 0) + 1;
+
     const result = await db.runAsync(
-      `INSERT INTO competitions (name, description, date, gender, folder_id, number_of_participants) 
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [name, description, date, gender ? 1 : 0, folderId, numberOfParticipants]
+      `INSERT INTO competitions (name, description, date, gender, folder_id, number_of_participants, display_order) 
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [name, description, date, gender ? 1 : 0, folderId, numberOfParticipants, nextDisplayOrder]
     );
 
     const competitionId = result.lastInsertRowId;
-    console.log(`Competencia creada: ${name} (ID: ${competitionId})`);
+    console.log(`Competencia creada: ${name} (ID: ${competitionId}, display_order: ${nextDisplayOrder})`);
 
     // Crear gimnastas vacíos según el número de participantes
     if (numberOfParticipants > 0) {
@@ -1022,15 +1136,31 @@ export async function getCompetitionById(id: number): Promise<Competition | null
  */
 export async function getCompetitionsByFolder(folderId: number): Promise<Competition[]> {
   try {
-    const results = await db.getAllAsync<any>(
-      'SELECT * FROM competitions WHERE folder_id = ? ORDER BY date DESC',
-      [folderId]
-    );
-    
-    return results.map(r => ({
-      ...r,
-      gender: r.gender === 1,
-    }));
+    // First try with display_order
+    try {
+      const results = await db.getAllAsync<any>(
+        'SELECT * FROM competitions WHERE folder_id = ? ORDER BY IFNULL(display_order, id) ASC, date DESC',
+        [folderId]
+      );
+      
+      return results.map(r => ({
+        ...r,
+        gender: r.gender === 1,
+      }));
+    } catch (innerError) {
+      // If display_order column doesn't exist, run migration and retry
+      console.log('display_order column not found in competitions, running migration...');
+      await migrateFoldersAndCompetitionsAddDisplayOrder();
+      const results = await db.getAllAsync<any>(
+        'SELECT * FROM competitions WHERE folder_id = ? ORDER BY IFNULL(display_order, id) ASC, date DESC',
+        [folderId]
+      );
+      
+      return results.map(r => ({
+        ...r,
+        gender: r.gender === 1,
+      }));
+    }
   } catch (error) {
     console.error('Error al obtener competencias de carpeta:', error);
     throw error;
@@ -1450,5 +1580,81 @@ export async function getGymnastTracesAsJSON(gymnastId: number): Promise<string>
   } catch (error) {
     console.error('Error al obtener trazos como JSON:', error);
     return '';
+  }
+}
+
+/**
+ * Intercambiar posiciones de dos carpetas
+ */
+export async function swapFolderPositions(folderId1: number, folderId2: number): Promise<void> {
+  try {
+    // Primero asegurar que la migración se haya ejecutado
+    await migrateFoldersAndCompetitionsAddDisplayOrder();
+    
+    // Obtener display_order actual de ambas carpetas
+    const folder1 = await db.getFirstAsync<{order_value: number, id: number}>(
+      'SELECT id, CASE WHEN display_order IS NULL OR display_order = 0 THEN id ELSE display_order END as order_value FROM folders WHERE id = ?', 
+      [folderId1]
+    );
+    const folder2 = await db.getFirstAsync<{order_value: number, id: number}>(
+      'SELECT id, CASE WHEN display_order IS NULL OR display_order = 0 THEN id ELSE display_order END as order_value FROM folders WHERE id = ?', 
+      [folderId2]
+    );
+    
+    if (!folder1 || !folder2) {
+      throw new Error('One or both folders not found');
+    }
+    
+    const order1 = folder1.order_value;
+    const order2 = folder2.order_value;
+    
+    console.log(`Before swap - Folder ${folderId1} order: ${order1}, Folder ${folderId2} order: ${order2}`);
+    
+    // Intercambiar posiciones
+    await db.runAsync('UPDATE folders SET display_order = ? WHERE id = ?', [order2, folderId1]);
+    await db.runAsync('UPDATE folders SET display_order = ? WHERE id = ?', [order1, folderId2]);
+    
+    console.log(`Swapped folder positions: ${folderId1} (now ${order2}) <-> ${folderId2} (now ${order1})`);
+  } catch (error) {
+    console.error('Error swapping folder positions:', error);
+    throw error;
+  }
+}
+
+/**
+ * Intercambiar posiciones de dos competencias
+ */
+export async function swapCompetitionPositions(compId1: number, compId2: number): Promise<void> {
+  try {
+    // Primero asegurar que la migración se haya ejecutado
+    await migrateFoldersAndCompetitionsAddDisplayOrder();
+    
+    // Obtener display_order actual de ambas competencias
+    const comp1 = await db.getFirstAsync<{order_value: number, id: number}>(
+      'SELECT id, CASE WHEN display_order IS NULL OR display_order = 0 THEN id ELSE display_order END as order_value FROM competitions WHERE id = ?', 
+      [compId1]
+    );
+    const comp2 = await db.getFirstAsync<{order_value: number, id: number}>(
+      'SELECT id, CASE WHEN display_order IS NULL OR display_order = 0 THEN id ELSE display_order END as order_value FROM competitions WHERE id = ?', 
+      [compId2]
+    );
+    
+    if (!comp1 || !comp2) {
+      throw new Error('One or both competitions not found');
+    }
+    
+    const order1 = comp1.order_value;
+    const order2 = comp2.order_value;
+    
+    console.log(`Before swap - Competition ${compId1} order: ${order1}, Competition ${compId2} order: ${order2}`);
+    
+    // Intercambiar posiciones
+    await db.runAsync('UPDATE competitions SET display_order = ? WHERE id = ?', [order2, compId1]);
+    await db.runAsync('UPDATE competitions SET display_order = ? WHERE id = ?', [order1, compId2]);
+    
+    console.log(`Swapped competition positions: ${compId1} (now ${order2}) <-> ${compId2} (now ${order1})`);
+  } catch (error) {
+    console.error('Error swapping competition positions:', error);
+    throw error;
   }
 }

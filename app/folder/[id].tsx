@@ -1,7 +1,7 @@
-import { View, Text, StyleSheet, TouchableOpacity, Modal, SafeAreaView, StatusBar, Platform, ScrollView, Dimensions, FlatList, TextInput, Image } from 'react-native';
-import { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, SafeAreaView, StatusBar, Platform, ScrollView, Dimensions, FlatList, TextInput, Image, Alert } from 'react-native';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { getDiscipline, getSubfolders, getFolderById, getFolderPath, Folder, createFolder, createCompetition, getCompetitionsByFolder, Competition, deleteFolder, deleteCompetition, updateFolder, updateCompetition } from '../../lib/database';
+import { getDiscipline, getSubfolders, getFolderById, getFolderPath, Folder, createFolder, createCompetition, getCompetitionsByFolder, Competition, deleteFolder, deleteCompetition, updateFolder, updateCompetition, swapFolderPositions, swapCompetitionPositions } from '../../lib/database';
 import FolderExportModal from '../../componentes/FolderExportModal';
 import FolderImportModal from '../../componentes/FolderImportModal';
 import CustomNumberPadOptimized from '../../componentes/CustomNumberPadOptimized';
@@ -45,6 +45,13 @@ export default function FolderView() {
   const [competitionParticipants, setCompetitionParticipants] = useState('');
   // Estado para mostrar el pad de participantes
   const [showParticipantsPad, setShowParticipantsPad] = useState(false);
+
+  // Reorder mode states
+  const [reorderMode, setReorderMode] = useState(false);
+  const [reorderType, setReorderType] = useState<'folder' | 'competition' | null>(null);
+  const [selectedItemForReorder, setSelectedItemForReorder] = useState<Folder | Competition | null>(null);
+  const [listKey, setListKey] = useState(0);
+  const longPressTriggeredRef = useRef(false);
 
   useEffect(() => {
     loadDiscipline();
@@ -280,6 +287,74 @@ export default function FolderView() {
     }
   };
 
+  // Reorder functions
+  const handleLongPress = (type: 'folder' | 'competition', item: Folder | Competition) => {
+    if (deleteMode || editMode) return;
+    
+    longPressTriggeredRef.current = true;
+    setReorderMode(true);
+    setReorderType(type);
+    setSelectedItemForReorder(item);
+  };
+
+  const handleCardPress = (type: 'folder' | 'competition', item: Folder | Competition) => {
+    // In reorder mode, always handle the reorder select
+    if (reorderMode) {
+      longPressTriggeredRef.current = false;
+      handleReorderSelect(type, item);
+      return;
+    }
+    
+    // If long press was just triggered, don't navigate
+    if (longPressTriggeredRef.current) {
+      longPressTriggeredRef.current = false;
+      return;
+    }
+    
+    if (type === 'folder') {
+      handleFolderClick(item as Folder);
+    } else {
+      handleCompetitionClick(item as Competition);
+    }
+  };
+
+  const handleReorderSelect = async (type: 'folder' | 'competition', targetItem: Folder | Competition) => {
+    if (!selectedItemForReorder || !reorderType) return;
+    
+    // Can only swap items of the same type
+    if (type !== reorderType) {
+      Alert.alert('Invalid Selection', 'You can only swap items of the same type (folder with folder, or competition with competition).');
+      return;
+    }
+    
+    if (selectedItemForReorder.id === targetItem.id) {
+      return;
+    }
+
+    try {
+      if (type === 'folder') {
+        await swapFolderPositions(selectedItemForReorder.id, targetItem.id);
+      } else {
+        await swapCompetitionPositions(selectedItemForReorder.id, targetItem.id);
+      }
+      setReorderMode(false);
+      setReorderType(null);
+      setSelectedItemForReorder(null);
+      await loadFolderData();
+      setListKey(prev => prev + 1); // Force complete FlatList re-render
+    } catch (error) {
+      console.error('Error swapping positions:', error);
+      Alert.alert('Error', 'Could not swap positions. Please try again.');
+    }
+  };
+
+  const handleCancelReorder = () => {
+    setReorderMode(false);
+    setReorderType(null);
+    setSelectedItemForReorder(null);
+    setListKey(prev => prev + 1); // Force complete FlatList re-render
+  };
+
   const handleBreadcrumbClick = (folder: Folder) => {
     router.push(`/folder/${folder.id}`);
   };
@@ -290,6 +365,10 @@ export default function FolderView() {
     const itemKey = `${item.type}-${data.id}`;
     const isSelected = selectedItems.has(itemKey);
     
+    // Reorder mode highlighting
+    const isReorderSelected = reorderMode && selectedItemForReorder?.id === data.id && reorderType === item.type;
+    const isReorderTarget = reorderMode && selectedItemForReorder?.id !== data.id && reorderType === item.type;
+    
     if (isFolder) {
       const folder = data as Folder;
       const hasContent = (folder.child_count ?? 0) > 0 || (folder.competition_count ?? 0) > 0;
@@ -298,15 +377,24 @@ export default function FolderView() {
         <TouchableOpacity 
           style={[
             styles.folderCard,
-            isSelected && styles.selectedCard
+            isSelected && styles.selectedCard,
+            isReorderSelected && styles.reorderSelectedCard,
+            isReorderTarget && styles.reorderTargetCard
           ]} 
-          onPress={() => handleFolderClick(folder)}
+          onPress={() => handleCardPress('folder', folder)}
+          onLongPress={() => handleLongPress('folder', folder)}
+          delayLongPress={2000}
         >
           {deleteMode && (
             <View style={styles.checkbox}>
               <Text style={styles.checkboxText}>{isSelected ? '✓' : ''}</Text>
             </View>
-          )}  
+          )}
+          {isReorderSelected && (
+            <View style={styles.reorderBadge}>
+              <Text style={styles.reorderBadgeText}>Moving</Text>
+            </View>
+          )}
           <View style={styles.folderImage}>
             <Image source={folderIconSource} style={styles.itemIconImage} resizeMode="contain" />
           </View>
@@ -329,13 +417,22 @@ export default function FolderView() {
         <TouchableOpacity 
           style={[
             styles.folderCard,
-            isSelected && styles.selectedCard
+            isSelected && styles.selectedCard,
+            isReorderSelected && styles.reorderSelectedCard,
+            isReorderTarget && styles.reorderTargetCard
           ]} 
-          onPress={() => handleCompetitionClick(competition)}
+          onPress={() => handleCardPress('competition', competition)}
+          onLongPress={() => handleLongPress('competition', competition)}
+          delayLongPress={2000}
         >
           {deleteMode && (
             <View style={styles.checkbox}>
               <Text style={styles.checkboxText}>{isSelected ? '✓' : ''}</Text>
+            </View>
+          )}
+          {isReorderSelected && (
+            <View style={styles.reorderBadge}>
+              <Text style={styles.reorderBadgeText}>Moving</Text>
             </View>
           )}
           <View style={[styles.folderImage, styles.competitionImage]}>
@@ -403,6 +500,21 @@ export default function FolderView() {
         </TouchableOpacity>
       </View>
 
+      {/* Reorder Mode Bar */}
+      {reorderMode && (
+        <View style={styles.reorderModeBar}>
+          <Text style={styles.reorderModeText}>
+            Tap another {reorderType === 'folder' ? 'folder' : 'competition'} to swap positions
+          </Text>
+          <TouchableOpacity 
+            style={styles.reorderCancelButton}
+            onPress={handleCancelReorder}
+          >
+            <Text style={styles.reorderCancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Content Area */}
       <View style={styles.content}>
         {combinedItems.length === 0 ? (
@@ -411,9 +523,10 @@ export default function FolderView() {
           <FlatList
             data={combinedItems}
             renderItem={renderCard}
-            keyExtractor={(item, index) => `${item.type}-${item.type === 'folder' ? (item.data as Folder).id : (item.data as Competition).id}-${index}`}
+            keyExtractor={(item, index) => `${item.type}-${item.data.id}-${(item.data as any).display_order || item.data.id}-${index}`}
             numColumns={3}
-            key={'3-columns'}
+            key={`grid-${listKey}`}
+            extraData={[combinedItems, listKey]}
             contentContainerStyle={styles.gridContainer}
             showsVerticalScrollIndicator={false}
           />
@@ -1176,6 +1289,58 @@ const styles = StyleSheet.create({
   confirmButtonText: {
     color: '#fff',
     fontSize: 16,
+    fontWeight: 'bold',
+  },
+  // Reorder mode styles
+  reorderModeBar: {
+    flexDirection: 'row',
+    backgroundColor: '#004aad',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  reorderModeText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+    flex: 1,
+  },
+  reorderCancelButton: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  reorderCancelButtonText: {
+    color: '#004aad',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  reorderSelectedCard: {
+    backgroundColor: '#e3f2fd',
+    borderWidth: 3,
+    borderColor: '#1976d2',
+    transform: [{ scale: 1.02 }],
+  },
+  reorderTargetCard: {
+    borderWidth: 2,
+    borderColor: '#4caf50',
+    borderStyle: 'dashed',
+  },
+  reorderBadge: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    backgroundColor: '#1976d2',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    zIndex: 10,
+  },
+  reorderBadgeText: {
+    color: '#fff',
+    fontSize: 10,
     fontWeight: 'bold',
   },
 });

@@ -508,27 +508,36 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
 
   /* Logic ======================================================== */
   const handleStickBonusChange = async (value: boolean) => {
-    console.log("handleStickBonusChange called with:", value);
-    console.log("Current values - eScore:", String(eScore), "sv:", String(sv), "nd:", String(nd));
-    setStickBonus(value);
-    
-    // Usar operación más robusta para evitar errores de punto flotante
-  const newmyscore = Math.round((eScore + sv + (value ? getStickBonusValue() : 0) - nd) * 1000) / 1000;
-  console.log("handleStickBonusChange calculation:", String(eScore), "+", String(sv), "+", String(value ? getStickBonusValue() : 0), "-", String(nd), "=", String(newmyscore));
-    const finalScore = newmyscore;
-    console.log("Final Score (handleStickBonusChange):", String(finalScore));
+    try {
+      console.log("handleStickBonusChange called with:", value);
+      console.log("Current values - eScore:", String(eScore), "sv:", String(sv), "nd:", String(nd));
+      setStickBonus(value);
+      
+      // Usar operación más robusta para evitar errores de punto flotante
+      const newmyscore = Math.round((eScore + sv + (value ? getStickBonusValue() : 0) - nd) * 1000) / 1000;
+      console.log("handleStickBonusChange calculation:", String(eScore), "+", String(sv), "+", String(value ? getStickBonusValue() : 0), "-", String(nd), "=", String(newmyscore));
+      const finalScore = newmyscore;
+      console.log("Final Score (handleStickBonusChange):", String(finalScore));
 
-    setMyScore(finalScore);
-
+      setMyScore(finalScore);
+    } catch (error) {
+      console.error('Error in handleStickBonusChange:', error);
+      Alert.alert('Error', 'Could not update bonus. Please try again.');
+    }
     // No need to save immediately, will be saved on navigation
   };
   /* Logic ======================================================== */
 
   const oncodetable = async () => {
-    if (gender == true) {
-      setShowModalMag(true);
-    } else {
-      setShowModalWag(true);
+    try {
+      if (gender == true) {
+        setShowModalMag(true);
+      } else {
+        setShowModalWag(true);
+      }
+    } catch (error) {
+      console.error('Error in oncodetable:', error);
+      Alert.alert('Error', 'Could not open vault selector. Please try again.');
     }
   };
 
@@ -537,15 +546,15 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
     value: number;
     description: string;
   }) => {
-    console.log("Selected vault from :", value);
-    setVaultNumber(value.number);
-    setStartValue(value.value);
-
-    setVaultDescription(value.description);
-
-    
-
-    
+    try {
+      console.log("Selected vault from :", value);
+      setVaultNumber(value.number);
+      setStartValue(value.value);
+      setVaultDescription(value.description);
+    } catch (error) {
+      console.error('Error in handleVaultSelect:', error);
+      Alert.alert('Error', 'Could not select vault. Please try again.');
+    }
   };
 
   /* Helpers ============================================== */
@@ -644,43 +653,49 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             setNdInputcomp(value);
           }}
           onClose={(finalValue: string) => {
-            console.log("ndInputcomp:", String(finalValue));
+            try {
+              console.log("ndInputcomp:", String(finalValue));
 
-            // First check if finalValue exists and is not empty
-            if (!finalValue || finalValue === "" || finalValue === ".") {
-              Alert.alert("Invalid Input", "Please enter a ND value.", [
-                { text: "OK" },
-              ]);
-              return;
+              // First check if finalValue exists and is not empty
+              if (!finalValue || finalValue === "" || finalValue === ".") {
+                Alert.alert("Invalid Input", "Please enter a ND value.", [
+                  { text: "OK" },
+                ]);
+                return;
+              }
+
+              // Handle case where input ends with "." - add "0"
+              let processedInput = finalValue;
+              if (finalValue.endsWith(".")) {
+                processedInput = finalValue + "0";
+              }
+
+              // Make sure processedInput is a string before using replace
+              const inputString = processedInput.toString();
+              const num = parseFloat(inputString.replace(",", "."));
+
+              if (!isNaN(num)) {
+                const rounded = Math.round(num * 10) / 10;
+                setNdInputcomp(rounded.toString());
+                setndcomp(rounded);
+
+                const compscorecalc = d + e + (sb ? getStickBonusValue() : 0) - rounded;
+                const finalScore = Math.round(compscorecalc * 1000) / 1000;
+
+                setScore(finalScore);
+                
+              } else {
+                Alert.alert("Invalid Input", "Please enter a valid ND value.", [
+                  { text: "OK" },
+                ]);
+                return;
+              }
+              setShowNdCompModal(false);
+            } catch (error) {
+              console.error('Error in ND Competition modal:', error);
+              Alert.alert('Error', 'Could not save ND value. Please try again.');
+              setShowNdCompModal(false);
             }
-
-            // Handle case where input ends with "." - add "0"
-            let processedInput = finalValue;
-            if (finalValue.endsWith(".")) {
-              processedInput = finalValue + "0";
-            }
-
-            // Make sure processedInput is a string before using replace
-            const inputString = processedInput.toString();
-            const num = parseFloat(inputString.replace(",", "."));
-
-            if (!isNaN(num)) {
-              const rounded = Math.round(num * 10) / 10;
-              setNdInputcomp(rounded.toString());
-              setndcomp(rounded);
-
-              const compscorecalc = d + e + (sb ? getStickBonusValue() : 0) - rounded;
-              const finalScore = Math.round(compscorecalc * 1000) / 1000;
-
-              setScore(finalScore);
-              
-            } else {
-              Alert.alert("Invalid Input", "Please enter a valid ND value.", [
-                { text: "OK" },
-              ]);
-              return;
-            }
-            setShowNdCompModal(false);
           }}
           title="Enter ND Competition Value"
           allowDecimal={true}
@@ -696,51 +711,55 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             setSvInput(value);
           }}
           onClose={(finalValue: string) => {
-            console.log("svInput:", String(finalValue));
+            try {
+              console.log("svInput:", String(finalValue));
 
-            // First check if finalValue exists and is not empty
-            if (!finalValue || finalValue === "" || finalValue === ".") {
-              Alert.alert("Invalid Input", "Please enter a SV value.", [
-                { text: "OK" },
-              ]);
-              return;
+              // First check if finalValue exists and is not empty
+              if (!finalValue || finalValue === "" || finalValue === ".") {
+                Alert.alert("Invalid Input", "Please enter a SV value.", [
+                  { text: "OK" },
+                ]);
+                return;
+              }
+
+              // Handle case where input ends with "." - add "0"
+              let processedInput = finalValue;
+              if (finalValue.endsWith(".")) {
+                processedInput = finalValue + "0";
+              }
+
+              // Make sure processedInput is a string before using replace
+              const inputString = processedInput.toString();
+              const num = parseFloat(inputString.replace(",", "."));
+
+              if (!isNaN(num)) {
+                const rounded = Math.round(num * 100) / 100;
+                setSv(rounded);
+                console.log("Rounded SV:", String(rounded));
+                console.log("eScore:", String(eScore));
+                console.log("nd:", String(nd));
+                console.log("stickbonus:", String(stickbonus));
+                
+                // Usar operación más robusta para evitar errores de punto flotante
+                const newmyscore = Math.round((eScore + rounded + (stickbonus ? getStickBonusValue() : 0) - nd) * 1000) / 1000;
+                console.log("Calculation: ", String(eScore), "+", String(rounded), "+", String(stickbonus ? getStickBonusValue() : 0), "-", String(nd), "=", String(newmyscore));
+                const finalScore = newmyscore;
+
+                console.log("Final Score (SV Modal):", String(finalScore));
+                setMyScore(finalScore);
+                
+              } else {
+                Alert.alert("Invalid Input", "Please enter a valid SV value.", [
+                  { text: "OK" },
+                ]);
+                return;
+              }
+              setShowSvModal(false);
+            } catch (error) {
+              console.error('Error in SV modal:', error);
+              Alert.alert('Error', 'Could not save SV value. Please try again.');
+              setShowSvModal(false);
             }
-
-            // Handle case where input ends with "." - add "0"
-            let processedInput = finalValue;
-            if (finalValue.endsWith(".")) {
-              processedInput = finalValue + "0";
-            }
-
-            // Make sure processedInput is a string before using replace
-            const inputString = processedInput.toString();
-            const num = parseFloat(inputString.replace(",", "."));
-
-            if (!isNaN(num)) {
-              const rounded = Math.round(num * 100) / 100;
-              setSv(rounded);
-              console.log("Rounded SV:", String(rounded));
-              console.log("eScore:", String(eScore));
-              console.log("nd:", String(nd));
-              console.log("stickbonus:", String(stickbonus));
-              
-              // Usar operación más robusta para evitar errores de punto flotante
-              const newmyscore = Math.round((eScore + rounded + (stickbonus ? getStickBonusValue() : 0) - nd) * 1000) / 1000;
-              console.log("Calculation: ", String(eScore), "+", String(rounded), "+", String(stickbonus ? getStickBonusValue() : 0), "-", String(nd), "=", String(newmyscore));
-              const finalScore = newmyscore;
-
-              console.log("Final Score (SV Modal):", String(finalScore));
-              setMyScore(finalScore);
-
-              
-              
-            } else {
-              Alert.alert("Invalid Input", "Please enter a valid SV value.", [
-                { text: "OK" },
-              ]);
-              return;
-            }
-            setShowSvModal(false);
           }}
           title="Enter Start Value"
           allowDecimal={true}
@@ -756,60 +775,64 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             setEInput(value);
           }}
           onClose={(finalValue: string) => {
-            console.log("eInput:", String(finalValue));
+            try {
+              console.log("eInput:", String(finalValue));
 
-            // First check if finalValue exists and is not empty
-            if (!finalValue || finalValue === "" || finalValue === ".") {
-              Alert.alert("Invalid Input", "Please enter an E value.", [
-                { text: "OK" },
-              ]);
-              return;
+              // First check if finalValue exists and is not empty
+              if (!finalValue || finalValue === "" || finalValue === ".") {
+                Alert.alert("Invalid Input", "Please enter an E value.", [
+                  { text: "OK" },
+                ]);
+                return;
+              }
+
+              // Handle case where input ends with "." - add "0"
+              let processedInput = finalValue;
+              if (finalValue.endsWith(".")) {
+                processedInput = finalValue + "0";
+              }
+
+              // Make sure processedInput is a string before using replace
+              const inputString = processedInput.toString();
+              const num = parseFloat(inputString.replace(",", "."));
+
+              if (!isNaN(num)) {
+                const rounded = Math.round(num * 1000) / 1000;
+                setE(rounded);
+                // Save to database
+                const compscorecalc = d + rounded + (sb ? getStickBonusValue() : 0) - ndcomp;
+                const finalScore = Math.round(compscorecalc * 1000) / 1000;
+
+                setScore(finalScore);
+
+                /* ============================================================== */
+                const newdelt = Math.abs(Math.round((eScore - rounded) * 1000) / 1000);
+                setDelt(newdelt);
+
+                const newded = 10 - rounded;
+                setSetded(Number(newded));
+
+                const dedInterval = getDeductionIntervalValue(Number(newded));
+                const percentageValue = getPercentageFromTable(
+                  dedInterval,
+                  newdelt
+                );
+                setpercentage(percentageValue);
+
+                /* ============================================================== */
+                
+              } else {
+                Alert.alert("Invalid Input", "Please enter a valid E value.", [
+                  { text: "OK" },
+                ]);
+                return;
+              }
+              setShowEModal(false);
+            } catch (error) {
+              console.error('Error in E modal:', error);
+              Alert.alert('Error', 'Could not save E value. Please try again.');
+              setShowEModal(false);
             }
-
-            // Handle case where input ends with "." - add "0"
-            let processedInput = finalValue;
-            if (finalValue.endsWith(".")) {
-              processedInput = finalValue + "0";
-            }
-
-            // Make sure processedInput is a string before using replace
-            const inputString = processedInput.toString();
-            const num = parseFloat(inputString.replace(",", "."));
-
-            if (!isNaN(num)) {
-              const rounded = Math.round(num * 1000) / 1000;
-              setE(rounded);
-              // Save to database
-              const compscorecalc = d + rounded + (sb ? getStickBonusValue() : 0) - ndcomp;
-              const finalScore = Math.round(compscorecalc * 1000) / 1000;
-
-              setScore(finalScore);
-
-              /* ============================================================== */
-              const newdelt = Math.abs(Math.round((eScore - rounded) * 1000) / 1000);
-              setDelt(newdelt);
-
-              const newded = 10 - rounded;
-              setSetded(Number(newded));
-
-              const dedInterval = getDeductionIntervalValue(Number(newded));
-              const percentageValue = getPercentageFromTable(
-                dedInterval,
-                newdelt
-              );
-              setpercentage(percentageValue);
-
-              
-
-              /* ============================================================== */
-              
-            } else {
-              Alert.alert("Invalid Input", "Please enter a valid E value.", [
-                { text: "OK" },
-              ]);
-              return;
-            }
-            setShowEModal(false);
           }}
           title="Enter E Score"
           allowDecimal={true}
@@ -825,53 +848,59 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             setDInput(value);
           }}
           onClose={(finalValue: string) => {
-            console.log("dInput:", String(finalValue));
+            try {
+              console.log("dInput:", String(finalValue));
 
-            // First check if finalValue exists and is not empty
-            if (!finalValue || finalValue === "" || finalValue === ".") {
-              Alert.alert("Invalid Input", "Please enter a D value.", [
-                { text: "OK" },
-              ]);
-              return;
+              // First check if finalValue exists and is not empty
+              if (!finalValue || finalValue === "" || finalValue === ".") {
+                Alert.alert("Invalid Input", "Please enter a D value.", [
+                  { text: "OK" },
+                ]);
+                return;
+              }
+
+              // Handle case where input ends with "." - add "0"
+              let processedInput = finalValue;
+              if (finalValue.endsWith(".")) {
+                processedInput = finalValue + "0";
+              }
+
+              // Make sure processedInput is a string before using replace
+              const inputString = processedInput.toString();
+              const num = parseFloat(inputString.replace(",", "."));
+
+              if (!isNaN(num)) {
+                const rounded = Math.round(num * 10) / 10;
+                setD(rounded);
+
+                const compscorecalc = rounded + e + (sb ? getStickBonusValue() : 0) - ndcomp;
+                const finalScore = Math.round(compscorecalc * 1000) / 1000;
+
+                setScore(finalScore);
+
+                // Calcular percentage y dedded basado en eScore y competition E
+                const newdelt = Math.abs(Math.round((eScore - e) * 10) / 10);
+                setDelt(newdelt);
+
+                const newded = 10 - e;
+                setSetded(Number(newded));
+
+                const dedInterval = getDeductionIntervalValue(Number(newded));
+                const percentageValue = getPercentageFromTable(dedInterval, newdelt);
+                setpercentage(percentageValue);
+                
+              } else {
+                Alert.alert("Invalid Input", "Please enter a valid D value.", [
+                  { text: "OK" },
+                ]);
+                return;
+              }
+              setShowDModal(false);
+            } catch (error) {
+              console.error('Error in D modal:', error);
+              Alert.alert('Error', 'Could not save D value. Please try again.');
+              setShowDModal(false);
             }
-
-            // Handle case where input ends with "." - add "0"
-            let processedInput = finalValue;
-            if (finalValue.endsWith(".")) {
-              processedInput = finalValue + "0";
-            }
-
-            // Make sure processedInput is a string before using replace
-            const inputString = processedInput.toString();
-            const num = parseFloat(inputString.replace(",", "."));
-
-            if (!isNaN(num)) {
-              const rounded = Math.round(num * 10) / 10;
-              setD(rounded);
-
-              const compscorecalc = rounded + e + (sb ? getStickBonusValue() : 0) - ndcomp;
-              const finalScore = Math.round(compscorecalc * 1000) / 1000;
-
-              setScore(finalScore);
-
-              // Calcular percentage y dedded basado en eScore y competition E
-              const newdelt = Math.abs(Math.round((eScore - e) * 10) / 10);
-              setDelt(newdelt);
-
-              const newded = 10 - e;
-              setSetded(Number(newded));
-
-              const dedInterval = getDeductionIntervalValue(Number(newded));
-              const percentageValue = getPercentageFromTable(dedInterval, newdelt);
-              setpercentage(percentageValue);
-              
-            } else {
-              Alert.alert("Invalid Input", "Please enter a valid D value.", [
-                { text: "OK" },
-              ]);
-              return;
-            }
-            setShowDModal(false);
           }}
           title="Enter D Score"
           allowDecimal={true}
@@ -887,62 +916,66 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             setExecutionInput(value);
           }}
           onClose={(finalValue: string) => {
-            console.log("executionInput:", String(finalValue));
+            try {
+              console.log("executionInput:", String(finalValue));
 
-            // First check if finalValue exists and is not empty
-            if (!finalValue || finalValue === "" || finalValue === ".") {
-              Alert.alert("Invalid Input", "Please enter an Execution value.", [
-                { text: "OK" },
-              ]);
-              return;
-            }
+              // First check if finalValue exists and is not empty
+              if (!finalValue || finalValue === "" || finalValue === ".") {
+                Alert.alert("Invalid Input", "Please enter an Execution value.", [
+                  { text: "OK" },
+                ]);
+                return;
+              }
 
-            // Handle case where input ends with "." - add "0"
-            let processedInput = finalValue;
-            if (finalValue.endsWith(".")) {
-              processedInput = finalValue + "0";
-            }
+              // Handle case where input ends with "." - add "0"
+              let processedInput = finalValue;
+              if (finalValue.endsWith(".")) {
+                processedInput = finalValue + "0";
+              }
 
-            // Make sure processedInput is a string before using replace
-            const inputString = processedInput.toString();
-            const num = parseFloat(inputString.replace(",", "."));
+              // Make sure processedInput is a string before using replace
+              const inputString = processedInput.toString();
+              const num = parseFloat(inputString.replace(",", "."));
 
-            if (!isNaN(num)) {
-              const rounded = Math.round(num * 10) / 10;
-              setExecution(rounded);
-              const eScore = Number((10 - rounded).toFixed(3));
-              const newmyscore = eScore + sv + (stickbonus ? getStickBonusValue() : 0) - nd;
-              const finalScore = Math.round(newmyscore * 1000) / 1000;
+              if (!isNaN(num)) {
+                const rounded = Math.round(num * 10) / 10;
+                setExecution(rounded);
+                const eScore = Number((10 - rounded).toFixed(3));
+                const newmyscore = eScore + sv + (stickbonus ? getStickBonusValue() : 0) - nd;
+                const finalScore = Math.round(newmyscore * 1000) / 1000;
 
-              setMyScore(finalScore);
+                setMyScore(finalScore);
 
-              /* Lógica de delt existente */
-              const newdelt = Math.abs(Math.round((eScore - e) * 1000) / 1000);
-              setDelt(newdelt);
+                /* Lógica de delt existente */
+                const newdelt = Math.abs(Math.round((eScore - e) * 1000) / 1000);
+                setDelt(newdelt);
 
-              const newded = 10 - e;
-              setSetded(Number(newded));
+                const newded = 10 - e;
+                setSetded(Number(newded));
 
-              const dedInterval = getDeductionIntervalValue(Number(newded));
-              const percentageValue = getPercentageFromTable(
+                const dedInterval = getDeductionIntervalValue(Number(newded));
+                const percentageValue = getPercentageFromTable(
                 dedInterval,
                 newdelt
               );
               setpercentage(percentageValue);
 
-              
-
               setEScore(eScore);
               
-            } else {
-              Alert.alert(
-                "Invalid Input",
-                "Please enter a valid Execution value.",
-                [{ text: "OK" }]
-              );
-              return;
+              } else {
+                Alert.alert(
+                  "Invalid Input",
+                  "Please enter a valid Execution value.",
+                  [{ text: "OK" }]
+                );
+                return;
+              }
+              setShowExecutionModal(false);
+            } catch (error) {
+              console.error('Error in Execution modal:', error);
+              Alert.alert('Error', 'Could not save Execution value. Please try again.');
+              setShowExecutionModal(false);
             }
-            setShowExecutionModal(false);
           }}
           title="Enter Execution Score"
           allowDecimal={true}
@@ -1013,9 +1046,13 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                   alignItems: "center",
                 }}
                 onPress={async () => {
-                  setComments(commentsInput);
-                  setShowCommentsModal(false);
-                  
+                  try {
+                    setComments(commentsInput);
+                    setShowCommentsModal(false);
+                  } catch (error) {
+                    console.error('Error saving comments:', error);
+                    Alert.alert('Error', 'Could not save comments. Please try again.');
+                  }
                 }}
               >
                 <Text style={{ color: "#fff", fontWeight: "bold" }}>Save</Text>
@@ -1047,44 +1084,48 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             setNdInput(value);
           }}
           onClose={(finalValue: string) => {
-            console.log("ndInput:", String(finalValue));
+            try {
+              console.log("ndInput:", String(finalValue));
 
-            // First check if finalValue exists and is not empty
-            if (!finalValue || finalValue === "" || finalValue === ".") {
-              Alert.alert("Invalid Input", "Please enter a ND value.", [
-                { text: "OK" },
-              ]);
-              return;
+              // First check if finalValue exists and is not empty
+              if (!finalValue || finalValue === "" || finalValue === ".") {
+                Alert.alert("Invalid Input", "Please enter a ND value.", [
+                  { text: "OK" },
+                ]);
+                return;
+              }
+
+              // Handle case where input ends with "." - add "0"
+              let processedInput = finalValue;
+              if (finalValue.endsWith(".")) {
+                processedInput = finalValue + "0";
+              }
+
+              // Make sure processedInput is a string before using replace
+              const inputString = processedInput.toString();
+              const num = parseFloat(inputString.replace(",", "."));
+
+              if (!isNaN(num)) {
+                const rounded = Math.round(num * 10) / 10;
+                setNd(rounded);
+                const newmyscore =
+                  eScore + sv + (stickbonus ? getStickBonusValue() : 0) - rounded;
+                const finalScore = Math.round(newmyscore * 1000) / 1000;
+
+                setMyScore(finalScore);
+                
+              } else {
+                Alert.alert("Invalid Input", "Please enter a valid ND value.", [
+                  { text: "OK" },
+                ]);
+                return;
+              }
+              setShowNdModal(false);
+            } catch (error) {
+              console.error('Error in ND modal:', error);
+              Alert.alert('Error', 'Could not save ND value. Please try again.');
+              setShowNdModal(false);
             }
-
-            // Handle case where input ends with "." - add "0"
-            let processedInput = finalValue;
-            if (finalValue.endsWith(".")) {
-              processedInput = finalValue + "0";
-            }
-
-            // Make sure processedInput is a string before using replace
-            const inputString = processedInput.toString();
-            const num = parseFloat(inputString.replace(",", "."));
-
-            if (!isNaN(num)) {
-              const rounded = Math.round(num * 10) / 10;
-              setNd(rounded);
-              const newmyscore =
-                eScore + sv + (stickbonus ? getStickBonusValue() : 0) - rounded;
-              const finalScore = Math.round(newmyscore * 1000) / 1000;
-
-              setMyScore(finalScore);
-              
-
-              
-            } else {
-              Alert.alert("Invalid Input", "Please enter a valid ND value.", [
-                { text: "OK" },
-              ]);
-              return;
-            }
-            setShowNdModal(false);
           }}
           title="Enter ND Value"
           allowDecimal={true}
