@@ -829,12 +829,14 @@ export default function StartJudging() {
             {getFilteredGymnasts().map((gymnast, index) => {
               const isHighlighted = highlightedRow === gymnasts.indexOf(gymnast);
               const isSelected = selectedGymnasts.has(gymnast.id);
+              const isStarred = gymnast.starred;
               
               return (
                 <View 
                   key={gymnast.id} 
                   style={[
                     styles.tableRow,
+                    isStarred && styles.starredRow,
                     isHighlighted && styles.highlightedRow,
                     isSelected && styles.selectedRow
                   ]}
@@ -1361,6 +1363,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+  },
+  starredRow: {
+    backgroundColor: '#fffde7', // Mild yellow highlight for starred gymnasts
   },
   highlightedRow: {
     backgroundColor: '#ffcccc',

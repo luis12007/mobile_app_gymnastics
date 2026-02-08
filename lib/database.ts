@@ -71,6 +71,7 @@ export interface Gymnast {
   vault: string;
   vault_description: string;
   vault_value: number;
+  starred: boolean;
   created_at: string;
 }
 
@@ -440,6 +441,34 @@ async function migrateGymnastsAddPercentageAndDedded() {
 }
 
 /**
+ * Migrar tabla gymnasts para agregar columna starred
+ */
+async function migrateGymnastsAddStarred() {
+  try {
+    const tableInfo = await db.getAllAsync<any>(
+      "PRAGMA table_info(gymnasts)"
+    );
+    
+    if (tableInfo.length === 0) {
+      console.log('gymnasts table does not exist, will be created');
+      return;
+    }
+    
+    const hasStarred = tableInfo.some((col: any) => col.name === 'starred');
+    
+    if (!hasStarred) {
+      console.log('Adding starred column to gymnasts table...');
+      await db.execAsync(`
+        ALTER TABLE gymnasts ADD COLUMN starred INTEGER DEFAULT 0;
+      `);
+      console.log('starred column added successfully');
+    }
+  } catch (error) {
+    console.error('Error adding starred column:', error);
+  }
+}
+
+/**
  * Inicializar la base de datos con todas las tablas
  */
 export async function initDatabase() {
@@ -460,6 +489,9 @@ export async function initDatabase() {
 
       // Agregar columnas percentage y dedded si es necesario
       await migrateGymnastsAddPercentageAndDedded();
+
+      // Agregar columna starred si es necesario
+      await migrateGymnastsAddStarred();
 
       // Agregar columnas display_order a folders y competitions
       await migrateFoldersAndCompetitionsAddDisplayOrder();
@@ -556,6 +588,7 @@ export async function initDatabase() {
         vault TEXT,
         vault_description TEXT,
         vault_value REAL DEFAULT 0,
+        starred INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (competence_id) REFERENCES competitions(id) ON DELETE CASCADE
       );
@@ -784,21 +817,27 @@ export async function createFolder(
       }
     }
 
-    // Get the next display_order for folders at this level
+    // Get the next display_order considering BOTH folders AND competitions at this level
     let nextDisplayOrder = 1;
     if (parentFolderId === null) {
-      // Root level folders
+      // Root level folders - no competitions at root level, just folders
       const maxOrder = await db.getFirstAsync<{max_order: number | null}>(
         'SELECT MAX(display_order) as max_order FROM folders WHERE parent_folder_id IS NULL OR parent_folder_id = 0'
       );
       nextDisplayOrder = (maxOrder?.max_order ?? 0) + 1;
     } else {
-      // Subfolders
-      const maxOrder = await db.getFirstAsync<{max_order: number | null}>(
+      // Subfolders - need to check both folders AND competitions in the same parent
+      const maxFolderOrder = await db.getFirstAsync<{max_order: number | null}>(
         'SELECT MAX(display_order) as max_order FROM folders WHERE parent_folder_id = ?',
         [parentFolderId]
       );
-      nextDisplayOrder = (maxOrder?.max_order ?? 0) + 1;
+      const maxCompOrder = await db.getFirstAsync<{max_order: number | null}>(
+        'SELECT MAX(display_order) as max_order FROM competitions WHERE folder_id = ?',
+        [parentFolderId]
+      );
+      const maxFolder = maxFolderOrder?.max_order ?? 0;
+      const maxComp = maxCompOrder?.max_order ?? 0;
+      nextDisplayOrder = Math.max(maxFolder, maxComp) + 1;
     }
 
     const result = await db.runAsync(
@@ -1074,12 +1113,18 @@ export async function createCompetition(
   numberOfParticipants: number = 0
 ): Promise<number> {
   try {
-    // Get the next display_order for competitions in this folder
-    const maxOrder = await db.getFirstAsync<{max_order: number | null}>(
+    // Get the next display_order considering BOTH folders AND competitions in this folder
+    const maxFolderOrder = await db.getFirstAsync<{max_order: number | null}>(
+      'SELECT MAX(display_order) as max_order FROM folders WHERE parent_folder_id = ?',
+      [folderId]
+    );
+    const maxCompOrder = await db.getFirstAsync<{max_order: number | null}>(
       'SELECT MAX(display_order) as max_order FROM competitions WHERE folder_id = ?',
       [folderId]
     );
-    const nextDisplayOrder = (maxOrder?.max_order ?? 0) + 1;
+    const maxFolder = maxFolderOrder?.max_order ?? 0;
+    const maxComp = maxCompOrder?.max_order ?? 0;
+    const nextDisplayOrder = Math.max(maxFolder, maxComp) + 1;
 
     const result = await db.runAsync(
       `INSERT INTO competitions (name, description, date, gender, folder_id, number_of_participants, display_order) 
@@ -1485,6 +1530,12 @@ export async function updateGymnast(
       values.push(data.vault_value);
     }
     
+    // Starred
+    if (data.starred !== undefined) {
+      fields.push('starred = ?');
+      values.push(data.starred ? 1 : 0);
+    }
+    
     if (fields.length === 0) {
       console.log('No fields to update for gymnast ID', id);
       return;
@@ -1515,6 +1566,49 @@ export async function deleteGymnast(id: number): Promise<void> {
   } catch (error) {
     console.error('Error al eliminar gimnasta:', error);
     throw error;
+  }
+}
+
+/**
+ * Toggle starred status for a gymnast
+ */
+export async function toggleGymnastStarred(id: number): Promise<boolean> {
+  try {
+    // Get current starred status
+    const gymnast = await db.getFirstAsync<{ starred: number }>(
+      'SELECT starred FROM gymnasts WHERE id = ?',
+      [id]
+    );
+    
+    const currentStarred = gymnast?.starred === 1;
+    const newStarred = !currentStarred;
+    
+    await db.runAsync(
+      'UPDATE gymnasts SET starred = ? WHERE id = ?',
+      [newStarred ? 1 : 0, id]
+    );
+    
+    console.log(`Gymnast ${id} starred status changed to: ${newStarred}`);
+    return newStarred;
+  } catch (error) {
+    console.error('Error toggling gymnast starred status:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get starred status for a gymnast
+ */
+export async function getGymnastStarred(id: number): Promise<boolean> {
+  try {
+    const result = await db.getFirstAsync<{ starred: number }>(
+      'SELECT starred FROM gymnasts WHERE id = ?',
+      [id]
+    );
+    return result?.starred === 1;
+  } catch (error) {
+    console.error('Error getting gymnast starred status:', error);
+    return false;
   }
 }
 
@@ -1656,5 +1750,99 @@ export async function swapCompetitionPositions(compId1: number, compId2: number)
   } catch (error) {
     console.error('Error swapping competition positions:', error);
     throw error;
+  }
+}
+
+/**
+ * Intercambiar posiciones entre cualquier tipo de item (folder o competition)
+ * Permite intercambiar un folder con una competition y viceversa
+ */
+export async function swapItemPositions(
+  type1: 'folder' | 'competition',
+  id1: number,
+  type2: 'folder' | 'competition',
+  id2: number
+): Promise<void> {
+  try {
+    // Primero asegurar que la migración se haya ejecutado
+    await migrateFoldersAndCompetitionsAddDisplayOrder();
+    
+    // Obtener display_order del primer item
+    const table1 = type1 === 'folder' ? 'folders' : 'competitions';
+    const item1 = await db.getFirstAsync<{order_value: number, id: number}>(
+      `SELECT id, CASE WHEN display_order IS NULL OR display_order = 0 THEN id ELSE display_order END as order_value FROM ${table1} WHERE id = ?`, 
+      [id1]
+    );
+    
+    // Obtener display_order del segundo item
+    const table2 = type2 === 'folder' ? 'folders' : 'competitions';
+    const item2 = await db.getFirstAsync<{order_value: number, id: number}>(
+      `SELECT id, CASE WHEN display_order IS NULL OR display_order = 0 THEN id ELSE display_order END as order_value FROM ${table2} WHERE id = ?`, 
+      [id2]
+    );
+    
+    if (!item1 || !item2) {
+      throw new Error('One or both items not found');
+    }
+    
+    const order1 = item1.order_value;
+    const order2 = item2.order_value;
+    
+    console.log(`Before swap - ${type1} ${id1} order: ${order1}, ${type2} ${id2} order: ${order2}`);
+    
+    // Intercambiar posiciones
+    await db.runAsync(`UPDATE ${table1} SET display_order = ? WHERE id = ?`, [order2, id1]);
+    await db.runAsync(`UPDATE ${table2} SET display_order = ? WHERE id = ?`, [order1, id2]);
+    
+    console.log(`Swapped positions: ${type1} ${id1} (now ${order2}) <-> ${type2} ${id2} (now ${order1})`);
+  } catch (error) {
+    console.error('Error swapping item positions:', error);
+    throw error;
+  }
+}
+
+/**
+ * Normaliza los display_order dentro de un folder para evitar duplicados
+ * Combina folders y competitions y les asigna display_order secuencial
+ */
+export async function normalizeDisplayOrderInFolder(folderId: number): Promise<void> {
+  try {
+    // Get all folders in this parent folder
+    const folders = await db.getAllAsync<{id: number, display_order: number | null}>(
+      'SELECT id, display_order FROM folders WHERE parent_folder_id = ? ORDER BY IFNULL(display_order, id) ASC, id ASC',
+      [folderId]
+    );
+    
+    // Get all competitions in this folder
+    const competitions = await db.getAllAsync<{id: number, display_order: number | null}>(
+      'SELECT id, display_order FROM competitions WHERE folder_id = ? ORDER BY IFNULL(display_order, id) ASC, id ASC',
+      [folderId]
+    );
+    
+    // Combine and sort by current display_order
+    const allItems: Array<{type: 'folder' | 'competition', id: number, order: number}> = [
+      ...folders.map(f => ({ type: 'folder' as const, id: f.id, order: f.display_order ?? f.id })),
+      ...competitions.map(c => ({ type: 'competition' as const, id: c.id, order: c.display_order ?? c.id }))
+    ];
+    
+    allItems.sort((a, b) => a.order - b.order || a.id - b.id);
+    
+    // Reassign sequential display_order starting from 1
+    for (let i = 0; i < allItems.length; i++) {
+      const item = allItems[i];
+      const newOrder = i + 1;
+      if (item.type === 'folder') {
+        await db.runAsync('UPDATE folders SET display_order = ? WHERE id = ?', [newOrder, item.id]);
+      } else {
+        await db.runAsync('UPDATE competitions SET display_order = ? WHERE id = ?', [newOrder, item.id]);
+      }
+    }
+    
+    if (allItems.length > 0) {
+      console.log(`Normalized display_order for ${allItems.length} items in folder ${folderId}`);
+    }
+  } catch (error) {
+    console.error('Error normalizing display order:', error);
+    // Don't throw - this is a cleanup operation
   }
 }

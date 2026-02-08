@@ -1,7 +1,7 @@
 import { View, Text, StyleSheet, TouchableOpacity, Modal, SafeAreaView, StatusBar, Platform, ScrollView, Dimensions, FlatList, TextInput, Image, Alert } from 'react-native';
 import { useEffect, useState, useRef } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { getDiscipline, getSubfolders, getFolderById, getFolderPath, Folder, createFolder, createCompetition, getCompetitionsByFolder, Competition, deleteFolder, deleteCompetition, updateFolder, updateCompetition, swapFolderPositions, swapCompetitionPositions } from '../../lib/database';
+import { getDiscipline, getSubfolders, getFolderById, getFolderPath, Folder, createFolder, createCompetition, getCompetitionsByFolder, Competition, deleteFolder, deleteCompetition, updateFolder, updateCompetition, swapItemPositions, normalizeDisplayOrderInFolder } from '../../lib/database';
 import FolderExportModal from '../../componentes/FolderExportModal';
 import FolderImportModal from '../../componentes/FolderImportModal';
 import CustomNumberPadOptimized from '../../componentes/CustomNumberPadOptimized';
@@ -48,8 +48,7 @@ export default function FolderView() {
 
   // Reorder mode states
   const [reorderMode, setReorderMode] = useState(false);
-  const [reorderType, setReorderType] = useState<'folder' | 'competition' | null>(null);
-  const [selectedItemForReorder, setSelectedItemForReorder] = useState<Folder | Competition | null>(null);
+  const [selectedItemForReorder, setSelectedItemForReorder] = useState<{ type: 'folder' | 'competition', item: Folder | Competition } | null>(null);
   const [listKey, setListKey] = useState(0);
   const longPressTriggeredRef = useRef(false);
 
@@ -72,6 +71,9 @@ export default function FolderView() {
     try {
       const folderId = parseInt(id as string);
       
+      // Normalize display_order to fix any duplicates
+      await normalizeDisplayOrderInFolder(folderId);
+      
       // Load current folder
       const folder = await getFolderById(folderId);
       setCurrentFolder(folder);
@@ -88,11 +90,19 @@ export default function FolderView() {
       const comps = await getCompetitionsByFolder(folderId);
       setCompetitions(comps);
       
-      // Combine folders and competitions
+      // Combine folders and competitions, then sort by display_order
       const combined = [
         ...subfolders.map(f => ({ type: 'folder' as const, data: f })),
         ...comps.map(c => ({ type: 'competition' as const, data: c }))
       ];
+      
+      // Sort by display_order (or id as fallback)
+      combined.sort((a, b) => {
+        const orderA = (a.data as any).display_order ?? a.data.id;
+        const orderB = (b.data as any).display_order ?? b.data.id;
+        return orderA - orderB;
+      });
+      
       setCombinedItems(combined);
     } catch (error) {
       console.error('Error loading folder data:', error);
@@ -293,8 +303,7 @@ export default function FolderView() {
     
     longPressTriggeredRef.current = true;
     setReorderMode(true);
-    setReorderType(type);
-    setSelectedItemForReorder(item);
+    setSelectedItemForReorder({ type, item });
   };
 
   const handleCardPress = (type: 'folder' | 'competition', item: Folder | Competition) => {
@@ -319,26 +328,21 @@ export default function FolderView() {
   };
 
   const handleReorderSelect = async (type: 'folder' | 'competition', targetItem: Folder | Competition) => {
-    if (!selectedItemForReorder || !reorderType) return;
+    if (!selectedItemForReorder) return;
     
-    // Can only swap items of the same type
-    if (type !== reorderType) {
-      Alert.alert('Invalid Selection', 'You can only swap items of the same type (folder with folder, or competition with competition).');
-      return;
-    }
-    
-    if (selectedItemForReorder.id === targetItem.id) {
+    // Skip if selecting the same item
+    if (selectedItemForReorder.type === type && selectedItemForReorder.item.id === targetItem.id) {
       return;
     }
 
     try {
-      if (type === 'folder') {
-        await swapFolderPositions(selectedItemForReorder.id, targetItem.id);
-      } else {
-        await swapCompetitionPositions(selectedItemForReorder.id, targetItem.id);
-      }
+      await swapItemPositions(
+        selectedItemForReorder.type,
+        selectedItemForReorder.item.id,
+        type,
+        targetItem.id
+      );
       setReorderMode(false);
-      setReorderType(null);
       setSelectedItemForReorder(null);
       await loadFolderData();
       setListKey(prev => prev + 1); // Force complete FlatList re-render
@@ -350,7 +354,6 @@ export default function FolderView() {
 
   const handleCancelReorder = () => {
     setReorderMode(false);
-    setReorderType(null);
     setSelectedItemForReorder(null);
     setListKey(prev => prev + 1); // Force complete FlatList re-render
   };
@@ -365,9 +368,9 @@ export default function FolderView() {
     const itemKey = `${item.type}-${data.id}`;
     const isSelected = selectedItems.has(itemKey);
     
-    // Reorder mode highlighting
-    const isReorderSelected = reorderMode && selectedItemForReorder?.id === data.id && reorderType === item.type;
-    const isReorderTarget = reorderMode && selectedItemForReorder?.id !== data.id && reorderType === item.type;
+    // Reorder mode highlighting - now any item can be a target
+    const isReorderSelected = reorderMode && selectedItemForReorder?.type === item.type && selectedItemForReorder?.item.id === data.id;
+    const isReorderTarget = reorderMode && !(selectedItemForReorder?.type === item.type && selectedItemForReorder?.item.id === data.id);
     
     if (isFolder) {
       const folder = data as Folder;
@@ -504,7 +507,7 @@ export default function FolderView() {
       {reorderMode && (
         <View style={styles.reorderModeBar}>
           <Text style={styles.reorderModeText}>
-            Tap another {reorderType === 'folder' ? 'folder' : 'competition'} to swap positions
+            Tap another item to swap positions
           </Text>
           <TouchableOpacity 
             style={styles.reorderCancelButton}

@@ -75,6 +75,7 @@ interface TableRow {
   delta: number;
   percentage: number;
   comments: string;
+  starred: boolean;
 }
 
 const MainTable: React.FC = () => {
@@ -226,7 +227,7 @@ const MainTable: React.FC = () => {
             compsb: g.competition_sb || 0,
             compnd: g.competition_nd || 0,
             compscore: g.competition_score || 0,
-
+            starred: !!g.starred,
           });
         }
 
@@ -409,9 +410,11 @@ const MainTable: React.FC = () => {
     isFirst?: boolean;
     columnType?: string;
     compareValue?: number;
-  }> = ({ value, width, isFirst, columnType, compareValue }) => {
+    isStarred?: boolean;
+  }> = ({ value, width, isFirst, columnType, compareValue, isStarred }) => {
     let cellStyle = styles.dataCell;
-    let styleProps: any = { width };
+    // Default background: starred yellow or white
+    let styleProps: any = { width, backgroundColor: isStarred ? '#fffde7' : '#fff' };
 
     if (
       columnType === 'j' ||
@@ -489,7 +492,8 @@ const MainTable: React.FC = () => {
     width: number,
     isFirst?: boolean,
     columnType?: string,
-    compareValue?: number
+    compareValue?: number,
+    isStarred?: boolean
   ) => {
     return (
       <DataCell
@@ -498,6 +502,7 @@ const MainTable: React.FC = () => {
         isFirst={isFirst}
         columnType={columnType}
         compareValue={compareValue}
+        isStarred={isStarred}
       />
     );
   };
@@ -508,33 +513,33 @@ const MainTable: React.FC = () => {
       onPress={() => handleRowPress(item)}
       activeOpacity={0.7}
     >
-      {renderDataCell(item.numero, 60, true)}
-      {renderDataCell(item.gymnasta, 150)}
-      {renderDataCell(item.evento, 60)}
-      {renderDataCell(item.noc, 60)}
-      {renderDataCell(item.bib, 60)}
-      {renderDataCell(item.j === 0 ? '-' : item.j.toFixed(0), 50, false, 'j')}
-      {renderDataCell(item.i === 0 ? '-' : item.i.toFixed(0), 50, false, 'i')}
-      {renderDataCell(item.h === 0 ? '-' : item.h.toFixed(0), 50, false, 'h')}
-      {renderDataCell(item.g === 0 ? '-' : item.g.toFixed(0), 50, false, 'g')}
-      {renderDataCell(item.f === 0 ? '-' : item.f.toFixed(0), 50, false, 'f')}
-      {renderDataCell(item.e === 0 ? '-' : item.e.toFixed(0), 50, false, 'e')}
-      {renderDataCell(item.d === 0 ? '-' : item.d.toFixed(0), 50, false, 'd')}
-      {renderDataCell(item.c === 0 ? '-' : item.c.toFixed(0), 50, false, 'c')}
-      {renderDataCell(item.b === 0 ? '-' : item.b.toFixed(0), 50, false, 'b')}
-      {renderDataCell(item.a === 0 ? '-' : item.a.toFixed(0), 50, false, 'a')}
-      {renderDataCell(item.dv.toFixed(2), 60, false, 'dv')}
-      {renderDataCell(item.eg.toFixed(2), 50)}
-      {renderDataCell(item.sb.toFixed(2), 50)}
-      {renderDataCell(item.nd.toFixed(2), 50)}
-      {renderDataCell(item.cv.toFixed(2), 50)}
-      {renderDataCell(item.sv.toFixed(2), 60, false, 'sv', item.compd)}
-      {renderDataCell(item.eScore.toFixed(3), 70)}
-      {renderDataCell(item.compd.toFixed(2), 70)}
-      {renderDataCell(item.compe.toFixed(3), 70)}
-      {renderDataCell(item.delta.toFixed(1), 70, false, 'delta')}
-      {renderDataCell(item.percentage.toFixed(1) + '%', 70, false, 'percentage')}
-      {renderDataCell(item.comments || '-', 120)}
+      {renderDataCell(item.numero, 60, true, undefined, undefined, item.starred)}
+      {renderDataCell(item.gymnasta, 150, false, undefined, undefined, item.starred)}
+      {renderDataCell(item.evento, 60, false, undefined, undefined, item.starred)}
+      {renderDataCell(item.noc, 60, false, undefined, undefined, item.starred)}
+      {renderDataCell(item.bib, 60, false, undefined, undefined, item.starred)}
+      {renderDataCell(item.j === 0 ? '-' : item.j.toFixed(0), 50, false, 'j', undefined, item.starred)}
+      {renderDataCell(item.i === 0 ? '-' : item.i.toFixed(0), 50, false, 'i', undefined, item.starred)}
+      {renderDataCell(item.h === 0 ? '-' : item.h.toFixed(0), 50, false, 'h', undefined, item.starred)}
+      {renderDataCell(item.g === 0 ? '-' : item.g.toFixed(0), 50, false, 'g', undefined, item.starred)}
+      {renderDataCell(item.f === 0 ? '-' : item.f.toFixed(0), 50, false, 'f', undefined, item.starred)}
+      {renderDataCell(item.e === 0 ? '-' : item.e.toFixed(0), 50, false, 'e', undefined, item.starred)}
+      {renderDataCell(item.d === 0 ? '-' : item.d.toFixed(0), 50, false, 'd', undefined, item.starred)}
+      {renderDataCell(item.c === 0 ? '-' : item.c.toFixed(0), 50, false, 'c', undefined, item.starred)}
+      {renderDataCell(item.b === 0 ? '-' : item.b.toFixed(0), 50, false, 'b', undefined, item.starred)}
+      {renderDataCell(item.a === 0 ? '-' : item.a.toFixed(0), 50, false, 'a', undefined, item.starred)}
+      {renderDataCell(item.dv.toFixed(2), 60, false, 'dv', undefined, item.starred)}
+      {renderDataCell(item.eg.toFixed(2), 50, false, undefined, undefined, item.starred)}
+      {renderDataCell(item.sb.toFixed(2), 50, false, undefined, undefined, item.starred)}
+      {renderDataCell(item.nd.toFixed(2), 50, false, undefined, undefined, item.starred)}
+      {renderDataCell(item.cv.toFixed(2), 50, false, undefined, undefined, item.starred)}
+      {renderDataCell(item.sv.toFixed(2), 60, false, 'sv', item.compd, item.starred)}
+      {renderDataCell(item.eScore.toFixed(3), 70, false, undefined, undefined, item.starred)}
+      {renderDataCell(item.compd.toFixed(2), 70, false, undefined, undefined, item.starred)}
+      {renderDataCell(item.compe.toFixed(3), 70, false, undefined, undefined, item.starred)}
+      {renderDataCell(item.delta.toFixed(1), 70, false, 'delta', undefined, item.starred)}
+      {renderDataCell(item.percentage.toFixed(1) + '%', 70, false, 'percentage', undefined, item.starred)}
+      {renderDataCell(item.comments || '-', 120, false, undefined, undefined, item.starred)}
     </TouchableOpacity>
   ), [handleRowPress]);
 
@@ -820,6 +825,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
     minHeight: 50,
+  },
+  starredRow: {
+    backgroundColor: '#fffde7',
   },
   dataCell: {
     paddingVertical: 8,

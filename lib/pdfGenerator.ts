@@ -49,6 +49,7 @@ export interface TableRow {
   compsb: number;
   compnd: number;
   compscore: number;
+  starred?: boolean;
 }
 
 function isPdfOutOfMemoryError(error: any): boolean {
@@ -1497,10 +1498,13 @@ async function generateFloorPage(
     }
   }
   
+  // Star indicator for starred gymnasts
+  const starIndicator = gymnast?.starred ? '⭐ ' : '';
+  
   return `
     <div class="page individual-page">
       <div class="header">
-        <h1>${row.evento} - ${row.gymnasta}</h1>
+        <h1>${starIndicator}${row.evento} - ${row.gymnasta}</h1>
         <p>${row.noc} | Bib: ${row.bib}</p>
       </div>
       
@@ -1652,11 +1656,14 @@ async function generateVaultPage(
       console.warn('[PDF] Error getting traces for gymnast:', gymnast.id, error);
     }
   }
+
+  // Star indicator for starred gymnasts
+  const starIndicator = gymnast?.starred ? '⭐ ' : '';
   
   return `
     <div class="page individual-page">
       <div class="header">
-        <h1>Vault - ${row.gymnasta}</h1>
+        <h1>${starIndicator}Vault - ${row.gymnasta}</h1>
         <p>${row.noc} | Bib: ${row.bib}</p>
       </div>
       
@@ -1888,9 +1895,12 @@ async function generatePDFHTML(
                 if (row.percentage >= 90) percentageTextClass = 'text-green';
                 else if (row.percentage >= 70) percentageTextClass = 'text-yellow';
                 else percentageTextClass = 'text-red';
+
+                // Starred row background
+                const starredStyle = row.starred ? 'background-color: #fffde7;' : '';
                 
                 return `
-                  <tr>
+                  <tr style="${starredStyle}">
                     <td class="col-no">${row.numero}</td>
                     <td class="gymnast-name col-gymnast">${row.gymnasta || '-'}</td>
                     <td class="col-event">${row.evento || '-'}</td>

@@ -6,7 +6,7 @@ import { Canvas, Group, Image as SkiaImage, Path, Skia, SkPath, useImage } from 
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import { db, getPenColor, getPenStroke, getPenType, setPenColor, setPenStroke, setPenType } from '../lib/database';
+import { db, getPenColor, getPenStroke, getPenType, setPenColor, setPenStroke, setPenType, toggleGymnastStarred, getGymnastStarred } from '../lib/database';
 
 // ErrorBoundary to catch any rendering errors and prevent app crashes
 class SkiaErrorBoundary extends Component<
@@ -117,13 +117,13 @@ const STROKE_MAX = 15;
 const STROKE_BAR_WIDTH = 160;
 
 
-const MAX_PATHS_MEMORY = 90000; // x30 for virtually infinite paths
-const MAX_PHOTOS_RENDERED = 7; // x30 for virtually infinite photos
+const MAX_PATHS_MEMORY = 500; // Limit paths to prevent memory issues
+const MAX_PHOTOS_RENDERED = 7; // Limit photos to prevent memory issues
 // Maximum number of points in a single path before we finalize and start a new one
 // This prevents paths from becoming too large and causing memory/performance issues
-const MAX_POINTS_PER_PATH = 4500; // x30 - each stroke can have many more points before splitting
+const MAX_POINTS_PER_PATH = 150; // Reduced to prevent memory accumulation during long strokes
 // Minimum time between display updates (throttling) in ms
-const DISPLAY_THROTTLE_MS = 16; // ~60fps
+const DISPLAY_THROTTLE_MS = 32; // ~30fps - reduced to ease CPU/GPU pressure
 
 const PHOTO_DELETE_BUTTON_SIZE = 28;
 
@@ -407,6 +407,9 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
   const [imageMeta, setImageMeta] = useState<Record<number, { w: number; h: number }>>({});
   const [photosRenderNonce, setPhotosRenderNonce] = useState(0);
   const photosRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  // Ref to keep current photoItems for use in callbacks (avoids stale closure issues)
+  const photoItemsRef = useRef<PhotoItem[]>([]);
 
   // UI state (menu + tools)
   const [menuOpen, setMenuOpen] = useState(false);
@@ -447,6 +450,9 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
   // Selected photo for UI overlays
   const [selectedPhotoId, setSelectedPhotoId] = useState<number | null>(null);
+
+  // Starred gymnast state
+  const [isStarred, setIsStarred] = useState(false);
 
   // Minimal pen config (no UI)
   const penConfigRef = useRef(DEFAULT_PEN);
@@ -555,6 +561,39 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     redoStackRef.current = redoStack;
   }, [redoStack]);
 
+  // Keep photoItemsRef in sync with state to avoid stale closures
+  useEffect(() => {
+    photoItemsRef.current = photoItems;
+  }, [photoItems]);
+
+  // Load starred status for gymnast
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const starred = await getGymnastStarred(gymnastId);
+        if (!cancelled && isMountedRef.current) {
+          setIsStarred(starred);
+        }
+      } catch (e) {
+        if (__DEV__) console.warn('[Whiteboard] Error loading starred status:', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [gymnastId]);
+
+  // Handle toggle starred
+  const handleToggleStarred = useCallback(async () => {
+    try {
+      const newStarred = await toggleGymnastStarred(gymnastId);
+      if (isMountedRef.current) {
+        setIsStarred(newStarred);
+      }
+    } catch (e) {
+      if (__DEV__) console.warn('[Whiteboard] Error toggling starred:', e);
+    }
+  }, [gymnastId]);
+
   const registerImageMeta = useCallback((id: number, w: number, h: number) => {
     setImageMeta(prev => (prev[id] ? prev : { ...prev, [id]: { w, h } }));
   }, []);
@@ -646,6 +685,8 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
         rotation: Number(r.rotation ?? 0) || 0,
       }));
       setPhotoItems(items);
+      // Also update ref immediately
+      photoItemsRef.current = items;
 
       // IMPORTANT: En algunos runtimes, `useImage()` puede resolver sin forzar un re-render inmediato.
       // Hacemos un pequeño "nudge" para que imágenes preexistentes aparezcan al entrar,
@@ -658,6 +699,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       }, 450);
     } catch {
       setPhotoItems([]);
+      photoItemsRef.current = [];
     }
   }, [gymnastId]);
 
@@ -671,15 +713,34 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     return () => {
       mounted = false;
       isMountedRef.current = false;
+      
+      // Clear all timeouts
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       if (photoSaveTimeoutRef.current) clearTimeout(photoSaveTimeoutRef.current);
       if (photosRefreshTimeoutRef.current) clearTimeout(photosRefreshTimeoutRef.current);
       if (penPrefsSaveTimeoutRef.current) clearTimeout(penPrefsSaveTimeoutRef.current);
+      
+      // Clear pending operations
       pendingTraceInsertsRef.current = [];
+      pendingPhotoUpdatesRef.current?.clear();
+      
+      // Cancel any pending animation frame
       if (rafRef.current != null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
+      
+      // Clear pending display path to prevent memory leaks
+      pendingDisplayPathRef.current = null;
+      
+      // Reset drawing state to prevent crashes if gesture callback fires after unmount
+      currentPath.current = null;
+      isDrawingRef.current = false;
+      currentPathPointCount.current = 0;
+      lastRawPoint.current = null;
+      lastFilteredPoint.current = null;
+      lastTimestampRef.current = null;
+      
       // Clear loaded image tracking for this component instance
       loadedImageIds.clear();
     };
@@ -801,6 +862,9 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
   const updatePaths = useCallback((newPath: SkPath) => {
     try {
+      // Check if component is still mounted
+      if (!isMountedRef.current) return;
+      
       // Validate input
       if (!newPath) return;
 
@@ -831,10 +895,17 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       let pathString = '';
       try {
         pathString = newPath.toSVGString();
-      } catch {
+      } catch (e) {
+        if (__DEV__) console.warn('[updatePaths] toSVGString error:', e);
         return;
       }
       if (typeof pathString !== 'string' || pathString.length === 0) return;
+      
+      // Limit path string size to prevent memory issues with very complex paths
+      if (pathString.length > 50000) {
+        if (__DEV__) console.warn('[updatePaths] Path string too long, skipping:', pathString.length);
+        return;
+      }
 
       // Sanitizar strokeWidth por seguridad
       if (!Number.isFinite(pathStrokeWidth) || pathStrokeWidth <= 0) {
@@ -1071,7 +1142,8 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
           const pct = Math.max(0, Math.min(1, x / STROKE_BAR_WIDTH));
           const newWidth = Math.round(STROKE_MIN + pct * (STROKE_MAX - STROKE_MIN));
           if (!Number.isFinite(newWidth)) return;
-          runOnJS(changeStrokeWidth)(newWidth);
+          // Already running on JS thread (runOnJS(true))
+          changeStrokeWidth(newWidth);
         } catch {
           // ignore
         }
@@ -1090,6 +1162,9 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
   }, []);
 
   const scheduleDisplayPath = useCallback((pathCopy: SkPath | null) => {
+    // Early exit if unmounted
+    if (!isMountedRef.current) return;
+    
     pendingDisplayPathRef.current = pathCopy;
     if (rafRef.current != null) return;
 
@@ -1097,66 +1172,92 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       // Check if component is still mounted before updating state
       if (!isMountedRef.current) {
         rafRef.current = null;
+        pendingDisplayPathRef.current = null;
         return;
       }
-      const p = pendingDisplayPathRef.current;
-      // `pathCopy` ya debería ser una copia segura; no hacemos otro copy aquí.
-      setCurrentPathDisplay(p ?? null);
+      try {
+        const p = pendingDisplayPathRef.current;
+        // `pathCopy` ya debería ser una copia segura; no hacemos otro copy aquí.
+        setCurrentPathDisplay(p ?? null);
+      } catch (e) {
+        if (__DEV__) console.warn('[scheduleDisplayPath] Error:', e);
+      }
       rafRef.current = null;
     });
   }, []);
 
   const addSmoothedPoint = (path: SkPath, x: number, y: number, timestamp?: number): boolean => {
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
-    const now = typeof timestamp === 'number' ? timestamp : Date.now();
+    try {
+      // Validate path object
+      if (!path) return false;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+      
+      // Clamp coordinates to reasonable bounds to prevent extreme values
+      const safeX = Math.max(-10000, Math.min(10000, x));
+      const safeY = Math.max(-10000, Math.min(10000, y));
+      
+      const now = typeof timestamp === 'number' ? timestamp : Date.now();
 
-    const prevRaw = lastRawPoint.current;
-    const prevFiltered = lastFilteredPoint.current;
-    const prevT = lastTimestampRef.current;
+      const prevRaw = lastRawPoint.current;
+      const prevFiltered = lastFilteredPoint.current;
+      const prevT = lastTimestampRef.current;
 
-    // First point
-    if (!prevRaw || !prevFiltered || prevT == null) {
+      // First point
+      if (!prevRaw || !prevFiltered || prevT == null) {
+        try {
+          path.moveTo(safeX, safeY);
+          currentPathPointCount.current = 1;
+        } catch (e) {
+          if (__DEV__) console.warn('[addSmoothedPoint] moveTo error:', e);
+          return false;
+        }
+        lastRawPoint.current = { x: safeX, y: safeY };
+        lastFilteredPoint.current = { x: safeX, y: safeY };
+        lastTimestampRef.current = now;
+        return true;
+      }
+
+      const dx = safeX - prevRaw.x;
+      const dy = safeY - prevRaw.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      // Ignore ultra tiny jitter
+      if (dist < 1.5) return false; // Increased threshold to reduce points
+
+      const dtMs = Math.max(1, now - prevT);
+      const speedPxPerSec = (dist / dtMs) * 1000;
+
+      // Adaptive low-pass: slow => more accurate (alpha high), fast => smoother (alpha low)
+      const alpha = clamp(0.85 - speedPxPerSec * 0.0004, 0.25, 0.85);
+      const fx = prevFiltered.x + alpha * (safeX - prevFiltered.x);
+      const fy = prevFiltered.y + alpha * (safeY - prevFiltered.y);
+
+      // Validate calculated values
+      if (!Number.isFinite(fx) || !Number.isFinite(fy)) return false;
+
+      // Quadratic smoothing using midpoint
+      const midX = (prevFiltered.x + fx) / 2;
+      const midY = (prevFiltered.y + fy) / 2;
+      
+      // Validate midpoint values
+      if (!Number.isFinite(midX) || !Number.isFinite(midY)) return false;
+      
       try {
-        path.moveTo(x, y);
-        currentPathPointCount.current = 1;
-      } catch {
+        path.quadTo(prevFiltered.x, prevFiltered.y, midX, midY);
+        currentPathPointCount.current += 1;
+      } catch (e) {
+        if (__DEV__) console.warn('[addSmoothedPoint] quadTo error:', e);
         return false;
       }
-      lastRawPoint.current = { x, y };
-      lastFilteredPoint.current = { x, y };
+
+      lastRawPoint.current = { x: safeX, y: safeY };
+      lastFilteredPoint.current = { x: fx, y: fy };
       lastTimestampRef.current = now;
       return true;
-    }
-
-    const dx = x - prevRaw.x;
-    const dy = y - prevRaw.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    // Ignore ultra tiny jitter
-    if (dist < 0.75) return false;
-
-    const dtMs = Math.max(1, now - prevT);
-    const speedPxPerSec = (dist / dtMs) * 1000;
-
-    // Adaptive low-pass: slow => more accurate (alpha high), fast => smoother (alpha low)
-    const alpha = clamp(0.85 - speedPxPerSec * 0.0004, 0.25, 0.85);
-    const fx = prevFiltered.x + alpha * (x - prevFiltered.x);
-    const fy = prevFiltered.y + alpha * (y - prevFiltered.y);
-
-    // Quadratic smoothing using midpoint
-    const midX = (prevFiltered.x + fx) / 2;
-    const midY = (prevFiltered.y + fy) / 2;
-    try {
-      path.quadTo(prevFiltered.x, prevFiltered.y, midX, midY);
-      currentPathPointCount.current += 1;
-    } catch {
+    } catch (e) {
+      if (__DEV__) console.warn('[addSmoothedPoint] Unexpected error:', e);
       return false;
     }
-
-    lastRawPoint.current = { x, y };
-    lastFilteredPoint.current = { x: fx, y: fy };
-    lastTimestampRef.current = now;
-    return true;
   };
 
   const finalizeSmoothedPath = (path: SkPath) => {
@@ -1201,12 +1302,17 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       const pending = Array.from(pendingPhotoUpdatesRef.current.entries());
       if (pending.length === 0) return;
 
+      // Clear pending BEFORE async operations to prevent double-flush
       pendingPhotoUpdatesRef.current.clear();
+
+      // Use photoItemsRef to get the CURRENT state (avoids stale closure)
+      const currentPhotoItems = photoItemsRef.current;
 
       await Promise.all(
         pending.map(async ([photoId, updates]) => {
           try {
-            const photo = photoItems.find(p => p.id === photoId);
+            // Use ref to get most up-to-date photo data
+            const photo = currentPhotoItems.find(p => p.id === photoId);
             const merged: PhotoItem | null = photo ? { ...photo, ...updates } as PhotoItem : null;
             if (!merged) return;
 
@@ -1222,7 +1328,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     } catch (e) {
       if (__DEV__) console.warn('[flushPendingPhotoUpdates] Error:', e);
     }
-  }, [photoItems]);
+  }, []); // No dependencies - uses refs for current data
 
   const forceSave = useCallback(async () => {
     // No debe crashear: best-effort flush.
@@ -1266,6 +1372,42 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
   useImperativeHandle(ref, () => ({ forceSave }), [forceSave]);
 
+  // Immediately save photo position to DB (used when deselecting)
+  const savePhotoPositionImmediately = useCallback(
+    async (photoId: number) => {
+      try {
+        if (!photoId || typeof photoId !== 'number') return;
+        
+        // Cancel any pending timeout save
+        if (photoSaveTimeoutRef.current) {
+          clearTimeout(photoSaveTimeoutRef.current);
+          photoSaveTimeoutRef.current = null;
+        }
+        
+        // Get the photo from current ref (most up-to-date)
+        const photo = photoItemsRef.current.find(p => p.id === photoId);
+        if (!photo) return;
+        
+        // Also merge any pending updates that haven't been flushed
+        const pendingUpdates = pendingPhotoUpdatesRef.current?.get(photoId) || {};
+        const merged = { ...photo, ...pendingUpdates };
+        
+        // Clear pending for this photo since we're saving now
+        pendingPhotoUpdatesRef.current?.delete(photoId);
+        
+        await db.runAsync(
+          'UPDATE gymnast_images SET position_x = ?, position_y = ?, rotation = ?, scale = ? WHERE id = ?',
+          [merged.x, merged.y, merged.rotation, merged.scale, merged.id]
+        );
+        
+        if (__DEV__) console.log('[savePhotoPositionImmediately] Saved photo', photoId, 'at', merged.x, merged.y);
+      } catch (e) {
+        if (__DEV__) console.warn('[savePhotoPositionImmediately] Error:', e);
+      }
+    },
+    []
+  );
+
   const updatePhotoTransform = useCallback(
     (photoId: number, updates: Partial<PhotoItem>) => {
       try {
@@ -1274,7 +1416,10 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
         setPhotoItems(prev => {
           try {
-            return prev.map(p => (p.id === photoId ? { ...p, ...updates } : p));
+            const updated = prev.map(p => (p.id === photoId ? { ...p, ...updates } : p));
+            // Also update ref immediately for consistency
+            photoItemsRef.current = updated;
+            return updated;
           } catch {
             return prev;
           }
@@ -1283,6 +1428,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
         const currentPending = pendingPhotoUpdatesRef.current?.get(photoId) || {};
         pendingPhotoUpdatesRef.current?.set(photoId, { ...currentPending, ...updates });
 
+        // Reduced timeout from 3000ms to 500ms for faster auto-save
         if (photoSaveTimeoutRef.current) clearTimeout(photoSaveTimeoutRef.current);
         photoSaveTimeoutRef.current = setTimeout(() => {
           try {
@@ -1291,7 +1437,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
             // ignore
           }
           photoSaveTimeoutRef.current = null;
-        }, 3000);
+        }, 500);
       } catch (e) {
         if (__DEV__) console.warn('[updatePhotoTransform] Error:', e);
       }
@@ -1435,7 +1581,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       const photoSize = 120;
       const centerX = Math.round((width - photoSize) / 2);
       const centerY = Math.round((height - photoSize) / 2);
-      const initialScale = 0.5;
+      const initialScale = 1.5; // Larger initial scale so images don't appear too small
 
       const res = await db.runAsync(
         `INSERT INTO gymnast_images (gymnast_id, image_uri, position_x, position_y, rotation, scale, order_index)
@@ -1452,7 +1598,12 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
       const newPhoto: PhotoItem = { id: insertedId, uri: pickedUri, x: centerX, y: centerY, scale: initialScale, rotation: 0 };
 
-      setPhotoItems(prev => [...prev, newPhoto]);
+      setPhotoItems(prev => {
+        const updated = [...prev, newPhoto];
+        // Also update ref immediately
+        photoItemsRef.current = updated;
+        return updated;
+      });
 
       // Force multiple re-renders to ensure the image becomes visible
       // This addresses the async nature of Skia's useImage hook
@@ -1487,7 +1638,12 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
           onPress: async () => {
             try {
               pendingPhotoUpdatesRef.current.delete(photoId);
-              setPhotoItems(prev => prev.filter(p => p.id !== photoId));
+              setPhotoItems(prev => {
+                const updated = prev.filter(p => p.id !== photoId);
+                // Also update ref immediately
+                photoItemsRef.current = updated;
+                return updated;
+              });
               selectedPhotoRef.current = null;
               setSelectedPhotoId(null);
               photoGestureStartRef.current = null;
@@ -1534,11 +1690,17 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
         if (photoId) {
           selectedPhotoRef.current = photoId;
           setSelectedPhotoId(photoId);
-          const photo = photoItems.find(p => p.id === photoId);
+          const photo = photoItemsRef.current.find(p => p.id === photoId);
           if (photo) {
             photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
           }
         } else {
+          // Clicked outside - if there was a selected photo, save its position immediately
+          const previouslySelectedId = selectedPhotoRef.current;
+          if (previouslySelectedId) {
+            // Save position immediately before deselecting
+            savePhotoPositionImmediately(previouslySelectedId);
+          }
           selectedPhotoRef.current = null;
           setSelectedPhotoId(null);
           photoGestureStartRef.current = null;
@@ -1585,7 +1747,8 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
         if (photoId) {
           selectedPhotoRef.current = photoId;
           setSelectedPhotoId(photoId);
-          const photo = photoItems.find(p => p.id === photoId);
+          // Use ref for most up-to-date photo data
+          const photo = photoItemsRef.current.find(p => p.id === photoId);
           if (photo) {
             photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
           }
@@ -1644,27 +1807,32 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
         const canDraw = handMode ? pointerType === 0 : pointerType !== 0;
         if (!canDraw) return;
 
+        // Check if component is still mounted
+        if (!isMountedRef.current) return;
+
         if (currentPath.current && isDrawingRef.current) {
           const pointAdded = addSmoothedPoint(currentPath.current, x, y, (event as any)?.timestamp);
           
           // Check if path has too many points - if so, finalize current and start new
           if (pointAdded && currentPathPointCount.current >= MAX_POINTS_PER_PATH) {
+            // Check mount status before heavy operations
+            if (!isMountedRef.current) return;
+            
             // Finalize current path
             finalizeSmoothedPath(currentPath.current);
             const completedPath = safeCopyPath(currentPath.current);
-            if (completedPath) {
-              runOnJS(updatePaths)(completedPath);
-            }
+            if (completedPath && isMountedRef.current) updatePaths(completedPath);
             
             // Start a new path from the current position
             let newPath: SkPath | null = null;
             try {
               newPath = Skia.Path.Make();
-            } catch {
+            } catch (e) {
+              if (__DEV__) console.warn('[panGesture] Failed to create new path:', e);
               newPath = null;
             }
             
-            if (newPath) {
+            if (newPath && isMountedRef.current) {
               currentPath.current = newPath;
               currentPathPointCount.current = 0;
               // Reset smoothing state but keep last position for continuity
@@ -1673,7 +1841,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
               lastFilteredPoint.current = null;
               lastTimestampRef.current = null;
               // Start new path at the current position
-              if (lastPos) {
+              if (lastPos && Number.isFinite(lastPos.x) && Number.isFinite(lastPos.y)) {
                 addSmoothedPoint(newPath, lastPos.x, lastPos.y, Date.now());
               }
             }
@@ -1681,18 +1849,26 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
           
           // Throttle display updates to prevent excessive re-renders
           const now = Date.now();
-          if (now - lastDisplayUpdateTime.current >= DISPLAY_THROTTLE_MS) {
+          // Only update display when we actually added a point (avoid useless copies)
+          if (pointAdded && now - lastDisplayUpdateTime.current >= DISPLAY_THROTTLE_MS) {
             lastDisplayUpdateTime.current = now;
-            scheduleDisplayPath(safeCopyPath(currentPath.current));
+            if (isMountedRef.current) {
+              scheduleDisplayPath(safeCopyPath(currentPath.current));
+            }
           }
         }
-      } catch {
-        // ignore
+      } catch (e) {
+        if (__DEV__) console.warn('[panGesture.onUpdate] Error:', e);
       }
     })
     .onEnd(event => {
       try {
         const pointerType = (event as any).pointerType ?? 0;
+
+        // If we were dragging a photo, save its position immediately when pan ends
+        if (selectedPhotoRef.current && photoGestureStartRef.current) {
+          savePhotoPositionImmediately(selectedPhotoRef.current);
+        }
 
         // finalize draw
         const canDraw = handMode ? pointerType === 0 : pointerType !== 0;
@@ -1701,9 +1877,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
         if (currentPath.current && isDrawingRef.current) {
           finalizeSmoothedPath(currentPath.current);
           const copy = safeCopyPath(currentPath.current);
-          if (copy) {
-            runOnJS(updatePaths)(copy);
-          }
+          if (copy) updatePaths(copy);
           scheduleDisplayPath(null);
           currentPath.current = null;
           isDrawingRef.current = false;
@@ -1713,9 +1887,9 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
           currentPathPointCount.current = 0;
         }
 
-        // update gesture start for photo
+        // update gesture start for photo using ref for current data
         if (selectedPhotoRef.current) {
-          const photo = photoItems.find(p => p.id === selectedPhotoRef.current);
+          const photo = photoItemsRef.current.find(p => p.id === selectedPhotoRef.current);
           if (photo) {
             photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
           }
@@ -1736,7 +1910,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
         if (photoId) {
           selectedPhotoRef.current = photoId;
           setSelectedPhotoId(photoId);
-          const photo = photoItems.find(p => p.id === photoId);
+          const photo = photoItemsRef.current.find(p => p.id === photoId);
           if (photo) {
             photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
           }
@@ -1762,7 +1936,9 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     .onEnd(() => {
       try {
         if (selectedPhotoRef.current) {
-          const photo = photoItems.find(p => p.id === selectedPhotoRef.current);
+          // Save position immediately after pinch gesture ends
+          savePhotoPositionImmediately(selectedPhotoRef.current);
+          const photo = photoItemsRef.current.find(p => p.id === selectedPhotoRef.current);
           if (photo) {
             photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
           }
@@ -1783,7 +1959,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
         if (photoId) {
           selectedPhotoRef.current = photoId;
           setSelectedPhotoId(photoId);
-          const photo = photoItems.find(p => p.id === photoId);
+          const photo = photoItemsRef.current.find(p => p.id === photoId);
           if (photo) {
             photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
           }
@@ -1810,7 +1986,9 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     .onEnd(() => {
       try {
         if (selectedPhotoRef.current) {
-          const photo = photoItems.find(p => p.id === selectedPhotoRef.current);
+          // Save position immediately after rotation gesture ends
+          savePhotoPositionImmediately(selectedPhotoRef.current);
+          const photo = photoItemsRef.current.find(p => p.id === selectedPhotoRef.current);
           if (photo) {
             photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
           }
@@ -2047,8 +2225,16 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
           </TouchableOpacity>
         </View>
 
-        {/* Top toolbar (outside hamburger): undo/redo/eraser + quick pens + stroke bar */}
+        {/* Top toolbar (outside hamburger): star/undo/redo/eraser + quick pens + stroke bar */}
         <View style={styles.topToolbarContainer}>
+          {/* Star toggle button */}
+          <TouchableOpacity
+            style={[styles.actionButton, isStarred && styles.starredButton]}
+            onPress={handleToggleStarred}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Text style={styles.buttonText}>{isStarred ? '⭐' : '☆'}</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.actionButton} onPress={handleUndo} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
             <Text style={styles.buttonText}>↩️</Text>
           </TouchableOpacity>
@@ -2329,6 +2515,11 @@ const styles = StyleSheet.create({
   },
   activeButton: {
     borderWidth: 2,
+  },
+  starredButton: {
+    backgroundColor: '#fffde7',
+    borderWidth: 2,
+    borderColor: '#ffc107',
   },
   buttonText: {
     color: 'black',
