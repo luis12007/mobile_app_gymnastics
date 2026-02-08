@@ -646,26 +646,55 @@ async function importGymnast(
     }
 
     // Crear gimnasta
-    const result = await database.runAsync(
-    `INSERT INTO gymnasts (
-      competence_id, numero, gymnasta, evento, noc, bib,
-      a, b, c, d, e, f, g, h, i, j,
-      number_of_element, difficulty_values,
-      element_group1, element_group2, element_group3, element_group4, element_group_total,
-      cv, bonus, nd, sv, execution, escore, myscore,
-      competition_d, competition_e, competition_sb, competition_nd, competition_score,
-      comments, delta, vault, vault_description, vault_value, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      newCompetitionId, g.numero, g.gymnasta, g.evento, g.noc, g.bib,
-      g.a, g.b, g.c, g.d, g.e, g.f, g.g, g.h, g.i, g.j,
-      g.number_of_element, g.difficulty_values,
-      g.element_group1, g.element_group2, g.element_group3, g.element_group4, g.element_group_total,
-      g.cv, g.bonus, g.nd, g.sv, g.execution, g.escore, g.myscore,
-      g.competition_d, g.competition_e, g.competition_sb, g.competition_nd, g.competition_score,
-      g.comments, g.delta, g.vault, g.vault_description, g.vault_value, g.created_at
-    ]
-  );
+    // Nota: `starred` puede venir como boolean o como 0/1 según la versión del export.
+    const starredValue = (g as any).starred === true || (g as any).starred === 1 ? 1 : 0;
+
+    // Try inserting with `starred` column first; fallback for older DB schema.
+    let result: { lastInsertRowId: number };
+    try {
+      result = await database.runAsync(
+        `INSERT INTO gymnasts (
+          competence_id, numero, gymnasta, evento, noc, bib,
+          a, b, c, d, e, f, g, h, i, j,
+          number_of_element, difficulty_values,
+          element_group1, element_group2, element_group3, element_group4, element_group_total,
+          cv, bonus, nd, sv, execution, escore, myscore,
+          competition_d, competition_e, competition_sb, competition_nd, competition_score,
+          comments, delta, vault, vault_description, vault_value, starred, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          newCompetitionId, g.numero, g.gymnasta, g.evento, g.noc, g.bib,
+          g.a, g.b, g.c, g.d, g.e, g.f, g.g, g.h, g.i, g.j,
+          g.number_of_element, g.difficulty_values,
+          g.element_group1, g.element_group2, g.element_group3, g.element_group4, g.element_group_total,
+          g.cv, g.bonus, g.nd, g.sv, g.execution, g.escore, g.myscore,
+          g.competition_d, g.competition_e, g.competition_sb, g.competition_nd, g.competition_score,
+          g.comments, g.delta, g.vault, g.vault_description, g.vault_value, starredValue, g.created_at
+        ]
+      );
+    } catch (insertError) {
+      console.log('Inserting gymnast without starred column');
+      result = await database.runAsync(
+        `INSERT INTO gymnasts (
+          competence_id, numero, gymnasta, evento, noc, bib,
+          a, b, c, d, e, f, g, h, i, j,
+          number_of_element, difficulty_values,
+          element_group1, element_group2, element_group3, element_group4, element_group_total,
+          cv, bonus, nd, sv, execution, escore, myscore,
+          competition_d, competition_e, competition_sb, competition_nd, competition_score,
+          comments, delta, vault, vault_description, vault_value, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          newCompetitionId, g.numero, g.gymnasta, g.evento, g.noc, g.bib,
+          g.a, g.b, g.c, g.d, g.e, g.f, g.g, g.h, g.i, g.j,
+          g.number_of_element, g.difficulty_values,
+          g.element_group1, g.element_group2, g.element_group3, g.element_group4, g.element_group_total,
+          g.cv, g.bonus, g.nd, g.sv, g.execution, g.escore, g.myscore,
+          g.competition_d, g.competition_e, g.competition_sb, g.competition_nd, g.competition_score,
+          g.comments, g.delta, g.vault, g.vault_description, g.vault_value, g.created_at
+        ]
+      );
+    }
 
   const newGymnastId = result.lastInsertRowId;
 

@@ -1,5 +1,5 @@
 import React, { Component, forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { Alert, Dimensions, Platform, ScrollView, StyleSheet, Text as RNText, TouchableOpacity, View } from 'react-native';
+import { Alert, AppState, AppStateStatus, Dimensions, Platform, ScrollView, StyleSheet, Text as RNText, TouchableOpacity, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 import { Canvas, Group, Image as SkiaImage, Path, Skia, SkPath, useImage } from '@shopify/react-native-skia';
@@ -123,7 +123,7 @@ const MAX_PHOTOS_RENDERED = 7; // Limit photos to prevent memory issues
 // This prevents paths from becoming too large and causing memory/performance issues
 const MAX_POINTS_PER_PATH = 150; // Reduced to prevent memory accumulation during long strokes
 // Minimum time between display updates (throttling) in ms
-const DISPLAY_THROTTLE_MS = 32; // ~30fps - reduced to ease CPU/GPU pressure
+const DISPLAY_THROTTLE_MS = 48; // ~20fps - conservative to prevent EGL context loss on Android
 
 const PHOTO_DELETE_BUTTON_SIZE = 28;
 
@@ -319,6 +319,48 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
   discipline = true,
   event,
 }: WhiteboardMinimalProps, ref) => {
+  // Some Android devices/OS versions can lose the GL context during app transitions.
+  // When that happens, Skia may crash natively (SIGSEGV in librnskia.so).
+  // We proactively stop Skia work while the app is not active.
+  const isAppActiveRef = useRef(true);
+  const [isAppActive, setIsAppActive] = useState(true);
+
+  useEffect(() => {
+    const onChange = (next: AppStateStatus) => {
+      const active = next === 'active';
+      isAppActiveRef.current = active;
+      setIsAppActive(active);
+
+      if (!active) {
+        // Best-effort: stop any in-progress drawing gesture.
+        try {
+          currentPath.current = null;
+          isDrawingRef.current = false;
+          currentPathPointCount.current = 0;
+          lastRawPoint.current = null;
+          lastFilteredPoint.current = null;
+          lastTimestampRef.current = null;
+          // Avoid calling scheduleDisplayPath here (it may not be initialized yet at hook evaluation time)
+          // and keep this effect dependency-free.
+          pendingDisplayPathRef.current = null;
+          if (rafRef.current != null) {
+            cancelAnimationFrame(rafRef.current);
+            rafRef.current = null;
+          }
+          setCurrentPathDisplay(null);
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    const sub = AppState.addEventListener('change', onChange);
+    // Initialize with current state
+    onChange(AppState.currentState);
+    return () => {
+      sub.remove();
+    };
+  }, []);
   // Skia requiere runtime nativo/JSI. En RN New Architecture, `nativeCallSyncHook` puede no existir
   // aunque JSI sí esté activo, así que detectamos Skia creando un Picture pequeño.
   const skiaProbeRef = useRef<{ supported: boolean; reason?: string } | null>(null);
@@ -349,10 +391,9 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
   const skiaSupported = Platform.OS !== 'web' && !!skiaProbeRef.current?.supported;
 
-  // Defensive guard
-  if (!gymnastId || typeof gymnastId !== 'number' || gymnastId <= 0) {
-    return <View style={[styles.container, { height }]} />;
-  }
+  // NOTE: Early returns removed from here to respect React's Rules of Hooks.
+  // Guards moved after all hook declarations (see before the JSX return).
+  const invalidGymnast = !gymnastId || typeof gymnastId !== 'number' || gymnastId <= 0;
 
   // Guard: evitar montar Skia cuando no hay soporte
   useEffect(() => {
@@ -371,9 +412,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     }
   }, [skiaSupported]);
 
-  if (!skiaSupported) {
-    return <View style={[styles.container, { width, height }]} />;
-  }
+  // NOTE: Guard for !skiaSupported || !isAppActive moved after all hooks (before JSX return).
 
   // Drawing state
   const currentPath = useRef<SkPath | null>(null);
@@ -392,6 +431,10 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
   // Track if component is mounted to prevent state updates after unmount
   const isMountedRef = useRef(true);
+
+  // Track multi-touch gestures (pinch/rotation) to pause Canvas updates
+  // and prevent EGL context loss → SIGSEGV on Android
+  const isMultiTouchActiveRef = useRef(false);
 
   const [paths, setPaths] = useState<SkPath[]>([]);
   const [pathsData, setPathsData] = useState<PathData[]>([]);
@@ -1164,6 +1207,8 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
   const scheduleDisplayPath = useCallback((pathCopy: SkPath | null) => {
     // Early exit if unmounted
     if (!isMountedRef.current) return;
+    // Skip display updates during multi-touch to prevent EGL context loss
+    if (isMultiTouchActiveRef.current && pathCopy != null) return;
     
     pendingDisplayPathRef.current = pathCopy;
     if (rafRef.current != null) return;
@@ -1710,7 +1755,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     }
     });
 
-  // Double tap: reset photo if hit; else add photo
+  // Double tap: reset photo transform if hit; does nothing on empty area
   const doubleTapGesture = Gesture.Tap()
     .runOnJS(true)
     .numberOfTaps(2)
@@ -1722,9 +1767,8 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
         const photoId = findPhotoAtPoint(x, y);
         if (photoId) {
           updatePhotoTransform(photoId, { scale: 1, rotation: 0 });
-        } else {
-          handleAddPhoto();
         }
+        // No action on empty area – use the 🖼️ button to add images
       } catch {
         // ignore
       }
@@ -1809,6 +1853,10 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
         // Check if component is still mounted
         if (!isMountedRef.current) return;
+
+        // Block drawing updates while pinch/rotation gestures are active
+        // to prevent EGL context loss → SIGSEGV on Android
+        if (isMultiTouchActiveRef.current) return;
 
         if (currentPath.current && isDrawingRef.current) {
           const pointAdded = addSmoothedPoint(currentPath.current, x, y, (event as any)?.timestamp);
@@ -1897,6 +1945,21 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       } catch {
         // ignore
       }
+    })
+    // onEnd no siempre se dispara si el gesto se cancela/compite con otros (tap).
+    // onFinalize se ejecuta tanto en success como en cancel/fail.
+    .onFinalize(() => {
+      try {
+        if (selectedPhotoRef.current && photoGestureStartRef.current) {
+          savePhotoPositionImmediately(selectedPhotoRef.current);
+          const photo = photoItemsRef.current.find(p => p.id === selectedPhotoRef.current);
+          if (photo) {
+            photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
+          }
+        }
+      } catch {
+        // ignore
+      }
     });
 
   // Pinch: scale photo
@@ -1904,6 +1967,19 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     .runOnJS(true)
     .onStart(event => {
       try {
+        isMultiTouchActiveRef.current = true;
+        // Immediately stop any in-progress drawing to avoid GL contention
+        if (isDrawingRef.current && currentPath.current) {
+          try {
+            finalizeSmoothedPath(currentPath.current);
+            const copy = safeCopyPath(currentPath.current);
+            if (copy) updatePaths(copy);
+          } catch { /* ignore */ }
+          currentPath.current = null;
+          isDrawingRef.current = false;
+          scheduleDisplayPath(null);
+        }
+
         const { focalX, focalY } = event;
         if (!Number.isFinite(focalX) || !Number.isFinite(focalY)) return;
         const photoId = findPhotoAtPoint(focalX, focalY);
@@ -1946,6 +2022,20 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       } catch {
         // ignore
       }
+    })
+    .onFinalize(() => {
+      try {
+        isMultiTouchActiveRef.current = false;
+        if (selectedPhotoRef.current) {
+          savePhotoPositionImmediately(selectedPhotoRef.current);
+          const photo = photoItemsRef.current.find(p => p.id === selectedPhotoRef.current);
+          if (photo) {
+            photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
+          }
+        }
+      } catch {
+        // ignore
+      }
     });
 
   // Rotation: rotate photo
@@ -1953,6 +2043,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     .runOnJS(true)
     .onStart(event => {
       try {
+        isMultiTouchActiveRef.current = true;
         const { anchorX, anchorY } = event;
         if (!Number.isFinite(anchorX) || !Number.isFinite(anchorY)) return;
         const photoId = findPhotoAtPoint(anchorX, anchorY);
@@ -1996,12 +2087,27 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       } catch {
         // ignore
       }
+    })
+    .onFinalize(() => {
+      try {
+        isMultiTouchActiveRef.current = false;
+        if (selectedPhotoRef.current) {
+          savePhotoPositionImmediately(selectedPhotoRef.current);
+          const photo = photoItemsRef.current.find(p => p.id === selectedPhotoRef.current);
+          if (photo) {
+            photoGestureStartRef.current = { x: photo.x, y: photo.y, scale: photo.scale, rotation: photo.rotation };
+          }
+        }
+      } catch {
+        // ignore
+      }
     });
 
-  const combinedGesture = Gesture.Race(
-    doubleTapGesture,
-    Gesture.Simultaneous(singleTapGesture, Gesture.Simultaneous(pinchGesture, rotationGesture, panGesture))
-  );
+  // Avoid Race() between tap gestures and continuous gestures.
+  // Race cancellation can trigger warnings like "Can't cancel already finished gesture" on some Android devices.
+  const tapGesture = Gesture.Exclusive(doubleTapGesture, singleTapGesture);
+  const transformGesture = Gesture.Simultaneous(pinchGesture, rotationGesture, panGesture);
+  const combinedGesture = Gesture.Simultaneous(tapGesture, transformGesture);
 
   // Callback when an image finishes loading - forces re-render for visibility
   const handleImageLoaded = useCallback((photoId: number) => {
@@ -2168,6 +2274,15 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       );
     });
   }, []);
+
+  // ── Guards (after all hooks to respect Rules of Hooks) ──────────────
+  if (invalidGymnast) {
+    return <View style={[styles.container, { height }]} />;
+  }
+
+  if (!skiaSupported || !isAppActive) {
+    return <View style={[styles.container, { width, height }]} />;
+  }
 
   return (
     <View style={[styles.container, { width, height }]}>
