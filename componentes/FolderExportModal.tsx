@@ -8,7 +8,8 @@ import {
   FlatList,
   ActivityIndicator,
   Alert,
-  useWindowDimensions
+  useWindowDimensions,
+  Platform
 } from 'react-native';
 import { Folder, getRootFolders, getAllFolders } from '../lib/database';
 import { exportFolders } from '../lib/folderImportExport';
@@ -18,6 +19,34 @@ interface FolderExportModalProps {
   onClose: () => void;
   currentFolderId?: number | null; // null = vista raíz
 }
+
+// On iOS, replace Modal with an absolute-positioned View overlay
+const ModalWrapper = ({ visible, children, ...props }: any) => {
+  if (Platform.OS === 'ios' && !Platform.isPad) {
+    if (!visible) return null;
+    return (
+      <View style={iosOverlayStyle.container}>
+        {children}
+      </View>
+    );
+  }
+  return (
+    <Modal visible={visible} {...props}>
+      {children}
+    </Modal>
+  );
+};
+
+const iosOverlayStyle = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
+  },
+});
 
 export default function FolderExportModal({ visible, onClose, currentFolderId }: FolderExportModalProps) {
   const { width, height } = useWindowDimensions();
@@ -164,7 +193,7 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
   };
 
   return (
-    <Modal
+    <ModalWrapper
       visible={visible}
       animationType="slide"
       transparent={true}
@@ -272,7 +301,7 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
           )}
         </View>
       </View>
-    </Modal>
+    </ModalWrapper>
   );
 }
 

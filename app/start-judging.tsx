@@ -14,6 +14,34 @@ interface UndoAction {
 
 const { width, height } = Dimensions.get('window');
 
+// On iPhone (not iPad), replace Modal with an absolute-positioned View overlay
+const ModalWrapper = ({ visible, children, transparent, animationType, onRequestClose, ...props }: any) => {
+  if (Platform.OS === 'ios' && !Platform.isPad) {
+    if (!visible) return null;
+    return (
+      <View style={iosOverlayStyle.container}>
+        {children}
+      </View>
+    );
+  }
+  return (
+    <Modal visible={visible} transparent={transparent} animationType={animationType} onRequestClose={onRequestClose}>
+      {children}
+    </Modal>
+  );
+};
+
+const iosOverlayStyle = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
+  },
+});
+
 const MAG_EVENTS = ['FX', 'VT', 'PH', 'SR', 'PB', 'HB'];
 const WAG_EVENTS = ['FX', 'UB', 'BB', 'VT'];
 
@@ -989,7 +1017,7 @@ export default function StartJudging() {
       </View>
 
       {/* Edit Cell Modal */}
-      <Modal
+      <ModalWrapper
         visible={!!editingCell && editingCell.field !== 'evento' && editingCell.field !== 'gymnasta' && editingCell.field !== 'noc' && editingCell.field !== 'bib'}
         transparent={true}
         animationType="fade"
@@ -1037,10 +1065,10 @@ export default function StartJudging() {
             </View>
           </View>
         </TouchableOpacity>
-      </Modal>
+      </ModalWrapper>
 
       {/* Event Dropdown Modal */}
-      <Modal
+      <ModalWrapper
         visible={eventDropdownVisible}
         transparent={true}
         animationType="fade"
@@ -1086,10 +1114,10 @@ export default function StartJudging() {
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
-      </Modal>
+      </ModalWrapper>
 
       {/* Event Search Dropdown Modal */}
-      <Modal
+      <ModalWrapper
         visible={eventSearchDropdownVisible}
         transparent={true}
         animationType="fade"
@@ -1133,10 +1161,10 @@ export default function StartJudging() {
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
-      </Modal>
+      </ModalWrapper>
 
       {/* Add Gymnast Modal */}
-      <Modal
+      <ModalWrapper
         visible={addGymnastModalVisible}
         transparent={true}
         animationType="fade"
@@ -1224,7 +1252,7 @@ export default function StartJudging() {
             </View>
           </View>
         </TouchableOpacity>
-      </Modal>
+      </ModalWrapper>
     </SafeAreaView>
   );
 }

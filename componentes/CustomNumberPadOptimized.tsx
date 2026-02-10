@@ -11,6 +11,34 @@ import {
   useWindowDimensions,
 } from 'react-native';
 
+// On iPhone (not iPad), replace Modal with an absolute-positioned View overlay
+const ModalWrapper = ({ visible, children, transparent, animationType, onRequestClose, ...props }: any) => {
+  if (Platform.OS === 'ios' && !Platform.isPad) {
+    if (!visible) return null;
+    return (
+      <View style={iosOverlayStyle.container}>
+        {children}
+      </View>
+    );
+  }
+  return (
+    <Modal visible={visible} transparent={transparent} animationType={animationType} onRequestClose={onRequestClose}>
+      {children}
+    </Modal>
+  );
+};
+
+const iosOverlayStyle = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
+  },
+});
+
 interface CustomNumberPadOptimizedProps {
   visible: boolean;
   value: string;
@@ -136,14 +164,14 @@ const CustomNumberPadOptimized: React.FC<CustomNumberPadOptimizedProps> = ({
     onClose(initial);
   }, [onClose, onValueChange]);
 
-  const renderButton = useCallback((label: string, onPress: () => void, style?: any) => {
+  const renderButton = useCallback((label: string, onPress: () => void, style?: any, textStyle?: any) => {
     return (
       <TouchableOpacity
         style={[styles.button, style]}
         onPress={onPress}
         activeOpacity={0.7}
       >
-        <Text style={[styles.buttonText, style?.textStyle]}>{label}</Text>
+        <Text style={[styles.buttonText, textStyle]}>{label}</Text>
       </TouchableOpacity>
     );
   }, [styles]);
@@ -179,14 +207,14 @@ const CustomNumberPadOptimized: React.FC<CustomNumberPadOptimizedProps> = ({
       </View>
 
       <View style={styles.row}>
-        {renderButton('Clear', handleClear, styles.clearButton)}
+        {renderButton('Clear', handleClear, styles.clearButton, styles.clearButtonText)}
         {renderButton('⌫', handleBackspace, styles.backspaceButton)}
       </View>
     </View>
   );
 
   return (
-    <Modal
+    <ModalWrapper
       visible={visible}
       transparent
       animationType="fade"
@@ -223,7 +251,7 @@ const CustomNumberPadOptimized: React.FC<CustomNumberPadOptimizedProps> = ({
                   </View>
                   <View style={styles.actionButtonsVertical}>
                     {renderButton('Cancel', handleCancel, styles.cancelButton)}
-                    {renderButton('OK', handleConfirm, styles.confirmButton)}
+                    {renderButton('OK', handleConfirm, styles.confirmButton, styles.confirmButtonText)}
                   </View>
                 </View>
                 <View style={styles.rightPane}>{NumberPad}</View>
@@ -239,14 +267,14 @@ const CustomNumberPadOptimized: React.FC<CustomNumberPadOptimizedProps> = ({
                 {NumberPad}
                 <View style={styles.actionButtons}>
                   {renderButton('Cancel', handleCancel, styles.cancelButton)}
-                  {renderButton('OK', handleConfirm, styles.confirmButton)}
+                  {renderButton('OK', handleConfirm, styles.confirmButton, styles.confirmButtonText)}
                 </View>
               </View>
             )}
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
-    </Modal>
+    </ModalWrapper>
   );
 };
 
@@ -438,10 +466,10 @@ const createStyles = (
     clearButton: {
       backgroundColor: '#fff3e0',
       borderColor: '#ff9800',
-      textStyle: {
-        fontSize: Math.max(16, Math.round(sizes.fontSize * 0.72)),
-        fontWeight: '700',
-      },
+    },
+    clearButtonText: {
+      fontSize: Math.max(16, Math.round(sizes.fontSize * 0.72)),
+      fontWeight: '700' as const,
     },
     backspaceButton: {
       backgroundColor: '#ffebee',
@@ -478,9 +506,9 @@ const createStyles = (
       borderColor: '#0052b4',
       justifyContent: 'center',
       alignItems: 'center',
-      textStyle: {
-        color: '#ffffff',
-      },
+    },
+    confirmButtonText: {
+      color: '#ffffff',
     },
   });
 };

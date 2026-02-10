@@ -3,6 +3,34 @@ import React, { useState, useEffect } from 'react';
 import { Dimensions, Modal, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import CustomNumberPadOptimized from './CustomNumberPadOptimized';
 
+// On iPhone (not iPad), replace Modal with an absolute-positioned View overlay
+const ModalWrapper = ({ visible, children, transparent, animationType, onRequestClose, ...props }: any) => {
+  if (Platform.OS === 'ios' && !Platform.isPad) {
+    if (!visible) return null;
+    return (
+      <View style={iosOverlayStyle.container}>
+        {children}
+      </View>
+    );
+  }
+  return (
+    <Modal visible={visible} transparent={transparent} animationType={animationType} onRequestClose={onRequestClose}>
+      {children}
+    </Modal>
+  );
+};
+
+const iosOverlayStyle = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 9999,
+  },
+});
+
 // Vault data structure
 interface VaultOption {
   id: string;
@@ -205,161 +233,8 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
     setShowNumberPad(true);
   };
 
-  return ((Platform.OS === 'ios' && !Platform.isPad) ? (
-  visible && (
-    <View
-      style={{
-        position: "absolute",
-        top: 0, left: 0, right: 0, bottom: 0,
-        backgroundColor: "rgba(0,0,0,0.5)",
-        justifyContent: "center",
-        alignItems: "center",
-        zIndex: 9999,
-      }}
-    >
-      <View style={{
-        backgroundColor: 'white',
-        borderRadius: 10,
-        width: '98%',
-        maxWidth: 1200,
-        maxHeight: '98%',
-        overflow: 'hidden',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 3.84,
-        elevation: 5,
-      }}>
-        <View style={styles.modalContent}>
-          <View style={[styles.modalHeader, { backgroundColor: titleBackgroundColor }]}>
-            <Text style={styles.modalTitle}>FIG MAG Vault Value Table 2025-2028</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Ionicons name="close" size={24} color="#333" />
-            </TouchableOpacity>
-          </View>
-          
-          {/* Search Bars */}
-          <View style={styles.searchContainer}>
-            <TouchableOpacity 
-              style={styles.searchInputContainer}
-              onPress={() => handleNumberInputPress('number')}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="search" size={16} color="#666" style={styles.searchIcon} />
-              <View style={styles.searchInputTextWrapper}>
-                <Text style={[
-                  styles.searchInputText,
-                  !searchNumber && styles.searchInputPlaceholder
-                ]}>
-                  {searchNumber || "Search by number..."}
-                </Text>
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.searchInputContainer}
-              onPress={() => handleNumberInputPress('value')}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="search" size={16} color="#666" style={styles.searchIcon} />
-              <View style={styles.searchInputTextWrapper}>
-                <Text style={[
-                  styles.searchInputText,
-                  !searchValue && styles.searchInputPlaceholder
-                ]}>
-                  {searchValue || "Search by value..."}
-                </Text>
-              </View>
-            </TouchableOpacity>
-            <View style={styles.searchInputContainer}>
-              <Ionicons name="search" size={16} color="#666" style={styles.searchIcon} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search by description..."
-                value={searchDescription}
-                onChangeText={setSearchDescription}
-                placeholderTextColor="#999"
-              />
-            </View>
-          </View>
-          
-          <ScrollView style={styles.scrollView} horizontal={true}>
-            <View style={styles.groupsContainer}>
-              {vaultGroups.map((group) => {
-                const filteredVaults = filterVaults(group.vaults);
-                if (filteredVaults.length === 0) {
-                  return null;
-                }
-                return (
-                  <View key={group.id} style={styles.groupColumn}>
-                    <View style={[styles.groupHeader, { backgroundColor: group.color }]}>
-                      <Text style={styles.groupTitle}>{group.title}</Text>
-                    </View>
-                    <ScrollView style={styles.vaultsScrollContainer} nestedScrollEnabled={true}>
-                      <View style={styles.vaultsContainer}>
-                        {filteredVaults.map((vault) => (
-                          <TouchableOpacity
-                            key={vault.id}
-                            style={[
-                              styles.vaultItem,
-                              selectedVaults[group.id]?.id === vault.id ? styles.selectedVault : {},
-                              { backgroundColor: group.color + '20' }
-                            ]}
-                            onPress={() => handleSelect(vault, group.id, vault.value, vault.description)}
-                          >
-                            <View style={styles.vaultNumberValue}>
-                              <Text style={styles.vaultNumber}>{vault.number}</Text>
-                              <Text style={styles.vaultValue}>{vault.value.toFixed(1)}</Text>
-                            </View>
-                            <Text style={styles.vaultDescription}>
-                              {vault.description}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </ScrollView>
-                  </View>
-                );
-              })}
-            </View>
-          </ScrollView>
-          
-          <View style={styles.footer}>
-            <TouchableOpacity 
-              style={styles.saveButton}
-              onPress={onClose}
-            >
-              <Text style={styles.saveButtonText}>Apply Selection</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-        {showNumberPad && (
-          <CustomNumberPadOptimized
-            visible={showNumberPad}
-            value={tempInputValue}
-            onValueChange={(value) => {
-              setTempInputValue(value);
-              if (activeInputType === 'number') {
-                setSearchNumber(value);
-              } else if (activeInputType === 'value') {
-                setSearchValue(value);
-              }
-            }}
-            onClose={(finalValue) => {
-              setShowNumberPad(false);
-              setActiveInputType(null);
-              setTempInputValue('');
-              setOriginalInputValue('');
-            }}
-            title={activeInputType === 'number' ? 'Search by Number' : 'Search by Value'}
-            allowDecimal={activeInputType === 'value'}
-            maxLength={activeInputType === 'number' ? 3 : 4}
-          />
-        )}
-      </View>
-    </View>
-  )
-) : (
-  <Modal
+  return (
+  <ModalWrapper
     visible={visible}
     transparent={true}
     animationType="slide"
@@ -492,8 +367,8 @@ const VaultSelectorModal: React.FC<VaultSelectorModalProps> = ({
         />
       )}
     </SafeAreaView>
-  </Modal>
-));
+  </ModalWrapper>
+);
 };
 
 const styles = StyleSheet.create({

@@ -12,12 +12,43 @@ import {
   View,
   Modal,
   TextInput,
+  Platform,
+  useWindowDimensions,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getCompetitionById, getGymnastById, getGymnastsByCompetition, updateGymnast, Gymnast } from "../lib/database";
 import WhiteboardScreen, { WhiteboardRef } from "@/componentes/WhiteboardScreen";
 import CustomNumberPadOptimized from "@/componentes/CustomNumberPadOptimized";
 
 const TEXT_FONT_DELTA = -3;
+
+// On iPhone (not iPad), replace Modal with an absolute-positioned View overlay
+const ModalWrapper = ({ visible, children, transparent, animationType, onRequestClose, ...props }: any) => {
+  if (Platform.OS === 'ios' && !Platform.isPad) {
+    if (!visible) return null;
+    return (
+      <View style={iosOverlayStyle.container}>
+        {children}
+      </View>
+    );
+  }
+  return (
+    <Modal visible={visible} transparent={transparent} animationType={animationType} onRequestClose={onRequestClose}>
+      {children}
+    </Modal>
+  );
+};
+
+const iosOverlayStyle = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
+  },
+});
 
 const Text = ({ style, ...props }: React.ComponentProps<typeof RNText>) => {
   const flattened = style ? (StyleSheet.flatten(style as any) as any) : undefined;
@@ -36,7 +67,9 @@ const Text = ({ style, ...props }: React.ComponentProps<typeof RNText>) => {
   );
 };
 
-const { width, height } = Dimensions.get("window");
+const _dim = Dimensions.get("window");
+const width = _dim.width;
+const height = _dim.height;
 
 interface ElementCounts {
   [key: string]: { value: number; selected: boolean };
@@ -54,6 +87,16 @@ export default function GymnastFloor() {
   const params = useLocalSearchParams();
   const gymnastId = params.gymnastId ? Number(params.gymnastId) : 0;
   const competitionId = params.competitionId ? Number(params.competitionId) : 0;
+
+  // Use reactive dimensions for whiteboard sizing on iPhone
+  const windowDim = useWindowDimensions();
+  const safeInsets = useSafeAreaInsets();
+  const isIphone = Platform.OS === 'ios' && !Platform.isPad;
+  // On iPhone, subtract horizontal safe-area insets so the whiteboard fits inside the SafeAreaView
+  const liveWidth = isIphone
+    ? windowDim.width - safeInsets.left - safeInsets.right
+    : windowDim.width;
+  const liveHeight = windowDim.height;
 
   const parseBooleanParam = (value: unknown): boolean | null => {
     if (value === undefined || value === null) return null;
@@ -878,18 +921,20 @@ export default function GymnastFloor() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <WhiteboardScreen
-        ref={whiteboardRef}
-        gymnastId={gymnastId}
-        width={width}
-        height={height * 0.69}
-        stickBonus={stickBonus}
-        setStickBonus={handleStickBonusChange}
-        discipline={discipline}
-        event={gymnast?.evento}
-        percentage={percentage}
-        onBeforeAddImage={saveGymnastData}
-      />
+      <View style={isIphone ? styles.whiteboardWrapperIphone : undefined}>
+        <WhiteboardScreen
+          ref={whiteboardRef}
+          gymnastId={gymnastId}
+          width={liveWidth}
+          height={liveHeight * 0.69}
+          stickBonus={stickBonus}
+          setStickBonus={handleStickBonusChange}
+          discipline={discipline}
+          event={gymnast?.evento}
+          percentage={percentage}
+          onBeforeAddImage={saveGymnastData}
+        />
+      </View>
       
       <ScrollView>
         <View style={styles.mainContent}>
@@ -1207,7 +1252,7 @@ export default function GymnastFloor() {
 
       {/* Element Group Modals */}
       {Object.keys(showElementGroupModal).map((group) => (
-        <Modal
+        <ModalWrapper
           key={group}
           transparent
           visible={showElementGroupModal[group]}
@@ -1244,13 +1289,13 @@ export default function GymnastFloor() {
               </TouchableOpacity>
             </View>
           </View>
-        </Modal>
+        </ModalWrapper>
       ))}
 
       {/* Comments Modal */}
             {/* Modal CustomNumberPadOptimized para editar valores */}
             {showNumberPadModal && (
-              <Modal transparent visible={showNumberPadModal} animationType="fade">
+              <ModalWrapper transparent visible={showNumberPadModal} animationType="fade">
                     <CustomNumberPadOptimized
                       visible={showNumberPadModal}
                       value={numberPadValue}
@@ -1263,9 +1308,9 @@ export default function GymnastFloor() {
                         }
                       }}
                     />
-              </Modal>
+              </ModalWrapper>
             )}
-      <Modal transparent visible={showCommentsModal} animationType="fade">
+      <ModalWrapper transparent visible={showCommentsModal} animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <Text style={styles.modalTitle}>Comments</Text>
@@ -1294,7 +1339,7 @@ export default function GymnastFloor() {
             </View>
           </View>
         </View>
-      </Modal>
+      </ModalWrapper>
     </SafeAreaView>
   );
 }
@@ -1303,6 +1348,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#e0e0e0",
+  },
+  whiteboardWrapperIphone: {
+    width: '100%',
+    overflow: 'hidden',
   },
   loadingContainer: {
     flex: 1,

@@ -5,6 +5,7 @@ import {
   Alert,
   Dimensions,
   FlatList,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -13,6 +14,29 @@ import {
   View,
   Modal,
 } from 'react-native';
+
+const useViewInsteadOfModal = Platform.OS === 'ios' && !Platform.isPad;
+
+const iosOverlayStyle = {
+  position: 'absolute' as const,
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  zIndex: 1000,
+};
+
+const ModalWrapper = ({ visible, children, transparent, animationType, onRequestClose, ...rest }: any) => {
+  if (useViewInsteadOfModal) {
+    if (!visible) return null;
+    return <View style={iosOverlayStyle}>{children}</View>;
+  }
+  return (
+    <Modal visible={visible} transparent={transparent} animationType={animationType} onRequestClose={onRequestClose} {...rest}>
+      {children}
+    </Modal>
+  );
+};
 import { getCompetitionById, Competition, getGymnastsByCompetition } from '../lib/database';
 import { generateAndSharePDF } from '../lib/pdfGenerator';
 import FolderExportModal from '../componentes/FolderExportModal';
@@ -630,7 +654,7 @@ const MainTable: React.FC = () => {
       </View>
 
       {/* Finish Modal */}
-      <Modal visible={showFinishModal} transparent animationType="fade">
+      <ModalWrapper visible={showFinishModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Finish Competition</Text>
@@ -649,10 +673,10 @@ const MainTable: React.FC = () => {
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>
+      </ModalWrapper>
 
       {/* PDF Generation Progress Modal */}
-      <Modal visible={generatingPDF} transparent animationType="fade">
+      <ModalWrapper visible={generatingPDF} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent} onLayout={() => setPdfModalLayoutReady(true)}>
             <Text style={styles.modalTitle}>Generating PDF</Text>
@@ -676,10 +700,10 @@ const MainTable: React.FC = () => {
             ) : null}
           </View>
         </View>
-      </Modal>
+      </ModalWrapper>
 
       {/* Hamburger Menu Modal */}
-      <Modal
+      <ModalWrapper
         visible={menuVisible}
         transparent={true}
         animationType="fade"
@@ -720,7 +744,7 @@ const MainTable: React.FC = () => {
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
-      </Modal>
+      </ModalWrapper>
 
       {/* Folder Export Modal */}
       <FolderExportModal

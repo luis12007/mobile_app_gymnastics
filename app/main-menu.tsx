@@ -10,6 +10,34 @@ const { width, height } = Dimensions.get('window');
 const IMG_FOLDER_CLOSED = require('../assets/images/folder.png');
 const IMG_FOLDER_OPEN = require('../assets/images/open-folder.png');
 
+// On iOS, replace Modal with an absolute-positioned View overlay
+const ModalWrapper = ({ visible, children, transparent, animationType, onRequestClose, ...props }: any) => {
+  if (Platform.OS === 'ios' && !Platform.isPad) {
+    if (!visible) return null;
+    return (
+      <View style={iosOverlayStyle.container}>
+        {children}
+      </View>
+    );
+  }
+  return (
+    <Modal visible={visible} transparent={transparent} animationType={animationType} onRequestClose={onRequestClose}>
+      {children}
+    </Modal>
+  );
+};
+
+const iosOverlayStyle = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
+  },
+});
+
 export default function MainMenu() {
   const router = useRouter();
   const [discipline, setDisciplineState] = useState<string>('');
@@ -339,6 +367,7 @@ export default function MainMenu() {
             key={`grid-${listKey}`}
             extraData={[folders, listKey]}
             contentContainerStyle={styles.gridContainer}
+            columnWrapperStyle={(Platform.OS === 'ios' && !Platform.isPad) ? { width: '100%' } : undefined}
             showsVerticalScrollIndicator={false}
           />
         )}
@@ -365,7 +394,7 @@ export default function MainMenu() {
       )}
 
       {/* Confirm Delete Modal */}
-      <Modal
+      <ModalWrapper
         visible={confirmDeleteVisible}
         transparent={true}
         animationType="fade"
@@ -396,10 +425,10 @@ export default function MainMenu() {
             </View>
           </View>
         </View>
-      </Modal>
+      </ModalWrapper>
 
       {/* Create Folder Modal */}
-      <Modal
+      <ModalWrapper
         visible={createModalVisible}
         transparent={true}
         animationType="fade"
@@ -426,13 +455,13 @@ export default function MainMenu() {
             />
             
             <TextInput
-              style={[styles.input, styles.textArea]}
+              style={[styles.input, (Platform.OS === 'ios' && !Platform.isPad) ? null : styles.textArea]}
               placeholder="Description (optional)"
               placeholderTextColor="#999"
               value={folderDescription}
               onChangeText={setFolderDescription}
-              multiline
-              numberOfLines={3}
+              multiline={!(Platform.OS === 'ios' && !Platform.isPad)}
+              numberOfLines={(Platform.OS === 'ios' && !Platform.isPad) ? 1 : 3}
             />
             
             <View style={styles.buttonRow}>
@@ -457,10 +486,10 @@ export default function MainMenu() {
             </View>
           </View>
         </TouchableOpacity>
-      </Modal>
+      </ModalWrapper>
 
       {/* Hamburger Menu Modal */}
-      <Modal
+      <ModalWrapper
         visible={menuVisible}
         transparent={true}
         animationType="fade"
@@ -530,7 +559,7 @@ export default function MainMenu() {
             </View>
           </ScrollView>
         </TouchableOpacity>
-      </Modal>
+      </ModalWrapper>
 
       {/* Folder Export Modal */}
       <FolderExportModal
@@ -628,14 +657,18 @@ const styles = StyleSheet.create({
     marginTop: 40,
   },
   gridContainer: {
-    padding: 12,
+    padding: (Platform.OS === 'ios' && !Platform.isPad) ? 2 : 12,
   },
   folderCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    width: (width - 48) / 3,
-    height: Math.max(96, Math.min(140, ((width - 48) / 3) * 0.6)),
-    margin: 6,
+    ...(Platform.OS === 'ios' && !Platform.isPad
+      ? { flex: 1, maxWidth: '32%' }
+      : { width: (width - 48) / 3 }),
+    height: (Platform.OS === 'ios' && !Platform.isPad)
+      ? Math.max(86, Math.min(120, ((width - 20) / 3) * 0.55))
+      : Math.max(96, Math.min(140, ((width - 48) / 3) * 0.6)),
+    margin: (Platform.OS === 'ios' && !Platform.isPad) ? 2 : 6,
     flexDirection: 'row',
     alignItems: 'stretch',
     overflow: 'hidden',

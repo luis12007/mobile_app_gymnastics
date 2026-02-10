@@ -16,7 +16,9 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import CustomNumberPadOptimized from "../componentes/CustomNumberPadOptimized";
 // import DebugPanel from "../componentes/DebugPanel"; // TODO: Create DebugPanel component
@@ -52,7 +54,9 @@ const Text = ({ style, ...props }: React.ComponentProps<typeof RNText>) => {
   );
 };
 
-const { width, height } = Dimensions.get("window");
+const _dim = Dimensions.get("window");
+const width = _dim.width;
+const height = _dim.height;
 const isLargeScreen = width >= 1000 && height >= 700;
 var isLargeDevice = false;
 var isMediumLargeDevice = false;
@@ -132,6 +136,17 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
 }) => {
   /* Declare params */
   const params = useLocalSearchParams();
+
+  // Use reactive dimensions for whiteboard sizing
+  const windowDim = useWindowDimensions();
+  const safeInsets = useSafeAreaInsets();
+  const isIphone = Platform.OS === 'ios' && !Platform.isPad;
+  // On iPhone, subtract horizontal safe-area insets so the whiteboard fits inside the SafeAreaView
+  const liveWidth = isIphone
+    ? windowDim.width - safeInsets.left - safeInsets.right
+    : windowDim.width;
+  const liveHeight = windowDim.height;
+
   const gymnastid = params.gymnastId 
     ? Number(params.gymnastId) 
     : params.gymnast 
@@ -1156,17 +1171,20 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
       )}
 
       {/* Whiteboard Screen */}
-      <WhiteboardScreen
-        ref={whiteboardRef}
-        gymnastId={gymnastid}
-        stickBonus={stickbonus}
-        height={height * 0.75}
-        setStickBonus={handleStickBonusChange}
-        percentage={percentage}
-        oncodetable={oncodetable}
-        discipline={discipline}
-        onBeforeAddImage={saveGymnastData}
-      />
+      <View style={isIphone ? styles.whiteboardWrapperIphone : undefined}>
+        <WhiteboardScreen
+          ref={whiteboardRef}
+          gymnastId={gymnastid}
+          stickBonus={stickbonus}
+          width={liveWidth}
+          height={liveHeight * 0.75}
+          setStickBonus={handleStickBonusChange}
+          percentage={percentage}
+          oncodetable={oncodetable}
+          discipline={discipline}
+          onBeforeAddImage={saveGymnastData}
+        />
+      </View>
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         {/* Main Table */}
         <View style={styles.tableContainer}>
@@ -1898,6 +1916,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#e0e0e0",
+  },
+  whiteboardWrapperIphone: {
+    width: '100%',
+    overflow: 'hidden',
   },
   scrollContainer: {
     flexGrow: 1,

@@ -55,7 +55,9 @@ const Text = ({ style, ...props }: React.ComponentProps<typeof RNText>) => {
   );
 };
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const _wbDim = Dimensions.get('window');
+const SCREEN_WIDTH = _wbDim.width;
+const SCREEN_HEIGHT = _wbDim.height;
 
 // Canvas height similar to other whiteboards (responsive but stable)
 const canvasHeight = (() => {

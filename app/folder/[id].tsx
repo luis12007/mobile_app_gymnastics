@@ -13,6 +13,34 @@ const IMG_GYMNAST_WAG = require('../../assets/images/gymnast2.png');
 
 const { width, height } = Dimensions.get('window');
 
+// On iPhone (not iPad), replace Modal with an absolute-positioned View overlay
+const ModalWrapper = ({ visible, children, transparent, animationType, onRequestClose, ...props }: any) => {
+  if (Platform.OS === 'ios' && !Platform.isPad) {
+    if (!visible) return null;
+    return (
+      <View style={iosOverlayStyle.container}>
+        {children}
+      </View>
+    );
+  }
+  return (
+    <Modal visible={visible} transparent={transparent} animationType={animationType} onRequestClose={onRequestClose}>
+      {children}
+    </Modal>
+  );
+};
+
+const iosOverlayStyle = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
+  },
+});
+
 export default function FolderView() {
   const router = useRouter();
   const { id } = useLocalSearchParams();
@@ -531,6 +559,7 @@ export default function FolderView() {
             key={`grid-${listKey}`}
             extraData={[combinedItems, listKey]}
             contentContainerStyle={styles.gridContainer}
+            columnWrapperStyle={(Platform.OS === 'ios' && !Platform.isPad) ? { width: '100%' } : undefined}
             showsVerticalScrollIndicator={false}
           />
         )}
@@ -564,7 +593,7 @@ export default function FolderView() {
       </View>
 
       {/* Create Folder Modal */}
-      <Modal
+      <ModalWrapper
         visible={createFolderModalVisible}
         transparent={true}
         animationType="fade"
@@ -591,13 +620,13 @@ export default function FolderView() {
             />
             
             <TextInput
-              style={[styles.input, styles.textArea]}
+              style={[styles.input, (Platform.OS === 'ios' && !Platform.isPad) ? null : styles.textArea]}
               placeholder="Description (optional)"
               placeholderTextColor="#999"
               value={folderDescription}
               onChangeText={setFolderDescription}
-              multiline
-              numberOfLines={3}
+              multiline={!(Platform.OS === 'ios' && !Platform.isPad)}
+              numberOfLines={(Platform.OS === 'ios' && !Platform.isPad) ? 1 : 3}
             />
             
             <View style={styles.buttonRow}>
@@ -622,10 +651,10 @@ export default function FolderView() {
             </View>
           </View>
         </TouchableOpacity>
-      </Modal>
+      </ModalWrapper>
 
       {/* Confirm Delete Modal */}
-      <Modal
+      <ModalWrapper
         visible={confirmDeleteVisible}
         transparent={true}
         animationType="fade"
@@ -656,10 +685,10 @@ export default function FolderView() {
             </View>
           </View>
         </View>
-      </Modal>
+      </ModalWrapper>
 
       {/* Create Competition Modal */}
-      <Modal
+      <ModalWrapper
         visible={createCompetitionModalVisible}
         transparent={true}
         animationType="fade"
@@ -690,13 +719,13 @@ export default function FolderView() {
               />
               
               <TextInput
-                style={[styles.input, styles.textArea]}
+                style={[styles.input, (Platform.OS === 'ios' && !Platform.isPad) ? null : styles.textArea]}
                 placeholder="Description (optional)"
                 placeholderTextColor="#999"
                 value={competitionDescription}
                 onChangeText={setCompetitionDescription}
-                multiline
-                numberOfLines={2}
+                multiline={!(Platform.OS === 'ios' && !Platform.isPad)}
+                numberOfLines={(Platform.OS === 'ios' && !Platform.isPad) ? 1 : 2}
               />
               
               <TouchableOpacity
@@ -769,10 +798,10 @@ export default function FolderView() {
             </View>
           </ScrollView>
         </TouchableOpacity>
-      </Modal>
+      </ModalWrapper>
 
       {/* Hamburger Menu Modal */}
-      <Modal
+      <ModalWrapper
         visible={menuVisible}
         transparent={true}
         animationType="fade"
@@ -842,7 +871,7 @@ export default function FolderView() {
             </View>
           </ScrollView>
         </TouchableOpacity>
-      </Modal>
+      </ModalWrapper>
 
       {/* Folder Export Modal */}
       <FolderExportModal
@@ -943,14 +972,18 @@ const styles = StyleSheet.create({
     marginTop: 40,
   },
   gridContainer: {
-    padding: 12,
+    padding: (Platform.OS === 'ios' && !Platform.isPad) ? 2 : 12,
   },
   folderCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    width: (width - 48) / 3,
-    height: Math.max(96, Math.min(140, ((width - 48) / 3) * 0.6)),
-    margin: 6,
+    ...(Platform.OS === 'ios' && !Platform.isPad
+      ? { flex: 1, maxWidth: '32%' }
+      : { width: (width - 48) / 3 }),
+    height: (Platform.OS === 'ios' && !Platform.isPad)
+      ? Math.max(86, Math.min(120, ((width - 20) / 3) * 0.55))
+      : Math.max(96, Math.min(140, ((width - 48) / 3) * 0.6)),
+    margin: (Platform.OS === 'ios' && !Platform.isPad) ? 2 : 6,
     flexDirection: 'row',
     alignItems: 'stretch',
     overflow: 'hidden',
