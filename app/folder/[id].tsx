@@ -1,7 +1,7 @@
 import { View, Text, StyleSheet, TouchableOpacity, Modal, SafeAreaView, StatusBar, Platform, ScrollView, Dimensions, FlatList, TextInput, Image, Alert } from 'react-native';
 import { useEffect, useState, useRef } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { getDiscipline, getSubfolders, getFolderById, getFolderPath, Folder, createFolder, createCompetition, getCompetitionsByFolder, Competition, deleteFolder, deleteCompetition, updateFolder, updateCompetition, swapItemPositions, normalizeDisplayOrderInFolder } from '../../lib/database';
+import { getDiscipline, getSubfolders, getFolderById, getFolderPath, Folder, createFolder, createCompetition, getCompetitionsByFolder, Competition, deleteFolder, deleteCompetition, updateFolder, updateCompetition, swapItemPositions, normalizeDisplayOrderInFolder, moveFolderIntoFolder, moveCompetitionToFolder, extractFolderToParent, extractCompetitionToParent } from '../../lib/database';
 import FolderExportModal from '../../componentes/FolderExportModal';
 import FolderImportModal from '../../componentes/FolderImportModal';
 import CustomNumberPadOptimized from '../../componentes/CustomNumberPadOptimized';
@@ -79,6 +79,14 @@ export default function FolderView() {
   const [selectedItemForReorder, setSelectedItemForReorder] = useState<{ type: 'folder' | 'competition', item: Folder | Competition } | null>(null);
   const [listKey, setListKey] = useState(0);
   const longPressTriggeredRef = useRef(false);
+
+  // Action choice modal (Exchange vs Insert) states
+  const [actionChoiceVisible, setActionChoiceVisible] = useState(false);
+  const [pendingTarget, setPendingTarget] = useState<{ type: 'folder' | 'competition', item: Folder | Competition } | null>(null);
+
+  // Confirmation toast state
+  const [confirmationToast, setConfirmationToast] = useState<{ visible: boolean; message: string; isError: boolean }>({ visible: false, message: '', isError: false });
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     loadDiscipline();
@@ -363,21 +371,124 @@ export default function FolderView() {
       return;
     }
 
+    // Always show action choice modal with options: Extract, Exchange, Move To (if target is folder)
+    setPendingTarget({ type, item: targetItem });
+    setActionChoiceVisible(true);
+  };
+
+  const showToast = (message: string, isError: boolean = false) => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setConfirmationToast({ visible: true, message, isError });
+    toastTimeoutRef.current = setTimeout(() => {
+      setConfirmationToast({ visible: false, message: '', isError: false });
+    }, 2500);
+  };
+
+  const getItemName = (type: 'folder' | 'competition', item: Folder | Competition): string => {
+    return type === 'folder' ? (item as Folder).titulo : (item as Competition).name;
+  };
+
+  const handleActionExchange = async () => {
+    setActionChoiceVisible(false);
+    if (!selectedItemForReorder || !pendingTarget) return;
+
     try {
       await swapItemPositions(
         selectedItemForReorder.type,
         selectedItemForReorder.item.id,
-        type,
-        targetItem.id
+        pendingTarget.type,
+        pendingTarget.item.id
       );
       setReorderMode(false);
       setSelectedItemForReorder(null);
+      setPendingTarget(null);
       await loadFolderData();
-      setListKey(prev => prev + 1); // Force complete FlatList re-render
+      setListKey(prev => prev + 1);
     } catch (error) {
       console.error('Error swapping positions:', error);
       Alert.alert('Error', 'Could not swap positions. Please try again.');
     }
+  };
+
+  const handleActionInsert = async () => {
+    setActionChoiceVisible(false);
+    if (!selectedItemForReorder || !pendingTarget) return;
+
+    const sourceName = getItemName(selectedItemForReorder.type, selectedItemForReorder.item);
+    const targetName = (pendingTarget.item as Folder).titulo;
+    const targetFolderId = pendingTarget.item.id;
+
+    try {
+      if (selectedItemForReorder.type === 'folder') {
+        await moveFolderIntoFolder(selectedItemForReorder.item.id, targetFolderId);
+      } else {
+        await moveCompetitionToFolder(selectedItemForReorder.item.id, targetFolderId);
+      }
+      setReorderMode(false);
+      setSelectedItemForReorder(null);
+      setPendingTarget(null);
+      await loadFolderData();
+      setListKey(prev => prev + 1);
+      showToast(`"${sourceName}" moved into "${targetName}"`);
+    } catch (error) {
+      console.error('Error inserting item:', error);
+      showToast('Error: Could not move item. ' + (error instanceof Error ? error.message : ''), true);
+      setReorderMode(false);
+      setSelectedItemForReorder(null);
+      setPendingTarget(null);
+    }
+  };
+
+  const handleActionExtract = async () => {
+    setActionChoiceVisible(false);
+    if (!selectedItemForReorder || !currentFolder) return;
+
+    const sourceName = getItemName(selectedItemForReorder.type, selectedItemForReorder.item);
+    const isMovingToRoot = currentFolder.parent_folder_id === null;
+
+    try {
+      if (selectedItemForReorder.type === 'folder') {
+        await extractFolderToParent(selectedItemForReorder.item.id, currentFolder.id);
+        const destination = isMovingToRoot ? 'root' : 'parent folder';
+        showToast(`"${sourceName}" extracted to ${destination}`);
+      } else {
+        // Competition cannot be at root
+        if (isMovingToRoot) {
+          showToast('Competitions cannot be moved to root level', true);
+          setReorderMode(false);
+          setSelectedItemForReorder(null);
+          setPendingTarget(null);
+          return;
+        }
+        await extractCompetitionToParent(selectedItemForReorder.item.id, currentFolder.id);
+        showToast(`"${sourceName}" extracted to parent folder`);
+      }
+      setReorderMode(false);
+      setSelectedItemForReorder(null);
+      setPendingTarget(null);
+      await loadFolderData();
+      setListKey(prev => prev + 1);
+    } catch (error) {
+      console.error('Error extracting item:', error);
+      showToast('Error: Could not extract item. ' + (error instanceof Error ? error.message : ''), true);
+      setReorderMode(false);
+      setSelectedItemForReorder(null);
+      setPendingTarget(null);
+    }
+  };
+
+  // Check if extract is available (competitions can't go to root)
+  const canExtract = () => {
+    if (!selectedItemForReorder || !currentFolder) return false;
+    // Folders can always be extracted (to parent or root)
+    if (selectedItemForReorder.type === 'folder') return true;
+    // Competitions can only be extracted if current folder has a parent
+    return currentFolder.parent_folder_id !== null;
+  };
+
+  const handleActionCancel = () => {
+    setActionChoiceVisible(false);
+    setPendingTarget(null);
   };
 
   const handleCancelReorder = () => {
@@ -889,6 +1000,83 @@ export default function FolderView() {
           loadFolderData();
         }}
       />
+
+      {/* Action Choice Modal: Extract, Exchange, or Insert */}
+      <ModalWrapper
+        visible={actionChoiceVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleActionCancel}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.actionChoiceModal}>
+            <Text style={styles.modalTitle}>Move Action</Text>
+            <Text style={styles.actionChoiceDescription}>
+              What would you like to do with "{selectedItemForReorder ? getItemName(selectedItemForReorder.type, selectedItemForReorder.item) : ''}"?
+            </Text>
+
+            {/* Extract from folder option */}
+            {canExtract() && (
+              <TouchableOpacity
+                style={[styles.actionChoiceButton, styles.actionChoiceExtractButton]}
+                onPress={handleActionExtract}
+              >
+                <Text style={styles.actionChoiceIcon}>↑</Text>
+                <View style={styles.actionChoiceTextContainer}>
+                  <Text style={styles.actionChoiceButtonTitle}>Extract from folder</Text>
+                  <Text style={styles.actionChoiceButtonDesc}>
+                    Move up to {currentFolder?.parent_folder_id === null ? 'root level' : 'parent folder'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
+
+            {/* Exchange option */}
+            <TouchableOpacity
+              style={styles.actionChoiceButton}
+              onPress={handleActionExchange}
+            >
+              <Text style={styles.actionChoiceIcon}>⇄</Text>
+              <View style={styles.actionChoiceTextContainer}>
+                <Text style={styles.actionChoiceButtonTitle}>Exchange</Text>
+                <Text style={styles.actionChoiceButtonDesc}>Swap positions with "{pendingTarget ? getItemName(pendingTarget.type, pendingTarget.item) : ''}"</Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Insert into folder option - only if target is a folder */}
+            {pendingTarget?.type === 'folder' && (
+              <TouchableOpacity
+                style={[styles.actionChoiceButton, styles.actionChoiceInsertButton]}
+                onPress={handleActionInsert}
+              >
+                <Text style={styles.actionChoiceIcon}>📂</Text>
+                <View style={styles.actionChoiceTextContainer}>
+                  <Text style={styles.actionChoiceButtonTitle}>Move to folder</Text>
+                  <Text style={styles.actionChoiceButtonDesc}>Move inside "{pendingTarget ? (pendingTarget.item as Folder).titulo : ''}"</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={styles.actionChoiceCancelButton}
+              onPress={handleActionCancel}
+            >
+              <Text style={styles.actionChoiceCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </ModalWrapper>
+
+      {/* Confirmation Toast */}
+      {confirmationToast.visible && (
+        <View style={[
+          styles.toastContainer,
+          confirmationToast.isError ? styles.toastError : styles.toastSuccess
+        ]}>
+          <Text style={styles.toastIcon}>{confirmationToast.isError ? '✗' : '✓'}</Text>
+          <Text style={styles.toastText} numberOfLines={2}>{confirmationToast.message}</Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -1129,12 +1317,13 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
+    justifyContent: Platform.OS === 'ios' ? 'flex-start' : 'center',
     alignItems: 'center',
+    paddingTop: Platform.OS === 'ios' ? 40 : 0,
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
+    justifyContent: Platform.OS === 'ios' ? 'flex-start' : 'center',
     alignItems: 'center',
     paddingHorizontal: Math.max(width * 0.05, 12),
     paddingVertical: Math.max(height * 0.05, 20),
@@ -1378,5 +1567,111 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 10,
     fontWeight: 'bold',
+  },
+  // Action Choice Modal styles
+  actionChoiceModal: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    width: '85%',
+    maxWidth: 400,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  actionChoiceDescription: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  actionChoiceButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f4ff',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#d0d8f0',
+  },
+  actionChoiceInsertButton: {
+    backgroundColor: '#f0fff4',
+    borderColor: '#b8e6c8',
+  },
+  actionChoiceExtractButton: {
+    backgroundColor: '#fff8f0',
+    borderColor: '#f0d8b8',
+  },
+  actionChoiceIcon: {
+    fontSize: 24,
+    marginRight: 14,
+    width: 32,
+    textAlign: 'center',
+  },
+  actionChoiceTextContainer: {
+    flex: 1,
+  },
+  actionChoiceButtonTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 2,
+  },
+  actionChoiceButtonDesc: {
+    fontSize: 12,
+    color: '#888',
+  },
+  actionChoiceCancelButton: {
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: '#ccc',
+  },
+  actionChoiceCancelText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '600',
+  },
+  // Toast styles
+  toastContainer: {
+    position: 'absolute',
+    bottom: 40,
+    left: 20,
+    right: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    zIndex: 2000,
+  },
+  toastSuccess: {
+    backgroundColor: '#2e7d32',
+  },
+  toastError: {
+    backgroundColor: '#c62828',
+  },
+  toastIcon: {
+    fontSize: 20,
+    color: '#fff',
+    marginRight: 12,
+    fontWeight: 'bold',
+  },
+  toastText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#fff',
+    fontWeight: '500',
   },
 });

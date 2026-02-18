@@ -1024,6 +1024,171 @@ export async function moveFolder(
 }
 
 /**
+ * Mover una carpeta dentro de otra carpeta (insert).
+ * Calcula el display_order para ponerla al final del destino.
+ */
+export async function moveFolderIntoFolder(
+  folderId: number,
+  targetFolderId: number
+): Promise<void> {
+  try {
+    // Use existing moveFolder to change parent and update levels
+    await moveFolder(folderId, targetFolderId);
+
+    // Calculate next display_order in the target folder
+    const maxFolderOrder = await db.getFirstAsync<{max_order: number | null}>(
+      'SELECT MAX(display_order) as max_order FROM folders WHERE parent_folder_id = ?',
+      [targetFolderId]
+    );
+    const maxCompOrder = await db.getFirstAsync<{max_order: number | null}>(
+      'SELECT MAX(display_order) as max_order FROM competitions WHERE folder_id = ?',
+      [targetFolderId]
+    );
+    const maxFolder = maxFolderOrder?.max_order ?? 0;
+    const maxComp = maxCompOrder?.max_order ?? 0;
+    const nextDisplayOrder = Math.max(maxFolder, maxComp) + 1;
+
+    await db.runAsync(
+      'UPDATE folders SET display_order = ? WHERE id = ?',
+      [nextDisplayOrder, folderId]
+    );
+
+    console.log(`Folder ${folderId} inserted into folder ${targetFolderId} with display_order ${nextDisplayOrder}`);
+  } catch (error) {
+    console.error('Error inserting folder into folder:', error);
+    throw error;
+  }
+}
+
+/**
+ * Mover una competencia a otra carpeta (insert).
+ * Cambia el folder_id y asigna display_order al final del destino.
+ */
+export async function moveCompetitionToFolder(
+  competitionId: number,
+  targetFolderId: number
+): Promise<void> {
+  try {
+    // Calculate next display_order in the target folder
+    const maxFolderOrder = await db.getFirstAsync<{max_order: number | null}>(
+      'SELECT MAX(display_order) as max_order FROM folders WHERE parent_folder_id = ?',
+      [targetFolderId]
+    );
+    const maxCompOrder = await db.getFirstAsync<{max_order: number | null}>(
+      'SELECT MAX(display_order) as max_order FROM competitions WHERE folder_id = ?',
+      [targetFolderId]
+    );
+    const maxFolder = maxFolderOrder?.max_order ?? 0;
+    const maxComp = maxCompOrder?.max_order ?? 0;
+    const nextDisplayOrder = Math.max(maxFolder, maxComp) + 1;
+
+    await db.runAsync(
+      'UPDATE competitions SET folder_id = ?, display_order = ? WHERE id = ?',
+      [targetFolderId, nextDisplayOrder, competitionId]
+    );
+
+    console.log(`Competition ${competitionId} moved to folder ${targetFolderId} with display_order ${nextDisplayOrder}`);
+  } catch (error) {
+    console.error('Error moving competition to folder:', error);
+    throw error;
+  }
+}
+
+/**
+ * Move a folder up one level (to its grandparent folder or root).
+ * Returns the new parent_folder_id for reference.
+ */
+export async function extractFolderToParent(
+  folderId: number,
+  currentParentId: number
+): Promise<number | null> {
+  try {
+    // Get the parent folder to find grandparent
+    const parentFolder = await getFolderById(currentParentId);
+    const newParentId = parentFolder?.parent_folder_id ?? null;
+
+    // Calculate next display_order in the destination
+    let maxOrder = 0;
+    if (newParentId !== null) {
+      const maxFolderOrder = await db.getFirstAsync<{max_order: number | null}>(
+        'SELECT MAX(display_order) as max_order FROM folders WHERE parent_folder_id = ?',
+        [newParentId]
+      );
+      const maxCompOrder = await db.getFirstAsync<{max_order: number | null}>(
+        'SELECT MAX(display_order) as max_order FROM competitions WHERE folder_id = ?',
+        [newParentId]
+      );
+      maxOrder = Math.max(maxFolderOrder?.max_order ?? 0, maxCompOrder?.max_order ?? 0);
+    } else {
+      // Moving to root - only folders can be at root
+      const maxFolderOrder = await db.getFirstAsync<{max_order: number | null}>(
+        'SELECT MAX(display_order) as max_order FROM folders WHERE parent_folder_id IS NULL'
+      );
+      maxOrder = maxFolderOrder?.max_order ?? 0;
+    }
+
+    const nextDisplayOrder = maxOrder + 1;
+
+    // Use existing moveFolder to change parent and update levels
+    await moveFolder(folderId, newParentId);
+
+    // Set display_order
+    await db.runAsync(
+      'UPDATE folders SET display_order = ? WHERE id = ?',
+      [nextDisplayOrder, folderId]
+    );
+
+    console.log(`Folder ${folderId} extracted to parent ${newParentId} with display_order ${nextDisplayOrder}`);
+    return newParentId;
+  } catch (error) {
+    console.error('Error extracting folder to parent:', error);
+    throw error;
+  }
+}
+
+/**
+ * Move a competition up one level (to its folder's parent folder).
+ * Competitions cannot be at root, so this only works if parent folder has a parent.
+ */
+export async function extractCompetitionToParent(
+  competitionId: number,
+  currentFolderId: number
+): Promise<number> {
+  try {
+    // Get the current folder to find its parent
+    const currentFolder = await getFolderById(currentFolderId);
+    if (!currentFolder || currentFolder.parent_folder_id === null) {
+      throw new Error('Competition cannot be moved to root level. It must stay in a folder.');
+    }
+
+    const newFolderId = currentFolder.parent_folder_id;
+
+    // Calculate next display_order in the destination folder
+    const maxFolderOrder = await db.getFirstAsync<{max_order: number | null}>(
+      'SELECT MAX(display_order) as max_order FROM folders WHERE parent_folder_id = ?',
+      [newFolderId]
+    );
+    const maxCompOrder = await db.getFirstAsync<{max_order: number | null}>(
+      'SELECT MAX(display_order) as max_order FROM competitions WHERE folder_id = ?',
+      [newFolderId]
+    );
+    const maxOrder = Math.max(maxFolderOrder?.max_order ?? 0, maxCompOrder?.max_order ?? 0);
+    const nextDisplayOrder = maxOrder + 1;
+
+    await db.runAsync(
+      'UPDATE competitions SET folder_id = ?, display_order = ? WHERE id = ?',
+      [newFolderId, nextDisplayOrder, competitionId]
+    );
+
+    console.log(`Competition ${competitionId} extracted to folder ${newFolderId} with display_order ${nextDisplayOrder}`);
+    return newFolderId;
+  } catch (error) {
+    console.error('Error extracting competition to parent:', error);
+    throw error;
+  }
+}
+
+/**
  * Eliminar una carpeta (y todas sus subcarpetas por CASCADE)
  */
 export async function deleteFolder(id: number): Promise<void> {

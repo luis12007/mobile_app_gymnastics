@@ -14,12 +14,13 @@ interface UndoAction {
 
 const { width, height } = Dimensions.get('window');
 
-// On iPhone (not iPad), replace Modal with an absolute-positioned View overlay
-const ModalWrapper = ({ visible, children, transparent, animationType, onRequestClose, ...props }: any) => {
-  if (Platform.OS === 'ios' && !Platform.isPad) {
+// On iOS (iPhone and iPad), replace Modal with an absolute-positioned View overlay
+// This fixes nested modal issues on iPad where the event picker wasn't showing
+const ModalWrapper = ({ visible, children, transparent, animationType, onRequestClose, elevated, ...props }: any) => {
+  if (Platform.OS === 'ios') {
     if (!visible) return null;
     return (
-      <View style={iosOverlayStyle.container}>
+      <View style={elevated ? iosOverlayStyle.containerHigher : iosOverlayStyle.container}>
         {children}
       </View>
     );
@@ -39,6 +40,14 @@ const iosOverlayStyle = StyleSheet.create({
     right: 0,
     bottom: 0,
     zIndex: 1000,
+  },
+  containerHigher: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1100,
   },
 });
 
@@ -63,6 +72,7 @@ export default function StartJudging() {
   const [eventDropdownVisible, setEventDropdownVisible] = useState(false);
   const [eventSearchDropdownVisible, setEventSearchDropdownVisible] = useState(false);
   const [addGymnastModalVisible, setAddGymnastModalVisible] = useState(false);
+  const [addGymnastEventPickerVisible, setAddGymnastEventPickerVisible] = useState(false);
   const [newGymnastData, setNewGymnastData] = useState({
     numero: '',
     name: '',
@@ -1017,6 +1027,7 @@ export default function StartJudging() {
       </View>
 
       {/* Edit Cell Modal */}
+      {/* Edit Cell Modal */}
       <ModalWrapper
         visible={!!editingCell && editingCell.field !== 'evento' && editingCell.field !== 'gymnasta' && editingCell.field !== 'noc' && editingCell.field !== 'bib'}
         transparent={true}
@@ -1024,7 +1035,7 @@ export default function StartJudging() {
         onRequestClose={() => setEditingCell(null)}
       >
         <TouchableOpacity 
-          style={styles.modalOverlay}
+          style={styles.modalOverlayTop}
           activeOpacity={1}
           onPress={() => setEditingCell(null)}
         >
@@ -1171,7 +1182,7 @@ export default function StartJudging() {
         onRequestClose={() => setAddGymnastModalVisible(false)}
       >
         <TouchableOpacity 
-          style={styles.modalOverlay}
+          style={styles.modalOverlayTop}
           activeOpacity={1}
           onPress={() => setAddGymnastModalVisible(false)}
         >
@@ -1200,16 +1211,7 @@ export default function StartJudging() {
 
             <TouchableOpacity
               style={styles.editInput}
-              onPress={() => {
-                // Show event picker inline
-                Alert.alert('Select Event', 'Choose from dropdown', [
-                  ...getAvailableEvents().map(event => ({
-                    text: event,
-                    onPress: () => setNewGymnastData({...newGymnastData, event})
-                  })),
-                  { text: 'Cancel', style: 'cancel' }
-                ]);
-              }}
+              onPress={() => setAddGymnastEventPickerVisible(true)}
             >
               <Text style={newGymnastData.event ? styles.inputText : styles.inputPlaceholder}>
                 {newGymnastData.event || 'Event'}
@@ -1250,6 +1252,49 @@ export default function StartJudging() {
                 <Text style={styles.saveButtonText}>Add</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </TouchableOpacity>
+      </ModalWrapper>
+      {/* Add Gymnast Event Picker Modal */}
+      <ModalWrapper
+        visible={addGymnastEventPickerVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setAddGymnastEventPickerVisible(false)}
+        elevated={true}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setAddGymnastEventPickerVisible(false)}
+        >
+          <View 
+            style={styles.eventDropdownModal}
+            onStartShouldSetResponder={() => true}
+          >
+            <Text style={styles.modalTitle}>Select Event</Text>
+            
+            <ScrollView style={styles.eventOptionsScroll} showsVerticalScrollIndicator={true}>
+              {getAvailableEvents().map((event) => (
+                <TouchableOpacity
+                  key={event}
+                  style={styles.eventOption}
+                  onPress={() => {
+                    setNewGymnastData({...newGymnastData, event});
+                    setAddGymnastEventPickerVisible(false);
+                  }}
+                >
+                  <Text style={styles.eventOptionText}>{event}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            
+            <TouchableOpacity 
+              style={styles.eventCancelButton}
+              onPress={() => setAddGymnastEventPickerVisible(false)}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
           </View>
         </TouchableOpacity>
       </ModalWrapper>
@@ -1509,6 +1554,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  modalOverlayTop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: Platform.OS === 'ios' ? 'flex-start' : 'center',
+    alignItems: 'center',
+    paddingTop: Platform.OS === 'ios' ? 40 : 0,
   },
   editModal: {
     backgroundColor: '#fff',

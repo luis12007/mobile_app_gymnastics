@@ -333,6 +333,17 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       isAppActiveRef.current = active;
       setIsAppActive(active);
 
+      if (active) {
+        // Returning to active: force Canvas repaint to recover from potential GL surface loss
+        if (repaintTimerRef.current) clearTimeout(repaintTimerRef.current);
+        repaintTimerRef.current = setTimeout(() => {
+          if (isMountedRef.current) {
+            setCanvasRepaintNonce(n => n + 1);
+          }
+          repaintTimerRef.current = null;
+        }, 300);
+      }
+
       if (!active) {
         // Best-effort: stop any in-progress drawing gesture.
         try {
@@ -465,6 +476,21 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
   const [currentStrokeWidth, setCurrentStrokeWidth] = useState<number>(DEFAULT_PEN.strokeWidth);
   const [previousStrokeWidth, setPreviousStrokeWidth] = useState<number>(DEFAULT_PEN.strokeWidth);
   const [redoStack, setRedoStack] = useState<PathData[]>([]);
+
+  // Safety repaint nonce: bumped after path mutations to force Canvas re-render
+  // even when the GPU/GL surface was silently invalidated during heavy JS work.
+  const [canvasRepaintNonce, setCanvasRepaintNonce] = useState(0);
+  const repaintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleCanvasRepaint = useCallback(() => {
+    if (repaintTimerRef.current) clearTimeout(repaintTimerRef.current);
+    repaintTimerRef.current = setTimeout(() => {
+      if (isMountedRef.current) {
+        setCanvasRepaintNonce(n => n + 1);
+      }
+      repaintTimerRef.current = null;
+    }, 600);
+  }, []);
 
   const [internalStickBonus, setInternalStickBonus] = useState(false);
   const effectiveStickBonus = stickBonus ?? internalStickBonus;
@@ -709,11 +735,14 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
       setPathsData(alignedData.slice(-MAX_PATHS_MEMORY));
       setPaths(alignedPaths.slice(-MAX_PATHS_MEMORY));
+
+      // Safety repaint after loading paths from DB
+      scheduleCanvasRepaint();
     } catch {
       setPaths([]);
       setPathsData([]);
     }
-  }, [gymnastId]);
+  }, [gymnastId, scheduleCanvasRepaint]);
 
   const loadPhotosFromDatabase = useCallback(async () => {
     try {
@@ -764,6 +793,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       if (photoSaveTimeoutRef.current) clearTimeout(photoSaveTimeoutRef.current);
       if (photosRefreshTimeoutRef.current) clearTimeout(photosRefreshTimeoutRef.current);
       if (penPrefsSaveTimeoutRef.current) clearTimeout(penPrefsSaveTimeoutRef.current);
+      if (repaintTimerRef.current) clearTimeout(repaintTimerRef.current);
       
       // Clear pending operations
       pendingTraceInsertsRef.current = [];
@@ -987,10 +1017,12 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
           return prev;
         }
       });
+      // Safety repaint to catch stale GL surface
+      scheduleCanvasRepaint();
     } catch (e) {
       if (__DEV__) console.warn('[updatePaths] Error:', e);
     }
-  }, [currentColor, currentStrokeWidth, isEraser, scheduleInsertTrace, selectedPen]);
+  }, [currentColor, currentStrokeWidth, isEraser, scheduleInsertTrace, selectedPen, scheduleCanvasRepaint]);
 
   const toggleMenu = useCallback(() => setMenuOpen(v => !v), []);
 
@@ -1117,10 +1149,13 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       }
 
       await deleteLastTraceRow();
+
+      // Safety repaint
+      scheduleCanvasRepaint();
     } catch (e) {
       if (__DEV__) console.warn('[handleUndo] Error:', e);
     }
-  }, [deleteLastTraceRow]);
+  }, [deleteLastTraceRow, scheduleCanvasRepaint]);
 
   const handleRedo = useCallback(async () => {
     try {
@@ -1165,10 +1200,13 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       } catch {
         // ignore
       }
+
+      // Safety repaint
+      scheduleCanvasRepaint();
     } catch (e) {
       if (__DEV__) console.warn('[handleRedo] Error:', e);
     }
-  }, [scheduleInsertTrace]);
+  }, [scheduleInsertTrace, scheduleCanvasRepaint]);
 
   const handleStrokeBarChange = useCallback((event: any) => {
     const { locationX } = event.nativeEvent;
@@ -2150,6 +2188,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       showJumpBackground: boolean;
       jumpBg: any;
       photosRenderNonce: number;
+      canvasRepaintNonce: number;
     }) => {
       const visiblePhotos = (photoItems || []).slice(0, MAX_PHOTOS_RENDERED);
 
@@ -2206,13 +2245,9 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
             </Group>
           ) : null}
 
-          {/* Draw everything user-generated on an offscreen layer.
-              This allows the eraser to use blendMode="clear" without affecting the jump background. */}
+          {/* Draw paths and eraser on an offscreen layer.
+              This allows the eraser to use blendMode="clear" without affecting the jump background or images. */}
           <Group layer>
-            {visiblePhotos.map(item => (
-              <SkiaPhoto key={item.id} item={item} registerMeta={registerImageMeta} renderNonce={photosRenderNonce} onImageLoaded={onImageLoaded} />
-            ))}
-
             {normalPaths.map(({ pd, idx, path }) => (
               <Path
                 key={`n-${idx}`}
@@ -2272,6 +2307,11 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
               </Group>
             ) : null}
           </Group>
+
+          {/* Images rendered on top of paths/eraser so they are always visible above drawings */}
+          {visiblePhotos.map(item => (
+            <SkiaPhoto key={item.id} item={item} registerMeta={registerImageMeta} renderNonce={photosRenderNonce} onImageLoaded={onImageLoaded} />
+          ))}
         </Canvas>
       );
     });
@@ -2308,6 +2348,7 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
                 showJumpBackground={showJumpBackground}
                 jumpBg={jumpBg}
                 photosRenderNonce={photosRenderNonce}
+                canvasRepaintNonce={canvasRepaintNonce}
               />
             </SkiaErrorBoundary>
           </View>

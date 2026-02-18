@@ -1261,13 +1261,14 @@ async function buildWhiteboardSvgForPdf(opts: {
   const imagesLayer = opts.omitImages ? '' : renderGymnastImagesAsSvg(loadedImages);
   const pathsLayer = renderPathsAsSvg(paths);
 
+  // Render paths first (bottom), then images on top so eraser strokes don't cut off images
   const svg = `
     <svg class="whiteboard-canvas" viewBox="0 0 ${PDF_WHITEBOARD_W} ${PDF_WHITEBOARD_H}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="xMidYMid meet">
       <rect width="${PDF_WHITEBOARD_W}" height="${PDF_WHITEBOARD_H}" fill="#f9f9f9" />
       <g transform="translate(${tx} ${ty}) scale(${scale})">
+        ${pathsLayer}
         ${jumpLayer}
         ${imagesLayer}
-        ${pathsLayer}
       </g>
     </svg>
   `;
