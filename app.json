@@ -40,8 +40,7 @@
           "backgroundColor": "#ffffff"
         }
       ],
-      "expo-sqlite",
-      "react-native-purchases"
+      "expo-sqlite"
     ],
     "assetBundlePatterns": [
       "assets/**/*"
