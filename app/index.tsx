@@ -9,55 +9,17 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
-
-type PlanId = 'monthly' | 'annual' | 'one_time';
 
 export default function Index() {
   const router = useRouter();
-  const { height, width } = useWindowDimensions();
+  const { height } = useWindowDimensions();
 
   const isSmall = height < 720;
   const titleSize = isSmall ? 34 : 40;
   const subtitleSize = isSmall ? 14 : 16;
   const sectionSize = isSmall ? 18 : 20;
 
-  const planCardWidth = Math.min(320, Math.max(260, Math.floor(width * 0.78)));
-
-  const [selectedPlan, setSelectedPlan] = useState<PlanId | null>(null);
-
-  const plans = useMemo(
-    () => [
-      {
-        id: 'monthly' as const,
-        title: 'Monthly',
-        price: '$4.99',
-        detail: 'Billed every month',
-        benefits: ['Full access to scoring', 'PDF export', 'Whiteboard'],
-      },
-      {
-        id: 'annual' as const,
-        title: 'Annual',
-        price: '$29.99',
-        detail: 'Best value (12 months)',
-        benefits: ['Full access to scoring', 'PDF export', 'Whiteboard', 'Save vs monthly'],
-      },
-      {
-        id: 'one_time' as const,
-        title: 'One-time payment',
-        price: '$49.99',
-        detail: 'Single payment, no renewals',
-        benefits: ['Full access to scoring', 'PDF export', 'Whiteboard'],
-      },
-    ],
-    []
-  );
-
   const handleSubscribe = () => {
-    // No subscription logic yet — just continue.
-    // If nothing selected, keep it simple: default to annual.
-    const planToUse: PlanId = selectedPlan ?? 'annual';
-    setSelectedPlan(planToUse);
     router.replace('/discipline-select');
   };
 
@@ -116,54 +78,27 @@ export default function Index() {
         </View>
 
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { fontSize: sectionSize }]}>Choose a plan</Text>
+          <Text style={[styles.sectionTitle, { fontSize: sectionSize }]}>Subscription</Text>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.planCarousel}
-            snapToInterval={planCardWidth + 14}
-            decelerationRate="fast"
-          >
-            {plans.map((p) => {
-              const isSelected = selectedPlan === p.id;
-              return (
-                <TouchableOpacity
-                  key={p.id}
-                  activeOpacity={0.9}
-                  onPress={() => setSelectedPlan(p.id)}
-                  style={[
-                    styles.planCard,
-                    { width: planCardWidth },
-                    isSelected && styles.planCardSelected,
-                  ]}
-                >
-                  <Text style={styles.planName}>{p.title}</Text>
-                  <View style={styles.planPriceRow}>
-                    <Text style={styles.planPrice}>{p.price}</Text>
-                    <Text style={styles.planPeriod}>{p.id === 'monthly' ? '/mo' : p.id === 'annual' ? '/yr' : ''}</Text>
-                  </View>
-                  <Text style={styles.planDetail}>{p.detail}</Text>
+          <View style={styles.planCard}>
+            <Text style={styles.planName}>Month to Month</Text>
+            <View style={styles.planPriceRow}>
+              <Text style={styles.planPrice}>$40</Text>
+              <Text style={styles.planPeriod}>/mo</Text>
+            </View>
+            <Text style={styles.planDetail}>Full access to the application</Text>
 
-                  <View style={styles.planBenefits}>
-                    {p.benefits.slice(0, 3).map((b) => (
-                      <Text key={b} style={styles.planBenefit}>
-                        ✓ {b}
-                      </Text>
-                    ))}
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+            <View style={styles.planBenefits}>
+              <Text style={styles.planBenefit}>✓ Complete scoring for Floor and Vault</Text>
+              <Text style={styles.planBenefit}>✓ PDF export</Text>
+              <Text style={styles.planBenefit}>✓ Interactive whiteboard</Text>
+              <Text style={styles.planBenefit}>✓ Unlimited folders and organization</Text>
+            </View>
+          </View>
 
           <TouchableOpacity style={styles.subscribeButton} onPress={handleSubscribe} activeOpacity={0.9}>
             <Text style={styles.subscribeButtonText}>Subscribe Now</Text>
           </TouchableOpacity>
-
-          <Text style={styles.smallNote}>
-            {selectedPlan ? 'Plan selected. Tap Subscribe Now to continue.' : 'Select a plan to continue.'}
-          </Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -253,37 +188,21 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
   },
-  smallNote: {
-    marginTop: 10,
-    textAlign: 'center',
-    fontSize: 12,
-    color: '#777',
-  },
 
-  planCarousel: {
-    paddingRight: 20,
-    paddingLeft: 20,
-    paddingBottom: 6,
-  },
   planCard: {
     backgroundColor: '#ffffff',
     borderRadius: 18,
-    padding: 16,
-    marginRight: 14,
+    padding: 20,
     borderWidth: 2,
-    borderColor: '#e0e0e0',
+    borderColor: '#004aad',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
     shadowRadius: 8,
     elevation: 4,
   },
-  planCardSelected: {
-    borderColor: '#004aad',
-    borderWidth: 3,
-  },
   planName: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#333',
   },
@@ -293,28 +212,28 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   planPrice: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: 'bold',
     color: '#004aad',
   },
   planPeriod: {
-    fontSize: 14,
+    fontSize: 16,
     color: '#666',
     marginLeft: 6,
     marginBottom: 4,
   },
   planDetail: {
-    fontSize: 12,
+    fontSize: 14,
     color: '#666',
     marginTop: 4,
   },
   planBenefits: {
-    marginTop: 12,
+    marginTop: 16,
   },
   planBenefit: {
-    fontSize: 12,
+    fontSize: 14,
     color: '#333',
-    marginBottom: 6,
+    marginBottom: 8,
   },
 
 });

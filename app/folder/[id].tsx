@@ -1,7 +1,7 @@
 import { View, Text, StyleSheet, TouchableOpacity, Modal, SafeAreaView, StatusBar, Platform, ScrollView, Dimensions, FlatList, TextInput, Image, Alert } from 'react-native';
 import { useEffect, useState, useRef } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { getDiscipline, getSubfolders, getFolderById, getFolderPath, Folder, createFolder, createCompetition, getCompetitionsByFolder, Competition, deleteFolder, deleteCompetition, updateFolder, updateCompetition, swapItemPositions, normalizeDisplayOrderInFolder, moveFolderIntoFolder, moveCompetitionToFolder, extractFolderToParent, extractCompetitionToParent } from '../../lib/database';
+import { getDiscipline, getSubfolders, getFolderById, getFolderPath, Folder, createFolder, createCompetition, getCompetitionsByFolder, Competition, deleteFolder, deleteCompetition, updateFolder, updateCompetition, swapItemPositions, normalizeDisplayOrderInFolder, moveFolderIntoFolder, moveCompetitionToFolder, extractFolderToParent, extractCompetitionToParent, getRootFolders } from '../../lib/database';
 import FolderExportModal from '../../componentes/FolderExportModal';
 import FolderImportModal from '../../componentes/FolderImportModal';
 import CustomNumberPadOptimized from '../../componentes/CustomNumberPadOptimized';
@@ -80,7 +80,21 @@ export default function FolderView() {
   const [listKey, setListKey] = useState(0);
   const longPressTriggeredRef = useRef(false);
 
-  // Action choice modal (Exchange vs Insert) states
+  // Long press action menu modal (appears immediately after long press)
+  const [longPressMenuVisible, setLongPressMenuVisible] = useState(false);
+  const [longPressedItem, setLongPressedItem] = useState<{ type: 'folder' | 'competition', item: Folder | Competition } | null>(null);
+
+  // Folder navigation modal for "Move to another folder"
+  const [folderNavVisible, setFolderNavVisible] = useState(false);
+  const [navFolders, setNavFolders] = useState<Folder[]>([]);
+  const [navPath, setNavPath] = useState<Folder[]>([]); // breadcrumb for navigation
+  const [currentNavFolderId, setCurrentNavFolderId] = useState<number | null>(null);
+
+  // Bulk selection mode
+  const [bulkSelectMode, setBulkSelectMode] = useState(false);
+  const [bulkSelectedItems, setBulkSelectedItems] = useState<Set<string>>(new Set());
+
+  // Action choice modal (Exchange vs Insert) states - kept for exchange mode target selection
   const [actionChoiceVisible, setActionChoiceVisible] = useState(false);
   const [pendingTarget, setPendingTarget] = useState<{ type: 'folder' | 'competition', item: Folder | Competition } | null>(null);
 
@@ -333,17 +347,227 @@ export default function FolderView() {
     }
   };
 
-  // Reorder functions
+  // Long press shows action menu immediately
   const handleLongPress = (type: 'folder' | 'competition', item: Folder | Competition) => {
     if (deleteMode || editMode) return;
     
     longPressTriggeredRef.current = true;
+    setLongPressedItem({ type, item });
+    setLongPressMenuVisible(true);
+  };
+
+  // Action menu handlers
+  const handleMoveToFolder = async () => {
+    setLongPressMenuVisible(false);
+    // Load root folders for navigation
+    const rootFolders = await getRootFolders();
+    // Filter out the item being moved (if it's a folder)
+    const excludeIds = longPressedItem?.type === 'folder' ? [longPressedItem.item.id] : [];
+    const filteredFolders = rootFolders.filter(f => !excludeIds.includes(f.id));
+    setNavFolders(filteredFolders);
+    setNavPath([]);
+    setCurrentNavFolderId(null);
+    setFolderNavVisible(true);
+  };
+
+  const handleMoveBulk = () => {
+    setLongPressMenuVisible(false);
+    setBulkSelectMode(true);
+    // Pre-select the long pressed item
+    if (longPressedItem) {
+      setBulkSelectedItems(new Set([`${longPressedItem.type}-${longPressedItem.item.id}`]));
+    }
+  };
+
+  const handleExchangeMode = () => {
+    setLongPressMenuVisible(false);
     setReorderMode(true);
-    setSelectedItemForReorder({ type, item });
+    setSelectedItemForReorder(longPressedItem);
+  };
+
+  const handleExtractItem = async () => {
+    setLongPressMenuVisible(false);
+    if (!longPressedItem || !currentFolder) return;
+
+    const itemName = getItemName(longPressedItem.type, longPressedItem.item);
+    const isMovingToRoot = currentFolder.parent_folder_id === null;
+
+    try {
+      if (longPressedItem.type === 'folder') {
+        await extractFolderToParent(longPressedItem.item.id, currentFolder.id);
+        const destination = isMovingToRoot ? 'root' : 'parent folder';
+        showToast(`"${itemName}" extracted to ${destination}`);
+      } else {
+        // Competition cannot be at root
+        if (isMovingToRoot) {
+          showToast('Competitions cannot be moved to root level', true);
+          return;
+        }
+        await extractCompetitionToParent(longPressedItem.item.id, currentFolder.id);
+        showToast(`"${itemName}" extracted to parent folder`);
+      }
+      setLongPressedItem(null);
+      longPressTriggeredRef.current = false;
+      await loadFolderData();
+      setListKey(prev => prev + 1);
+    } catch (error) {
+      console.error('Error extracting item:', error);
+      showToast('Error: Could not extract item. ' + (error instanceof Error ? error.message : ''), true);
+    }
+  };
+
+  const handleCancelLongPressMenu = () => {
+    setLongPressMenuVisible(false);
+    setLongPressedItem(null);
+    longPressTriggeredRef.current = false;
+  };
+
+  // Check if extract is available for long press menu
+  const canExtractLongPressed = () => {
+    if (!longPressedItem || !currentFolder) return false;
+    // Folders can always be extracted (to parent or root)
+    if (longPressedItem.type === 'folder') return true;
+    // Competitions can only be extracted if current folder has a parent
+    return currentFolder.parent_folder_id !== null;
+  };
+
+  // Folder navigation handlers
+  const navigateToSubfolder = async (folder: Folder) => {
+    const subfolders = await getSubfolders(folder.id);
+    // Filter out items being moved
+    const excludeIds = bulkSelectMode 
+      ? Array.from(bulkSelectedItems).filter(k => k.startsWith('folder-')).map(k => parseInt(k.split('-')[1]))
+      : (longPressedItem?.type === 'folder' ? [longPressedItem.item.id] : []);
+    const filteredSubfolders = subfolders.filter(f => !excludeIds.includes(f.id));
+    setNavFolders(filteredSubfolders);
+    setNavPath([...navPath, folder]);
+    setCurrentNavFolderId(folder.id);
+  };
+
+  const navigateBack = async () => {
+    if (navPath.length === 0) return;
+    
+    const newPath = [...navPath];
+    newPath.pop();
+    setNavPath(newPath);
+    
+    if (newPath.length === 0) {
+      // Back to root
+      const rootFolders = await getRootFolders();
+      const excludeIds = bulkSelectMode 
+        ? Array.from(bulkSelectedItems).filter(k => k.startsWith('folder-')).map(k => parseInt(k.split('-')[1]))
+        : (longPressedItem?.type === 'folder' ? [longPressedItem.item.id] : []);
+      const filteredFolders = rootFolders.filter(f => !excludeIds.includes(f.id));
+      setNavFolders(filteredFolders);
+      setCurrentNavFolderId(null);
+    } else {
+      // Go to parent folder
+      const parentFolder = newPath[newPath.length - 1];
+      const subfolders = await getSubfolders(parentFolder.id);
+      const excludeIds = bulkSelectMode 
+        ? Array.from(bulkSelectedItems).filter(k => k.startsWith('folder-')).map(k => parseInt(k.split('-')[1]))
+        : (longPressedItem?.type === 'folder' ? [longPressedItem.item.id] : []);
+      const filteredSubfolders = subfolders.filter(f => !excludeIds.includes(f.id));
+      setNavFolders(filteredSubfolders);
+      setCurrentNavFolderId(parentFolder.id);
+    }
+  };
+
+  const selectDestinationFolder = async () => {
+    try {
+      if (bulkSelectMode) {
+        // Move all bulk selected items
+        for (const itemKey of bulkSelectedItems) {
+          const [type, idStr] = itemKey.split('-');
+          const itemId = parseInt(idStr);
+          if (currentNavFolderId) {
+            if (type === 'folder') {
+              await moveFolderIntoFolder(itemId, currentNavFolderId);
+            } else {
+              await moveCompetitionToFolder(itemId, currentNavFolderId);
+            }
+          }
+        }
+        showToast(`Moved ${bulkSelectedItems.size} item(s) successfully`);
+        setBulkSelectMode(false);
+        setBulkSelectedItems(new Set());
+      } else if (longPressedItem && currentNavFolderId) {
+        const itemName = getItemName(longPressedItem.type, longPressedItem.item);
+        if (longPressedItem.type === 'folder') {
+          await moveFolderIntoFolder(longPressedItem.item.id, currentNavFolderId);
+        } else {
+          await moveCompetitionToFolder(longPressedItem.item.id, currentNavFolderId);
+        }
+        showToast(`"${itemName}" moved successfully`);
+      }
+      
+      setFolderNavVisible(false);
+      setLongPressedItem(null);
+      setNavPath([]);
+      setCurrentNavFolderId(null);
+      longPressTriggeredRef.current = false;
+      await loadFolderData();
+      setListKey(prev => prev + 1);
+    } catch (error) {
+      console.error('Error moving item:', error);
+      showToast('Error: Could not move item. ' + (error instanceof Error ? error.message : ''), true);
+    }
+  };
+
+  const cancelFolderNav = () => {
+    setFolderNavVisible(false);
+    setLongPressedItem(null);
+    setNavPath([]);
+    setCurrentNavFolderId(null);
+    longPressTriggeredRef.current = false;
+    if (bulkSelectMode) {
+      setBulkSelectMode(false);
+      setBulkSelectedItems(new Set());
+    }
+  };
+
+  // Bulk selection handlers
+  const toggleBulkSelection = (type: 'folder' | 'competition', itemId: number) => {
+    const key = `${type}-${itemId}`;
+    const newSelected = new Set(bulkSelectedItems);
+    if (newSelected.has(key)) {
+      newSelected.delete(key);
+    } else {
+      newSelected.add(key);
+    }
+    setBulkSelectedItems(newSelected);
+  };
+
+  const handleBulkMoveConfirm = async () => {
+    if (bulkSelectedItems.size === 0) {
+      Alert.alert('No selection', 'Please select at least one item to move');
+      return;
+    }
+    // Open folder navigation
+    const rootFolders = await getRootFolders();
+    const excludeIds = Array.from(bulkSelectedItems).filter(k => k.startsWith('folder-')).map(k => parseInt(k.split('-')[1]));
+    const filteredFolders = rootFolders.filter(f => !excludeIds.includes(f.id));
+    setNavFolders(filteredFolders);
+    setNavPath([]);
+    setCurrentNavFolderId(null);
+    setFolderNavVisible(true);
+  };
+
+  const handleCancelBulkSelect = () => {
+    setBulkSelectMode(false);
+    setBulkSelectedItems(new Set());
+    setListKey(prev => prev + 1); // Force re-render
+    longPressTriggeredRef.current = false;
   };
 
   const handleCardPress = (type: 'folder' | 'competition', item: Folder | Competition) => {
-    // In reorder mode, always handle the reorder select
+    // In bulk select mode, toggle selection
+    if (bulkSelectMode) {
+      toggleBulkSelection(type, item.id);
+      return;
+    }
+
+    // In reorder/exchange mode, handle exchange
     if (reorderMode) {
       longPressTriggeredRef.current = false;
       handleReorderSelect(type, item);
@@ -371,9 +595,25 @@ export default function FolderView() {
       return;
     }
 
-    // Always show action choice modal with options: Extract, Exchange, Move To (if target is folder)
-    setPendingTarget({ type, item: targetItem });
-    setActionChoiceVisible(true);
+    // Directly perform exchange (swap positions)
+    try {
+      await swapItemPositions(
+        selectedItemForReorder.type,
+        selectedItemForReorder.item.id,
+        type,
+        targetItem.id
+      );
+      const sourceName = getItemName(selectedItemForReorder.type, selectedItemForReorder.item);
+      const targetName = getItemName(type, targetItem);
+      showToast(`Exchanged "${sourceName}" with "${targetName}"`);
+      setReorderMode(false);
+      setSelectedItemForReorder(null);
+      await loadFolderData();
+      setListKey(prev => prev + 1);
+    } catch (error) {
+      console.error('Error swapping positions:', error);
+      showToast('Error: Could not swap positions', true);
+    }
   };
 
   const showToast = (message: string, isError: boolean = false) => {
@@ -388,113 +628,11 @@ export default function FolderView() {
     return type === 'folder' ? (item as Folder).titulo : (item as Competition).name;
   };
 
-  const handleActionExchange = async () => {
-    setActionChoiceVisible(false);
-    if (!selectedItemForReorder || !pendingTarget) return;
-
-    try {
-      await swapItemPositions(
-        selectedItemForReorder.type,
-        selectedItemForReorder.item.id,
-        pendingTarget.type,
-        pendingTarget.item.id
-      );
-      setReorderMode(false);
-      setSelectedItemForReorder(null);
-      setPendingTarget(null);
-      await loadFolderData();
-      setListKey(prev => prev + 1);
-    } catch (error) {
-      console.error('Error swapping positions:', error);
-      Alert.alert('Error', 'Could not swap positions. Please try again.');
-    }
-  };
-
-  const handleActionInsert = async () => {
-    setActionChoiceVisible(false);
-    if (!selectedItemForReorder || !pendingTarget) return;
-
-    const sourceName = getItemName(selectedItemForReorder.type, selectedItemForReorder.item);
-    const targetName = (pendingTarget.item as Folder).titulo;
-    const targetFolderId = pendingTarget.item.id;
-
-    try {
-      if (selectedItemForReorder.type === 'folder') {
-        await moveFolderIntoFolder(selectedItemForReorder.item.id, targetFolderId);
-      } else {
-        await moveCompetitionToFolder(selectedItemForReorder.item.id, targetFolderId);
-      }
-      setReorderMode(false);
-      setSelectedItemForReorder(null);
-      setPendingTarget(null);
-      await loadFolderData();
-      setListKey(prev => prev + 1);
-      showToast(`"${sourceName}" moved into "${targetName}"`);
-    } catch (error) {
-      console.error('Error inserting item:', error);
-      showToast('Error: Could not move item. ' + (error instanceof Error ? error.message : ''), true);
-      setReorderMode(false);
-      setSelectedItemForReorder(null);
-      setPendingTarget(null);
-    }
-  };
-
-  const handleActionExtract = async () => {
-    setActionChoiceVisible(false);
-    if (!selectedItemForReorder || !currentFolder) return;
-
-    const sourceName = getItemName(selectedItemForReorder.type, selectedItemForReorder.item);
-    const isMovingToRoot = currentFolder.parent_folder_id === null;
-
-    try {
-      if (selectedItemForReorder.type === 'folder') {
-        await extractFolderToParent(selectedItemForReorder.item.id, currentFolder.id);
-        const destination = isMovingToRoot ? 'root' : 'parent folder';
-        showToast(`"${sourceName}" extracted to ${destination}`);
-      } else {
-        // Competition cannot be at root
-        if (isMovingToRoot) {
-          showToast('Competitions cannot be moved to root level', true);
-          setReorderMode(false);
-          setSelectedItemForReorder(null);
-          setPendingTarget(null);
-          return;
-        }
-        await extractCompetitionToParent(selectedItemForReorder.item.id, currentFolder.id);
-        showToast(`"${sourceName}" extracted to parent folder`);
-      }
-      setReorderMode(false);
-      setSelectedItemForReorder(null);
-      setPendingTarget(null);
-      await loadFolderData();
-      setListKey(prev => prev + 1);
-    } catch (error) {
-      console.error('Error extracting item:', error);
-      showToast('Error: Could not extract item. ' + (error instanceof Error ? error.message : ''), true);
-      setReorderMode(false);
-      setSelectedItemForReorder(null);
-      setPendingTarget(null);
-    }
-  };
-
-  // Check if extract is available (competitions can't go to root)
-  const canExtract = () => {
-    if (!selectedItemForReorder || !currentFolder) return false;
-    // Folders can always be extracted (to parent or root)
-    if (selectedItemForReorder.type === 'folder') return true;
-    // Competitions can only be extracted if current folder has a parent
-    return currentFolder.parent_folder_id !== null;
-  };
-
-  const handleActionCancel = () => {
-    setActionChoiceVisible(false);
-    setPendingTarget(null);
-  };
-
   const handleCancelReorder = () => {
     setReorderMode(false);
     setSelectedItemForReorder(null);
     setListKey(prev => prev + 1); // Force complete FlatList re-render
+    longPressTriggeredRef.current = false;
   };
 
   const handleBreadcrumbClick = (folder: Folder) => {
@@ -510,6 +648,9 @@ export default function FolderView() {
     // Reorder mode highlighting - now any item can be a target
     const isReorderSelected = reorderMode && selectedItemForReorder?.type === item.type && selectedItemForReorder?.item.id === data.id;
     const isReorderTarget = reorderMode && !(selectedItemForReorder?.type === item.type && selectedItemForReorder?.item.id === data.id);
+
+    // Bulk select mode highlighting
+    const isBulkSelected = bulkSelectMode && bulkSelectedItems.has(itemKey);
     
     if (isFolder) {
       const folder = data as Folder;
@@ -521,7 +662,9 @@ export default function FolderView() {
             styles.folderCard,
             isSelected && styles.selectedCard,
             isReorderSelected && styles.reorderSelectedCard,
-            isReorderTarget && styles.reorderTargetCard
+            isReorderTarget && styles.reorderTargetCard,
+            isBulkSelected && styles.bulkSelectedCard,
+            bulkSelectMode && !isBulkSelected && styles.bulkSelectableCard
           ]} 
           onPress={() => handleCardPress('folder', folder)}
           onLongPress={() => handleLongPress('folder', folder)}
@@ -532,9 +675,19 @@ export default function FolderView() {
               <Text style={styles.checkboxText}>{isSelected ? '✓' : ''}</Text>
             </View>
           )}
+          {bulkSelectMode && (
+            <View style={[styles.checkbox, isBulkSelected ? styles.checkboxSelected : styles.checkboxUnselected]}>
+              <Text style={styles.checkboxText}>{isBulkSelected ? '✓' : ''}</Text>
+            </View>
+          )}
           {isReorderSelected && (
             <View style={styles.reorderBadge}>
-              <Text style={styles.reorderBadgeText}>Moving</Text>
+              <Text style={styles.reorderBadgeText}>Selected</Text>
+            </View>
+          )}
+          {isReorderTarget && (
+            <View style={styles.reorderTargetBadge}>
+              <Text style={styles.reorderTargetBadgeText}>Tap to exchange</Text>
             </View>
           )}
           <View style={styles.folderImage}>
@@ -561,7 +714,9 @@ export default function FolderView() {
             styles.folderCard,
             isSelected && styles.selectedCard,
             isReorderSelected && styles.reorderSelectedCard,
-            isReorderTarget && styles.reorderTargetCard
+            isReorderTarget && styles.reorderTargetCard,
+            isBulkSelected && styles.bulkSelectedCard,
+            bulkSelectMode && !isBulkSelected && styles.bulkSelectableCard
           ]} 
           onPress={() => handleCardPress('competition', competition)}
           onLongPress={() => handleLongPress('competition', competition)}
@@ -572,9 +727,19 @@ export default function FolderView() {
               <Text style={styles.checkboxText}>{isSelected ? '✓' : ''}</Text>
             </View>
           )}
+          {bulkSelectMode && (
+            <View style={[styles.checkbox, isBulkSelected ? styles.checkboxSelected : styles.checkboxUnselected]}>
+              <Text style={styles.checkboxText}>{isBulkSelected ? '✓' : ''}</Text>
+            </View>
+          )}
           {isReorderSelected && (
             <View style={styles.reorderBadge}>
-              <Text style={styles.reorderBadgeText}>Moving</Text>
+              <Text style={styles.reorderBadgeText}>Selected</Text>
+            </View>
+          )}
+          {isReorderTarget && (
+            <View style={styles.reorderTargetBadge}>
+              <Text style={styles.reorderTargetBadgeText}>Tap to exchange</Text>
             </View>
           )}
           <View style={[styles.folderImage, styles.competitionImage]}>
@@ -646,7 +811,7 @@ export default function FolderView() {
       {reorderMode && (
         <View style={styles.reorderModeBar}>
           <Text style={styles.reorderModeText}>
-            Tap another item to swap positions
+            Tap another item to exchange positions
           </Text>
           <TouchableOpacity 
             style={styles.reorderCancelButton}
@@ -654,6 +819,15 @@ export default function FolderView() {
           >
             <Text style={styles.reorderCancelButtonText}>Cancel</Text>
           </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Bulk Select Mode Bar */}
+      {bulkSelectMode && (
+        <View style={styles.bulkSelectModeBar}>
+          <Text style={styles.bulkSelectModeText}>
+            Select items to move ({bulkSelectedItems.size} selected)
+          </Text>
         </View>
       )}
 
@@ -668,7 +842,7 @@ export default function FolderView() {
             keyExtractor={(item, index) => `${item.type}-${item.data.id}-${(item.data as any).display_order || item.data.id}-${index}`}
             numColumns={3}
             key={`grid-${listKey}`}
-            extraData={[combinedItems, listKey]}
+            extraData={[combinedItems, listKey, bulkSelectMode, bulkSelectedItems, reorderMode, selectedItemForReorder, deleteMode, selectedItems]}
             contentContainerStyle={styles.gridContainer}
             columnWrapperStyle={(Platform.OS === 'ios' && !Platform.isPad) ? { width: '100%' } : undefined}
             showsVerticalScrollIndicator={false}
@@ -693,6 +867,21 @@ export default function FolderView() {
               <Text style={styles.deleteButtonText}>Delete ({selectedItems.size})</Text>
             </TouchableOpacity>
           </View>
+        ) : bulkSelectMode ? (
+          <View style={styles.deleteButtonsContainer}>
+            <TouchableOpacity 
+              style={styles.deleteCancelButton}
+              onPress={handleCancelBulkSelect}
+            >
+              <Text style={styles.deleteCancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.moveButton}
+              onPress={handleBulkMoveConfirm}
+            >
+              <Text style={styles.moveButtonText}>Move ({bulkSelectedItems.size})</Text>
+            </TouchableOpacity>
+          </View>
         ) : (
           <TouchableOpacity 
             style={styles.createCompetitionButton}
@@ -715,11 +904,15 @@ export default function FolderView() {
           activeOpacity={1}
           onPress={() => setCreateFolderModalVisible(false)}
         >
-          <View 
-            style={styles.createModalContent}
-            onStartShouldSetResponder={() => true}
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.modalTitle}>{editingFolder ? 'Edit Folder' : 'Create New Folder'}</Text>
+            <View 
+              style={styles.createModalContent}
+              onStartShouldSetResponder={() => true}
+            >
+              <Text style={styles.modalTitle}>{editingFolder ? 'Edit Folder' : 'Create New Folder'}</Text>
             
             <TextInput
               style={styles.input}
@@ -760,7 +953,8 @@ export default function FolderView() {
                 <Text style={styles.createActionText}>{editingFolder ? 'Update' : 'Create'}</Text>
               </TouchableOpacity>
             </View>
-          </View>
+            </View>
+          </ScrollView>
         </TouchableOpacity>
       </ModalWrapper>
 
@@ -771,7 +965,11 @@ export default function FolderView() {
         animationType="fade"
         onRequestClose={() => setConfirmDeleteVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <ScrollView 
+          style={styles.modalOverlayScroll}
+          contentContainerStyle={styles.modalOverlayScrollContent}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.confirmModal}>
             <Text style={styles.modalTitle}>Confirm Delete</Text>
             <Text style={styles.confirmText}>
@@ -795,7 +993,7 @@ export default function FolderView() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </ScrollView>
       </ModalWrapper>
 
       {/* Create Competition Modal */}
@@ -1001,68 +1199,177 @@ export default function FolderView() {
         }}
       />
 
-      {/* Action Choice Modal: Extract, Exchange, or Insert */}
+      {/* Long Press Action Menu Modal */}
       <ModalWrapper
-        visible={actionChoiceVisible}
+        visible={longPressMenuVisible}
         transparent={true}
         animationType="fade"
-        onRequestClose={handleActionCancel}
+        onRequestClose={handleCancelLongPressMenu}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.actionChoiceModal}>
-            <Text style={styles.modalTitle}>Move Action</Text>
-            <Text style={styles.actionChoiceDescription}>
-              What would you like to do with "{selectedItemForReorder ? getItemName(selectedItemForReorder.type, selectedItemForReorder.item) : ''}"?
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={handleCancelLongPressMenu}
+        >
+          <View 
+            style={styles.actionMenuModal}
+            onStartShouldSetResponder={() => true}
+          >
+            <Text style={styles.modalTitle}>Move Options</Text>
+            <Text style={styles.actionMenuDescription}>
+              "{longPressedItem ? getItemName(longPressedItem.type, longPressedItem.item) : ''}"
             </Text>
 
-            {/* Extract from folder option */}
-            {canExtract() && (
+            <View style={styles.actionMenuGrid}>
               <TouchableOpacity
-                style={[styles.actionChoiceButton, styles.actionChoiceExtractButton]}
-                onPress={handleActionExtract}
+                style={styles.actionMenuGridButton}
+                onPress={handleMoveToFolder}
               >
-                <Text style={styles.actionChoiceIcon}>↑</Text>
-                <View style={styles.actionChoiceTextContainer}>
-                  <Text style={styles.actionChoiceButtonTitle}>Extract from folder</Text>
-                  <Text style={styles.actionChoiceButtonDesc}>
-                    Move up to {currentFolder?.parent_folder_id === null ? 'root level' : 'parent folder'}
-                  </Text>
-                </View>
+                <Text style={styles.actionMenuGridIcon}>📂</Text>
+                <Text style={styles.actionMenuGridTitle}>Move to folder</Text>
               </TouchableOpacity>
-            )}
 
-            {/* Exchange option */}
-            <TouchableOpacity
-              style={styles.actionChoiceButton}
-              onPress={handleActionExchange}
-            >
-              <Text style={styles.actionChoiceIcon}>⇄</Text>
-              <View style={styles.actionChoiceTextContainer}>
-                <Text style={styles.actionChoiceButtonTitle}>Exchange</Text>
-                <Text style={styles.actionChoiceButtonDesc}>Swap positions with "{pendingTarget ? getItemName(pendingTarget.type, pendingTarget.item) : ''}"</Text>
-              </View>
-            </TouchableOpacity>
-
-            {/* Insert into folder option - only if target is a folder */}
-            {pendingTarget?.type === 'folder' && (
               <TouchableOpacity
-                style={[styles.actionChoiceButton, styles.actionChoiceInsertButton]}
-                onPress={handleActionInsert}
+                style={styles.actionMenuGridButton}
+                onPress={handleMoveBulk}
               >
-                <Text style={styles.actionChoiceIcon}>📂</Text>
-                <View style={styles.actionChoiceTextContainer}>
-                  <Text style={styles.actionChoiceButtonTitle}>Move to folder</Text>
-                  <Text style={styles.actionChoiceButtonDesc}>Move inside "{pendingTarget ? (pendingTarget.item as Folder).titulo : ''}"</Text>
-                </View>
+                <Text style={styles.actionMenuGridIcon}>📑</Text>
+                <Text style={styles.actionMenuGridTitle}>Move bulk</Text>
               </TouchableOpacity>
-            )}
+
+              <TouchableOpacity
+                style={styles.actionMenuGridButton}
+                onPress={handleExchangeMode}
+              >
+                <Text style={styles.actionMenuGridIcon}>⇄</Text>
+                <Text style={styles.actionMenuGridTitle}>Exchange</Text>
+              </TouchableOpacity>
+
+              {/* Extract option - only if can extract */}
+              {canExtractLongPressed() && (
+                <TouchableOpacity
+                  style={[styles.actionMenuGridButton, styles.actionMenuExtractButton]}
+                  onPress={handleExtractItem}
+                >
+                  <Text style={styles.actionMenuGridIcon}>↑</Text>
+                  <Text style={styles.actionMenuGridTitle}>Extract</Text>
+                </TouchableOpacity>
+              )}
+            </View>
 
             <TouchableOpacity
-              style={styles.actionChoiceCancelButton}
-              onPress={handleActionCancel}
+              style={styles.actionMenuCancelButton}
+              onPress={handleCancelLongPressMenu}
             >
-              <Text style={styles.actionChoiceCancelText}>Cancel</Text>
+              <Text style={styles.actionMenuCancelText}>Cancel</Text>
             </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </ModalWrapper>
+
+      {/* Folder Navigation Modal */}
+      <ModalWrapper
+        visible={folderNavVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={cancelFolderNav}
+      >
+        <View style={styles.folderNavOverlay}>
+          <View style={styles.folderNavModal}>
+            <Text style={styles.navModalTitle}>Select Destination</Text>
+            
+            {/* Breadcrumb */}
+            <View style={styles.navBreadcrumb}>
+              <TouchableOpacity 
+                style={styles.navBreadcrumbItem}
+                onPress={async () => {
+                  const rootFolders = await getRootFolders();
+                  const excludeIds = bulkSelectMode 
+                    ? Array.from(bulkSelectedItems).filter(k => k.startsWith('folder-')).map(k => parseInt(k.split('-')[1]))
+                    : (longPressedItem?.type === 'folder' ? [longPressedItem.item.id] : []);
+                  const filteredFolders = rootFolders.filter(f => !excludeIds.includes(f.id));
+                  setNavFolders(filteredFolders);
+                  setNavPath([]);
+                  setCurrentNavFolderId(null);
+                }}
+              >
+                <Text style={[styles.navBreadcrumbText, navPath.length === 0 && styles.navBreadcrumbActive]}>Root</Text>
+              </TouchableOpacity>
+              {navPath.map((folder, index) => (
+                <View key={folder.id} style={styles.navBreadcrumbItem}>
+                  <Text style={styles.navBreadcrumbSeparator}> / </Text>
+                  <TouchableOpacity onPress={async () => {
+                    const newPath = navPath.slice(0, index + 1);
+                    setNavPath(newPath);
+                    const subfolders = await getSubfolders(folder.id);
+                    const excludeIds = bulkSelectMode 
+                      ? Array.from(bulkSelectedItems).filter(k => k.startsWith('folder-')).map(k => parseInt(k.split('-')[1]))
+                      : (longPressedItem?.type === 'folder' ? [longPressedItem.item.id] : []);
+                    const filteredSubfolders = subfolders.filter(f => !excludeIds.includes(f.id));
+                    setNavFolders(filteredSubfolders);
+                    setCurrentNavFolderId(folder.id);
+                  }}>
+                    <Text style={[
+                      styles.navBreadcrumbText, 
+                      index === navPath.length - 1 && styles.navBreadcrumbActive
+                    ]} numberOfLines={1}>{folder.titulo}</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+
+            {/* Folder List */}
+            <ScrollView style={styles.navFolderList}>
+              {navPath.length > 0 && (
+                <TouchableOpacity 
+                  style={styles.navFolderItem}
+                  onPress={navigateBack}
+                >
+                  <Text style={styles.navFolderIcon}>⬆️</Text>
+                  <Text style={styles.navFolderName}>.. (Go back)</Text>
+                </TouchableOpacity>
+              )}
+              {navFolders.map((folder) => (
+                <TouchableOpacity 
+                  key={folder.id}
+                  style={styles.navFolderItem}
+                  onPress={() => navigateToSubfolder(folder)}
+                >
+                  <Text style={styles.navFolderIcon}>📁</Text>
+                  <Text style={styles.navFolderName} numberOfLines={1}>{folder.titulo}</Text>
+                  <Text style={styles.navFolderArrow}>›</Text>
+                </TouchableOpacity>
+              ))}
+              {navFolders.length === 0 && navPath.length > 0 && (
+                <Text style={styles.navEmptyText}>No subfolders</Text>
+              )}
+            </ScrollView>
+
+            {/* Current selection info */}
+            <View style={styles.navSelectionInfo}>
+              <Text style={styles.navSelectionText}>
+                {currentNavFolderId 
+                  ? `Move to: "${navPath[navPath.length - 1]?.titulo}"`
+                  : 'Select a folder to move into'}
+              </Text>
+            </View>
+
+            {/* Action buttons */}
+            <View style={styles.navButtonsRow}>
+              <TouchableOpacity
+                style={styles.navCancelButton}
+                onPress={cancelFolderNav}
+              >
+                <Text style={styles.navCancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.navConfirmButton, !currentNavFolderId && styles.navButtonDisabled]}
+                onPress={selectDestinationFolder}
+                disabled={!currentNavFolderId}
+              >
+                <Text style={styles.navConfirmButtonText}>Move Here</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </ModalWrapper>
@@ -1328,6 +1635,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: Math.max(width * 0.05, 12),
     paddingVertical: Math.max(height * 0.05, 20),
   },
+  modalOverlayScroll: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalOverlayScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: Math.max(height * 0.05, 20),
+    paddingHorizontal: Math.max(width * 0.05, 12),
+    minHeight: height,
+  },
   modalContent: {
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -1568,76 +1887,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: 'bold',
   },
-  // Action Choice Modal styles
-  actionChoiceModal: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 24,
-    width: '85%',
-    maxWidth: 400,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  actionChoiceDescription: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  actionChoiceButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f0f4ff',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#d0d8f0',
-  },
-  actionChoiceInsertButton: {
-    backgroundColor: '#f0fff4',
-    borderColor: '#b8e6c8',
-  },
-  actionChoiceExtractButton: {
-    backgroundColor: '#fff8f0',
-    borderColor: '#f0d8b8',
-  },
-  actionChoiceIcon: {
-    fontSize: 24,
-    marginRight: 14,
-    width: 32,
-    textAlign: 'center',
-  },
-  actionChoiceTextContainer: {
-    flex: 1,
-  },
-  actionChoiceButtonTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 2,
-  },
-  actionChoiceButtonDesc: {
-    fontSize: 12,
-    color: '#888',
-  },
-  actionChoiceCancelButton: {
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 4,
-    borderWidth: 1,
-    borderColor: '#ccc',
-  },
-  actionChoiceCancelText: {
-    fontSize: 16,
-    color: '#666',
-    fontWeight: '600',
-  },
   // Toast styles
   toastContainer: {
     position: 'absolute',
@@ -1673,5 +1922,291 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#fff',
     fontWeight: '500',
+  },
+
+  // Reorder target badge
+  reorderTargetBadge: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    backgroundColor: '#4caf50',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    zIndex: 10,
+  },
+  reorderTargetBadgeText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: 'bold',
+  },
+
+  // Bulk select mode styles
+  bulkSelectedCard: {
+    borderWidth: 3,
+    borderColor: '#2196f3',
+    backgroundColor: '#e3f2fd',
+    elevation: 4,
+  },
+  bulkSelectableCard: {
+    borderWidth: 1,
+    borderColor: '#bbdefb',
+  },
+  checkboxSelected: {
+    backgroundColor: '#2196f3',
+  },
+  checkboxUnselected: {
+    backgroundColor: '#e0e0e0',
+    borderWidth: 2,
+    borderColor: '#2196f3',
+  },
+  bulkSelectModeBar: {
+    backgroundColor: '#2196f3',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  bulkSelectModeText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  moveButton: {
+    flex: 1,
+    backgroundColor: '#2196f3',
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  moveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+
+  // Long press action menu modal styles
+  actionMenuModal: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: Math.max(width * 0.04, 14),
+    width: Math.min(width * 0.88, 340),
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  actionMenuDescription: {
+    fontSize: 13,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 14,
+  },
+  actionMenuGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  actionMenuGridButton: {
+    width: '48%',
+    backgroundColor: '#f5f5f5',
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    marginBottom: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  actionMenuGridIcon: {
+    fontSize: 28,
+    marginBottom: 6,
+  },
+  actionMenuGridTitle: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'center',
+  },
+  actionMenuButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  actionMenuExtractButton: {
+    backgroundColor: '#fff8f0',
+    borderColor: '#f0d8b8',
+  },
+  actionMenuIcon: {
+    fontSize: 24,
+    marginRight: 14,
+    width: 32,
+    textAlign: 'center',
+  },
+  actionMenuTextContainer: {
+    flex: 1,
+  },
+  actionMenuButtonTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 2,
+  },
+  actionMenuButtonDesc: {
+    fontSize: 12,
+    color: '#888',
+  },
+  actionMenuCancelButton: {
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: '#ccc',
+  },
+  actionMenuCancelText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '600',
+  },
+
+  // Folder navigation modal styles
+  folderNavOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 12,
+  },
+  folderNavModal: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 12,
+    width: '100%',
+    maxWidth: 420,
+    maxHeight: height * 0.85,
+    flex: 1,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  navModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  navBreadcrumb: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  navBreadcrumbItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  navBreadcrumbText: {
+    fontSize: 14,
+    color: '#666',
+  },
+  navBreadcrumbActive: {
+    color: '#004aad',
+    fontWeight: 'bold',
+  },
+  navBreadcrumbSeparator: {
+    color: '#999',
+    marginHorizontal: 4,
+  },
+  navFolderList: {
+    flex: 1,
+    minHeight: 100,
+  },
+  navFolderItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  navFolderIcon: {
+    fontSize: 20,
+    marginRight: 12,
+  },
+  navFolderName: {
+    flex: 1,
+    fontSize: 15,
+    color: '#333',
+  },
+  navFolderArrow: {
+    fontSize: 20,
+    color: '#999',
+  },
+  navEmptyText: {
+    textAlign: 'center',
+    color: '#999',
+    paddingVertical: 16,
+    fontStyle: 'italic',
+  },
+  navSelectionInfo: {
+    backgroundColor: '#e3f2fd',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  navSelectionText: {
+    fontSize: 12,
+    color: '#1565c0',
+    textAlign: 'center',
+  },
+  navButtonsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  navCancelButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ccc',
+  },
+  navCancelButtonText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '600',
+  },
+  navConfirmButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    backgroundColor: '#004aad',
+  },
+  navConfirmButtonText: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  navButtonDisabled: {
+    backgroundColor: '#ccc',
   },
 });
