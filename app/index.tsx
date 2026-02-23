@@ -3,12 +3,23 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   StatusBar,
   ScrollView,
   useWindowDimensions,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import Purchases, { PurchasesPackage, CustomerInfo } from 'react-native-purchases';
+
+// Set this to match your RevenueCat entitlement identifier
+const ENTITLEMENT_ID = 'entlf790b1e170';
+const OFFERING_ID = 'Gym Access';
+
+// Hard-coded toggle to enable/disable automatic redirect (useful for testing)
+const REDIRECT_ENABLED = true; // <- cambia a false para desactivar
 
 export default function Index() {
   const router = useRouter();
@@ -19,9 +30,136 @@ export default function Index() {
   const subtitleSize = isSmall ? 14 : 16;
   const sectionSize = isSmall ? 18 : 20;
 
-  const handleSubscribe = () => {
-    router.replace('/discipline-select');
+  const [currentPackage, setCurrentPackage] = useState<PurchasesPackage | null>(null);
+  const [isPurchasing, setIsPurchasing] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(true);
+
+  const hasActiveEntitlement = (customerInfo: CustomerInfo) => {
+    try {
+      const keys = Object.keys(customerInfo.entitlements.active ?? {});
+      // If the configured ENTITLEMENT_ID is present or any entitlement is active, consider the user entitled
+      return keys.includes(ENTITLEMENT_ID) || keys.length > 0;
+    } catch (e) {
+      return false;
+    }
   };
+
+  useEffect(() => {
+    let navigated = false;
+
+    const initPurchases = async () => {
+      try {
+        console.log('[RC] ⏳ Checking customer info...');
+        const customerInfo: CustomerInfo = await Purchases.getCustomerInfo();
+        console.log('[RC] ✅ Active entitlements:', JSON.stringify(Object.keys(customerInfo.entitlements.active)));
+
+        if (REDIRECT_ENABLED && hasActiveEntitlement(customerInfo)) {
+          console.log('[RC] 🎉 User has entitlement, navigating...');
+          navigated = true;
+          router.replace('/discipline-select');
+          return;
+        }
+
+        console.log('[RC] ⏳ Fetching offerings...');
+        const offerings = await Purchases.getOfferings();
+        const offering = offerings.all[OFFERING_ID] ?? offerings.current;
+        console.log('[RC] target offering:', offering?.identifier ?? 'null');
+        console.log('[RC] availablePackages count:', offering?.availablePackages?.length ?? 0);
+        console.log('[RC] all offering keys:', JSON.stringify(Object.keys(offerings.all)));
+
+        if (offering?.availablePackages?.length) {
+          const pkg = offering.availablePackages[0];
+          console.log('[RC] 📦 Package loaded:', pkg.identifier, pkg.product?.identifier);
+          setCurrentPackage(pkg);
+        } else {
+          console.log('[RC] ⚠️ No packages available');
+        }
+      } catch (e) {
+        console.log('[RC] ❌ init error:', e);
+      } finally {
+        if (!navigated) setIsCheckingStatus(false);
+      }
+    };
+
+    initPurchases();
+  }, []);
+
+  const handleSubscribe = async () => {
+    console.log('[RC] 🛒 Subscribe pressed. currentPackage:', currentPackage?.identifier ?? 'null');
+    setIsPurchasing(true);
+    try {
+      let packageToBuy = currentPackage;
+      if (!packageToBuy) {
+        console.log('[RC] 🔄 currentPackage is null, re-fetching offerings...');
+        const offerings = await Purchases.getOfferings();
+        const offering = offerings.all[OFFERING_ID] ?? offerings.current;
+        console.log('[RC] re-fetch target offering:', offering?.identifier ?? 'null');
+        console.log('[RC] re-fetch packages count:', offering?.availablePackages?.length ?? 0);
+        packageToBuy = offering?.availablePackages?.[0] ?? null;
+        console.log('[RC] re-fetched package:', packageToBuy?.identifier ?? 'null');
+        if (packageToBuy) setCurrentPackage(packageToBuy);
+      }
+
+      if (!packageToBuy) {
+        console.log('[RC] ❌ Still null after re-fetch. Showing alert.');
+        Alert.alert('Not available', 'No subscription packages found. Please try again later.');
+        return;
+      }
+
+      console.log('[RC] 💳 Purchasing package:', packageToBuy.identifier);
+      const { customerInfo } = await Purchases.purchasePackage(packageToBuy);
+      console.log('[RC] ✅ Purchase done. Active entitlements:', JSON.stringify(Object.keys(customerInfo.entitlements.active)));
+      if (REDIRECT_ENABLED && hasActiveEntitlement(customerInfo)) {
+        router.replace('/discipline-select');
+      }
+    } catch (e: any) {
+      console.log('[RC] ❌ Purchase error:', JSON.stringify(e));
+
+      // Silently ignore user cancellations and dev/test environment billing errors
+      const message: string = e?.message ?? '';
+      const isBillingNotConfigured =
+        message.toLowerCase().includes('not configured for billing') ||
+        message.toLowerCase().includes('billing is not supported') ||
+        e?.code === 'PURCHASE_NOT_ALLOWED' ||
+        e?.code === 4;
+
+      if (!e?.userCancelled && !isBillingNotConfigured) {
+        Alert.alert('Purchase failed', message || 'An error occurred. Please try again.');
+      }
+    } finally {
+      setIsPurchasing(false);
+    }
+  };
+
+  const handleRestore = async () => {
+    // RESTORE DISABLED: commented out for testing
+    console.log('[RC] Restore purchases is disabled (commented out)');
+    return;
+    /*
+    setIsRestoring(true);
+    try {
+      const customerInfo: CustomerInfo = await Purchases.restorePurchases();
+      if (REDIRECT_ENABLED && hasActiveEntitlement(customerInfo)) {
+        router.replace('/discipline-select');
+      } else {
+        Alert.alert('No subscription found', 'No active subscription was found for this account.');
+      }
+    } catch (e: any) {
+      Alert.alert('Restore failed', e.message ?? 'Could not restore purchases. Please try again.');
+    } finally {
+      setIsRestoring(false);
+    }
+    */
+  };
+
+  if (isCheckingStatus) {
+    return (
+      <SafeAreaView style={[styles.container, styles.centered]}>
+        <ActivityIndicator size="large" color="#004aad" />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -96,9 +234,20 @@ export default function Index() {
             </View>
           </View>
 
-          <TouchableOpacity style={styles.subscribeButton} onPress={handleSubscribe} activeOpacity={0.9}>
-            <Text style={styles.subscribeButtonText}>Subscribe Now</Text>
+          <TouchableOpacity
+            style={[styles.subscribeButton, (isPurchasing || isRestoring) && styles.buttonDisabled]}
+            onPress={handleSubscribe}
+            activeOpacity={0.9}
+            disabled={isPurchasing || isRestoring}
+          >
+            {isPurchasing ? (
+              <ActivityIndicator color="#ffffff" />
+            ) : (
+              <Text style={styles.subscribeButtonText}>Subscribe Now</Text>
+            )}
           </TouchableOpacity>
+
+          {/* Restore Purchases button commented out for testing */}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -234,6 +383,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333',
     marginBottom: 8,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  restoreButton: {
+    marginTop: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  restoreButtonText: {
+    color: '#004aad',
+    fontSize: 14,
+    textDecorationLine: 'underline',
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
 });
