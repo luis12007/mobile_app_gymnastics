@@ -219,10 +219,10 @@ export default function Index() {
           <Text style={[styles.sectionTitle, { fontSize: sectionSize }]}>Subscription</Text>
 
           <View style={styles.planCard}>
-            <Text style={styles.planName}>Month to Month</Text>
+            <Text style={styles.planName}>Year to Year</Text>
             <View style={styles.planPriceRow}>
               <Text style={styles.planPrice}>$40</Text>
-              <Text style={styles.planPeriod}>/mo</Text>
+              <Text style={styles.planPeriod}>/year</Text>
             </View>
             <Text style={styles.planDetail}>Full access to the application</Text>
 
