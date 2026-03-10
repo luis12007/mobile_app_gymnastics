@@ -832,6 +832,36 @@ export default function GymnastFloor() {
     }
   };
 
+  // Safe renderer for Whiteboard to avoid unhandled render exceptions crashing the screen
+  const isValidDimension = (w: unknown, h: unknown) =>
+    Number.isFinite(w as number) && Number.isFinite(h as number) && (w as number) > 0 && (h as number) > 0;
+
+  const renderWhiteboardSafe = () => {
+    try {
+      if (!isValidDimension(liveWidth, liveHeight)) {
+        if (__DEV__) console.warn('[GymnastFloor] Invalid whiteboard dimensions', { liveWidth, liveHeight });
+        return <View />;
+      }
+      return (
+        <WhiteboardScreen
+          ref={whiteboardRef}
+          gymnastId={gymnastId}
+          width={liveWidth}
+          height={liveHeight * 0.69}
+          stickBonus={stickBonus}
+          setStickBonus={handleStickBonusChange}
+          discipline={discipline}
+          event={gymnast?.evento}
+          percentage={percentage}
+          onBeforeAddImage={saveGymnastData}
+        />
+      );
+    } catch (e) {
+      console.error('[GymnastFloor] Whiteboard render error:', e);
+      return <View />;
+    }
+  };
+
   const handleGoBack = async () => {
     try {
       await saveGymnastData();
@@ -922,18 +952,7 @@ export default function GymnastFloor() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={isIphone ? styles.whiteboardWrapperIphone : undefined}>
-        <WhiteboardScreen
-          ref={whiteboardRef}
-          gymnastId={gymnastId}
-          width={liveWidth}
-          height={liveHeight * 0.69}
-          stickBonus={stickBonus}
-          setStickBonus={handleStickBonusChange}
-          discipline={discipline}
-          event={gymnast?.evento}
-          percentage={percentage}
-          onBeforeAddImage={saveGymnastData}
-        />
+        {renderWhiteboardSafe()}
       </View>
       
       <ScrollView>

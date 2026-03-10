@@ -937,6 +937,11 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
   const updatePaths = useCallback((newPath: SkPath) => {
     try {
+      // Avoid operating if Skia unsupported
+      if (!skiaSupported) {
+        if (__DEV__) console.warn('[updatePaths] Skia not supported, skipping update');
+        return;
+      }
       // Check if component is still mounted
       if (!isMountedRef.current) return;
       
@@ -1235,52 +1240,82 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
 
   const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 
+  // Safety helpers to avoid passing extreme values to native Skia methods
+  const SKIA_SAFE_COORD_LIMIT = 100000;
+  const isFiniteSafeNum = (v: unknown) => Number.isFinite(v as number) && Math.abs(v as number) < SKIA_SAFE_COORD_LIMIT;
+  const isValidSkPath = (p: any) => !!p && (typeof p.copy === 'function' || typeof p.toSVGString === 'function');
+
   const safeCopyPath = useCallback((p: SkPath | null): SkPath | null => {
-    if (!p) return null;
+    if (!p || !skiaSupported) return null;
     try {
-      return p.copy();
-    } catch {
+      if (typeof (p as any).copy === 'function') {
+        return (p as any).copy();
+      }
+      return null;
+    } catch (e) {
+      if (__DEV__) console.warn('[safeCopyPath] Error copying path:', e);
       return null;
     }
-  }, []);
+  }, [skiaSupported]);
 
   const scheduleDisplayPath = useCallback((pathCopy: SkPath | null) => {
-    // Early exit if unmounted
-    if (!isMountedRef.current) return;
-    // Skip display updates during multi-touch to prevent EGL context loss
-    if (isMultiTouchActiveRef.current && pathCopy != null) return;
-    
-    pendingDisplayPathRef.current = pathCopy;
-    if (rafRef.current != null) return;
+    try {
+      // Early exit if unmounted
+      if (!isMountedRef.current) return;
+      // Avoid using Skia display if probe shows no support
+      if (!skiaSupported) return;
+      // Skip display updates during multi-touch to prevent EGL context loss
+      if (isMultiTouchActiveRef.current && pathCopy != null) return;
 
-    rafRef.current = requestAnimationFrame(() => {
-      // Check if component is still mounted before updating state
-      if (!isMountedRef.current) {
+      pendingDisplayPathRef.current = pathCopy;
+      if (rafRef.current != null) return;
+
+      const doUpdate = () => {
+        if (!isMountedRef.current) {
+          rafRef.current = null;
+          pendingDisplayPathRef.current = null;
+          return;
+        }
+        try {
+          const p = pendingDisplayPathRef.current;
+          setCurrentPathDisplay(p ?? null);
+        } catch (e) {
+          if (__DEV__) console.warn('[scheduleDisplayPath] Error applying display path:', e);
+          // reset to avoid holding invalid refs
+          setCurrentPathDisplay(null);
+          pendingDisplayPathRef.current = null;
+        }
         rafRef.current = null;
-        pendingDisplayPathRef.current = null;
-        return;
+      };
+
+      if (typeof requestAnimationFrame === 'function') {
+        rafRef.current = requestAnimationFrame(doUpdate as FrameRequestCallback);
+      } else {
+        // fallback for environments without RAF
+        rafRef.current = (setTimeout(doUpdate as any, 16) as unknown) as number;
       }
+    } catch (e) {
+      if (__DEV__) console.warn('[scheduleDisplayPath] Scheduling failed:', e);
+      // Best-effort fallback: clear state
       try {
-        const p = pendingDisplayPathRef.current;
-        // `pathCopy` ya debería ser una copia segura; no hacemos otro copy aquí.
-        setCurrentPathDisplay(p ?? null);
-      } catch (e) {
-        if (__DEV__) console.warn('[scheduleDisplayPath] Error:', e);
+        pendingDisplayPathRef.current = null;
+        setCurrentPathDisplay(null);
+      } catch {
+        // ignore
       }
-      rafRef.current = null;
-    });
+    }
   }, []);
 
   const addSmoothedPoint = (path: SkPath, x: number, y: number, timestamp?: number): boolean => {
     try {
-      // Validate path object
       if (!path) return false;
-      if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
-      
+      if (!skiaSupported) return false;
+      if (!isFiniteSafeNum(x) || !isFiniteSafeNum(y)) return false;
+
       // Clamp coordinates to reasonable bounds to prevent extreme values
-      const safeX = Math.max(-10000, Math.min(10000, x));
-      const safeY = Math.max(-10000, Math.min(10000, y));
-      
+      const safeX = Math.max(-SKIA_SAFE_COORD_LIMIT, Math.min(SKIA_SAFE_COORD_LIMIT, x));
+      const safeY = Math.max(-SKIA_SAFE_COORD_LIMIT, Math.min(SKIA_SAFE_COORD_LIMIT, y));
+
       const now = typeof timestamp === 'number' ? timestamp : Date.now();
 
       const prevRaw = lastRawPoint.current;
@@ -1306,6 +1341,8 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       const dy = safeY - prevRaw.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
+      if (!Number.isFinite(dist) || dist <= 0) return false;
+
       // Ignore ultra tiny jitter
       if (dist < 1.5) return false; // Increased threshold to reduce points
 
@@ -1317,15 +1354,13 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       const fx = prevFiltered.x + alpha * (safeX - prevFiltered.x);
       const fy = prevFiltered.y + alpha * (safeY - prevFiltered.y);
 
-      // Validate calculated values
-      if (!Number.isFinite(fx) || !Number.isFinite(fy)) return false;
+      if (!isFiniteSafeNum(fx) || !isFiniteSafeNum(fy)) return false;
 
       // Quadratic smoothing using midpoint
       const midX = (prevFiltered.x + fx) / 2;
       const midY = (prevFiltered.y + fy) / 2;
       
-      // Validate midpoint values
-      if (!Number.isFinite(midX) || !Number.isFinite(midY)) return false;
+      if (!isFiniteSafeNum(midX) || !isFiniteSafeNum(midY)) return false;
       
       try {
         path.quadTo(prevFiltered.x, prevFiltered.y, midX, midY);
@@ -1346,13 +1381,18 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
   };
 
   const finalizeSmoothedPath = (path: SkPath) => {
-    const last = lastFilteredPoint.current;
-    if (!last) return;
-    if (!Number.isFinite(last.x) || !Number.isFinite(last.y)) return;
     try {
-      path.lineTo(last.x, last.y);
-    } catch {
-      // ignore
+      if (!skiaSupported || !path) return;
+      const last = lastFilteredPoint.current;
+      if (!last) return;
+      if (!isFiniteSafeNum(last.x) || !isFiniteSafeNum(last.y)) return;
+      try {
+        path.lineTo(last.x, last.y);
+      } catch (e) {
+        if (__DEV__) console.warn('[finalizeSmoothedPath] lineTo error:', e);
+      }
+    } catch (e) {
+      if (__DEV__) console.warn('[finalizeSmoothedPath] Unexpected error:', e);
     }
   };
 
@@ -1823,6 +1863,9 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     .onStart(event => {
       try {
         const { x, y } = event;
+        // Basic validation: ensure Skia is available and coords are sane
+        if (!skiaSupported) return;
+        if (!isFiniteSafeNum(x) || !isFiniteSafeNum(y)) return;
         const pointerType = (event as any).pointerType ?? 0; // 0=finger
 
         handBlockLoggedRef.current = false;
@@ -1879,11 +1922,16 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     .onUpdate(event => {
       try {
         const { x, y, translationX, translationY } = event;
+        // Basic validation
+        if (!skiaSupported) return;
+        if (!isFiniteSafeNum(x) || !isFiniteSafeNum(y)) return;
         const pointerType = (event as any).pointerType ?? 0;
 
         if (selectedPhotoRef.current && photoGestureStartRef.current) {
-          const nx = photoGestureStartRef.current.x + translationX;
-          const ny = photoGestureStartRef.current.y + translationY;
+          const tx = Number.isFinite(translationX) ? translationX : 0;
+          const ty = Number.isFinite(translationY) ? translationY : 0;
+          const nx = photoGestureStartRef.current.x + tx;
+          const ny = photoGestureStartRef.current.y + ty;
           updatePhotoTransform(selectedPhotoRef.current, { x: nx, y: ny });
           return;
         }
@@ -2192,24 +2240,23 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
     }) => {
       const visiblePhotos = (photoItems || []).slice(0, MAX_PHOTOS_RENDERED);
 
-      // Safely filter paths with validation
+      // Safely filter paths with validation and align data->path
       const safePaths = (paths || []);
       const safePathsData = (pathsData || []);
 
-      const normalPaths = safePathsData
-        .map((pd, idx) => ({ pd, idx, path: safePaths[idx] }))
-        .filter(x => !!x.path && !!x.pd)
-        .filter(x => (x.pd.penType ?? 0) === 0 || x.pd.isEraser);
+      // Align path objects with their metadata and skip invalid/skia-unsafe entries
+      const aligned: Array<{ pd: PathData; idx: number; path: SkPath }> = [];
+      for (let i = 0; i < safePathsData.length; i++) {
+        const pd = safePathsData[i];
+        const p = safePaths[i];
+        if (!pd || !p) continue;
+        if (!isValidSkPath(p)) continue;
+        aligned.push({ pd, idx: i, path: p as SkPath });
+      }
 
-      const telePaths = safePathsData
-        .map((pd, idx) => ({ pd, idx, path: safePaths[idx] }))
-        .filter(x => !!x.path && !!x.pd)
-        .filter(x => (x.pd.penType ?? 0) === 1);
-
-      const highlightPaths = safePathsData
-        .map((pd, idx) => ({ pd, idx, path: safePaths[idx] }))
-        .filter(x => !!x.path && !!x.pd)
-        .filter(x => (x.pd.penType ?? 0) === 2);
+      const normalPaths = aligned.filter(x => (x.pd.penType ?? 0) === 0 || x.pd.isEraser);
+      const telePaths = aligned.filter(x => (x.pd.penType ?? 0) === 1);
+      const highlightPaths = aligned.filter(x => (x.pd.penType ?? 0) === 2);
 
       // Back-compat: older eraser traces stored un-multiplied widths
       const getEraserStrokeWidth = (w: number) => (w <= 10 ? w * 4 : w);
@@ -2248,62 +2295,92 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
           {/* Draw paths and eraser on an offscreen layer.
               This allows the eraser to use blendMode="clear" without affecting the jump background or images. */}
           <Group layer>
-            {normalPaths.map(({ pd, idx, path }) => (
-              <Path
-                key={`n-${idx}`}
-                path={path as SkPath}
-                color={pd.isEraser ? 'transparent' : pd.color}
-                style="stroke"
-                strokeWidth={pd.isEraser ? getEraserStrokeWidth(safeStrokeWidth(pd.strokeWidth)) : safeStrokeWidth(pd.strokeWidth)}
-                strokeJoin="round"
-                strokeCap="round"
-                blendMode={pd.isEraser ? 'clear' : 'srcOver'}
-              />
-            ))}
+            {normalPaths.map(({ pd, idx, path }) => {
+              try {
+                return (
+                  <Path
+                    key={`n-${idx}`}
+                    path={path as SkPath}
+                    color={pd.isEraser ? 'transparent' : pd.color}
+                    style="stroke"
+                    strokeWidth={pd.isEraser ? getEraserStrokeWidth(safeStrokeWidth(pd.strokeWidth)) : safeStrokeWidth(pd.strokeWidth)}
+                    strokeJoin="round"
+                    strokeCap="round"
+                    blendMode={pd.isEraser ? 'clear' : 'srcOver'}
+                  />
+                );
+              } catch (e) {
+                if (__DEV__) console.warn('[DrawingSurface] render normal path error', idx, e);
+                return null;
+              }
+            })}
 
-            {telePaths.map(({ pd, idx, path }) => (
-              <Path
-                key={`t-${idx}`}
-                path={path as SkPath}
-                color={pd.color}
-                style="stroke"
-                strokeWidth={safeStrokeWidth(pd.strokeWidth)}
-                strokeJoin="round"
-                strokeCap="round"
-                opacity={0.8}
-              />
-            ))}
+            {telePaths.map(({ pd, idx, path }) => {
+              try {
+                return (
+                  <Path
+                    key={`t-${idx}`}
+                    path={path as SkPath}
+                    color={pd.color}
+                    style="stroke"
+                    strokeWidth={safeStrokeWidth(pd.strokeWidth)}
+                    strokeJoin="round"
+                    strokeCap="round"
+                    opacity={0.8}
+                  />
+                );
+              } catch (e) {
+                if (__DEV__) console.warn('[DrawingSurface] render tele path error', idx, e);
+                return null;
+              }
+            })}
 
-            {highlightPaths.map(({ pd, idx, path }) => (
-              <Group key={`h-${idx}`}>
-                <Path path={path as SkPath} color={pd.color} style="fill" opacity={0.3} />
-                <Path
-                  path={path as SkPath}
-                  color={pd.color}
-                  style="stroke"
-                  strokeWidth={safeStrokeWidth(pd.strokeWidth)}
-                  strokeJoin="round"
-                  strokeCap="round"
-                  opacity={0.5}
-                />
-              </Group>
-            ))}
+            {highlightPaths.map(({ pd, idx, path }) => {
+              try {
+                return (
+                  <Group key={`h-${idx}`}>
+                    <Path path={path as SkPath} color={pd.color} style="fill" opacity={0.3} />
+                    <Path
+                      path={path as SkPath}
+                      color={pd.color}
+                      style="stroke"
+                      strokeWidth={safeStrokeWidth(pd.strokeWidth)}
+                      strokeJoin="round"
+                      strokeCap="round"
+                      opacity={0.5}
+                    />
+                  </Group>
+                );
+              } catch (e) {
+                if (__DEV__) console.warn('[DrawingSurface] render highlight path error', idx, e);
+                return null;
+              }
+            })}
 
-            {currentPathDisplay ? (
+            {currentPathDisplay && isValidSkPath(currentPathDisplay) ? (
               <Group>
                 {selectedPen === 2 && !isEraser ? (
                   <Path path={currentPathDisplay} color="yellow" style="fill" opacity={0.3} />
                 ) : null}
-                <Path
-                  path={currentPathDisplay}
-                  color={isEraser ? 'transparent' : liveColor}
-                  style="stroke"
-                  strokeWidth={safeStrokeWidth(liveStrokeWidth)}
-                  strokeJoin="round"
-                  strokeCap="round"
-                  opacity={isEraser ? 1 : selectedPen === 1 ? 0.8 : selectedPen === 2 ? 0.5 : 1}
-                  blendMode={isEraser ? 'clear' : 'srcOver'}
-                />
+                {(() => {
+                  try {
+                    return (
+                      <Path
+                        path={currentPathDisplay}
+                        color={isEraser ? 'transparent' : liveColor}
+                        style="stroke"
+                        strokeWidth={safeStrokeWidth(liveStrokeWidth)}
+                        strokeJoin="round"
+                        strokeCap="round"
+                        opacity={isEraser ? 1 : selectedPen === 1 ? 0.8 : selectedPen === 2 ? 0.5 : 1}
+                        blendMode={isEraser ? 'clear' : 'srcOver'}
+                      />
+                    );
+                  } catch (e) {
+                    if (__DEV__) console.warn('[DrawingSurface] render currentPathDisplay error', e);
+                    return null;
+                  }
+                })()}
               </Group>
             ) : null}
           </Group>

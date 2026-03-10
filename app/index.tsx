@@ -133,24 +133,22 @@ export default function Index() {
   };
 
   const handleRestore = async () => {
-    // RESTORE DISABLED: commented out for testing
-    console.log('[RC] Restore purchases is disabled (commented out)');
-    return;
-    /*
     setIsRestoring(true);
     try {
+      console.log('[RC] 🔁 Restoring purchases...');
       const customerInfo: CustomerInfo = await Purchases.restorePurchases();
+      console.log('[RC] ✅ Restore result entitlements:', JSON.stringify(Object.keys(customerInfo.entitlements.active)));
       if (REDIRECT_ENABLED && hasActiveEntitlement(customerInfo)) {
         router.replace('/discipline-select');
       } else {
         Alert.alert('No subscription found', 'No active subscription was found for this account.');
       }
     } catch (e: any) {
-      Alert.alert('Restore failed', e.message ?? 'Could not restore purchases. Please try again.');
+      console.log('[RC] ❌ Restore error:', e);
+      Alert.alert('Restore failed', e?.message ?? 'Could not restore purchases. Please try again.');
     } finally {
       setIsRestoring(false);
     }
-    */
   };
 
   if (isCheckingStatus) {
@@ -247,7 +245,18 @@ export default function Index() {
             )}
           </TouchableOpacity>
 
-          {/* Restore Purchases button commented out for testing */}
+          <TouchableOpacity
+            style={styles.restoreButton}
+            onPress={handleRestore}
+            activeOpacity={0.85}
+            disabled={isPurchasing || isRestoring}
+          >
+            {isRestoring ? (
+              <ActivityIndicator color="#004aad" />
+            ) : (
+              <Text style={styles.restoreButtonText}>Restore Purchases</Text>
+            )}
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </SafeAreaView>

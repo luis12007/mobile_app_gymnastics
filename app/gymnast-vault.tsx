@@ -615,6 +615,18 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
     [100, 100, 100, 100, 100, 95, 85, 80, 70, 60, 50, 40, 30, 20, 10, 0], // 7: > 2.50
   ];
 
+  // New table: percentage table specifically for WAG vault (VT) events.
+  // This table will be used when `discipline === false` (WAG) and the gymnast's event is 'VT'.
+  const percentageTableWagVault = [
+    [100, 100, 75, 65, 55, 45, 35, 25, 15, 5, 0, 0, 0, 0, 0, 0],
+    [100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0],
+    [100, 100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0],
+    [100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0],
+    [100, 100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0],
+    [100, 100, 100, 100, 95, 85, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0],
+    [100, 100, 100, 100, 100, 95, 85, 80, 70, 60, 50, 40, 30, 20, 10, 0],
+  ];
+
   const deltSteps = [
     0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4,
     1.5,
@@ -630,26 +642,68 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
    * When discipline = false: Uses the new percentage table with different ranges
    */
   function getPercentageFromTable(dedInterval: number, delt: number): number {
-    // Choose the appropriate table based on discipline
-    const percentageTable = discipline
-      ? percentageTableDisciplineTrue
-      : percentageTableDisciplineFalse;
+    // Determine which percentage table to use
+    const isWagVault = !discipline && ((gymnastEvent || "").toString().toUpperCase() === "VT");
+    let percentageTable;
+    if (discipline) {
+      percentageTable = percentageTableDisciplineTrue;
+    } else {
+      percentageTable = isWagVault ? percentageTableWagVault : percentageTableDisciplineFalse;
+    }
 
     if (delt > 1.4) return 0;
     if (dedInterval < 1 || dedInterval > 7) return 0;
 
-    // Find the closest delt step index (without exceeding delt)
-    let deltIndex =
-      deltSteps.findIndex((step, idx) => delt < step && idx > 0) - 1;
-    if (deltIndex < 0) deltIndex = deltSteps.length - 1;
-    if (delt >= deltSteps[deltSteps.length - 1]) deltIndex = deltSteps.length - 1;
+    // Compute delt index:
+    // - For WAG VT use ceiling mapping (first step >= delt) so 0.367 -> 0.400 column
+    // - For other cases keep previous behaviour (largest step <= delt)
+    let deltIndex = 0;
+    if (isWagVault) {
+      const idx = deltSteps.findIndex((step) => delt <= step);
+      deltIndex = idx === -1 ? deltSteps.length - 1 : idx;
+    } else {
+      // find first step greater than delt, then use previous index (floor-like)
+      const idx = deltSteps.findIndex((step) => step > delt);
+      if (idx === -1) deltIndex = deltSteps.length - 1;
+      else if (idx === 0) deltIndex = 0;
+      else deltIndex = idx - 1;
+    }
 
-    // If delt is less than the first step, use index 0
-    if (delt < deltSteps[0]) deltIndex = 0;
+    // clamp
+    if (deltIndex < 0) deltIndex = 0;
+    if (deltIndex >= deltSteps.length) deltIndex = deltSteps.length - 1;
 
     // Table is 0-indexed, dedInterval is 1-indexed
     return percentageTable[dedInterval - 1][deltIndex] || 0;
   }
+  const isValidDimension = (w: unknown, h: unknown) =>
+    Number.isFinite(w as number) && Number.isFinite(h as number) && (w as number) > 0 && (h as number) > 0;
+
+  const renderWhiteboardSafe = () => {
+    try {
+      if (!isValidDimension(liveWidth, liveHeight)) {
+        if (__DEV__) console.warn('[GymnastVault] Invalid whiteboard dimensions', { liveWidth, liveHeight });
+        return <View />;
+      }
+      return (
+        <WhiteboardScreen
+          ref={whiteboardRef}
+          gymnastId={gymnastid}
+          stickBonus={stickbonus}
+          width={liveWidth}
+          height={liveHeight * 0.75}
+          setStickBonus={handleStickBonusChange}
+          percentage={percentage}
+          oncodetable={oncodetable}
+          discipline={discipline}
+          onBeforeAddImage={saveGymnastData}
+        />
+      );
+    } catch (e) {
+      console.error('[GymnastVault] Whiteboard render error:', e);
+      return <View />;
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -1172,18 +1226,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
 
       {/* Whiteboard Screen */}
       <View style={isIphone ? styles.whiteboardWrapperIphone : undefined}>
-        <WhiteboardScreen
-          ref={whiteboardRef}
-          gymnastId={gymnastid}
-          stickBonus={stickbonus}
-          width={liveWidth}
-          height={liveHeight * 0.75}
-          setStickBonus={handleStickBonusChange}
-          percentage={percentage}
-          oncodetable={oncodetable}
-          discipline={discipline}
-          onBeforeAddImage={saveGymnastData}
-        />
+        {renderWhiteboardSafe()}
       </View>
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         {/* Main Table */}
