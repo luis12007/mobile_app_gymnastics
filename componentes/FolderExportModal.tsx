@@ -12,7 +12,7 @@ import {
   Platform
 } from 'react-native';
 import { Folder, getRootFolders, getAllFolders } from '../lib/database';
-import { exportFolders } from '../lib/folderImportExport';
+import { exportFolders, exportAllFolders } from '../lib/folderImportExport';
 
 interface FolderExportModalProps {
   visible: boolean;
@@ -60,7 +60,12 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
   useEffect(() => {
     if (visible) {
       loadFolders();
-      setSelectedFolders(new Set());
+      // Si estamos en la vista de folder específico, preseleccionar ese folder
+      if (currentFolderId !== null && currentFolderId !== undefined) {
+        setSelectedFolders(new Set([currentFolderId]));
+      } else {
+        setSelectedFolders(new Set());
+      }
     }
   }, [visible, currentFolderId]);
 
@@ -152,6 +157,45 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
     );
   };
 
+  const handleExportAll = async () => {
+    Alert.alert(
+      'Confirm Full Export',
+      'Export entire database (all folders). This is a hidden, advanced action. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Export',
+          onPress: async () => {
+            try {
+              setExporting(true);
+              setExportProgress(0);
+              setExportMessage('Starting full export...');
+
+              await exportAllFolders((progress, message) => {
+                setExportProgress(progress);
+                setExportMessage(message);
+              });
+
+              Alert.alert('Export Successful!', 'Full database export completed.', [
+                { text: 'OK', onPress: () => onClose() }
+              ]);
+            } catch (error) {
+              console.error('Error en full export:', error);
+              Alert.alert(
+                'Error',
+                `Could not complete the export:\n${error instanceof Error ? error.message : 'Unknown error'}`
+              );
+            } finally {
+              setExporting(false);
+              setExportProgress(0);
+              setExportMessage('');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const selectAll = () => {
     setSelectedFolders(new Set(folders.map(f => f.id)));
   };
@@ -210,6 +254,12 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
             },
           ]}
         >
+          {/* Hidden long-press area to trigger full export (advanced) */}
+          <TouchableOpacity
+            style={styles.hiddenTrigger}
+            onLongPress={handleExportAll}
+            accessible={false}
+          />
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>Export Folders</Text>
@@ -272,6 +322,41 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
                       >
                         <Text style={styles.quickActionText}>Deselect All</Text>
                       </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.quickActionButton}
+                        onPress={handleExportAll}
+                        disabled={loading || exporting}
+                      >
+                        <Text style={styles.quickActionText}>Export All</Text>
+                      </TouchableOpacity>
+                      {currentFolderId !== null && currentFolderId !== undefined && (
+                        <TouchableOpacity
+                          style={styles.quickActionButton}
+                          onPress={async () => {
+                            // Export only the current folder
+                            try {
+                              setExporting(true);
+                              setExportProgress(0);
+                              setExportMessage('Starting export of current folder...');
+                              await exportFolders([currentFolderId], (progress, message) => {
+                                setExportProgress(progress);
+                                setExportMessage(message);
+                              });
+                              Alert.alert('Export Successful!', 'Current folder exported.', [{ text: 'OK', onPress: () => onClose() }]);
+                            } catch (error) {
+                              console.error('Error exporting current folder:', error);
+                              Alert.alert('Error', `Could not export current folder:\n${error instanceof Error ? error.message : 'Unknown error'}`);
+                            } finally {
+                              setExporting(false);
+                              setExportProgress(0);
+                              setExportMessage('');
+                            }
+                          }}
+                          disabled={loading || exporting}
+                        >
+                          <Text style={styles.quickActionText}>Export Current</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   )}
                 </>
@@ -511,5 +596,14 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  hiddenTrigger: {
+    position: 'absolute',
+    width: 28,
+    height: 28,
+    top: 8,
+    right: 8,
+    opacity: 0.01,
+    zIndex: 1000,
   },
 });

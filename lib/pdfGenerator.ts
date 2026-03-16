@@ -94,7 +94,7 @@ async function mergePdfUrisToSinglePdf(pdfUris: string[], outputUri: string): Pr
     const uri = pdfUris[i];
     console.log(`[PDF][Chunk] Loading chunk PDF ${i + 1}/${pdfUris.length}:`, uri);
     const base64 = await FileSystem.readAsStringAsync(uri, {
-      encoding: FileSystem.EncodingType.Base64,
+      encoding: 'base64',
     });
     const bytes = base64ToBytes(base64);
     const src = await PDFDocument.load(bytes);
@@ -108,7 +108,7 @@ async function mergePdfUrisToSinglePdf(pdfUris: string[], outputUri: string): Pr
   const mergedBytes = await merged.save();
   const mergedBase64 = bytesToBase64(mergedBytes);
   await FileSystem.writeAsStringAsync(outputUri, mergedBase64, {
-    encoding: FileSystem.EncodingType.Base64,
+    encoding: 'base64',
   });
 
   await ensurePdfFileExists(outputUri, '[PDF][Chunk] Merged PDF');
@@ -462,7 +462,7 @@ async function getJumpImageBase64(): Promise<string> {
         const fileUri = asset.localUri || primaryUri;
         try {
           const base64 = await FileSystem.readAsStringAsync(fileUri, {
-            encoding: FileSystem.EncodingType.Base64,
+            encoding: 'base64',
           });
           if (base64 && base64.length > 100) {
             return `data:${mime};base64,${base64}`;
@@ -519,7 +519,7 @@ async function getOriginalImageDataUriNoLimit(originalUri: string): Promise<stri
   if (cached) return cached;
   try {
     const base64 = await FileSystem.readAsStringAsync(originalUri, {
-      encoding: FileSystem.EncodingType.Base64,
+      encoding: 'base64',
     });
     const mime = inferImageMimeFromUri(originalUri);
     const dataUri = `data:image/${mime};base64,${base64}`;
@@ -580,7 +580,7 @@ async function getOptimizedImageDataUri(originalUri: string): Promise<string> {
         return '';
       }
       const base64 = await FileSystem.readAsStringAsync(originalUri, {
-        encoding: FileSystem.EncodingType.Base64,
+        encoding: 'base64',
       });
       const mime = inferImageMimeFromUri(originalUri);
       const dataUri = `data:image/${mime};base64,${base64}`;
@@ -596,7 +596,7 @@ async function getOptimizedImageDataUri(originalUri: string): Promise<string> {
         return '';
       }
       const base64 = await FileSystem.readAsStringAsync(originalUri, {
-        encoding: FileSystem.EncodingType.Base64,
+        encoding: 'base64',
       });
       const mime = inferImageMimeFromUri(originalUri);
       const dataUri = `data:image/${mime};base64,${base64}`;
@@ -608,7 +608,7 @@ async function getOptimizedImageDataUri(originalUri: string): Promise<string> {
     // If already small, skip optimization.
     if (originalSize > 0 && originalSize < PDF_IMAGE_OPT_MIN_BYTES) {
       const base64 = await FileSystem.readAsStringAsync(originalUri, {
-        encoding: FileSystem.EncodingType.Base64,
+        encoding: 'base64',
       });
       const dataUri = `data:image/png;base64,${base64}`;
       pdfOptimizedImageCache.set(originalUri, dataUri);
@@ -668,7 +668,7 @@ async function getOptimizedImageDataUri(originalUri: string): Promise<string> {
     }
 
     const base64 = await FileSystem.readAsStringAsync(finalUri, {
-      encoding: FileSystem.EncodingType.Base64,
+      encoding: 'base64',
     });
     const dataUri = `data:image/jpeg;base64,${base64}`;
     pdfOptimizedImageCache.set(originalUri, dataUri);
@@ -683,7 +683,7 @@ async function getOptimizedImageDataUri(originalUri: string): Promise<string> {
         return '';
       }
       const base64 = await FileSystem.readAsStringAsync(originalUri, {
-        encoding: FileSystem.EncodingType.Base64,
+        encoding: 'base64',
       });
       const mime = inferImageMimeFromUri(originalUri);
       const dataUri = `data:image/${mime};base64,${base64}`;

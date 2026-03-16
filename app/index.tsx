@@ -21,6 +21,7 @@ const OFFERING_ID = 'Gym Access';
 // Hard-coded toggle to enable/disable automatic redirect (useful for testing)
 const REDIRECT_ENABLED = true; // <- cambia a false para desactivar
 
+
 export default function Index() {
   const router = useRouter();
   const { height } = useWindowDimensions();

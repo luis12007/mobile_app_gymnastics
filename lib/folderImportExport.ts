@@ -54,6 +54,186 @@ export interface ImportProgress {
   message: string;
 }
 
+// ==================== NORMALIZACIÓN / RETROCOMPATIBILIDAD ====================
+
+function toNumber(v: any, def = 0): number {
+  if (v === null || v === undefined || v === '') return def;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : def;
+}
+
+function normalizeImageEntry(entry: any): ImageExportData | null {
+  if (!entry) return null;
+
+  const meta = entry.image || entry.meta || entry;
+  const imageData = entry.imageData || entry.base64 || entry.data || entry.image_data || '';
+
+  const image: GymnastImage = {
+    id: toNumber(meta.id, 0),
+    gymnast_id: toNumber(meta.gymnast_id, 0),
+    image_uri: meta.image_uri || meta.uri || meta.path || '',
+    position_x: toNumber(meta.position_x, 0),
+    position_y: toNumber(meta.position_y, 0),
+    rotation: toNumber(meta.rotation, 0),
+    scale: toNumber(meta.scale, 1),
+    order_index: toNumber(meta.order_index ?? meta.order ?? 0, 0)
+  };
+
+  if (!imageData) {
+    // No base64 data present — cannot reconstruct file during import
+    return null;
+  }
+
+  return { image, imageData };
+}
+
+function normalizeTraceEntry(trace: any): WhiteboardTrace {
+  const t: WhiteboardTrace = {
+    id: toNumber(trace?.id, 0),
+    gymnast_id: toNumber(trace?.gymnast_id, 0),
+    trace_data: typeof trace?.trace_data === 'string' ? trace.trace_data : JSON.stringify(trace?.trace_data ?? []),
+    color: trace?.color ?? '#000000',
+    stroke_width: toNumber(trace?.stroke_width, 2),
+    pen_type: trace?.pen_type ?? 'normal',
+    order_index: toNumber(trace?.order_index ?? trace?.order ?? 0, 0)
+  };
+  return t;
+}
+
+function normalizeGymnastEntry(item: any): GymnastExportData {
+  const gRaw = item?.gymnast || item || {};
+
+  const gymnast: any = {
+    id: toNumber(gRaw.id, 0),
+    competence_id: toNumber(gRaw.competence_id ?? gRaw.competition_id ?? gRaw.competitionId ?? gRaw.folder_id ?? 0),
+    numero: toNumber(gRaw.numero ?? gRaw.number ?? 0),
+    gymnasta: gRaw.gymnasta ?? gRaw.name ?? gRaw.nombre ?? '',
+    evento: gRaw.evento ?? gRaw.event ?? '',
+    noc: gRaw.noc ?? '',
+    bib: gRaw.bib ?? '',
+    a: toNumber(gRaw.a, 0), b: toNumber(gRaw.b, 0), c: toNumber(gRaw.c, 0), d: toNumber(gRaw.d, 0),
+    e: toNumber(gRaw.e, 0), f: toNumber(gRaw.f, 0), g: toNumber(gRaw.g, 0), h: toNumber(gRaw.h, 0),
+    i: toNumber(gRaw.i, 0), j: toNumber(gRaw.j, 0),
+    number_of_element: toNumber(gRaw.number_of_element ?? gRaw.numberOfElement ?? 0),
+    difficulty_values: toNumber(gRaw.difficulty_values ?? gRaw.difficultyValues ?? 0),
+    element_group1: toNumber(gRaw.element_group1 ?? 0), element_group2: toNumber(gRaw.element_group2 ?? 0),
+    element_group3: toNumber(gRaw.element_group3 ?? 0), element_group4: toNumber(gRaw.element_group4 ?? 0),
+    element_group_total: toNumber(gRaw.element_group_total ?? 0),
+    cv: toNumber(gRaw.cv, 0), bonus: toNumber(gRaw.bonus, 0), nd: toNumber(gRaw.nd, 0), sv: toNumber(gRaw.sv, 0),
+    execution: toNumber(gRaw.execution, 0), escore: toNumber(gRaw.escore, 0), myscore: toNumber(gRaw.myscore, 0),
+    competition_d: toNumber(gRaw.competition_d, 0), competition_e: toNumber(gRaw.competition_e, 0),
+    competition_sb: toNumber(gRaw.competition_sb, 0), competition_nd: toNumber(gRaw.competition_nd, 0), competition_score: toNumber(gRaw.competition_score, 0),
+    comments: gRaw.comments ?? '', delta: toNumber(gRaw.delta, 0), vault: gRaw.vault ?? '',
+    vault_description: gRaw.vault_description ?? '', vault_value: toNumber(gRaw.vault_value, 0),
+    starred: !!(gRaw.starred === true || gRaw.starred === 1),
+    created_at: gRaw.created_at ?? gRaw.createdAt ?? new Date().toISOString()
+  } as Gymnast;
+
+  const imagesRaw = item?.images || item?.fotos || item?.imagesData || [];
+  const images: ImageExportData[] = [];
+  if (Array.isArray(imagesRaw)) {
+    for (const imgEntry of imagesRaw) {
+      const normalized = normalizeImageEntry(imgEntry);
+      if (normalized) images.push(normalized);
+    }
+  }
+
+  const tracesRaw = item?.traces || item?.trazos || [];
+  const traces: WhiteboardTrace[] = [];
+  if (Array.isArray(tracesRaw)) {
+    for (const t of tracesRaw) traces.push(normalizeTraceEntry(t));
+  }
+
+  return {
+    gymnast,
+    images,
+    traces
+  };
+}
+
+function normalizeCompetitionEntry(item: any): CompetitionExportData {
+  const compRaw = item?.competition || item?.competence || item || {};
+
+  const competition: any = {
+    id: toNumber(compRaw.id, 0),
+    name: compRaw.name ?? compRaw.nombre ?? compRaw.title ?? '',
+    description: compRaw.description ?? compRaw.descripcion ?? '',
+    date: compRaw.date ?? compRaw.fecha ?? new Date().toISOString(),
+    gender: !!(compRaw.gender ?? compRaw.male ?? compRaw.masculino),
+    folder_id: toNumber(compRaw.folder_id ?? compRaw.folderId ?? 0),
+    number_of_participants: toNumber(compRaw.number_of_participants ?? compRaw.numberOfParticipants ?? 0),
+    created_at: compRaw.created_at ?? compRaw.createdAt ?? new Date().toISOString()
+  } as Competition;
+
+  const gymnastsRaw = item?.gymnasts || item?.gymnastas || item?.participants || [];
+  const gymnasts: GymnastExportData[] = [];
+  if (Array.isArray(gymnastsRaw)) {
+    for (const g of gymnastsRaw) gymnasts.push(normalizeGymnastEntry(g));
+  }
+
+  return { competition, gymnasts };
+}
+
+function normalizeFolderEntry(item: any): FolderExportData {
+  const folderRaw = item?.folder || item || {};
+
+  const folder: any = {
+    id: toNumber(folderRaw.id, 0),
+    titulo: folderRaw.titulo ?? folderRaw.title ?? folderRaw.name ?? '',
+    descripcion: folderRaw.descripcion ?? folderRaw.description ?? '',
+    fecha_creacion: folderRaw.fecha_creacion ?? folderRaw.created_at ?? folderRaw.createdAt ?? new Date().toISOString(),
+    nivel_profundidad: toNumber(folderRaw.nivel_profundidad ?? folderRaw.level ?? 0),
+    parent_folder_id: folderRaw.parent_folder_id ?? folderRaw.parentId ?? null
+  } as Folder;
+
+  const subRaw = item?.subfolders || item?.children || [];
+  const subfolders: FolderExportData[] = [];
+  if (Array.isArray(subRaw)) {
+    for (const sf of subRaw) subfolders.push(normalizeFolderEntry(sf));
+  }
+
+  const compsRaw = item?.competitions || item?.competences || item?.competencias || [];
+  const competitions: CompetitionExportData[] = [];
+  if (Array.isArray(compsRaw)) {
+    for (const c of compsRaw) competitions.push(normalizeCompetitionEntry(c));
+  }
+
+  return { folder, subfolders, competitions };
+}
+
+function normalizeExportData(raw: any): ExportData {
+  if (!raw) throw new Error('Empty import data');
+
+  // Determine folders array in many possible legacy shapes
+  let foldersRaw: any[] = [];
+  if (Array.isArray(raw)) {
+    foldersRaw = raw;
+  } else if (Array.isArray(raw.folders)) {
+    foldersRaw = raw.folders;
+  } else if (raw.folder && (raw.subfolders || raw.competitions)) {
+    foldersRaw = [raw];
+  } else if (raw.folder) {
+    foldersRaw = [raw];
+  } else if (raw.folders && !Array.isArray(raw.folders)) {
+    // sometimes nested one-level
+    foldersRaw = [raw.folders];
+  } else {
+    // Fallback: if object looks like a folder
+    if (raw.titulo || raw.title || raw.name) {
+      foldersRaw = [raw];
+    }
+  }
+
+  const folders: FolderExportData[] = [];
+  for (const f of foldersRaw) folders.push(normalizeFolderEntry(f));
+
+  return {
+    version: raw.version ?? '0.0.0',
+    exportDate: raw.exportDate ?? raw.export_date ?? new Date().toISOString(),
+    folders
+  };
+}
+
 // ==================== EXPORTACIÓN ====================
 
 /**
@@ -98,12 +278,12 @@ export async function exportFolders(
     onProgress?.(90, 'Generating file...');
 
     // Generar archivo JSON
-    const jsonString = JSON.stringify(exportData, null, 2);
+    const jsonString = String(JSON.stringify(exportData, null, 2));
     const fileName = `gym_export_${Date.now()}.json`;
     const filePath = `${FileSystem.cacheDirectory}${fileName}`;
 
     await FileSystem.writeAsStringAsync(filePath, jsonString, {
-      encoding: FileSystem.EncodingType.UTF8
+      encoding: 'utf8'
     });
 
     onProgress?.(95, 'Sharing file...');
@@ -123,6 +303,38 @@ export async function exportFolders(
   } catch (error) {
     console.error('Error en exportación:', error);
     throw new Error(`Error exporting: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+/**
+ * Exportar toda la base de datos (todos los folders raíz) como una sola exportación robusta
+ */
+export async function exportAllFolders(
+  onProgress?: (progress: number, message: string) => void
+): Promise<string> {
+  try {
+    // Obtener carpetas raíz
+    const roots = await db.getAllAsync<{ id: number }>(
+      'SELECT id FROM folders WHERE parent_folder_id IS NULL OR parent_folder_id = 0 ORDER BY IFNULL(display_order, id) ASC'
+    );
+    let folderIds = roots.map(r => r.id);
+
+    if (folderIds.length === 0) {
+      // Fallback: exportar todos los folders si no se encontraron raíces
+      const all = await db.getAllAsync<{ id: number }>(
+        'SELECT id FROM folders ORDER BY IFNULL(display_order, id) ASC'
+      );
+      folderIds = all.map(r => r.id);
+    }
+
+    if (folderIds.length === 0) {
+      throw new Error('No folders to export');
+    }
+
+    return await exportFolders(folderIds, onProgress);
+  } catch (error) {
+    console.error('Error exportando todo:', error);
+    throw new Error(`Error exporting all: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
@@ -273,7 +485,7 @@ async function exportGymnast(
 
       // Leer imagen como base64 usando EncodingType correcto
       const base64 = await FileSystem.readAsStringAsync(image.image_uri, {
-        encoding: FileSystem.EncodingType.Base64
+        encoding: 'base64'
       });
 
       gymnastData.images.push({
@@ -335,13 +547,15 @@ export async function importFolders(
 
     // Leer archivo
     const fileContent = await FileSystem.readAsStringAsync(fileUri, {
-      encoding: 'utf8' as any
+      encoding: 'utf8'
     });
 
-    const exportData: ExportData = JSON.parse(fileContent);
-
-    // Validar versión
-    if (!exportData.version || !exportData.folders) {
+    // Parse y normalizar para soportar formatos antiguos
+    const raw = JSON.parse(fileContent);
+    let exportData: ExportData;
+    try {
+      exportData = normalizeExportData(raw);
+    } catch (e) {
       throw new Error('Invalid import file');
     }
 
@@ -370,42 +584,68 @@ export async function importFolders(
     let processedCompetitions = 0;
     let processedGymnasts = 0;
 
-    // Importar folders
+    // Importar folders (cada folder en su propia transacción; limpiar archivos si falla)
     for (const folderData of exportData.folders) {
-      await importFolderRecursive(
-        db,
-        folderData,
-        parentFolderId,
-        {
-          onFolderImported: () => {
-            processedFolders++;
-            onProgress?.({
-              stage: 'folders',
-              current: processedFolders,
-              total: totalFolders,
-              message: `Importing folders... ${processedFolders}/${totalFolders}`
-            });
+      const createdFiles: string[] = [];
+      try {
+        await db.execAsync('BEGIN TRANSACTION');
+
+        await importFolderRecursive(
+          db,
+          folderData,
+          parentFolderId,
+          {
+            onFolderImported: () => {
+              processedFolders++;
+              onProgress?.({
+                stage: 'folders',
+                current: processedFolders,
+                total: totalFolders,
+                message: `Importing folders... ${processedFolders}/${totalFolders}`
+              });
+            },
+            onCompetitionImported: () => {
+              processedCompetitions++;
+              onProgress?.({
+                stage: 'competitions',
+                current: processedCompetitions,
+                total: totalCompetitions,
+                message: `Importing competitions... ${processedCompetitions}/${totalCompetitions}`
+              });
+            },
+            onGymnastImported: () => {
+              processedGymnasts++;
+              onProgress?.({
+                stage: 'gymnasts',
+                current: processedGymnasts,
+                total: totalGymnasts,
+                message: `Importing gymnasts... ${processedGymnasts}/${totalGymnasts}`
+              });
+            }
           },
-          onCompetitionImported: () => {
-            processedCompetitions++;
-            onProgress?.({
-              stage: 'competitions',
-              current: processedCompetitions,
-              total: totalCompetitions,
-              message: `Importing competitions... ${processedCompetitions}/${totalCompetitions}`
-            });
-          },
-          onGymnastImported: () => {
-            processedGymnasts++;
-            onProgress?.({
-              stage: 'gymnasts',
-              current: processedGymnasts,
-              total: totalGymnasts,
-              message: `Importing gymnasts... ${processedGymnasts}/${totalGymnasts}`
-            });
+          createdFiles
+        );
+
+        await db.execAsync('COMMIT');
+      } catch (folderErr) {
+        try {
+          await db.execAsync('ROLLBACK');
+        } catch (rbErr) {
+          console.warn('Failed to rollback transaction after import error:', rbErr);
+        }
+
+        // Try to remove any files that were written during this folder import
+        for (const f of createdFiles) {
+          try {
+            await FileSystem.deleteAsync(f, { idempotent: true });
+          } catch (delErr) {
+            console.warn('Failed to delete imported file during rollback:', f, delErr);
           }
         }
-      );
+
+        // Re-throw to abort the entire import (keeps previous behavior)
+        throw folderErr;
+      }
     }
 
     onProgress?.({
@@ -421,6 +661,15 @@ export async function importFolders(
   }
 }
 
+/**
+ * Wrapper para importar todo el archivo en la raíz (alias para compatibilidad)
+ */
+export async function importAllFolders(
+  onProgress?: (progress: ImportProgress) => void
+): Promise<void> {
+  return importFolders(null, onProgress);
+}
+
 interface ImportCallbacks {
   onFolderImported: () => void;
   onCompetitionImported: () => void;
@@ -434,16 +683,16 @@ async function importFolderRecursive(
   database: SQLite.SQLiteDatabase,
   folderData: FolderExportData,
   parentFolderId: number | null,
-  callbacks: ImportCallbacks
+  callbacks: ImportCallbacks,
+  createdFiles?: string[]
 ): Promise<number> {
-  try {
-    // Validar que folderData tenga la estructura correcta
-    if (!folderData || !folderData.folder || typeof folderData.folder !== 'object') {
-      console.warn('Invalid folder data, skipping');
-      return -1;
-    }
+  // Validar que folderData tenga la estructura correcta
+  if (!folderData || !folderData.folder || typeof folderData.folder !== 'object') {
+    console.warn('Invalid folder data, skipping');
+    return -1;
+  }
 
-    // Get the next display_order for folders at this level
+  // Get the next display_order for folders at this level
   // Use try-catch to handle case where display_order column might not exist yet
   let nextDisplayOrder = 1;
   try {
@@ -511,28 +760,15 @@ async function importFolderRecursive(
 
   // Importar competencias de este folder
   for (const competitionData of folderData.competitions || []) {
-    try {
-      await importCompetition(database, competitionData, newFolderId, callbacks);
-    } catch (compError) {
-      console.warn('Error importing competition, continuing with others:', compError);
-    }
+    await importCompetition(database, competitionData, newFolderId, callbacks, createdFiles);
   }
 
   // Importar subfolders recursivamente
   for (const subfolderData of folderData.subfolders || []) {
-    try {
-      await importFolderRecursive(database, subfolderData, newFolderId, callbacks);
-    } catch (subfolderError) {
-      console.warn('Error importing subfolder, continuing with others:', subfolderError);
-    }
+    await importFolderRecursive(database, subfolderData, newFolderId, callbacks, createdFiles);
   }
 
   return newFolderId;
-  } catch (error) {
-    console.error('Error importing folder:', error);
-    // Return -1 to indicate failure but don't crash the app
-    return -1;
-  }
 }
 
 /**
@@ -542,16 +778,16 @@ async function importCompetition(
   database: SQLite.SQLiteDatabase,
   competitionData: CompetitionExportData,
   newFolderId: number,
-  callbacks: ImportCallbacks
+  callbacks: ImportCallbacks,
+  createdFiles?: string[]
 ): Promise<number> {
-  try {
-    const comp = competitionData.competition;
+  const comp = competitionData.competition;
 
-    // Validar que competitionData tenga la estructura correcta
-    if (!comp || typeof comp !== 'object') {
-      console.warn('Invalid competition data, skipping');
-      return -1;
-    }
+  // Validar que competitionData tenga la estructura correcta
+  if (!comp || typeof comp !== 'object') {
+    console.warn('Invalid competition data, skipping');
+    return -1;
+  }
 
   // Get the next display_order for competitions in this folder
   // Use try-catch to handle case where display_order column might not exist yet
@@ -611,21 +847,11 @@ async function importCompetition(
 
   // Importar gimnastas
   for (const gymnastData of competitionData.gymnasts || []) {
-    try {
-      await importGymnast(db, gymnastData, newCompetitionId);
-      callbacks.onGymnastImported();
-    } catch (gymnastError) {
-      console.warn('Error importing gymnast, continuing with others:', gymnastError);
-      callbacks.onGymnastImported(); // Still count as processed
-    }
+    await importGymnast(database, gymnastData, newCompetitionId, createdFiles);
+    callbacks.onGymnastImported();
   }
 
   return newCompetitionId;
-  } catch (error) {
-    console.error('Error importing competition:', error);
-    // Return -1 to indicate failure but don't crash the app
-    return -1;
-  }
 }
 
 /**
@@ -634,67 +860,67 @@ async function importCompetition(
 async function importGymnast(
   database: SQLite.SQLiteDatabase,
   gymnastData: GymnastExportData,
-  newCompetitionId: number
+  newCompetitionId: number,
+  createdFiles?: string[]
 ): Promise<number> {
+  const g = gymnastData.gymnast;
+
+  // Validar que gymnastData tenga la estructura correcta
+  if (!g || typeof g !== 'object') {
+    console.warn('Invalid gymnast data, skipping');
+    return -1;
+  }
+
+  // Crear gimnasta
+  // Nota: `starred` puede venir como boolean o como 0/1 según la versión del export.
+  const starredValue = (g as any).starred === true || (g as any).starred === 1 ? 1 : 0;
+
+  // Try inserting with `starred` column first; fallback for older DB schema.
+  let result: { lastInsertRowId: number };
   try {
-    const g = gymnastData.gymnast;
-
-    // Validar que gymnastData tenga la estructura correcta
-    if (!g || typeof g !== 'object') {
-      console.warn('Invalid gymnast data, skipping');
-      return -1;
-    }
-
-    // Crear gimnasta
-    // Nota: `starred` puede venir como boolean o como 0/1 según la versión del export.
-    const starredValue = (g as any).starred === true || (g as any).starred === 1 ? 1 : 0;
-
-    // Try inserting with `starred` column first; fallback for older DB schema.
-    let result: { lastInsertRowId: number };
-    try {
-      result = await database.runAsync(
-        `INSERT INTO gymnasts (
-          competence_id, numero, gymnasta, evento, noc, bib,
-          a, b, c, d, e, f, g, h, i, j,
-          number_of_element, difficulty_values,
-          element_group1, element_group2, element_group3, element_group4, element_group_total,
-          cv, bonus, nd, sv, execution, escore, myscore,
-          competition_d, competition_e, competition_sb, competition_nd, competition_score,
-          comments, delta, vault, vault_description, vault_value, starred, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          newCompetitionId, g.numero, g.gymnasta, g.evento, g.noc, g.bib,
-          g.a, g.b, g.c, g.d, g.e, g.f, g.g, g.h, g.i, g.j,
-          g.number_of_element, g.difficulty_values,
-          g.element_group1, g.element_group2, g.element_group3, g.element_group4, g.element_group_total,
-          g.cv, g.bonus, g.nd, g.sv, g.execution, g.escore, g.myscore,
-          g.competition_d, g.competition_e, g.competition_sb, g.competition_nd, g.competition_score,
-          g.comments, g.delta, g.vault, g.vault_description, g.vault_value, starredValue, g.created_at
-        ]
-      );
-    } catch (insertError) {
-      console.log('Inserting gymnast without starred column');
-      result = await database.runAsync(
-        `INSERT INTO gymnasts (
-          competence_id, numero, gymnasta, evento, noc, bib,
-          a, b, c, d, e, f, g, h, i, j,
-          number_of_element, difficulty_values,
-          element_group1, element_group2, element_group3, element_group4, element_group_total,
-          cv, bonus, nd, sv, execution, escore, myscore,
-          competition_d, competition_e, competition_sb, competition_nd, competition_score,
-          comments, delta, vault, vault_description, vault_value, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          newCompetitionId, g.numero, g.gymnasta, g.evento, g.noc, g.bib,
-          g.a, g.b, g.c, g.d, g.e, g.f, g.g, g.h, g.i, g.j,
-          g.number_of_element, g.difficulty_values,
-          g.element_group1, g.element_group2, g.element_group3, g.element_group4, g.element_group_total,
-          g.cv, g.bonus, g.nd, g.sv, g.execution, g.escore, g.myscore,
-          g.competition_d, g.competition_e, g.competition_sb, g.competition_nd, g.competition_score,
-          g.comments, g.delta, g.vault, g.vault_description, g.vault_value, g.created_at
-        ]
-      );
-    }
+    result = await database.runAsync(
+      `INSERT INTO gymnasts (
+        competence_id, numero, gymnasta, evento, noc, bib,
+        a, b, c, d, e, f, g, h, i, j,
+        number_of_element, difficulty_values,
+        element_group1, element_group2, element_group3, element_group4, element_group_total,
+        cv, bonus, nd, sv, execution, escore, myscore,
+        competition_d, competition_e, competition_sb, competition_nd, competition_score,
+        comments, delta, vault, vault_description, vault_value, starred, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        newCompetitionId, g.numero, g.gymnasta, g.evento, g.noc, g.bib,
+        g.a, g.b, g.c, g.d, g.e, g.f, g.g, g.h, g.i, g.j,
+        g.number_of_element, g.difficulty_values,
+        g.element_group1, g.element_group2, g.element_group3, g.element_group4, g.element_group_total,
+        g.cv, g.bonus, g.nd, g.sv, g.execution, g.escore, g.myscore,
+        g.competition_d, g.competition_e, g.competition_sb, g.competition_nd, g.competition_score,
+        g.comments, g.delta, g.vault, g.vault_description, g.vault_value, starredValue, g.created_at
+      ]
+    );
+  } catch (insertError) {
+    console.log('Inserting gymnast without starred column');
+    result = await database.runAsync(
+      `INSERT INTO gymnasts (
+        competence_id, numero, gymnasta, evento, noc, bib,
+        a, b, c, d, e, f, g, h, i, j,
+        number_of_element, difficulty_values,
+        element_group1, element_group2, element_group3, element_group4, element_group_total,
+        cv, bonus, nd, sv, execution, escore, myscore,
+        competition_d, competition_e, competition_sb, competition_nd, competition_score,
+        comments, delta, vault, vault_description, vault_value, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        newCompetitionId, g.numero, g.gymnasta, g.evento, g.noc, g.bib,
+        g.a, g.b, g.c, g.d, g.e, g.f, g.g, g.h, g.i, g.j,
+        g.number_of_element, g.difficulty_values,
+        g.element_group1, g.element_group2, g.element_group3, g.element_group4, g.element_group_total,
+        g.cv, g.bonus, g.nd, g.sv, g.execution, g.escore, g.myscore,
+        g.competition_d, g.competition_e, g.competition_sb, g.competition_nd, g.competition_score,
+        g.comments, g.delta, g.vault, g.vault_description, g.vault_value, g.created_at
+      ]
+    );
+  }
 
   const newGymnastId = result.lastInsertRowId;
 
@@ -703,63 +929,56 @@ async function importGymnast(
   await FileSystem.makeDirectoryAsync(cacheDir, { intermediates: true }).catch(() => {});
 
   for (const imageData of gymnastData.images || []) {
+    // Guardar imagen desde base64
+    const fileName = `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.jpg`;
+    const newImageUri = `${cacheDir}${fileName}`;
+
     try {
-      // Guardar imagen desde base64
-      const fileName = `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.jpg`;
-      const newImageUri = `${cacheDir}${fileName}`;
-
-      // Usar EncodingType correcto para escribir archivo base64
+      // Intenta escribir el archivo; si falla, registrar y continuar
       await FileSystem.writeAsStringAsync(newImageUri, imageData.imageData, {
-        encoding: FileSystem.EncodingType.Base64
+        encoding: 'base64'
       });
-
-      // Crear registro de imagen
-      await database.runAsync(
-        `INSERT INTO gymnast_images (gymnast_id, image_uri, position_x, position_y, rotation, scale, order_index)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [
-          newGymnastId,
-          newImageUri,
-          imageData.image.position_x,
-          imageData.image.position_y,
-          imageData.image.rotation,
-          imageData.image.scale,
-          imageData.image.order_index
-        ]
-      );
-    } catch (error) {
-      console.warn('Error importando imagen:', error);
-      // Continuar con las demás imágenes
+    } catch (writeErr) {
+      console.warn('Error writing image file during import, skipping image:', writeErr);
+      continue; // skip creating DB record for this image
     }
+
+    // Registrar el archivo creado para poder limpiarlo en caso de rollback
+    if (createdFiles) createdFiles.push(newImageUri);
+
+    // Crear registro de imagen en la BD; si falla aquí, dejar que la excepción se propague
+    await database.runAsync(
+      `INSERT INTO gymnast_images (gymnast_id, image_uri, position_x, position_y, rotation, scale, order_index)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        newGymnastId,
+        newImageUri,
+        imageData.image.position_x,
+        imageData.image.position_y,
+        imageData.image.rotation,
+        imageData.image.scale,
+        imageData.image.order_index
+      ]
+    );
   }
 
   // Importar trazos de whiteboard
   for (const trace of gymnastData.traces || []) {
-    try {
-      await database.runAsync(
-        `INSERT INTO whiteboard_traces (gymnast_id, trace_data, color, stroke_width, pen_type, order_index)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [
-          newGymnastId,
-          trace.trace_data,
-          trace.color,
-          trace.stroke_width,
-          trace.pen_type,
-          trace.order_index
-        ]
-      );
-    } catch (traceError) {
-      console.warn('Error importing trace:', traceError);
-      // Continue with other traces
-    }
+    await database.runAsync(
+      `INSERT INTO whiteboard_traces (gymnast_id, trace_data, color, stroke_width, pen_type, order_index)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        newGymnastId,
+        trace.trace_data,
+        trace.color,
+        trace.stroke_width,
+        trace.pen_type,
+        trace.order_index
+      ]
+    );
   }
 
   return newGymnastId;
-  } catch (error) {
-    console.error('Error importing gymnast:', error);
-    // Return -1 to indicate failure but don't crash
-    return -1;
-  }
 }
 
 /**
@@ -777,12 +996,15 @@ export async function validateImportFile(fileUri: string): Promise<{
 }> {
   try {
     const jsonString = await FileSystem.readAsStringAsync(fileUri, {
-      encoding: FileSystem.EncodingType.UTF8
+      encoding: 'utf8'
     });
 
-    const exportData: ExportData = JSON.parse(jsonString);
-
-    if (!exportData.version || !exportData.folders) {
+    // Parse y normalizar para soportar formatos antiguos
+    const raw = JSON.parse(jsonString);
+    let exportData: ExportData;
+    try {
+      exportData = normalizeExportData(raw);
+    } catch (e) {
       return { valid: false, error: 'Invalid file format' };
     }
 

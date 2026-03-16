@@ -128,6 +128,53 @@ export default function FolderImportModal({
     );
   };
 
+  const handleImportAll = async () => {
+    Alert.alert(
+      'Confirm Full Import',
+      currentFolderId === null || currentFolderId === undefined
+        ? 'Import entire dataset from a file into system root. Continue?'
+        : 'Import entire dataset from a file into the current folder. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Import',
+          onPress: async () => {
+            try {
+              setImporting(true);
+              setProgress({
+                stage: 'folders',
+                current: 0,
+                total: 1,
+                message: 'Starting full import...'
+              });
+
+              // Import into currentFolderId (null => root)
+              await importFolders(currentFolderId ?? null, (prog) => setProgress(prog));
+
+              Alert.alert('Import Successful!', 'Full database import completed.', [
+                {
+                  text: 'OK',
+                  onPress: () => {
+                    onImportComplete();
+                    onClose();
+                  }
+                }
+              ]);
+            } catch (error: any) {
+              const msg = error instanceof Error ? error.message : String(error);
+              console.error('Error en importación:', error);
+              Alert.alert('Error', `Could not complete the import:\n${msg}`);
+              onClose();
+            } finally {
+              setImporting(false);
+              setProgress(null);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const getProgressPercentage = (): number => {
     if (!progress) return 0;
     if (progress.total === 0) return 0;
@@ -143,6 +190,12 @@ export default function FolderImportModal({
     >
       <View style={styles.modalOverlay}>
         <View style={[styles.modalContainer, { width: width * 0.9, maxHeight: height * 0.9 }]}>
+          {/* Hidden long-press area to trigger full import (advanced) */}
+          <TouchableOpacity
+            style={styles.hiddenTrigger}
+            onLongPress={handleImportAll}
+            accessible={false}
+          />
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>Import Folders</Text>
@@ -228,6 +281,16 @@ export default function FolderImportModal({
                 >
                   <Text style={styles.importButtonText}>
                     Select File
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.importButton, styles.importAllButton]}
+                  onPress={handleImportAll}
+                  disabled={importing}
+                >
+                  <Text style={styles.importButtonText}>
+                    Import Here
                   </Text>
                 </TouchableOpacity>
 
@@ -391,5 +454,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#ff9500',
     fontWeight: '500',
+  },
+  hiddenTrigger: {
+    position: 'absolute',
+    width: 28,
+    height: 28,
+    top: 8,
+    right: 8,
+    opacity: 0.01,
+    zIndex: 1000,
+  },
+  importAllButton: {
+    backgroundColor: '#34C759',
   },
 });
