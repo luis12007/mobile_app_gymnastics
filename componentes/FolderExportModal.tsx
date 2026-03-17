@@ -8,6 +8,7 @@ import {
   FlatList,
   ActivityIndicator,
   Alert,
+  Switch,
   useWindowDimensions,
   Platform
 } from 'react-native';
@@ -56,6 +57,7 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [exportMessage, setExportMessage] = useState('');
+  const [includeImages, setIncludeImages] = useState<boolean>(currentFolderId === null || currentFolderId === undefined ? false : true);
 
   useEffect(() => {
     if (visible) {
@@ -63,8 +65,10 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
       // Si estamos en la vista de folder específico, preseleccionar ese folder
       if (currentFolderId !== null && currentFolderId !== undefined) {
         setSelectedFolders(new Set([currentFolderId]));
+        setIncludeImages(true);
       } else {
         setSelectedFolders(new Set());
+        setIncludeImages(false);
       }
     }
   }, [visible, currentFolderId]);
@@ -132,7 +136,8 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
                 (progress, message) => {
                   setExportProgress(progress);
                   setExportMessage(message);
-                }
+                },
+                includeImages
               );
 
               Alert.alert(
@@ -160,7 +165,7 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
   const handleExportAll = async () => {
     Alert.alert(
       'Confirm Full Export',
-      'Export entire database (all folders). This is a hidden, advanced action. Continue?',
+      'This will export the entire database (all folders, subfolders, competitions, gymnasts, images and whiteboard traces). Continue?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -174,7 +179,7 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
               await exportAllFolders((progress, message) => {
                 setExportProgress(progress);
                 setExportMessage(message);
-              });
+              }, includeImages);
 
               Alert.alert('Export Successful!', 'Full database export completed.', [
                 { text: 'OK', onPress: () => onClose() }
@@ -329,6 +334,10 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
                       >
                         <Text style={styles.quickActionText}>Export All</Text>
                       </TouchableOpacity>
+                      <View style={styles.includeImagesRow}>
+                        <Text style={styles.includeImagesLabel}>Include images</Text>
+                        <Switch value={includeImages} onValueChange={setIncludeImages} />
+                      </View>
                       {currentFolderId !== null && currentFolderId !== undefined && (
                         <TouchableOpacity
                           style={styles.quickActionButton}
@@ -341,7 +350,7 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
                               await exportFolders([currentFolderId], (progress, message) => {
                                 setExportProgress(progress);
                                 setExportMessage(message);
-                              });
+                              }, includeImages);
                               Alert.alert('Export Successful!', 'Current folder exported.', [{ text: 'OK', onPress: () => onClose() }]);
                             } catch (error) {
                               console.error('Error exporting current folder:', error);
@@ -436,6 +445,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     padding: 12,
     gap: 12,
+  },
+  includeImagesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  includeImagesLabel: {
+    fontSize: 14,
+    color: '#333',
+    marginRight: 8,
   },
   quickActionButton: {
     flex: 1,

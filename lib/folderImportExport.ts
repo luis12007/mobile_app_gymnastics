@@ -54,6 +54,182 @@ export interface ImportProgress {
   message: string;
 }
 
+// ==================== HELPERS: Streaming / Chunked parsing ====================
+
+/**
+ * Extrae iterativamente objetos JSON contenidos en una cadena que representa
+ * un array JSON (sin los corchetes) o una lista de objetos separados por comas.
+ * Evita crear un único objeto gigantesco en memoria al parsear uno por uno.
+ */
+function* parseObjectsArrayString(arrStr: string): Generator<any> {
+  const len = arrStr.length;
+  let i = 0;
+  while (i < len) {
+    // saltar espacios y comas
+    while (i < len) {
+      const ch = arrStr[i];
+      if (ch === ' ' || ch === '\n' || ch === '\r' || ch === '\t' || ch === ',') i++;
+      else break;
+    }
+    if (i >= len) break;
+
+    if (arrStr[i] !== '{') {
+      // no es un objeto JSON, intentar saltar hasta la próxima '{'
+      const next = arrStr.indexOf('{', i);
+      if (next === -1) break;
+      i = next;
+    }
+
+    // parsear objeto desde i
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let j = i;
+    for (; j < len; j++) {
+      const c = arrStr[j];
+      if (inString) {
+        if (escaped) { escaped = false; }
+        else if (c === '\\') { escaped = true; }
+        else if (c === '"') { inString = false; }
+      } else {
+        if (c === '"') { inString = true; }
+        else if (c === '{') { depth++; }
+        else if (c === '}') {
+          depth--;
+          if (depth === 0) { j++; break; }
+        }
+      }
+    }
+
+    if (j > i) {
+      const objStr = arrStr.slice(i, j);
+      try {
+        const parsed = JSON.parse(objStr);
+        yield parsed;
+      } catch (e) {
+        // si falla el parse por alguna razón, re-throw para que el caller decida
+        throw e;
+      }
+      i = j;
+    } else {
+      break;
+    }
+  }
+}
+
+/**
+ * Intenta iterar los folders contenidos en el contenido del archivo de export.
+ * Soporta las variantes:
+ * - JSON con structure: { version, exportDate, folders: [ ... ] }
+ * - JSON que es directamente un array: [ { ... }, { ... } ]
+ * - JSON que es un único objeto-folder: { folder: ..., competitions: ... }
+ * - NDJSON: una carpeta por línea (cada línea un JSON válido)
+ * Devuelve un generador que produce objetos crudos (antes de normalizar).
+ */
+function* iterateTopLevelFolderObjects(fileContent: string): IterableIterator<any> {
+  const s = fileContent.trim();
+
+  // NDJSON heuristic: varias líneas que comienzan con '{'
+  if (!s.startsWith('{') && s.indexOf('\n') !== -1 && s.split('\n').every(line => line.trim() === '' || line.trim().startsWith('{'))) {
+    for (const line of s.split(/\r?\n/)) {
+      const t = line.trim();
+      if (!t) continue;
+      yield JSON.parse(t);
+    }
+    return;
+  }
+
+  // Si empieza con '[' => array top-level
+  if (s.startsWith('[')) {
+    const inner = s.slice(1, s.length - 1);
+    yield* parseObjectsArrayString(inner);
+    return;
+  }
+
+  // si es un objeto, intentar localizar la propiedad "folders"
+  if (s.startsWith('{')) {
+    const foldersKey = '"folders"';
+    const idx = s.indexOf(foldersKey);
+    if (idx !== -1) {
+      // encontrar '[' después de la key
+      const bracketIdx = s.indexOf('[', idx);
+      if (bracketIdx !== -1) {
+        // encontrar posición del ']' correspondiente
+        let depth = 0;
+        let inString = false;
+        let escaped = false;
+        let j = bracketIdx;
+        for (; j < s.length; j++) {
+          const c = s[j];
+          if (inString) {
+            if (escaped) { escaped = false; }
+            else if (c === '\\') { escaped = true; }
+            else if (c === '"') { inString = false; }
+          } else {
+            if (c === '"') { inString = true; }
+            else if (c === '[') { depth++; }
+            else if (c === ']') { depth--; if (depth === 0) { break; } }
+          }
+        }
+        if (j > bracketIdx) {
+          const arrStr = s.slice(bracketIdx + 1, j);
+          yield* parseObjectsArrayString(arrStr);
+          return;
+        }
+      }
+    }
+
+    // si no hay 'folders', tratar como objeto-folder único
+    // parsear el primer objeto completo desde inicio
+    let depth2 = 0;
+    let inString2 = false;
+    let escaped2 = false;
+    let k = 0;
+    for (; k < s.length; k++) {
+      const c = s[k];
+      if (inString2) {
+        if (escaped2) { escaped2 = false; }
+        else if (c === '\\') { escaped2 = true; }
+        else if (c === '"') { inString2 = false; }
+      } else {
+        if (c === '"') { inString2 = true; }
+        else if (c === '{') { depth2++; }
+        else if (c === '}') { depth2--; if (depth2 === 0) { k++; break; } }
+      }
+    }
+    if (k > 0) {
+      const objStr = s.slice(0, k);
+      yield JSON.parse(objStr);
+      return;
+    }
+  }
+
+  // Fallback: intentar parse completo (puede lanzar)
+  const parsed = JSON.parse(s);
+  // si es array
+  if (Array.isArray(parsed)) {
+    for (const it of parsed) yield it;
+    return;
+  }
+  // si tiene folders
+  if (parsed && parsed.folders && Array.isArray(parsed.folders)) {
+    for (const f of parsed.folders) yield f;
+    return;
+  }
+
+  // si es un solo folder
+  yield parsed;
+}
+
+/**
+ * Extrae metadata simple (version/exportDate) buscando por patrón en el texto
+ */
+function extractExportMetadata(fileContent: string): { version: string; exportDate?: string } {
+  const versionMatch = fileContent.match(/"version"\s*:\s*"([^"]+)"/);
+  const dateMatch = fileContent.match(/"exportDate"\s*:\s*"([^"]+)"/);
+  return { version: versionMatch ? versionMatch[1] : '0.0.0', exportDate: dateMatch ? dateMatch[1] : undefined };
+}
+
 // ==================== NORMALIZACIÓN / RETROCOMPATIBILIDAD ====================
 
 function toNumber(v: any, def = 0): number {
@@ -241,7 +417,8 @@ function normalizeExportData(raw: any): ExportData {
  */
 export async function exportFolders(
   folderIds: number[],
-  onProgress?: (progress: number, message: string) => void
+  onProgress?: (progress: number, message: string) => void,
+  includeImages = true
 ): Promise<string> {
   try {
     onProgress?.(0, 'Starting export...');
@@ -261,34 +438,130 @@ export async function exportFolders(
       totalItems += await countFolderItems(db, folderId);
     }
 
-    // Exportar cada folder raíz seleccionado
+    // Try streaming the JSON to file in small chunks (if append is supported)
+    const fileName = `gym_export_${Date.now()}.json`;
+    const filePath = `${FileSystem.cacheDirectory}${fileName}`;
+
+    onProgress?.(90, 'Generating file...');
+
+    const header = `{"version":"${exportData.version}","exportDate":"${exportData.exportDate}","folders":[`;
+
+    let streamed = true;
+    try {
+      // Write header (overwrite/create)
+      await FileSystem.writeAsStringAsync(filePath, header, { encoding: 'utf8' } as any);
+
+      let first = true;
+      // For each folder, generate its data and append as a JSON object
+      for (const folderId of folderIds) {
+        const folderData = await exportFolderRecursive(
+          db,
+          folderId,
+          (items) => {
+            processedItems += items;
+            const progress = Math.round((processedItems / totalItems) * 90); // 0-90%
+            onProgress?.(progress, `Exporting data... ${processedItems}/${totalItems}`);
+          },
+          includeImages
+        );
+
+        const folderJson = JSON.stringify(folderData, null, 2);
+        const chunk = (first ? '' : ',') + folderJson;
+        first = false;
+
+        // Try to append chunk to file. Some versions of expo-file-system support an `append` option.
+        try {
+          await FileSystem.writeAsStringAsync(filePath, chunk, { encoding: 'utf8', append: true } as any);
+        } catch (appendErr) {
+          // If append is not supported or fails, stop streaming and fallback
+          streamed = false;
+          console.warn('Append write failed, falling back to full-write mode:', appendErr);
+          break;
+        }
+      }
+
+      if (streamed) {
+        // Close folders array and finish file
+        try {
+          await FileSystem.writeAsStringAsync(filePath, ']}', { encoding: 'utf8', append: true } as any);
+        } catch (closeErr) {
+          // If closing write failed due to OOM, we'll catch below
+          throw closeErr;
+        }
+
+        onProgress?.(95, 'Sharing file...');
+
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(filePath, {
+            mimeType: 'application/json',
+            dialogTitle: 'Export Gymnastics Data',
+            UTI: 'public.json'
+          });
+        }
+
+        onProgress?.(100, 'Export completed!');
+        return filePath;
+      }
+    } catch (streamErr: any) {
+      // If we ran into an OOM while streaming, or append not supported, try fallback below
+      console.warn('Streaming export failed:', streamErr);
+      // If it looks like an OutOfMemoryError and we included images, retry without images
+      const msg = streamErr instanceof Error ? streamErr.message : String(streamErr);
+      if (includeImages && /OutOfMemory|Failed to allocate/i.test(msg)) {
+        console.warn('Detected OOM during export with images. Retrying export without images.');
+        try {
+          // Clean up partially-written file
+          await FileSystem.deleteAsync(filePath, { idempotent: true });
+        } catch (delErr) {
+          console.warn('Failed to delete partial export file:', delErr);
+        }
+        // Retry without images
+        return await exportFolders(folderIds, onProgress, false);
+      }
+      // else we'll fallback to building full JSON below
+    }
+
+    // Fallback: build full exportData in memory and write as one string (older behavior)
+    try {
+      // Ensure file removed
+      await FileSystem.deleteAsync(filePath, { idempotent: true });
+    } catch (e) {}
+
+    // Rebuild exportData.folders (non-streaming mode)
+    exportData.folders = [];
     for (const folderId of folderIds) {
       const folderData = await exportFolderRecursive(
-        db, 
-        folderId, 
+        db,
+        folderId,
         (items) => {
           processedItems += items;
           const progress = Math.round((processedItems / totalItems) * 90); // 0-90%
           onProgress?.(progress, `Exporting data... ${processedItems}/${totalItems}`);
-        }
+        },
+        includeImages
       );
       exportData.folders.push(folderData);
     }
 
     onProgress?.(90, 'Generating file...');
 
-    // Generar archivo JSON
     const jsonString = String(JSON.stringify(exportData, null, 2));
-    const fileName = `gym_export_${Date.now()}.json`;
-    const filePath = `${FileSystem.cacheDirectory}${fileName}`;
-
-    await FileSystem.writeAsStringAsync(filePath, jsonString, {
-      encoding: 'utf8'
-    });
+    try {
+      await FileSystem.writeAsStringAsync(filePath, jsonString, { encoding: 'utf8' } as any);
+    } catch (writeErr: any) {
+      const msg = writeErr instanceof Error ? writeErr.message : String(writeErr);
+      if (includeImages && /OutOfMemory|Failed to allocate/i.test(msg)) {
+        console.warn('OOM while writing full export with images. Retrying without images.');
+        try {
+          await FileSystem.deleteAsync(filePath, { idempotent: true });
+        } catch (delErr) {}
+        return await exportFolders(folderIds, onProgress, false);
+      }
+      throw writeErr;
+    }
 
     onProgress?.(95, 'Sharing file...');
 
-    // Compartir archivo
     if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(filePath, {
         mimeType: 'application/json',
@@ -298,7 +571,6 @@ export async function exportFolders(
     }
 
     onProgress?.(100, 'Export completed!');
-    
     return filePath;
   } catch (error) {
     console.error('Error en exportación:', error);
@@ -310,7 +582,8 @@ export async function exportFolders(
  * Exportar toda la base de datos (todos los folders raíz) como una sola exportación robusta
  */
 export async function exportAllFolders(
-  onProgress?: (progress: number, message: string) => void
+  onProgress?: (progress: number, message: string) => void,
+  includeImages = false
 ): Promise<string> {
   try {
     // Obtener carpetas raíz
@@ -331,7 +604,7 @@ export async function exportAllFolders(
       throw new Error('No folders to export');
     }
 
-    return await exportFolders(folderIds, onProgress);
+    return await exportFolders(folderIds, onProgress, includeImages);
   } catch (error) {
     console.error('Error exportando todo:', error);
     throw new Error(`Error exporting all: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -380,6 +653,7 @@ async function exportFolderRecursive(
   database: SQLite.SQLiteDatabase,
   folderId: number,
   onItemProcessed: (itemCount: number) => void
+  , includeImages = true
 ): Promise<FolderExportData> {
   // Obtener folder
   const folders = await database.getAllAsync<Folder>(
@@ -407,7 +681,7 @@ async function exportFolderRecursive(
   );
 
   for (const subfolder of subfolders) {
-    const subfolderData = await exportFolderRecursive(database, subfolder.id, onItemProcessed);
+    const subfolderData = await exportFolderRecursive(database, subfolder.id, onItemProcessed, includeImages);
     folderData.subfolders.push(subfolderData);
   }
 
@@ -418,7 +692,7 @@ async function exportFolderRecursive(
   );
 
   for (const competition of competitions) {
-    const competitionData = await exportCompetition(database, competition, onItemProcessed);
+    const competitionData = await exportCompetition(database, competition, onItemProcessed, includeImages);
     folderData.competitions.push(competitionData);
   }
 
@@ -432,6 +706,7 @@ async function exportCompetition(
   database: SQLite.SQLiteDatabase,
   competition: Competition,
   onItemProcessed: (itemCount: number) => void
+  , includeImages = true
 ): Promise<CompetitionExportData> {
   onItemProcessed(1);
 
@@ -447,7 +722,7 @@ async function exportCompetition(
   );
 
   for (const gymnast of gymnasts) {
-    const gymnastData = await exportGymnast(database, gymnast);
+    const gymnastData = await exportGymnast(database, gymnast, includeImages);
     competitionData.gymnasts.push(gymnastData);
     onItemProcessed(1);
   }
@@ -461,6 +736,7 @@ async function exportCompetition(
 async function exportGymnast(
   database: SQLite.SQLiteDatabase,
   gymnast: Gymnast
+  , includeImages = true
 ): Promise<GymnastExportData> {
   const gymnastData: GymnastExportData = {
     gymnast,
@@ -468,33 +744,44 @@ async function exportGymnast(
     traces: []
   };
 
-  // Exportar imágenes con datos base64
-  const images = await database.getAllAsync<GymnastImage>(
-    'SELECT * FROM gymnast_images WHERE gymnast_id = ? ORDER BY order_index',
-    [gymnast.id]
-  );
+  if (includeImages) {
+    // Exportar imágenes con datos base64
+    const images = await database.getAllAsync<GymnastImage>(
+      'SELECT * FROM gymnast_images WHERE gymnast_id = ? ORDER BY order_index',
+      [gymnast.id]
+    );
 
-  for (const image of images) {
-    try {
-      // Verificar si el archivo existe antes de leerlo
-      const fileInfo = await FileSystem.getInfoAsync(image.image_uri);
-      if (!fileInfo.exists) {
-        console.warn(`Imagen no encontrada: ${image.image_uri}`);
-        continue;
+    for (const image of images) {
+      try {
+        // Verificar si el archivo existe antes de leerlo
+        const fileInfo = await FileSystem.getInfoAsync(image.image_uri);
+        if (!fileInfo.exists) {
+          console.warn(`Imagen no encontrada: ${image.image_uri}`);
+          continue;
+        }
+
+        // Leer imagen como base64 usando EncodingType correcto
+        const base64 = await FileSystem.readAsStringAsync(image.image_uri, {
+          encoding: 'base64'
+        });
+
+        gymnastData.images.push({
+          image,
+          imageData: base64
+        });
+      } catch (error) {
+        console.warn(`No se pudo leer imagen ${image.image_uri}:`, error);
+        // Continuar sin esta imagen
       }
-
-      // Leer imagen como base64 usando EncodingType correcto
-      const base64 = await FileSystem.readAsStringAsync(image.image_uri, {
-        encoding: 'base64'
-      });
-
-      gymnastData.images.push({
-        image,
-        imageData: base64
-      });
-    } catch (error) {
-      console.warn(`No se pudo leer imagen ${image.image_uri}:`, error);
-      // Continuar sin esta imagen
+    }
+  } else {
+    // Do not embed image binary data to avoid memory blowups; only include metadata
+    const imagesMeta = await database.getAllAsync<GymnastImage>(
+      'SELECT id, gymnast_id, image_uri, position_x, position_y, rotation, scale, order_index FROM gymnast_images WHERE gymnast_id = ? ORDER BY order_index',
+      [gymnast.id]
+    );
+    for (const imgMeta of imagesMeta) {
+      gymnastData.images.push({ image: imgMeta as GymnastImage, imageData: '' });
     }
   }
 
@@ -545,107 +832,123 @@ export async function importFolders(
       message: 'Reading file...'
     });
 
-    // Leer archivo
-    const fileContent = await FileSystem.readAsStringAsync(fileUri, {
-      encoding: 'utf8'
-    });
+    // Leer archivo completo (necesario para parsing incremental)
+    const fileContent = await FileSystem.readAsStringAsync(fileUri, { encoding: 'utf8' });
 
-    // Parse y normalizar para soportar formatos antiguos
-    const raw = JSON.parse(fileContent);
-    let exportData: ExportData;
-    try {
-      exportData = normalizeExportData(raw);
-    } catch (e) {
-      throw new Error('Invalid import file');
-    }
+    // Extraer metadata (si existe)
+    const meta = extractExportMetadata(fileContent);
 
-    // Usar la instancia de base de datos ya inicializada
-    // Contar total de items
+    // Primera pasada: contar items usando parsing incremental (menos memoria)
     let totalFolders = 0;
     let totalCompetitions = 0;
     let totalGymnasts = 0;
 
-    const countItems = (folders: FolderExportData[]) => {
-      for (const folderData of folders) {
-        totalFolders++;
-        totalCompetitions += folderData.competitions.length;
-        for (const comp of folderData.competitions) {
-          totalGymnasts += comp.gymnasts.length;
-        }
-        if (folderData.subfolders.length > 0) {
-          countItems(folderData.subfolders);
-        }
-      }
-    };
+    try {
+      for (const rawFolderObj of iterateTopLevelFolderObjects(fileContent)) {
+        const folderData = normalizeFolderEntry(rawFolderObj);
 
-    countItems(exportData.folders);
+        const walk = (fd: FolderExportData) => {
+          totalFolders++;
+          totalCompetitions += (fd.competitions || []).length;
+          for (const comp of fd.competitions || []) {
+            totalGymnasts += (comp.gymnasts || []).length;
+          }
+          for (const sf of fd.subfolders || []) walk(sf);
+        };
+        walk(folderData);
+      }
+    } catch (e) {
+      // Si falla el parsing incremental, fallback al parse completo por compatibilidad
+      try {
+        const raw = JSON.parse(fileContent);
+        const exportData = normalizeExportData(raw);
+        for (const fd of exportData.folders) {
+          const walk = (f: FolderExportData) => {
+            totalFolders++;
+            totalCompetitions += (f.competitions || []).length;
+            for (const comp of f.competitions || []) totalGymnasts += (comp.gymnasts || []).length;
+            for (const sf of f.subfolders || []) walk(sf);
+          };
+          walk(fd);
+        }
+      } catch (err) {
+        throw new Error('Invalid import file');
+      }
+    }
 
     let processedFolders = 0;
     let processedCompetitions = 0;
     let processedGymnasts = 0;
 
-    // Importar folders (cada folder en su propia transacción; limpiar archivos si falla)
-    for (const folderData of exportData.folders) {
-      const createdFiles: string[] = [];
-      try {
-        await db.execAsync('BEGIN TRANSACTION');
+    // Segunda pasada: importar folder a folder (cada uno en su transacción)
+    try {
+      for (const rawFolderObj of iterateTopLevelFolderObjects(fileContent)) {
+        const folderData = normalizeFolderEntry(rawFolderObj);
+        const createdFiles: string[] = [];
 
-        await importFolderRecursive(
-          db,
-          folderData,
-          parentFolderId,
-          {
-            onFolderImported: () => {
-              processedFolders++;
-              onProgress?.({
-                stage: 'folders',
-                current: processedFolders,
-                total: totalFolders,
-                message: `Importing folders... ${processedFolders}/${totalFolders}`
-              });
-            },
-            onCompetitionImported: () => {
-              processedCompetitions++;
-              onProgress?.({
-                stage: 'competitions',
-                current: processedCompetitions,
-                total: totalCompetitions,
-                message: `Importing competitions... ${processedCompetitions}/${totalCompetitions}`
-              });
-            },
-            onGymnastImported: () => {
-              processedGymnasts++;
-              onProgress?.({
-                stage: 'gymnasts',
-                current: processedGymnasts,
-                total: totalGymnasts,
-                message: `Importing gymnasts... ${processedGymnasts}/${totalGymnasts}`
-              });
-            }
-          },
-          createdFiles
-        );
-
-        await db.execAsync('COMMIT');
-      } catch (folderErr) {
         try {
-          await db.execAsync('ROLLBACK');
-        } catch (rbErr) {
-          console.warn('Failed to rollback transaction after import error:', rbErr);
-        }
+          await db.execAsync('BEGIN TRANSACTION');
 
-        // Try to remove any files that were written during this folder import
-        for (const f of createdFiles) {
+          await importFolderRecursive(
+            db,
+            folderData,
+            parentFolderId,
+            {
+              onFolderImported: () => {
+                processedFolders++;
+                onProgress?.({
+                  stage: 'folders',
+                  current: processedFolders,
+                  total: totalFolders,
+                  message: `Importing folders... ${processedFolders}/${totalFolders}`
+                });
+              },
+              onCompetitionImported: () => {
+                processedCompetitions++;
+                onProgress?.({
+                  stage: 'competitions',
+                  current: processedCompetitions,
+                  total: totalCompetitions,
+                  message: `Importing competitions... ${processedCompetitions}/${totalCompetitions}`
+                });
+              },
+              onGymnastImported: () => {
+                processedGymnasts++;
+                onProgress?.({
+                  stage: 'gymnasts',
+                  current: processedGymnasts,
+                  total: totalGymnasts,
+                  message: `Importing gymnasts... ${processedGymnasts}/${totalGymnasts}`
+                });
+              }
+            },
+            createdFiles
+          );
+
+          await db.execAsync('COMMIT');
+        } catch (folderErr) {
           try {
-            await FileSystem.deleteAsync(f, { idempotent: true });
-          } catch (delErr) {
-            console.warn('Failed to delete imported file during rollback:', f, delErr);
+            await db.execAsync('ROLLBACK');
+          } catch (rbErr) {
+            console.warn('Failed to rollback transaction after import error:', rbErr);
           }
-        }
 
-        // Re-throw to abort the entire import (keeps previous behavior)
-        throw folderErr;
+          // Try to remove any files that were written during this folder import
+          for (const f of createdFiles) {
+            try {
+              await FileSystem.deleteAsync(f, { idempotent: true });
+            } catch (delErr) {
+              console.warn('Failed to delete imported file during rollback:', f, delErr);
+            }
+          }
+
+          // Re-throw to abort the entire import (keeps previous behavior)
+          throw folderErr;
+        }
       }
+    } catch (e) {
+      // rethrow
+      throw e;
     }
 
     onProgress?.({
@@ -995,48 +1298,57 @@ export async function validateImportFile(fileUri: string): Promise<{
   };
 }> {
   try {
-    const jsonString = await FileSystem.readAsStringAsync(fileUri, {
-      encoding: 'utf8'
-    });
+    const jsonString = await FileSystem.readAsStringAsync(fileUri, { encoding: 'utf8' });
 
-    // Parse y normalizar para soportar formatos antiguos
-    const raw = JSON.parse(jsonString);
-    let exportData: ExportData;
-    try {
-      exportData = normalizeExportData(raw);
-    } catch (e) {
-      return { valid: false, error: 'Invalid file format' };
-    }
+    // Extraer metadata y contar items con parsing incremental (menos memoria)
+    const meta = extractExportMetadata(jsonString);
 
-    // Contar items
     let folderCount = 0;
     let competitionCount = 0;
     let gymnastCount = 0;
 
-    const count = (folders: FolderExportData[]) => {
-      for (const folderData of folders) {
-        folderCount++;
-        competitionCount += folderData.competitions.length;
-        for (const comp of folderData.competitions) {
-          gymnastCount += comp.gymnasts.length;
-        }
-        if (folderData.subfolders.length > 0) {
-          count(folderData.subfolders);
-        }
-      }
-    };
+    try {
+      for (const rawFolderObj of iterateTopLevelFolderObjects(jsonString)) {
+        const fd = normalizeFolderEntry(rawFolderObj);
 
-    count(exportData.folders);
-
-    return {
-      valid: true,
-      summary: {
-        version: exportData.version,
-        folderCount,
-        competitionCount,
-        gymnastCount
+        const walk = (f: FolderExportData) => {
+          folderCount++;
+          competitionCount += (f.competitions || []).length;
+          for (const comp of f.competitions || []) gymnastCount += (comp.gymnasts || []).length;
+          for (const sf of f.subfolders || []) walk(sf);
+        };
+        walk(fd);
       }
-    };
+
+      return {
+        valid: true,
+        summary: {
+          version: meta.version,
+          folderCount,
+          competitionCount,
+          gymnastCount
+        }
+      };
+    } catch (e) {
+      // Fallback: intentar parse completo para compatibilidad
+      try {
+        const raw = JSON.parse(jsonString);
+        const exportData = normalizeExportData(raw);
+        let fC = 0; let cC = 0; let gC = 0;
+        const walk2 = (folders: FolderExportData[]) => {
+          for (const folderData of folders) {
+            fC++;
+            cC += folderData.competitions.length;
+            for (const comp of folderData.competitions) gC += comp.gymnasts.length;
+            if (folderData.subfolders.length > 0) walk2(folderData.subfolders);
+          }
+        };
+        walk2(exportData.folders);
+        return { valid: true, summary: { version: exportData.version, folderCount: fC, competitionCount: cC, gymnastCount: gC } };
+      } catch (err) {
+        return { valid: false, error: 'Invalid file format' };
+      }
+    }
   } catch (error) {
     return {
       valid: false,

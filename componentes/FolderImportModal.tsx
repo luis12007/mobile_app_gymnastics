@@ -289,8 +289,8 @@ export default function FolderImportModal({
                   onPress={handleImportAll}
                   disabled={importing}
                 >
-                  <Text style={styles.importButtonText}>
-                    Import Here
+                  <Text style={[styles.importButtonText, styles.importAllButtonText]}>
+                    Import All
                   </Text>
                 </TouchableOpacity>
 
@@ -465,6 +465,11 @@ const styles = StyleSheet.create({
     zIndex: 1000,
   },
   importAllButton: {
-    backgroundColor: '#34C759',
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#d0d0d0'
+  },
+  importAllButtonText: {
+    color: '#007AFF',
   },
 });
