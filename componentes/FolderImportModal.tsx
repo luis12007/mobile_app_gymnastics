@@ -11,7 +11,14 @@ import {
   useWindowDimensions,
   Platform
 } from 'react-native';
-import { importFolders, ImportProgress } from '../lib/folderImportExport';
+import { importPackageV2 } from '../lib/folderImportExportV2';
+
+interface ImportProgress {
+  stage: 'folders' | 'competitions' | 'gymnasts' | 'images' | 'traces' | 'complete';
+  current: number;
+  total: number;
+  message: string;
+}
 
 interface FolderImportModalProps {
   visible: boolean;
@@ -80,42 +87,21 @@ export default function FolderImportModal({
           onPress: async () => {
             try {
               setImporting(true);
-              setProgress({
-                stage: 'folders',
-                current: 0,
-                total: 1,
-                message: 'Starting...'
+              setProgress({ stage: 'folders', current: 0, total: 1, message: 'Starting...' });
+
+              await importPackageV2(currentFolderId ?? null, (stage, current, total, message) => {
+                setProgress({ stage: stage as any, current, total, message });
               });
 
-              await importFolders(
-                currentFolderId ?? null,
-                (prog) => {
-                  setProgress(prog);
-                }
-              );
-
-              Alert.alert(
-                'Import Successful!',
-                'Data was imported successfully.',
-                [
-                  {
-                    text: 'OK',
-                    onPress: () => {
-                      onImportComplete();
-                      onClose();
-                    }
-                  }
-                ]
-              );
+              Alert.alert('Import Successful!', 'Data was imported successfully.', [
+                { text: 'OK', onPress: () => { onImportComplete(); onClose(); } }
+              ]);
             } catch (error: any) {
               const msg = error instanceof Error ? error.message : String(error);
               const isCanceled = /cancel/i.test(msg);
               if (!isCanceled) {
                 console.error('Error en importación:', error);
-                Alert.alert(
-                  'Error',
-                  `Could not complete the import:\n${msg}`
-                );
+                Alert.alert('Error', `Could not complete the import:\n${msg}`);
               }
               onClose();
             } finally {
@@ -141,24 +127,15 @@ export default function FolderImportModal({
           onPress: async () => {
             try {
               setImporting(true);
-              setProgress({
-                stage: 'folders',
-                current: 0,
-                total: 1,
-                message: 'Starting full import...'
-              });
+              setProgress({ stage: 'folders', current: 0, total: 1, message: 'Starting full import...' });
 
               // Import into currentFolderId (null => root)
-              await importFolders(currentFolderId ?? null, (prog) => setProgress(prog));
+              await importPackageV2(currentFolderId ?? null, (stage, current, total, message) => {
+                setProgress({ stage: stage as any, current, total, message });
+              });
 
               Alert.alert('Import Successful!', 'Full database import completed.', [
-                {
-                  text: 'OK',
-                  onPress: () => {
-                    onImportComplete();
-                    onClose();
-                  }
-                }
+                { text: 'OK', onPress: () => { onImportComplete(); onClose(); } }
               ]);
             } catch (error: any) {
               const msg = error instanceof Error ? error.message : String(error);
@@ -284,18 +261,10 @@ export default function FolderImportModal({
                   </Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={[styles.importButton, styles.importAllButton]}
-                  onPress={handleImportAll}
-                  disabled={importing}
-                >
-                  <Text style={[styles.importButtonText, styles.importAllButtonText]}>
-                    Import All
-                  </Text>
-                </TouchableOpacity>
+                {/* Import All is available via long-press on top-right hidden area */}
 
                 <Text style={styles.fileTypeInfo}>
-                  Supported files: .json
+                  Supported files: .json, .zip
                 </Text>
               </View>
             )}

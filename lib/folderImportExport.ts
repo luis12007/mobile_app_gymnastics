@@ -2,6 +2,14 @@ import * as SQLite from 'expo-sqlite';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
+// Zip library (native). Use require to avoid TS type issues if not present at runtime.
+// Will be available in the dev build after installing `react-native-zip-archive`.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const zipLib: any = (() => {
+  try { return require('react-native-zip-archive'); } catch (e) { return null; }
+})();
+const rnZip: ((source: string, target: string) => Promise<string>) | null = zipLib ? zipLib.zip : null;
+const rnUnzip: ((source: string, target: string) => Promise<string>) | null = zipLib ? zipLib.unzip : null;
 import { 
   db,
   Folder, 
@@ -230,6 +238,26 @@ function extractExportMetadata(fileContent: string): { version: string; exportDa
   return { version: versionMatch ? versionMatch[1] : '0.0.0', exportDate: dateMatch ? dateMatch[1] : undefined };
 }
 
+// ==================== FILESYSTEM HELPERS ====================
+
+function stripFileProtocol(p: string): string {
+  if (!p) return p;
+  return p.startsWith('file://') ? p.replace(/^file:\/\//, '') : p;
+}
+
+function ensureFsUri(p: string): string {
+  if (!p) return p;
+  return p.startsWith('file://') ? p : `file://${p}`;
+}
+
+async function ensureDir(dir: string) {
+  try {
+    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+  } catch (e) {
+    // ignore
+  }
+}
+
 // ==================== NORMALIZACIÓN / RETROCOMPATIBILIDAD ====================
 
 function toNumber(v: any, def = 0): number {
@@ -423,6 +451,15 @@ export async function exportFolders(
   try {
     onProgress?.(0, 'Starting export...');
     
+    // If images should be included and zip library is available, create a package ZIP
+    if (includeImages && rnZip) {
+      try {
+        return await exportAsPackage(folderIds, onProgress);
+      } catch (pkgErr) {
+        console.warn('Package export failed, falling back to JSON export:', pkgErr);
+        // continue to fallback behavior
+      }
+    }
     // Usar la instancia de base de datos ya inicializada
     const exportData: ExportData = {
       version: '1.0.0',
@@ -459,7 +496,7 @@ export async function exportFolders(
           folderId,
           (items) => {
             processedItems += items;
-            const progress = Math.round((processedItems / totalItems) * 90); // 0-90%
+            const progress = Math.min(Math.round((processedItems / totalItems) * 90), 90); // cap to 0-90%
             onProgress?.(progress, `Exporting data... ${processedItems}/${totalItems}`);
           },
           includeImages
@@ -523,6 +560,8 @@ export async function exportFolders(
 
     // Fallback: build full exportData in memory and write as one string (older behavior)
     try {
+      // reset processed counter before rebuilding to avoid double-counting from the streaming attempt
+      processedItems = 0;
       // Ensure file removed
       await FileSystem.deleteAsync(filePath, { idempotent: true });
     } catch (e) {}
@@ -535,7 +574,7 @@ export async function exportFolders(
         folderId,
         (items) => {
           processedItems += items;
-          const progress = Math.round((processedItems / totalItems) * 90); // 0-90%
+          const progress = Math.min(Math.round((processedItems / totalItems) * 90), 90); // cap to 0-90%
           onProgress?.(progress, `Exporting data... ${processedItems}/${totalItems}`);
         },
         includeImages
@@ -609,6 +648,158 @@ export async function exportAllFolders(
     console.error('Error exportando todo:', error);
     throw new Error(`Error exporting all: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
+}
+
+/**
+ * Export as package (folder with metadata.json + images/) and zip it.
+ * Avoids embedding base64 in memory by copying image files directly.
+ */
+async function exportAsPackage(
+  folderIds: number[],
+  onProgress?: (progress: number, message: string) => void
+): Promise<string> {
+  if (!rnZip) {
+    throw new Error('Zip library not available');
+  }
+  onProgress?.(10, 'Preparing package...');
+
+  // Create temp package folder structure: metadata/ + images/
+  const tmpDir = `${FileSystem.cacheDirectory}gym_export_pkg_${Date.now()}/`;
+  const imagesDir = `${tmpDir}images/`;
+  const metadataDir = `${tmpDir}metadata/`;
+  await ensureDir(tmpDir);
+  await ensureDir(imagesDir);
+  await ensureDir(metadataDir);
+
+  // Map to avoid copying duplicate images
+  const copiedMap = new Map<string, string>(); // originalUri -> relative path in package
+  let imgCounter = 0;
+
+  const walkAndCopySingle = async (f: FolderExportData) => {
+    // recursive walker that copies images found in a folder export object
+    for (const comp of f.competitions || []) {
+      for (const g of comp.gymnasts || []) {
+        for (const img of g.images || []) {
+          const origUri = img.image?.image_uri || (img.image as any)?.uri || '';
+          if (!origUri) continue;
+          if (copiedMap.has(origUri)) {
+            img.image.image_uri = copiedMap.get(origUri) || '';
+            continue;
+          }
+
+          try {
+            const info = await FileSystem.getInfoAsync(ensureFsUri(origUri));
+            if (!info.exists) {
+              console.warn('Image not found for packaging:', origUri);
+              img.image.image_uri = '';
+              continue;
+            }
+
+            const extMatch = origUri.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
+            const ext = extMatch ? `.${extMatch[1]}` : '.jpg';
+            const fname = `img_${Date.now()}_${imgCounter++}${ext}`;
+            const destPath = `${imagesDir}${fname}`;
+
+            try {
+              await FileSystem.copyAsync({ from: ensureFsUri(origUri), to: ensureFsUri(destPath) });
+              (img.image as any).original_uri = origUri;
+              img.image.image_uri = `images/${fname}`;
+              copiedMap.set(origUri, `images/${fname}`);
+            } catch (copyErr) {
+              console.warn('Failed copying image for package:', origUri, copyErr);
+              img.image.image_uri = '';
+            }
+          } catch (err) {
+            console.warn('Error checking image for package:', origUri, err);
+            img.image.image_uri = '';
+          }
+        }
+      }
+    }
+    if (f.subfolders && f.subfolders.length) {
+      for (const sf of f.subfolders) await walkAndCopySingle(sf);
+    }
+  };
+
+  const folderFiles: string[] = [];
+
+  // Export each root folder as an individual metadata file to avoid large in-memory JSON blobs
+  let exportedCount = 0;
+  for (const folderId of folderIds) {
+    onProgress?.(20 + Math.round((exportedCount / Math.max(1, folderIds.length)) * 30), `Exporting folder ${folderId}...`);
+
+    const fd = await exportFolderRecursive(db, folderId, (items) => {}, false);
+
+    // Copy images referenced by this folder's tree into imagesDir and update metadata to point to package-relative paths
+    await walkAndCopySingle(fd);
+
+    // Write per-folder metadata file
+    const fname = `folder_${folderId}.json`;
+    const targetPath = `${metadataDir}${fname}`;
+    try {
+      await FileSystem.writeAsStringAsync(targetPath, JSON.stringify(fd, null, 2), { encoding: 'utf8' } as any);
+      folderFiles.push(`metadata/${fname}`);
+    } catch (writeErr) {
+      console.warn('Failed writing per-folder metadata file:', targetPath, writeErr);
+      throw writeErr;
+    }
+
+    exportedCount++;
+  }
+
+  // Write top-level metadata.json describing the package (small object)
+  onProgress?.(60, 'Writing package index...');
+  const packageMeta: ExportData = {
+    version: '1.0.0',
+    exportDate: new Date().toISOString(),
+    folders: [] // we keep list of files in root metadata.json via 'files' prop below to remain small
+  } as any;
+
+  const indexObj: any = {
+    version: packageMeta.version,
+    exportDate: packageMeta.exportDate,
+    files: folderFiles
+  };
+
+  try {
+    await FileSystem.writeAsStringAsync(`${tmpDir}metadata.json`, JSON.stringify(indexObj, null, 2), { encoding: 'utf8' } as any);
+  } catch (idxErr) {
+    console.warn('Failed writing package index metadata.json:', idxErr);
+    throw idxErr;
+  }
+
+  onProgress?.(70, 'Compressing package...');
+
+  const zipPath = `${FileSystem.cacheDirectory}gym_export_${Date.now()}.zip`;
+  try {
+    const sourceNative = stripFileProtocol(tmpDir);
+    const targetNative = stripFileProtocol(zipPath);
+    await rnZip(sourceNative, targetNative);
+  } catch (zipErr) {
+    console.warn('Zip creation failed:', zipErr);
+    throw zipErr;
+  }
+
+  onProgress?.(90, 'Sharing package...');
+  try {
+    await Sharing.shareAsync(ensureFsUri(zipPath), {
+      mimeType: 'application/zip',
+      dialogTitle: 'Export Gymnastics Package',
+      UTI: 'public.zip'
+    });
+  } catch (shareErr) {
+    console.warn('Failed to share package:', shareErr);
+  }
+
+  // Cleanup temp folder
+  try {
+    await FileSystem.deleteAsync(tmpDir, { idempotent: true });
+  } catch (cleanupErr) {
+    // ignore
+  }
+
+  onProgress?.(100, 'Export completed!');
+  return zipPath;
 }
 
 /**
@@ -813,9 +1004,9 @@ export async function importFolders(
       message: 'Selecting file...'
     });
 
-    // Seleccionar archivo
+    // Seleccionar archivo (JSON or ZIP packages)
     const result = await DocumentPicker.getDocumentAsync({
-      type: 'application/json',
+      type: '*/*',
       copyToCacheDirectory: true
     });
 
@@ -825,54 +1016,143 @@ export async function importFolders(
 
     const fileUri = result.assets[0].uri;
 
-    onProgress?.({
-      stage: 'folders',
-      current: 0,
-      total: 1,
-      message: 'Reading file...'
-    });
+    onProgress?.({ stage: 'folders', current: 0, total: 1, message: 'Reading file...' });
 
-    // Leer archivo completo (necesario para parsing incremental)
-    const fileContent = await FileSystem.readAsStringAsync(fileUri, { encoding: 'utf8' });
+    const isZip = (result.assets[0].name || fileUri || '').toLowerCase().endsWith('.zip');
 
-    // Extraer metadata (si existe)
-    const meta = extractExportMetadata(fileContent);
-
-    // Primera pasada: contar items usando parsing incremental (menos memoria)
     let totalFolders = 0;
     let totalCompetitions = 0;
     let totalGymnasts = 0;
+    let packageDir: string | undefined;
 
-    try {
-      for (const rawFolderObj of iterateTopLevelFolderObjects(fileContent)) {
-        const folderData = normalizeFolderEntry(rawFolderObj);
+    let parsedFolders: FolderExportData[] = [];
 
-        const walk = (fd: FolderExportData) => {
-          totalFolders++;
-          totalCompetitions += (fd.competitions || []).length;
-          for (const comp of fd.competitions || []) {
-            totalGymnasts += (comp.gymnasts || []).length;
-          }
-          for (const sf of fd.subfolders || []) walk(sf);
-        };
-        walk(folderData);
-      }
-    } catch (e) {
-      // Si falla el parsing incremental, fallback al parse completo por compatibilidad
+    if (isZip && rnUnzip) {
+      // Unzip to cache and read metadata.json or metadata/ directory
+      const tmp = `${FileSystem.cacheDirectory}import_pkg_${Date.now()}/`;
+      await ensureDir(tmp);
       try {
-        const raw = JSON.parse(fileContent);
-        const exportData = normalizeExportData(raw);
-        for (const fd of exportData.folders) {
-          const walk = (f: FolderExportData) => {
-            totalFolders++;
-            totalCompetitions += (f.competitions || []).length;
-            for (const comp of f.competitions || []) totalGymnasts += (comp.gymnasts || []).length;
-            for (const sf of f.subfolders || []) walk(sf);
-          };
-          walk(fd);
+        await rnUnzip(stripFileProtocol(fileUri), stripFileProtocol(tmp));
+      } catch (uzErr) {
+        throw new Error(`Failed to unzip package: ${uzErr instanceof Error ? uzErr.message : String(uzErr)}`);
+      }
+      packageDir = tmp; // pass to import routines (ensureFsUri used when copying)
+
+      // Try to read top-level metadata.json (new index format) or fall back to metadata/ folder or legacy metadata.json with folders
+      const metaPathFsUri = ensureFsUri(`${tmp}metadata.json`);
+      const metaInfo = await FileSystem.getInfoAsync(metaPathFsUri).catch(() => ({ exists: false } as any));
+
+      if (metaInfo && metaInfo.exists) {
+        // metadata.json exists. It can be either a small index with 'files' or a legacy exportData object with 'folders'.
+        let metaText = '';
+        try {
+          metaText = await FileSystem.readAsStringAsync(metaPathFsUri, { encoding: 'utf8' } as any);
+        } catch (readErr) {
+          throw new Error('Package metadata unreadable');
         }
-      } catch (err) {
-        throw new Error('Invalid import file');
+
+        try {
+          const rawIndex = JSON.parse(metaText);
+
+          if (Array.isArray(rawIndex.files)) {
+            // New index format: list of metadata files to load
+            for (const relPath of rawIndex.files) {
+              try {
+                const p = `${tmp}${relPath}`;
+                const txt = await FileSystem.readAsStringAsync(ensureFsUri(p), { encoding: 'utf8' } as any);
+                const rawFolder = JSON.parse(txt);
+                const fd = normalizeFolderEntry(rawFolder);
+                parsedFolders.push(fd);
+              } catch (pfErr) {
+                console.warn('Failed reading folder metadata entry in package:', pfErr);
+              }
+            }
+          } else if (Array.isArray(rawIndex.folders)) {
+            // Legacy: metadata.json contains full exportData
+            const exportData = normalizeExportData(rawIndex);
+            parsedFolders = exportData.folders;
+          } else {
+            // Unknown shape, try to normalize as export data
+            const exportData = normalizeExportData(rawIndex);
+            parsedFolders = exportData.folders;
+          }
+        } catch (err) {
+          throw new Error('Invalid package metadata');
+        }
+      } else {
+        // No top-level metadata.json; try metadata/ directory with per-folder files
+        const metaDirPath = `${tmp}metadata/`;
+        const dirInfo = await FileSystem.getInfoAsync(ensureFsUri(metaDirPath)).catch(() => ({ exists: false } as any));
+        if (dirInfo && dirInfo.exists) {
+          try {
+            const files = await FileSystem.readDirectoryAsync(metaDirPath);
+            for (const f of files) {
+              if (!f.toLowerCase().endsWith('.json')) continue;
+              try {
+                const txt = await FileSystem.readAsStringAsync(`${metaDirPath}${f}`, { encoding: 'utf8' } as any);
+                const rawFolder = JSON.parse(txt);
+                const fd = normalizeFolderEntry(rawFolder);
+                parsedFolders.push(fd);
+              } catch (rfErr) {
+                console.warn('Failed reading per-folder metadata file during import validation:', rfErr);
+              }
+            }
+          } catch (rdErr) {
+            throw new Error('Package missing metadata.json or metadata/ directory');
+          }
+        } else {
+          throw new Error('Package missing metadata.json');
+        }
+      }
+
+      // count
+      const walk = (fd: FolderExportData) => {
+        totalFolders++;
+        totalCompetitions += (fd.competitions || []).length;
+        for (const comp of fd.competitions || []) totalGymnasts += (comp.gymnasts || []).length;
+        for (const sf of fd.subfolders || []) walk(sf);
+      };
+      for (const fd of parsedFolders) walk(fd);
+    } else {
+      // Leer archivo completo (necesario para parsing incremental)
+      const fileContent = await FileSystem.readAsStringAsync(fileUri, { encoding: 'utf8' });
+
+      // Extraer metadata (si existe)
+      const meta = extractExportMetadata(fileContent);
+
+      try {
+        for (const rawFolderObj of iterateTopLevelFolderObjects(fileContent)) {
+          const folderData = normalizeFolderEntry(rawFolderObj);
+
+          const walk = (fd: FolderExportData) => {
+            totalFolders++;
+            totalCompetitions += (fd.competitions || []).length;
+            for (const comp of fd.competitions || []) {
+              totalGymnasts += (comp.gymnasts || []).length;
+            }
+            for (const sf of fd.subfolders || []) walk(sf);
+          };
+          walk(folderData);
+          parsedFolders.push(folderData);
+        }
+      } catch (e) {
+        // Si falla el parsing incremental, fallback al parse completo por compatibilidad
+        try {
+          const raw = JSON.parse(fileContent);
+          const exportData = normalizeExportData(raw);
+          for (const fd of exportData.folders) {
+            const walk = (f: FolderExportData) => {
+              totalFolders++;
+              totalCompetitions += (f.competitions || []).length;
+              for (const comp of f.competitions || []) totalGymnasts += (comp.gymnasts || []).length;
+              for (const sf of f.subfolders || []) walk(sf);
+            };
+            walk(fd);
+            parsedFolders.push(fd);
+          }
+        } catch (err) {
+          throw new Error('Invalid import file');
+        }
       }
     }
 
@@ -882,8 +1162,7 @@ export async function importFolders(
 
     // Segunda pasada: importar folder a folder (cada uno en su transacción)
     try {
-      for (const rawFolderObj of iterateTopLevelFolderObjects(fileContent)) {
-        const folderData = normalizeFolderEntry(rawFolderObj);
+      for (const folderData of parsedFolders) {
         const createdFiles: string[] = [];
 
         try {
@@ -922,7 +1201,8 @@ export async function importFolders(
                 });
               }
             },
-            createdFiles
+            createdFiles,
+            packageDir
           );
 
           await db.execAsync('COMMIT');
@@ -951,12 +1231,12 @@ export async function importFolders(
       throw e;
     }
 
-    onProgress?.({
-      stage: 'complete',
-      current: 1,
-      total: 1,
-      message: 'Import completed successfully!'
-    });
+    onProgress?.({ stage: 'complete', current: 1, total: 1, message: 'Import completed successfully!' });
+
+    // Cleanup unzipped package folder if used
+    if (packageDir) {
+      try { await FileSystem.deleteAsync(packageDir, { idempotent: true }); } catch (e) {}
+    }
 
   } catch (error) {
     console.error('Error en importación:', error);
@@ -973,6 +1253,232 @@ export async function importAllFolders(
   return importFolders(null, onProgress);
 }
 
+/**
+ * Importar desde un archivo ya seleccionado (URI) — versión legacy.
+ * Útil cuando el picker ya se usó externamente o cuando otro módulo gestiona la selección.
+ */
+export async function importFoldersFromUri(
+  fileUri: string,
+  parentFolderId: number | null,
+  onProgress?: (progress: ImportProgress) => void
+): Promise<void> {
+  try {
+    onProgress?.({ stage: 'folders', current: 0, total: 1, message: 'Reading file...' });
+
+    const isZip = (fileUri || '').toLowerCase().endsWith('.zip');
+
+    let totalFolders = 0;
+    let totalCompetitions = 0;
+    let totalGymnasts = 0;
+    let packageDir: string | undefined;
+
+    let parsedFolders: FolderExportData[] = [];
+
+    if (isZip && rnUnzip) {
+      const tmp = `${FileSystem.cacheDirectory}import_pkg_${Date.now()}/`;
+      await ensureDir(tmp);
+      try {
+        await rnUnzip(stripFileProtocol(fileUri), stripFileProtocol(tmp));
+      } catch (uzErr) {
+        throw new Error(`Failed to unzip package: ${uzErr instanceof Error ? uzErr.message : String(uzErr)}`);
+      }
+      packageDir = tmp;
+
+      // Try to read top-level metadata.json (new index format) or fall back to metadata/ folder or legacy metadata.json with folders
+      const metaPathFsUri = ensureFsUri(`${tmp}metadata.json`);
+      const metaInfo = await FileSystem.getInfoAsync(metaPathFsUri).catch(() => ({ exists: false } as any));
+
+      if (metaInfo && metaInfo.exists) {
+        let metaText = '';
+        try {
+          metaText = await FileSystem.readAsStringAsync(metaPathFsUri, { encoding: 'utf8' } as any);
+        } catch (readErr) {
+          throw new Error('Package metadata unreadable');
+        }
+
+        try {
+          const rawIndex = JSON.parse(metaText);
+
+          if (Array.isArray(rawIndex.files)) {
+            for (const relPath of rawIndex.files) {
+              try {
+                const p = `${tmp}${relPath}`;
+                const txt = await FileSystem.readAsStringAsync(ensureFsUri(p), { encoding: 'utf8' } as any);
+                const rawFolder = JSON.parse(txt);
+                const fd = normalizeFolderEntry(rawFolder);
+                parsedFolders.push(fd);
+              } catch (pfErr) {
+                console.warn('Failed reading folder metadata entry in package:', pfErr);
+              }
+            }
+          } else if (Array.isArray(rawIndex.folders)) {
+            const exportData = normalizeExportData(rawIndex);
+            parsedFolders = exportData.folders;
+          } else {
+            const exportData = normalizeExportData(rawIndex);
+            parsedFolders = exportData.folders;
+          }
+        } catch (err) {
+          throw new Error('Invalid package metadata');
+        }
+      } else {
+        const metaDirPath = `${tmp}metadata/`;
+        const dirInfo = await FileSystem.getInfoAsync(ensureFsUri(metaDirPath)).catch(() => ({ exists: false } as any));
+        if (dirInfo && dirInfo.exists) {
+          try {
+            const files = await FileSystem.readDirectoryAsync(metaDirPath);
+            for (const f of files) {
+              if (!f.toLowerCase().endsWith('.json')) continue;
+              try {
+                const txt = await FileSystem.readAsStringAsync(`${metaDirPath}${f}`, { encoding: 'utf8' } as any);
+                const rawFolder = JSON.parse(txt);
+                const fd = normalizeFolderEntry(rawFolder);
+                parsedFolders.push(fd);
+              } catch (rfErr) {
+                console.warn('Failed reading per-folder metadata file during import validation:', rfErr);
+              }
+            }
+          } catch (rdErr) {
+            throw new Error('Package missing metadata.json or metadata/ directory');
+          }
+        } else {
+          throw new Error('Package missing metadata.json');
+        }
+      }
+
+      // count
+      const walk = (fd: FolderExportData) => {
+        totalFolders++;
+        totalCompetitions += (fd.competitions || []).length;
+        for (const comp of fd.competitions || []) totalGymnasts += (comp.gymnasts || []).length;
+        for (const sf of fd.subfolders || []) walk(sf);
+      };
+      for (const fd of parsedFolders) walk(fd);
+    } else {
+      // Leer archivo completo
+      const fileContent = await FileSystem.readAsStringAsync(fileUri, { encoding: 'utf8' } as any);
+
+      const meta = extractExportMetadata(fileContent);
+
+      try {
+        for (const rawFolderObj of iterateTopLevelFolderObjects(fileContent)) {
+          const folderData = normalizeFolderEntry(rawFolderObj);
+
+          const walk = (fd: FolderExportData) => {
+            totalFolders++;
+            totalCompetitions += (fd.competitions || []).length;
+            for (const comp of fd.competitions || []) {
+              totalGymnasts += (comp.gymnasts || []).length;
+            }
+            for (const sf of fd.subfolders || []) walk(sf);
+          };
+          walk(folderData);
+          parsedFolders.push(folderData);
+        }
+      } catch (e) {
+        try {
+          const raw = JSON.parse(fileContent);
+          const exportData = normalizeExportData(raw);
+          for (const fd of exportData.folders) {
+            const walk = (f: FolderExportData) => {
+              totalFolders++;
+              totalCompetitions += (f.competitions || []).length;
+              for (const comp of f.competitions || []) totalGymnasts += (comp.gymnasts || []).length;
+              for (const sf of f.subfolders || []) walk(sf);
+            };
+            walk(fd);
+            parsedFolders.push(fd);
+          }
+        } catch (err) {
+          throw new Error('Invalid import file');
+        }
+      }
+    }
+
+    let processedFolders = 0;
+    let processedCompetitions = 0;
+    let processedGymnasts = 0;
+
+    // Segunda pasada: importar folder a folder (cada uno en su transacción)
+    try {
+      for (const folderData of parsedFolders) {
+        const createdFiles: string[] = [];
+
+        try {
+          await db.execAsync('BEGIN TRANSACTION');
+
+          await importFolderRecursive(
+            db,
+            folderData,
+            parentFolderId,
+            {
+              onFolderImported: () => {
+                processedFolders++;
+                onProgress?.({
+                  stage: 'folders',
+                  current: processedFolders,
+                  total: totalFolders,
+                  message: `Importing folders... ${processedFolders}/${totalFolders}`
+                });
+              },
+              onCompetitionImported: () => {
+                processedCompetitions++;
+                onProgress?.({
+                  stage: 'competitions',
+                  current: processedCompetitions,
+                  total: totalCompetitions,
+                  message: `Importing competitions... ${processedCompetitions}/${totalCompetitions}`
+                });
+              },
+              onGymnastImported: () => {
+                processedGymnasts++;
+                onProgress?.({
+                  stage: 'gymnasts',
+                  current: processedGymnasts,
+                  total: totalGymnasts,
+                  message: `Importing gymnasts... ${processedGymnasts}/${totalGymnasts}`
+                });
+              }
+            },
+            createdFiles,
+            packageDir
+          );
+
+          await db.execAsync('COMMIT');
+        } catch (folderErr) {
+          try {
+            await db.execAsync('ROLLBACK');
+          } catch (rbErr) {
+            console.warn('Failed to rollback transaction after import error:', rbErr);
+          }
+
+          for (const f of createdFiles) {
+            try {
+              await FileSystem.deleteAsync(f, { idempotent: true });
+            } catch (delErr) {
+              console.warn('Failed to delete imported file during rollback:', f, delErr);
+            }
+          }
+
+          throw folderErr;
+        }
+      }
+    } catch (e) {
+      throw e;
+    }
+
+    onProgress?.({ stage: 'complete', current: 1, total: 1, message: 'Import completed successfully!' });
+
+    if (packageDir) {
+      try { await FileSystem.deleteAsync(packageDir, { idempotent: true }); } catch (e) {}
+    }
+
+  } catch (error) {
+    console.error('Error en importación (from URI):', error);
+    throw new Error(`Error importing: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
 interface ImportCallbacks {
   onFolderImported: () => void;
   onCompetitionImported: () => void;
@@ -987,7 +1493,8 @@ async function importFolderRecursive(
   folderData: FolderExportData,
   parentFolderId: number | null,
   callbacks: ImportCallbacks,
-  createdFiles?: string[]
+  createdFiles?: string[],
+  packageDir?: string
 ): Promise<number> {
   // Validar que folderData tenga la estructura correcta
   if (!folderData || !folderData.folder || typeof folderData.folder !== 'object') {
@@ -1063,12 +1570,12 @@ async function importFolderRecursive(
 
   // Importar competencias de este folder
   for (const competitionData of folderData.competitions || []) {
-    await importCompetition(database, competitionData, newFolderId, callbacks, createdFiles);
+    await importCompetition(database, competitionData, newFolderId, callbacks, createdFiles, packageDir);
   }
 
   // Importar subfolders recursivamente
   for (const subfolderData of folderData.subfolders || []) {
-    await importFolderRecursive(database, subfolderData, newFolderId, callbacks, createdFiles);
+    await importFolderRecursive(database, subfolderData, newFolderId, callbacks, createdFiles, packageDir);
   }
 
   return newFolderId;
@@ -1082,7 +1589,8 @@ async function importCompetition(
   competitionData: CompetitionExportData,
   newFolderId: number,
   callbacks: ImportCallbacks,
-  createdFiles?: string[]
+  createdFiles?: string[],
+  packageDir?: string
 ): Promise<number> {
   const comp = competitionData.competition;
 
@@ -1150,7 +1658,7 @@ async function importCompetition(
 
   // Importar gimnastas
   for (const gymnastData of competitionData.gymnasts || []) {
-    await importGymnast(database, gymnastData, newCompetitionId, createdFiles);
+    await importGymnast(database, gymnastData, newCompetitionId, createdFiles, packageDir);
     callbacks.onGymnastImported();
   }
 
@@ -1164,7 +1672,8 @@ async function importGymnast(
   database: SQLite.SQLiteDatabase,
   gymnastData: GymnastExportData,
   newCompetitionId: number,
-  createdFiles?: string[]
+  createdFiles?: string[],
+  packageDir?: string
 ): Promise<number> {
   const g = gymnastData.gymnast;
 
@@ -1232,18 +1741,50 @@ async function importGymnast(
   await FileSystem.makeDirectoryAsync(cacheDir, { intermediates: true }).catch(() => {});
 
   for (const imageData of gymnastData.images || []) {
-    // Guardar imagen desde base64
-    const fileName = `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.jpg`;
-    const newImageUri = `${cacheDir}${fileName}`;
+    const fileName = `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // Determine destination path and extension
+    const extMatch = (imageData.image?.image_uri || '').match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
+    const ext = extMatch ? `.${extMatch[1]}` : '.jpg';
+    const destFileName = `${fileName}${ext}`;
+    const newImageUri = `${cacheDir}${destFileName}`;
 
-    try {
-      // Intenta escribir el archivo; si falla, registrar y continuar
-      await FileSystem.writeAsStringAsync(newImageUri, imageData.imageData, {
-        encoding: 'base64'
-      });
-    } catch (writeErr) {
-      console.warn('Error writing image file during import, skipping image:', writeErr);
-      continue; // skip creating DB record for this image
+    // Case A: imageData.imageData is present (base64)
+    if (imageData.imageData) {
+      try {
+        await FileSystem.writeAsStringAsync(newImageUri, imageData.imageData, { encoding: 'base64' });
+      } catch (writeErr) {
+        console.warn('Error writing image file during import, skipping image:', writeErr);
+        continue;
+      }
+    } else if (packageDir) {
+      // Case B: packaged images — imageData.image.image_uri should be a relative path inside package
+      const rel = imageData.image?.image_uri || (imageData.image as any)?.uri || '';
+      if (!rel) {
+        // nothing to import
+        continue;
+      }
+
+      // Build source path inside package
+      const srcPath = rel.startsWith('file://') || rel.startsWith('/')
+        ? rel
+        : `${packageDir}${packageDir.endsWith('/') ? '' : '/'}${rel}`;
+
+      try {
+        const info = await FileSystem.getInfoAsync(ensureFsUri(srcPath));
+        if (!info.exists) {
+          console.warn('Packaged image not found:', srcPath);
+          continue;
+        }
+
+        // Copy from package to app document directory
+        await FileSystem.copyAsync({ from: ensureFsUri(srcPath), to: ensureFsUri(newImageUri) });
+      } catch (copyErr) {
+        console.warn('Error copying packaged image during import, skipping image:', copyErr);
+        continue;
+      }
+    } else {
+      // No image data and no package — skip
+      continue;
     }
 
     // Registrar el archivo creado para poder limpiarlo en caso de rollback
@@ -1298,6 +1839,86 @@ export async function validateImportFile(fileUri: string): Promise<{
   };
 }> {
   try {
+    // Detect ZIP package
+    const isZip = (fileUri || '').toLowerCase().endsWith('.zip');
+    if (isZip && rnUnzip) {
+      // Unzip to temporary location and read metadata.json or metadata/ directory
+      const tmp = `${FileSystem.cacheDirectory}import_pkg_validate_${Date.now()}/`;
+      await ensureDir(tmp);
+      try {
+        const src = stripFileProtocol(fileUri);
+        const dest = stripFileProtocol(tmp);
+        await rnUnzip(src, dest);
+      } catch (uzErr) {
+        return { valid: false, error: `Failed to unzip package: ${uzErr instanceof Error ? uzErr.message : String(uzErr)}` };
+      }
+
+      try {
+        // Check for top-level metadata.json
+        const metaInfo = await FileSystem.getInfoAsync(ensureFsUri(`${tmp}metadata.json`)).catch(() => ({ exists: false } as any));
+        let foldersToInspect: FolderExportData[] = [];
+
+        if (metaInfo && metaInfo.exists) {
+          const jsonString = await FileSystem.readAsStringAsync(ensureFsUri(`${tmp}metadata.json`), { encoding: 'utf8' } as any);
+          const rawIndex = JSON.parse(jsonString);
+
+          if (Array.isArray(rawIndex.files)) {
+            // New index format: load each listed file
+            for (const rel of rawIndex.files) {
+              try {
+                const txt = await FileSystem.readAsStringAsync(ensureFsUri(`${tmp}${rel}`), { encoding: 'utf8' } as any);
+                const rawFolder = JSON.parse(txt);
+                foldersToInspect.push(normalizeFolderEntry(rawFolder));
+              } catch (pfErr) {
+                console.warn('Skipping unreadable folder metadata file in package:', pfErr);
+              }
+            }
+          } else if (Array.isArray(rawIndex.folders)) {
+            const exportData = normalizeExportData(rawIndex);
+            foldersToInspect = exportData.folders;
+          } else {
+            const exportData = normalizeExportData(rawIndex);
+            foldersToInspect = exportData.folders;
+          }
+        } else {
+          // Try metadata/ directory with per-folder files
+          const metaDir = `${tmp}metadata/`;
+          const dirInfo = await FileSystem.getInfoAsync(ensureFsUri(metaDir)).catch(() => ({ exists: false } as any));
+          if (dirInfo && dirInfo.exists) {
+            const files = await FileSystem.readDirectoryAsync(metaDir);
+            for (const f of files) {
+              if (!f.toLowerCase().endsWith('.json')) continue;
+              try {
+                const txt = await FileSystem.readAsStringAsync(`${metaDir}${f}`, { encoding: 'utf8' } as any);
+                const rawFolder = JSON.parse(txt);
+                foldersToInspect.push(normalizeFolderEntry(rawFolder));
+              } catch (rfErr) {
+                console.warn('Skipping unreadable per-folder metadata file:', rfErr);
+              }
+            }
+          } else {
+            return { valid: false, error: 'Invalid package format' };
+          }
+        }
+
+        let fC = 0; let cC = 0; let gC = 0;
+        const walk2 = (folders: FolderExportData[]) => {
+          for (const folderData of folders) {
+            fC++;
+            cC += (folderData.competitions || []).length;
+            for (const comp of folderData.competitions || []) gC += (comp.gymnasts || []).length;
+            if (folderData.subfolders && folderData.subfolders.length > 0) walk2(folderData.subfolders);
+          }
+        };
+        walk2(foldersToInspect);
+        return { valid: true, summary: { version: '1.0.0', folderCount: fC, competitionCount: cC, gymnastCount: gC } };
+      } catch (err) {
+        return { valid: false, error: 'Invalid package format' };
+      } finally {
+        try { await FileSystem.deleteAsync(tmp, { idempotent: true }); } catch (e) {}
+      }
+    }
+
     const jsonString = await FileSystem.readAsStringAsync(fileUri, { encoding: 'utf8' });
 
     // Extraer metadata y contar items con parsing incremental (menos memoria)

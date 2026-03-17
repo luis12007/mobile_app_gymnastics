@@ -13,7 +13,7 @@ import {
   Platform
 } from 'react-native';
 import { Folder, getRootFolders, getAllFolders } from '../lib/database';
-import { exportFolders, exportAllFolders } from '../lib/folderImportExport';
+import { exportPackageV2 } from '../lib/folderImportExportV2';
 
 interface FolderExportModalProps {
   visible: boolean;
@@ -57,19 +57,19 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [exportMessage, setExportMessage] = useState('');
-  const [includeImages, setIncludeImages] = useState<boolean>(currentFolderId === null || currentFolderId === undefined ? false : true);
+  const [includeImages, setIncludeImages] = useState<boolean>(true);
 
   useEffect(() => {
     if (visible) {
       loadFolders();
-      // Si estamos en la vista de folder específico, preseleccionar ese folder
+      // Preseleccionar current folder cuando exista
       if (currentFolderId !== null && currentFolderId !== undefined) {
         setSelectedFolders(new Set([currentFolderId]));
-        setIncludeImages(true);
       } else {
         setSelectedFolders(new Set());
-        setIncludeImages(false);
       }
+      // Default: include images ON
+      setIncludeImages(true);
     }
   }, [visible, currentFolderId]);
 
@@ -131,7 +131,7 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
               setExportProgress(0);
               setExportMessage('Starting...');
 
-              await exportFolders(
+              await exportPackageV2(
                 Array.from(selectedFolders),
                 (progress, message) => {
                   setExportProgress(progress);
@@ -170,32 +170,40 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Export',
-          onPress: async () => {
-            try {
-              setExporting(true);
-              setExportProgress(0);
-              setExportMessage('Starting full export...');
+            onPress: async () => {
+              try {
+                setExporting(true);
+                setExportProgress(0);
+                setExportMessage('Starting full export...');
 
-              await exportAllFolders((progress, message) => {
-                setExportProgress(progress);
-                setExportMessage(message);
-              }, includeImages);
+                // determine root folders (fallback to all folders)
+                let roots = await getRootFolders();
+                if (!roots || roots.length === 0) {
+                  const all = await getAllFolders();
+                  roots = all;
+                }
+                const folderIds = roots.map(r => r.id);
 
-              Alert.alert('Export Successful!', 'Full database export completed.', [
-                { text: 'OK', onPress: () => onClose() }
-              ]);
-            } catch (error) {
-              console.error('Error en full export:', error);
-              Alert.alert(
-                'Error',
-                `Could not complete the export:\n${error instanceof Error ? error.message : 'Unknown error'}`
-              );
-            } finally {
-              setExporting(false);
-              setExportProgress(0);
-              setExportMessage('');
+                await exportPackageV2(folderIds, (progress, message) => {
+                  setExportProgress(progress);
+                  setExportMessage(message);
+                }, includeImages);
+
+                Alert.alert('Export Successful!', 'Full database export completed.', [
+                  { text: 'OK', onPress: () => onClose() }
+                ]);
+              } catch (error) {
+                console.error('Error en full export:', error);
+                Alert.alert(
+                  'Error',
+                  `Could not complete the export:\n${error instanceof Error ? error.message : 'Unknown error'}`
+                );
+              } finally {
+                setExporting(false);
+                setExportProgress(0);
+                setExportMessage('');
+              }
             }
-          }
         }
       ]
     );
@@ -341,13 +349,13 @@ export default function FolderExportModal({ visible, onClose, currentFolderId }:
                       {currentFolderId !== null && currentFolderId !== undefined && (
                         <TouchableOpacity
                           style={styles.quickActionButton}
-                          onPress={async () => {
+                              onPress={async () => {
                             // Export only the current folder
                             try {
                               setExporting(true);
                               setExportProgress(0);
                               setExportMessage('Starting export of current folder...');
-                              await exportFolders([currentFolderId], (progress, message) => {
+                              await exportPackageV2([currentFolderId], (progress, message) => {
                                 setExportProgress(progress);
                                 setExportMessage(message);
                               }, includeImages);
