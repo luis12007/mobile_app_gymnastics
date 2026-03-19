@@ -9,7 +9,7 @@ const zipLib: any = (() => {
 const rnZip: ((source: string, target: string) => Promise<string>) | null = zipLib ? zipLib.zip : null;
 const rnUnzip: ((source: string, target: string) => Promise<string>) | null = zipLib ? zipLib.unzip : null;
 
-import { db, Folder, Competition, Gymnast, GymnastImage, WhiteboardTrace, normalizeDisplayOrderInFolder } from './database';
+import { db, Folder, Competition, Gymnast, GymnastImage, WhiteboardTrace, normalizeDisplayOrderInFolder, initDatabase } from './database';
 
 // Lightweight types for progress reporting
 export type ProgressCallback = (pct: number, message: string) => void;
@@ -26,6 +26,126 @@ function ensureFsUri(p: string): string {
 
 async function ensureDir(dir: string) {
   try { await FileSystem.makeDirectoryAsync(dir, { intermediates: true }); } catch (e) { /* ignore */ }
+}
+
+function toNumber(value: any, fallback = 0): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+const percentageTableDisciplineTrue = [
+  [100, 75, 65, 55, 45, 35, 25, 15, 5, 0, 0, 0, 0, 0, 0, 0, 0],
+  [100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0, 0, 0],
+  [100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0, 0],
+  [100, 100, 94, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0],
+  [100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0],
+  [100, 100, 100, 96, 88, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0],
+  [100, 100, 100, 100, 93, 87, 80, 70, 60, 50, 40, 30, 20, 0, 0, 0, 0],
+];
+
+const percentageTableDisciplineFalse = [
+  [100, 100, 75, 65, 55, 45, 35, 25, 15, 5, 0, 0, 0, 0, 0, 0],
+  [100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0],
+  [100, 100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0],
+  [100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0],
+  [100, 100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0],
+  [100, 100, 100, 100, 95, 85, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0],
+  [100, 100, 100, 100, 100, 95, 85, 80, 70, 60, 50, 40, 30, 20, 10, 0],
+];
+
+const percentageTableWagVault = [
+  [100, 100, 75, 65, 55, 45, 35, 25, 15, 5, 0, 0, 0, 0, 0, 0],
+  [100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0],
+  [100, 100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0],
+  [100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0],
+  [100, 100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0],
+  [100, 100, 100, 100, 95, 85, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0],
+  [100, 100, 100, 100, 100, 95, 85, 80, 70, 60, 50, 40, 30, 20, 10, 0],
+];
+
+const deltStepsFloor = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6];
+const deltStepsVault = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5];
+
+function getDeductionIntervalFloor(newded: number): number {
+  const rounded = Math.round(newded * 100) / 100;
+  if (rounded >= 0.0 && rounded <= 0.4) return 1;
+  if (rounded > 0.4 && rounded <= 0.6) return 2;
+  if (rounded > 0.6 && rounded <= 1.0) return 3;
+  if (rounded > 1.0 && rounded <= 1.5) return 4;
+  if (rounded > 1.5 && rounded <= 2.0) return 5;
+  if (rounded > 2.0 && rounded <= 2.5) return 6;
+  if (rounded > 2.5 && rounded <= 10.0) return 7;
+  return 0;
+}
+
+function getDeductionIntervalVault(newded: number): number {
+  if (newded >= 0.0 && newded <= 0.4) return 1;
+  if (newded > 0.4 && newded <= 0.6) return 2;
+  if (newded > 0.6 && newded <= 1.0) return 3;
+  if (newded > 1.0 && newded <= 1.5) return 4;
+  if (newded > 1.5 && newded <= 2.0) return 5;
+  if (newded > 2.0 && newded <= 2.5) return 6;
+  if (newded > 2.5 && newded <= 10.0) return 7;
+  return 0;
+}
+
+function getPercentageFromFloorTable(dedInterval: number, delt: number, discipline: boolean): number {
+  const percentageTable = discipline ? percentageTableDisciplineTrue : percentageTableDisciplineFalse;
+  if (delt > 1.4) return 0;
+  if (dedInterval < 1 || dedInterval > 7) return 0;
+
+  const deltRounded = Math.round((delt + Number.EPSILON) * 10) / 10;
+  let deltIndex = deltStepsFloor.findIndex((step) => Math.abs(step - deltRounded) < 1e-9);
+
+  if (deltIndex < 0) {
+    deltIndex = deltStepsFloor.reduce((bestIdx, step, idx) => {
+      return Math.abs(step - deltRounded) < Math.abs(deltStepsFloor[bestIdx] - deltRounded) ? idx : bestIdx;
+    }, 0);
+  }
+
+  return percentageTable[dedInterval - 1][deltIndex] || 0;
+}
+
+function getPercentageFromVaultTable(dedInterval: number, delt: number, discipline: boolean, evento: string): number {
+  const isWagVault = !discipline && evento.toUpperCase() === 'VT';
+  const percentageTable = discipline
+    ? percentageTableDisciplineTrue
+    : (isWagVault ? percentageTableWagVault : percentageTableDisciplineFalse);
+
+  if (delt > 1.4) return 0;
+  if (dedInterval < 1 || dedInterval > 7) return 0;
+
+  let deltIndex = 0;
+  if (isWagVault) {
+    const idx = deltStepsVault.findIndex((step) => delt <= step);
+    deltIndex = idx === -1 ? deltStepsVault.length - 1 : idx;
+  } else {
+    const idx = deltStepsVault.findIndex((step) => step > delt);
+    if (idx === -1) deltIndex = deltStepsVault.length - 1;
+    else if (idx === 0) deltIndex = 0;
+    else deltIndex = idx - 1;
+  }
+
+  if (deltIndex < 0) deltIndex = 0;
+  if (deltIndex >= deltStepsVault.length) deltIndex = deltStepsVault.length - 1;
+
+  return percentageTable[dedInterval - 1][deltIndex] || 0;
+}
+
+function recalculatePercentageForImportedJson(g: any, discipline: boolean): number {
+  const compE = toNumber(g?.competition_e, 0);
+  const eScore = toNumber(g?.escore, 0);
+  const delt = Math.abs(Math.round((eScore - compE) * 1000) / 1000);
+  const newded = 10 - compE;
+  const evento = String(g?.evento ?? '').toUpperCase();
+
+  if (evento === 'VT') {
+    const dedInterval = getDeductionIntervalVault(newded);
+    return getPercentageFromVaultTable(dedInterval, delt, discipline, evento);
+  }
+
+  const dedInterval = getDeductionIntervalFloor(newded);
+  return getPercentageFromFloorTable(dedInterval, delt, discipline);
 }
 
 // ------------------ Streaming / incremental JSON helpers (from legacy) ------------------
@@ -255,6 +375,9 @@ export async function exportPackageV2(
 ): Promise<string> {
   if (!rnZip) throw new Error('Zip library not available — build with native plugin');
 
+  // Ensure DB schema is fully migrated before reading/exporting fields like `percentage`.
+  await initDatabase();
+
   onProgress?.(2, 'Counting items...');
   const totals = await countPackageItems(folderIds);
   const totalUnits = Math.max(1, totals.folders + totals.competitions + totals.gymnasts);
@@ -467,12 +590,16 @@ export async function importPackageV2(
   parentFolderId: number | null,
   onProgress?: (stage: string, current: number, total: number, message: string) => void
 ): Promise<void> {
+  // Ensure DB schema is ready before inserting fields like `percentage`.
+  await initDatabase();
+
   // Pick file
   const res = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
   if (res.canceled || !res.assets || res.assets.length === 0) return;
   const fileUri = res.assets[0].uri;
   const fileName = (res.assets[0].name || fileUri || '').toLowerCase();
   const isZip = fileName.endsWith('.zip') || (fileUri || '').toLowerCase().endsWith('.zip');
+  const preserveImagePosition = isZip;
 
   const tmp = `${FileSystem.cacheDirectory}import_pkg_v2_${Date.now()}/`;
   await ensureDir(tmp);
@@ -573,9 +700,10 @@ export async function importPackageV2(
           try {
             const compTxt = await FileSystem.readAsStringAsync(`${info.path}${f}`, { encoding: 'utf8' } as any);
             const comp = JSON.parse(compTxt);
+            const compDiscipline = typeof comp.gender === 'boolean' ? comp.gender : toNumber(comp.gender, 0) === 1;
             const insComp = await db.runAsync(
               `INSERT INTO competitions (name, description, date, gender, folder_id, number_of_participants, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-              [comp.name, comp.description, comp.date, comp.gender ? 1 : 0, newFolderId, comp.number_of_participants ?? 0, comp.created_at ?? new Date().toISOString()]
+              [comp.name, comp.description, comp.date, compDiscipline ? 1 : 0, newFolderId, comp.number_of_participants ?? 0, comp.created_at ?? new Date().toISOString()]
             );
             const newCompId = insComp.lastInsertRowId;
 
@@ -597,16 +725,74 @@ export async function importPackageV2(
                 }
 
                 const starredVal = (g as any).starred === true || (g as any).starred === 1 ? 1 : 0;
-                const insertG = await db.runAsync(
-                  `INSERT INTO gymnasts (competence_id, numero, gymnasta, evento, noc, bib, created_at, starred) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                  [newCompId, g.numero ?? 0, g.gymnasta ?? g.name ?? '', g.evento ?? '', g.noc ?? '', g.bib ?? '', g.created_at ?? new Date().toISOString(), starredVal]
-                );
+                const rawPercentageVal = toNumber((g as any).percentage, 0);
+                const percentageVal = (!isZip && rawPercentageVal === 0)
+                  ? recalculatePercentageForImportedJson(g, compDiscipline)
+                  : rawPercentageVal;
+                
+                // Insert with full fields - use defaults for any missing values
+                let insertG: any;
+                try {
+                  insertG = await db.runAsync(
+                    `INSERT INTO gymnasts (
+                      competence_id, numero, gymnasta, evento, noc, bib,
+                      a, b, c, d, e, f, g, h, i, j,
+                      number_of_element, difficulty_values,
+                      element_group1, element_group2, element_group3, element_group4, element_group_total,
+                      cv, bonus, nd, sv, execution, escore, myscore,
+                      competition_d, competition_e, competition_sb, competition_nd, competition_score,
+                      comments, delta, percentage, dedded, vault, vault_description, vault_value, starred, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                      newCompId, g.numero || 0, g.gymnasta || '', g.evento || '', g.noc || '', g.bib || '',
+                      g.a || 0, g.b || 0, g.c || 0, g.d || 0, g.e || 0, g.f || 0, g.g || 0, g.h || 0, g.i || 0, g.j || 0,
+                      g.number_of_element || 0, g.difficulty_values || 0,
+                      g.element_group1 || 0, g.element_group2 || 0, g.element_group3 || 0, g.element_group4 || 0, g.element_group_total || 0,
+                      g.cv || 0, g.bonus || 0, g.nd || 0, g.sv || 0, g.execution || 0, g.escore || 0, g.myscore || 0,
+                      g.competition_d || 0, g.competition_e || 0, g.competition_sb || 0, g.competition_nd || 0, g.competition_score || 0,
+                      g.comments || '', g.delta || 0, percentageVal, g.dedded || 0, g.vault || null, g.vault_description || null, g.vault_value || 0, starredVal, g.created_at || new Date().toISOString()
+                    ]
+                  );
+                } catch (fullInsertError) {
+                  // Fallback: insert without starred column (for older DB schema)
+                  insertG = await db.runAsync(
+                    `INSERT INTO gymnasts (
+                      competence_id, numero, gymnasta, evento, noc, bib,
+                      a, b, c, d, e, f, g, h, i, j,
+                      number_of_element, difficulty_values,
+                      element_group1, element_group2, element_group3, element_group4, element_group_total,
+                      cv, bonus, nd, sv, execution, escore, myscore,
+                      competition_d, competition_e, competition_sb, competition_nd, competition_score,
+                      comments, delta, percentage, dedded, vault, vault_description, vault_value, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                      newCompId, g.numero || 0, g.gymnasta || '', g.evento || '', g.noc || '', g.bib || '',
+                      g.a || 0, g.b || 0, g.c || 0, g.d || 0, g.e || 0, g.f || 0, g.g || 0, g.h || 0, g.i || 0, g.j || 0,
+                      g.number_of_element || 0, g.difficulty_values || 0,
+                      g.element_group1 || 0, g.element_group2 || 0, g.element_group3 || 0, g.element_group4 || 0, g.element_group_total || 0,
+                      g.cv || 0, g.bonus || 0, g.nd || 0, g.sv || 0, g.execution || 0, g.escore || 0, g.myscore || 0,
+                      g.competition_d || 0, g.competition_e || 0, g.competition_sb || 0, g.competition_nd || 0, g.competition_score || 0,
+                      g.comments || '', g.delta || 0, percentageVal, g.dedded || 0, g.vault || null, g.vault_description || null, g.vault_value || 0, g.created_at || new Date().toISOString()
+                    ]
+                  );
+                }
                 const newGid = insertG.lastInsertRowId;
 
                 // images: support package-relative files AND embedded base64/dataURIs
                 for (const im of (gObj.images || [])) {
-                  const pkgRel = im.package_uri || im.meta?.package_uri || im.meta?.image_uri || '';
                   const base64Data = im.base64 || im.imageData || im.data || im.meta?.imageData || im.meta?.base64 || '';
+                  // Prefer package_uri when present. For legacy JSON, prefer base64 payload over stale local image_uri paths.
+                  const pkgRel = im.package_uri || im.meta?.package_uri || (!base64Data ? (im.meta?.image_uri || im.image?.image_uri || '') : '');
+                  const posX = im.position_x ?? im.meta?.position_x ?? im.image?.position_x ?? 0;
+                  const posY = im.position_y ?? im.meta?.position_y ?? im.image?.position_y ?? 0;
+                  const rot = im.rotation ?? im.meta?.rotation ?? im.image?.rotation ?? 0;
+                  const scl = im.scale ?? im.meta?.scale ?? im.image?.scale ?? 1;
+                  const ord = im.order_index ?? im.meta?.order_index ?? im.image?.order_index ?? 0;
+                  const imgPosX = preserveImagePosition ? toNumber(posX, 0) : 0;
+                  const imgPosY = preserveImagePosition ? toNumber(posY, 0) : 0;
+                  const imgRot = preserveImagePosition ? toNumber(rot, 0) : 0;
+                  const imgScl = preserveImagePosition ? toNumber(scl, 1) : 1;
+                  const imgOrd = toNumber(ord, 0);
                   const destDir = `${FileSystem.documentDirectory}imported_images/`;
                   await ensureDir(destDir);
 
@@ -618,7 +804,7 @@ export async function importPackageV2(
                       await FileSystem.copyAsync({ from: ensureFsUri(src), to: ensureFsUri(destPath) });
                       await db.runAsync(
                         `INSERT INTO gymnast_images (gymnast_id, image_uri, position_x, position_y, rotation, scale, order_index) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                        [newGid, destPath, im.meta?.position_x ?? 0, im.meta?.position_y ?? 0, im.meta?.rotation ?? 0, im.meta?.scale ?? 1, im.meta?.order_index ?? 0]
+                        [newGid, destPath, imgPosX, imgPosY, imgRot, imgScl, imgOrd]
                       );
                     } catch (e) { /* skip missing images */ }
                   } else if (base64Data) {
@@ -641,7 +827,7 @@ export async function importPackageV2(
                       await FileSystem.writeAsStringAsync(destPath, b64, { encoding: 'base64' } as any);
                       await db.runAsync(
                         `INSERT INTO gymnast_images (gymnast_id, image_uri, position_x, position_y, rotation, scale, order_index) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                        [newGid, destPath, im.meta?.position_x ?? 0, im.meta?.position_y ?? 0, im.meta?.rotation ?? 0, im.meta?.scale ?? 1, im.meta?.order_index ?? 0]
+                        [newGid, destPath, imgPosX, imgPosY, imgRot, imgScl, imgOrd]
                       );
                     } catch (e) { /* skip invalid base64 */ }
                   }
