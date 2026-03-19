@@ -14,14 +14,6 @@
         "ITSAppUsesNonExemptEncryption": false
       }
     },
-    "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
-      },
-      "package": "com.anonymous.gym_judge",
-      "versionCode": 24
-    },
     "web": {
       "bundler": "metro",
       "output": "static",
@@ -43,7 +35,7 @@
         "expo-build-properties",
         {
           "ios": {
-            "deploymentTarget": "15.1"
+            "minDeploymentTarget": "14.0"
           }
         }
       ]
