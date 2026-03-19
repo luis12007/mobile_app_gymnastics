@@ -51,6 +51,9 @@
       "eas": {
         "projectId": "8079b036-f87f-412b-8514-b41d1eece105"
       }
+    },
+    "android": {
+      "package": "com.gym.judge"
     }
   }
 }
