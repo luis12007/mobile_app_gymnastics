@@ -14,6 +14,14 @@
         "ITSAppUsesNonExemptEncryption": false
       }
     },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.anonymous.gym_judge",
+      "versionCode": 24
+    },
     "web": {
       "bundler": "metro",
       "output": "static",
@@ -35,7 +43,7 @@
         "expo-build-properties",
         {
           "ios": {
-            "minDeploymentTarget": "14.0"
+            "deploymentTarget": "15.1"
           }
         }
       ]
@@ -51,9 +59,6 @@
       "eas": {
         "projectId": "8079b036-f87f-412b-8514-b41d1eece105"
       }
-    },
-    "android": {
-      "package": "com.gym.judge"
     }
   }
 }
