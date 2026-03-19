@@ -38,7 +38,15 @@
           "backgroundColor": "#ffffff"
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "minDeploymentTarget": "13.0"
+          }
+        }
+      ]
     ],
     "assetBundlePatterns": [
       "assets/**/*"
