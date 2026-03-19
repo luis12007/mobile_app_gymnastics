@@ -168,19 +168,27 @@ async function createMetadataFromJson(fileUri: string, tmpDir: string): Promise<
     };
     await FileSystem.writeAsStringAsync(`${folderDir}folder.json`, JSON.stringify(folderMeta), { encoding: 'utf8' } as any);
 
-    const comps = rawFolderObj?.competitions || rawFolderObj?.competences || rawFolderObj?.competencias || rawFolderObj?.competitions || [];
+    const comps = rawFolderObj?.competitions || rawFolderObj?.competences || rawFolderObj?.competencias || [];
     let compIndex = 0;
     if (Array.isArray(comps)) {
-      for (const comp of comps) {
+      for (const compRaw of comps) {
+        // compRaw might be a wrapper like { competition: {...}, gymnasts: [...] }
+        const comp = compRaw?.competition ?? compRaw;
         const compId = comp?.id ?? comp?.competition_id ?? comp?.competence_id ?? (Date.now() + compIndex);
+        // write the inner competition object (importer expects competition fields at root)
         await FileSystem.writeAsStringAsync(`${folderDir}competition_${compId}.json`, JSON.stringify(comp), { encoding: 'utf8' } as any);
 
-        const gymnasts = comp?.gymnasts || comp?.gymnastas || comp?.participants || [];
+        // gymnasts list can be on the wrapper or on the inner comp
+        const gymnastsRaw = compRaw?.gymnasts ?? comp?.gymnasts ?? compRaw?.gymnastas ?? [];
         let gIndex = 0;
-        if (Array.isArray(gymnasts)) {
-          for (const g of gymnasts) {
-            const gid = g?.gymnast?.id ?? g?.id ?? (Date.now() + gIndex);
-            const gymnastObj = { gymnast: g, images: g?.images || [], traces: g?.traces || [] };
+        if (Array.isArray(gymnastsRaw)) {
+          for (const gRaw of gymnastsRaw) {
+            // gRaw might be { gymnast: {...}, images: [], traces: [] } or just the gymnast object
+            const innerGymnast = gRaw?.gymnast ?? gRaw;
+            const gid = innerGymnast?.id ?? innerGymnast?.gymnast_id ?? (Date.now() + gIndex);
+            const images = gRaw?.images ?? innerGymnast?.images ?? [];
+            const traces = gRaw?.traces ?? innerGymnast?.traces ?? [];
+            const gymnastObj = { gymnast: innerGymnast, images, traces };
             await FileSystem.writeAsStringAsync(`${folderDir}gymnast_${gid}.json`, JSON.stringify(gymnastObj), { encoding: 'utf8' } as any);
             gIndex++;
           }
