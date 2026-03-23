@@ -144,6 +144,11 @@ async function printHtmlToPdf(html: string, label: string): Promise<string> {
 }
 
 const PDF_MIN_VALID_BYTES = 2048;
+const IOS_PDF_STAGE1_TIMEOUT_MS = 3 * 60 * 1000;
+const IOS_PDF_STAGE2_TIMEOUT_MS = 2 * 60 * 1000;
+const IOS_PDF_STAGE3_TIMEOUT_MS = 2 * 60 * 1000;
+const IOS_PDF_MAX_TOTAL_MS = 8 * 60 * 1000;
+const IOS_PHASE_STOP_GRACE_MS = 15 * 1000;
 
 async function getFileSizeBytes(uri: string): Promise<number> {
   try {
@@ -155,13 +160,121 @@ async function getFileSizeBytes(uri: string): Promise<number> {
   }
 }
 
+async function waitForPromiseWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<{ timedOut: boolean; value?: T }> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  const timeoutResult = new Promise<{ timedOut: true }>((resolve) => {
+    timeoutId = setTimeout(() => {
+      resolve({ timedOut: true });
+    }, timeoutMs);
+  });
+
+  const result = await Promise.race([
+    promise.then((value) => ({ timedOut: false as const, value })),
+    timeoutResult,
+  ]);
+  if (timeoutId) clearTimeout(timeoutId);
+  return result;
+}
+
+type IosPhaseRunResult =
+  | { status: 'completed'; uri: string }
+  | { status: 'timedOutStopped' }
+  | { status: 'timedOutStillRunning' }
+  | { status: 'failed'; error: any };
+
+async function runIosPhaseWithStrictCutover(
+  phaseName: string,
+  timeoutMs: number,
+  taskFactory: () => Promise<string>
+): Promise<IosPhaseRunResult> {
+  const guardedTask = taskFactory()
+    .then((uri) => ({ ok: true as const, uri }))
+    .catch((error) => ({ ok: false as const, error }));
+
+  const firstWait = await waitForPromiseWithin(guardedTask, timeoutMs);
+
+  if (!firstWait.timedOut) {
+    const done = firstWait.value!;
+    if (done.ok) return { status: 'completed', uri: done.uri };
+    return { status: 'failed', error: done.error };
+  }
+
+  console.warn(`[PDF][iOS] ${phaseName} timed out. Waiting for prior phase to stop before next phase...`);
+  const drainWait = await waitForPromiseWithin(guardedTask, IOS_PHASE_STOP_GRACE_MS);
+
+  if (!drainWait.timedOut) {
+    const done = drainWait.value!;
+    if (done.ok) {
+      // Completed during drain window; treat as completed and stop fallback chain.
+      return { status: 'completed', uri: done.uri };
+    }
+    return { status: 'timedOutStopped' };
+  }
+
+  return { status: 'timedOutStillRunning' };
+}
+
+function getRemainingBudgetMs(startedAtMs: number, totalBudgetMs: number): number {
+  const elapsed = Date.now() - startedAtMs;
+  return Math.max(0, totalBudgetMs - elapsed);
+}
+
+async function attemptIosPdfMemoryRecovery(): Promise<void> {
+  try {
+    console.warn('[PDF][iOS recovery] Starting memory recovery routine...');
+
+    // Clear in-memory image cache used by PDF generation.
+    pdfOptimizedImageCache.clear();
+
+    // Best-effort cleanup of cache PDFs/temp files to reduce storage pressure.
+    const cacheDir = FileSystem.cacheDirectory;
+    if (cacheDir) {
+      const entries = await FileSystem.readDirectoryAsync(cacheDir);
+      const maybePdfTemps = entries.filter((name) => {
+        const lower = name.toLowerCase();
+        return (
+          lower.endsWith('.pdf') ||
+          lower.startsWith('print') ||
+          lower.startsWith('competition_') ||
+          lower.includes('gym_export')
+        );
+      });
+
+      await Promise.all(
+        maybePdfTemps.slice(0, 120).map((name) =>
+          FileSystem.deleteAsync(`${cacheDir}${name}`, { idempotent: true }).catch(() => undefined)
+        )
+      );
+    }
+
+    // Best-effort GC hint when available.
+    const maybeGc = (globalThis as any)?.gc;
+    if (typeof maybeGc === 'function') {
+      try {
+        maybeGc();
+      } catch {
+        // noop
+      }
+    }
+
+    // Small pause to let JS/native side release resources.
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    console.warn('[PDF][iOS recovery] Memory recovery routine completed.');
+  } catch (error) {
+    console.warn('[PDF][iOS recovery] Memory recovery routine failed (continuing anyway):', error);
+  }
+}
+
 async function generateCompetitionPDFChunked(
   competition: Competition,
   competitionId: number,
   tableData: TableRow[],
-  gymnasts: Gymnast[]
+  gymnasts: Gymnast[],
+  opts?: { whiteboardMode?: 'full' | 'perImage' | 'pathsOnly' }
 ): Promise<string> {
   logPdfImageOptimizerStatus('chunked');
+  const whiteboardMode = opts?.whiteboardMode ?? 'full';
   const rowsForIndividualPages = tableData.filter(row => row.gymnasta && row.gymnasta.trim() !== '');
   const timestamp = Date.now();
 
@@ -200,7 +313,7 @@ async function generateCompetitionPDFChunked(
           includeIndividualPages: true,
           includeSummary: false,
           debugLabel: `chunk-${chunkIndex + 1}`,
-          whiteboardMode: 'full',
+          whiteboardMode,
         });
 
         let uri: string | null = null;
@@ -361,16 +474,145 @@ export async function generateCompetitionPDF(
       return await generateCompetitionPDFChunked(competition, competitionId, tableData, gymnasts);
     }
 
-    // iOS: try normal generation first, fallback to chunking if needed.
+    // iOS: staged strategy with total cap.
+    // Stage 1 (3 min): full PDF with images.
+    // Stage 2 (+2 min): no-images fallback.
+    // Stage 3 (+2 min): fallback of fallback after memory recovery.
+    // If total exceeds 8 min, show message to restart app before exporting again.
+    if (Platform.OS === 'ios') {
+      const iosStartedAtMs = Date.now();
+
+      const fullGenerationTask = (async () => {
+        try {
+          const html = await generatePDFHTML(competition, tableData, gymnasts, {
+            whiteboardMode: 'full',
+          });
+          console.log('[PDF] Generando PDF completo para iOS...');
+          return await printHtmlToPdf(html, '[PDF][iOS] Full document');
+        } catch (error) {
+          if (isPdfOutOfMemoryError(error)) {
+            console.warn('[PDF][iOS] OOM in full generation. Falling back to chunking with images...');
+            return await generateCompetitionPDFChunked(competition, competitionId, tableData, gymnasts, {
+              whiteboardMode: 'full',
+            });
+          }
+          throw error;
+        }
+      })();
+
+      const stage1Budget = Math.min(
+        IOS_PDF_STAGE1_TIMEOUT_MS,
+        getRemainingBudgetMs(iosStartedAtMs, IOS_PDF_MAX_TOTAL_MS)
+      );
+
+      const stage1Result = await runIosPhaseWithStrictCutover(
+        'Stage 1 (full with images)',
+        stage1Budget,
+        () => fullGenerationTask
+      );
+
+      if (stage1Result.status === 'completed') return stage1Result.uri;
+      if (stage1Result.status === 'failed') throw stage1Result.error;
+      if (stage1Result.status === 'timedOutStillRunning') {
+        Alert.alert(
+          'Export timeout',
+          'The current export phase is still running. Please close and reopen the app, then try exporting again.'
+        );
+        throw new Error('[PDF][iOS] Stage 1 could not be stopped before fallback.');
+      }
+
+      console.warn('[PDF][iOS] Stage 2: starting no-images fallback (pathsOnly).');
+      const fallbackNoImagesTask = (async () => {
+        try {
+          const fallbackHtml = await generatePDFHTML(competition, tableData, gymnasts, {
+            whiteboardMode: 'pathsOnly',
+          });
+          return await printHtmlToPdf(fallbackHtml, '[PDF][iOS fallback] Full document (pathsOnly)');
+        } catch (fallbackError) {
+          if (isPdfOutOfMemoryError(fallbackError)) {
+            console.warn('[PDF][iOS fallback] OOM in full no-images generation. Falling back to chunked no-images.');
+            return await generateCompetitionPDFChunked(competition, competitionId, tableData, gymnasts, {
+              whiteboardMode: 'pathsOnly',
+            });
+          }
+          throw fallbackError;
+        }
+      })();
+
+      const stage2Budget = Math.min(
+        IOS_PDF_STAGE2_TIMEOUT_MS,
+        getRemainingBudgetMs(iosStartedAtMs, IOS_PDF_MAX_TOTAL_MS)
+      );
+
+      const stage2Result = await runIosPhaseWithStrictCutover(
+        'Stage 2 (pathsOnly fallback)',
+        stage2Budget,
+        () => fallbackNoImagesTask
+      );
+
+      if (stage2Result.status === 'completed') return stage2Result.uri;
+      if (stage2Result.status === 'failed') throw stage2Result.error;
+      if (stage2Result.status === 'timedOutStillRunning') {
+        Alert.alert(
+          'Export timeout',
+          'The current export phase is still running. Please close and reopen the app, then try exporting again.'
+        );
+        throw new Error('[PDF][iOS] Stage 2 could not be stopped before fallback.');
+      }
+
+      console.warn('[PDF][iOS] Stage 3: fallback of fallback with memory recovery.');
+      await attemptIosPdfMemoryRecovery();
+
+      const advancedFallbackTask = generateCompetitionPDFChunked(competition, competitionId, tableData, gymnasts, {
+        whiteboardMode: 'pathsOnly',
+      });
+
+      const stage3Budget = Math.min(
+        IOS_PDF_STAGE3_TIMEOUT_MS,
+        getRemainingBudgetMs(iosStartedAtMs, IOS_PDF_MAX_TOTAL_MS)
+      );
+
+      const stage3Result = await runIosPhaseWithStrictCutover(
+        'Stage 3 (advanced recovery fallback)',
+        stage3Budget,
+        () => advancedFallbackTask
+      );
+
+      if (stage3Result.status === 'completed') return stage3Result.uri;
+      if (stage3Result.status === 'failed') throw stage3Result.error;
+      if (stage3Result.status === 'timedOutStillRunning') {
+        Alert.alert(
+          'Export timeout',
+          'The current export phase is still running. Please close and reopen the app, then try exporting again.'
+        );
+        throw new Error('[PDF][iOS] Stage 3 could not be stopped.');
+      }
+
+      const totalElapsed = Date.now() - iosStartedAtMs;
+      if (totalElapsed >= IOS_PDF_MAX_TOTAL_MS) {
+        Alert.alert(
+          'Export timeout',
+          'The export process took too long. Please close and reopen the app, then try exporting again.'
+        );
+      }
+
+      throw new Error('[PDF][iOS] Export exceeded recovery windows and could not complete.');
+    }
+
+    // Other platforms: regular generation + OOM fallback.
     try {
-      const html = await generatePDFHTML(competition, tableData, gymnasts);
+      const html = await generatePDFHTML(competition, tableData, gymnasts, {
+        whiteboardMode: 'full',
+      });
       console.log('[PDF] Generando PDF...');
       const uri = await printHtmlToPdf(html, '[PDF] Full document');
       return uri;
     } catch (error) {
       if (isPdfOutOfMemoryError(error)) {
         console.warn('[PDF] OOM in full generation. Falling back to chunking...');
-        return await generateCompetitionPDFChunked(competition, competitionId, tableData, gymnasts);
+        return await generateCompetitionPDFChunked(competition, competitionId, tableData, gymnasts, {
+          whiteboardMode: 'full',
+        });
       }
       throw error;
     }

@@ -370,7 +370,7 @@ export default function GymnastFloor() {
         !isDiscipline &&
         (evento === "FX" || evento === "UB" || evento === "BB")
       ) {
-        return evento === "FX" ? [0.0, 0.3, 0.5] : [0.0, 0.5];
+        return [0.0, 0.5];
       } else if (
         isDiscipline &&
         (evento === "PH" || evento === "SR" || evento === "PB" || evento === "HB")
@@ -1061,8 +1061,8 @@ export default function GymnastFloor() {
                 <View style={styles.infoLabelCell}>
                   <Text style={styles.infoLabelText}>CONNECTION VALUE</Text>
                 </View>
-                {/* CV: Ocultar si evento es PH o PB */}
-                {gymnast?.evento !== 'PH' && gymnast?.evento !== 'PB' && (
+                {/* CV: Ocultar si evento es PH/PB o si es MAG en SR */}
+                {gymnast?.evento !== 'PH' && gymnast?.evento !== 'PB' && !(discipline && gymnast?.evento === 'SR') && (
                   <>
                     <View style={styles.stickBonusCelltext}>
                       <TouchableOpacity style={styles.fullCellTouchable} onPress={() => openNumberPadModal("CV", cv)}>
