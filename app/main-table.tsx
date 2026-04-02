@@ -270,7 +270,11 @@ const MainTable: React.FC = () => {
   };
 
   const handleBack = () => {
-    router.back();
+    try {
+      router.back();
+    } catch (error) {
+      console.error('Error going back from main table:', error);
+    }
   };
 
   const handleFinishPress = () => {
@@ -391,8 +395,13 @@ const MainTable: React.FC = () => {
   }, [handleDownloadPDF, navigateToCompetitionFolder]);
 
   const handleFinalize = () => {
-    setShowFinishModal(false);
-    router.push('/main-menu');
+    try {
+      setShowFinishModal(false);
+      router.push('/main-menu');
+    } catch (error) {
+      console.error('Error finalizing main table:', error);
+      Alert.alert('Error', 'Could not return to the main menu. Please try again.');
+    }
   };
 
   const handleMenuAction = (action: string) => {
@@ -411,14 +420,19 @@ const MainTable: React.FC = () => {
   };
 
   const handleRowPress = useCallback((row: TableRow) => {
-    const pathname = row.evento === 'VT' ? '/gymnast-vault' : '/gymnast-floor';
-    router.push({
-      pathname,
-      params: { 
-        gymnastId: row.id.toString(), 
-        competitionId: competitionId.toString() 
-      }
-    });
+    try {
+      const pathname = row.evento === 'VT' ? '/gymnast-vault' : '/gymnast-floor';
+      router.push({
+        pathname,
+        params: { 
+          gymnastId: row.id.toString(), 
+          competitionId: competitionId.toString() 
+        }
+      });
+    } catch (error) {
+      console.error('Error opening gymnast from main table:', error);
+      Alert.alert('Error', 'Could not open the gymnast screen. Please try again.');
+    }
   }, [competitionId, router]);
 
   const renderHeaderCell = (text: string, width: number, isFirst?: boolean) => (

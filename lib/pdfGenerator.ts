@@ -2165,7 +2165,7 @@ async function generatePDFHTML(
                     <td class="col-subscore">${row.nd.toFixed(1)}</td>
                     <td class="col-subscore">${row.cv.toFixed(1)}</td>
                     <td class="${svClass} col-subscore">${row.sv.toFixed(1)}</td>
-                    <td class="col-subscore">${row.e.toFixed(3)}</td>
+                    <td class="col-subscore">${row.eScore.toFixed(3)}</td>
                     <td class="col-dscore">${row.compd.toFixed(1)}</td>
                     <td class="col-edelta">${row.compe.toFixed(2)}</td>
                     <td class="${deltaClass} col-delta">${row.delta.toFixed(1)}</td>

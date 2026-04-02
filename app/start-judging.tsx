@@ -684,87 +684,97 @@ export default function StartJudging() {
   };
 
   const handleStartJudging = () => {
-    // Validate that all gymnasts have an event selected
-    const missingEventIndex = gymnasts.findIndex(g => !g.evento || g.evento.trim() === '');
-    
-    if (missingEventIndex !== -1) {
-      // Scroll to the first gymnast missing an event
-      scrollViewRef.current?.scrollTo({
-        y: missingEventIndex * 48, // Approximate row height
-        animated: true
-      });
-
-      // Highlight the row in red
-      setHighlightedRow(missingEventIndex);
+    try {
+      // Validate that all gymnasts have an event selected
+      const missingEventIndex = gymnasts.findIndex(g => !g.evento || g.evento.trim() === '');
       
-      // Remove highlight after 1 second
-      setTimeout(() => {
-        setHighlightedRow(null);
-      }, 1000);
-
-      Alert.alert(
-        'Missing Events',
-        'Please select an event for all gymnasts before starting judging.'
-      );
-      return;
-    }
-
-    // Navigate to first gymnast
-    if (gymnasts.length > 0 && competition) {
-      navigateToGymnast(gymnasts[0]);
-    }
-  };
-
-  const navigateToGymnast = (gymnast: Gymnast, skipValidation: boolean = false) => {
-    if (!competition) return;
-
-    // Validate that gymnast has an event selected (unless skipping validation)
-    if (!skipValidation && (!gymnast.evento || gymnast.evento.trim() === '')) {
-      // Find the index of this gymnast in the full list
-      const gymnastIndex = gymnasts.findIndex(g => g.id === gymnast.id);
-      
-      if (gymnastIndex !== -1) {
-        // Scroll to the gymnast
+      if (missingEventIndex !== -1) {
+        // Scroll to the first gymnast missing an event
         scrollViewRef.current?.scrollTo({
-          y: gymnastIndex * 48, // Approximate row height
+          y: missingEventIndex * 48, // Approximate row height
           animated: true
         });
 
         // Highlight the row in red
-        setHighlightedRow(gymnastIndex);
+        setHighlightedRow(missingEventIndex);
         
         // Remove highlight after 1 second
         setTimeout(() => {
           setHighlightedRow(null);
         }, 1000);
+
+        Alert.alert(
+          'Missing Events',
+          'Please select an event for all gymnasts before starting judging.'
+        );
+        return;
       }
 
-      Alert.alert(
-        'Missing Event',
-        'Please select an event for this gymnast before starting judging.',
-        [{ text: 'OK' }]
-      );
-      return;
+      // Navigate to first gymnast
+      if (gymnasts.length > 0 && competition) {
+        navigateToGymnast(gymnasts[0]);
+      }
+    } catch (error) {
+      console.error('Error starting judging:', error);
+      Alert.alert('Error', 'Could not start judging. Please try again.');
     }
+  };
 
-    // Check if event is VT (Vault)
-    if (gymnast.evento === 'VT') {
-      router.push({
-        pathname: '/gymnast-vault',
-        params: { 
-          gymnastId: gymnast.id.toString(),
-          competitionId: competition.id.toString()
+  const navigateToGymnast = (gymnast: Gymnast, skipValidation: boolean = false) => {
+    try {
+      if (!competition) return;
+
+      // Validate that gymnast has an event selected (unless skipping validation)
+      if (!skipValidation && (!gymnast.evento || gymnast.evento.trim() === '')) {
+        // Find the index of this gymnast in the full list
+        const gymnastIndex = gymnasts.findIndex(g => g.id === gymnast.id);
+        
+        if (gymnastIndex !== -1) {
+          // Scroll to the gymnast
+          scrollViewRef.current?.scrollTo({
+            y: gymnastIndex * 48, // Approximate row height
+            animated: true
+          });
+
+          // Highlight the row in red
+          setHighlightedRow(gymnastIndex);
+          
+          // Remove highlight after 1 second
+          setTimeout(() => {
+            setHighlightedRow(null);
+          }, 1000);
         }
-      });
-    } else {
-      // For all other events (FX, PH, SR, PB, HB, UB, BB)
-      router.push({
-        pathname: '/gymnast-floor',
-        params: { 
-          gymnastId: gymnast.id.toString(),
-          competitionId: competition.id.toString()
-        }
-      });
+
+        Alert.alert(
+          'Missing Event',
+          'Please select an event for this gymnast before starting judging.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      // Check if event is VT (Vault)
+      if (gymnast.evento === 'VT') {
+        router.push({
+          pathname: '/gymnast-vault',
+          params: { 
+            gymnastId: gymnast.id.toString(),
+            competitionId: competition.id.toString()
+          }
+        });
+      } else {
+        // For all other events (FX, PH, SR, PB, HB, UB, BB)
+        router.push({
+          pathname: '/gymnast-floor',
+          params: { 
+            gymnastId: gymnast.id.toString(),
+            competitionId: competition.id.toString()
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error navigating to gymnast:', error);
+      Alert.alert('Error', 'Could not open the gymnast screen. Please try again.');
     }
   };
 

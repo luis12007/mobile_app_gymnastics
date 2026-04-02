@@ -341,6 +341,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
         }
       } catch (error) {
         console.error("Error fetching gymnast data:", error);
+        Alert.alert("Error", "Could not load gymnast data.");
       } finally {
         setIsLoading(false);
       }
