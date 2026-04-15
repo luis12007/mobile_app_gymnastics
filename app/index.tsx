@@ -8,6 +8,7 @@ import {
   useWindowDimensions,
   Alert,
   ActivityIndicator,
+  InteractionManager,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -20,6 +21,9 @@ const OFFERING_ID = 'Gym Access';
 
 // Hard-coded toggle to enable/disable automatic redirect (useful for testing)
 const REDIRECT_ENABLED = true; // <- cambia a false para desactivar
+// Toggle para saltarse completamente el paywall (útil para testing local)
+// Pon a `true` para entrar directamente en la app sin mostrar la pantalla de suscripción
+const SKIP_PAYWALL = true;
 
 
 export default function Index() {
@@ -48,6 +52,30 @@ export default function Index() {
 
   useEffect(() => {
     let navigated = false;
+
+    // Si SKIP_PAYWALL está activado, navegar directamente y evitar lógica de compras
+    if (SKIP_PAYWALL) {
+      console.log('[RC] SKIP_PAYWALL enabled — navigating to main screen');
+
+      const navigateNow = () => {
+        try {
+          router.replace('/discipline-select');
+        } catch (err) {
+          console.warn('[RC] navigation attempt failed, will retry next tick:', err);
+          setTimeout(() => {
+            try {
+              router.replace('/discipline-select');
+            } catch (e) {
+              console.warn('[RC] navigation retry failed:', e);
+            }
+          }, 50);
+        }
+      };
+
+      // Esperar a que las interacciones y el montaje inicial terminen
+      InteractionManager.runAfterInteractions?.(navigateNow) || setTimeout(navigateNow, 50);
+      return;
+    }
 
     const initPurchases = async () => {
       try {

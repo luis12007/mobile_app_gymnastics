@@ -222,6 +222,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   const [showExecutionModal, setShowExecutionModal] = useState(false);
   const [execution, setExecution] = useState(0);
   const [executionInput, setExecutionInput] = useState("");
+  const [executionSet, setExecutionSet] = useState(false);
 
   const [showDModal, setShowDModal] = useState(false);
   const [dInput, setDInput] = useState("");
@@ -329,7 +330,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
           setStickBonus(safeNumber(gymnast.bonus, 0) > 0);
           setCommentsInput(gymnast.comments || '');
           setComments(gymnast.comments || '');
-          setExecution(safeNumber(gymnast.execution, 0));
+          const execVal = gymnast.execution;
+          setExecution(safeNumber(execVal, 0));
+          setExecutionSet(execVal != null);
           setEScore(safeNumber(gymnast.escore, 0));
           setMyScore(safeNumber(gymnast.myscore, 0));
           setD(safeNumber(gymnast.competition_d, 0));
@@ -582,100 +585,159 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   }
 
   function getDeductionIntervalValue(newded: number): number {
-    if (newded >= 0.0 && newded <= 0.4) return 1;
-    if (newded > 0.4 && newded <= 0.6) return 2;
-    if (newded > 0.6 && newded <= 1.0) return 3;
-    if (newded > 1.0 && newded <= 1.5) return 4;
-    if (newded > 1.5 && newded <= 2.0) return 5;
-    if (newded > 2.0 && newded <= 2.5) return 6;
-    if (newded > 2.5 && newded <= 10.0) return 7;
-    return 0; // Out of range
+    // Map a deduction value (0..10) to a column index in the table (0..100)
+    const v = safeNumber(newded, 0);
+    const idx = Math.round(v * 10);
+    return Math.max(0, Math.min(100, idx));
   }
 
-  // Percentage table for discipline = true (current implementation)
-  const percentageTableDisciplineTrue = [
-    // 0.000 0.100 0.200 0.300 0.400 0.500 0.600 0.700 0.800 0.900 1.000 1.100 1.200 1.300 1.400 1.500 1.600
-    [100, 75, 65, 55, 45, 35, 25, 15, 5, 0, 0, 0, 0, 0, 0, 0, 0], // 1: 0 - 0.40
-    [100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0, 0, 0], // 2: > 0.40 - 0.60
-    [100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0, 0], // 3: > 0.60 - 1.00
-    [100, 100, 94, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0], // 4: > 1.00 - 1.50
-    [100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0], // 5: > 1.50 - 2.00
-    [100, 100, 100, 96, 88, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0], // 6: > 2.00 - 2.50
-    [100, 100, 100, 100, 93, 87, 80, 70, 60, 50, 40, 30, 20, 0, 0, 0, 0], // 7: > 2.50
-  ];
+  /* Tables removed — implementing percentage calculation from scratch
+     The arrays that mapped deduction intervals + delt -> percentage
+     have been removed. Provide clear stub functions that define the
+     interface for implementing percentage logic from 0. The app
+     calls `getPercentageFromTable(dedInterval, delt)` in multiple
+     places; keep that wrapper but forward to explicit compute
+     functions that currently return 0 as placeholders.
+  */
 
-  // Percentage table for discipline = false (new implementation based on image)
-  const percentageTableDisciplineFalse = [
-    // 0.000 0.100 0.200 0.300 0.400 0.500 0.600 0.700 0.800 0.900 1.000 1.100 1.200 1.300 1.400 >1.400
-    [100, 100, 75, 65, 55, 45, 35, 25, 15, 5, 0, 0, 0, 0, 0, 0], // 1: 0 - 0.40
-    [100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0], // 2: > 0.40 - 0.60
-    [100, 100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0], // 3: > 0.60 - 1.00
-    [100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0], // 4: > 1.00 - 1.50
-    [100, 100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0], // 5: > 1.50 - 2.00
-    [100, 100, 100, 100, 95, 85, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0], // 6: > 2.00 - 2.50
-    [100, 100, 100, 100, 100, 95, 85, 80, 70, 60, 50, 40, 30, 20, 10, 0], // 7: > 2.50
-  ];
+  function computePercentageMAG(dedInterval: number, delt: number, gymnastEvent?: string): number {
+    // Rows defined by delta ranges:
+    // 0: 0.000 - 0.400
+    // 1: 0.401 - 0.600
+    // 2: 0.601 - 1.000
+    // 3: 1.001 - 1.500
+    // 4: 1.501 - 2.000
+    // 5: 2.001 - 2.500
+    // 6: 2.501 - 10.000
+    // Round delta to 3 decimals to match table precision
+    // Now: row is computed from the deduction based on ecomp (ded = dedInterval/10)
+    const dedValue = safeNumber(dedInterval, 0) / 10;
+    // Round dedValue to 3 decimals for stable comparison
+    const rd = Math.round(dedValue * 1000) / 1000;
+    let rowNumber = 7;
+    if (rd <= 0.400) rowNumber = 1;
+    else if (rd >= 0.401 && rd <= 0.600) rowNumber = 2;
+    else if (rd >= 0.601 && rd <= 1.000) rowNumber = 3;
+    else if (rd >= 1.001 && rd <= 1.500) rowNumber = 4;
+    else if (rd >= 1.501 && rd <= 2.000) rowNumber = 5;
+    else if (rd >= 2.001 && rd <= 2.500) rowNumber = 6;
+    else rowNumber = 7;
+    const row = Math.max(0, Math.min(6, rowNumber - 1));
 
-  // New table: percentage table specifically for WAG vault (VT) events.
-  // This table will be used when `discipline === false` (WAG) and the gymnast's event is 'VT'.
-  const percentageTableWagVault = [
-    [100, 100, 75, 65, 55, 45, 35, 25, 15, 5, 0, 0, 0, 0, 0, 0],
-    [100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0, 0],
-    [100, 100, 100, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0, 0],
-    [100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0, 0],
-    [100, 100, 100, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0, 0],
-    [100, 100, 100, 100, 95, 85, 80, 70, 60, 50, 40, 30, 20, 10, 0, 0],
-    [100, 100, 100, 100, 100, 95, 85, 80, 70, 60, 50, 40, 30, 20, 10, 0],
-  ];
+    // Column is computed from delta: round(delta * 10) -> zero-based index
+    const absDelt = Math.abs(safeNumber(delt, 0));
+    const deltaRounded1 = Math.round(absDelt * 10) / 10;
+    let col = Math.round(deltaRounded1 * 10);
+    if (!Number.isFinite(col)) col = 0;
+    col = Math.max(0, col);
 
-  const deltSteps = [
-    0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4,
-    1.5,
-  ];
+    // Table for MAG — each subarray has 101 entries (0..100). We only fill
+    // the leading entries present in the provided spec; remaining values default to 0.
+    const rowTable: number[][] = [
+      // row 0 (0.000 - 0.400)
+      [
+        /* 0.0 */100, /*0.1*/75, /*0.2*/65, /*0.3*/55, /*0.4*/45, /*0.5*/35, /*0.6*/25, /*0.7*/15, /*0.8*/5, /*0.9*/0,
+      ],
+      // row 1 (0.401 - 0.600)
+      [100,80,70,60,50,40,30,20,10,0],
+      // row 2 (0.601 - 1.000)
+      [100,100,80,70,60,50,40,30,20,10,0],
+      // row 3 (1.001 - 1.500)
+      [100,100,94,80,70,60,50,40,30,20,10,0],
+      // row 4 (1.501 - 2.000)
+      [100,100,100,90,80,70,60,50,40,30,20,10,0],
+      // row 5 (2.001 - 2.500)
+      [100,100,100,96,88,80,70,60,50,40,30,20,10,0],
+      // row 6 (2.501 - 10.000)actua
+      [100,100,100,100,93,87,80,70,60,50,40,30,20,0],
+    ];
 
-  /**
-   * Calculate percentage from examination table based on discipline type
-   * @param dedInterval - Deduction interval (1-7)
-   * @param delt - Delta value (difference from expert deductions)
-   * @returns Percentage value based on the appropriate table
-   *
-   * When discipline = true: Uses the original percentage table
-   * When discipline = false: Uses the new percentage table with different ranges
-   */
+    const selectedRow = rowTable[row] || [];
+
+    // If the requested column is beyond provided values, return 0
+    const result = col < selectedRow.length ? selectedRow[col] : 0;
+
+    if (__DEV__) {
+      try {
+        console.log('[DEBUG] Table lookup (MAG):', {
+          dedInterval,
+          delt: r,
+          rowIndex: row,
+          colIndex: col,
+          value: result,
+        });
+      } catch (err) {
+        console.log('[DEBUG] Table lookup (MAG) stringify error', err);
+      }
+    }
+
+    return result;
+  }
+
+  function computePercentageWAG(dedInterval: number, delt: number, gymnastEvent?: string): number {
+    // Row computed from deduction (ded = dedInterval / 10)
+    const dedValue = safeNumber(dedInterval, 0) / 10;
+    const rd = Math.round(dedValue * 1000) / 1000;
+    let rowNumber = 7;
+    if (rd <= 0.400) rowNumber = 1;
+    else if (rd >= 0.401 && rd <= 0.600) rowNumber = 2;
+    else if (rd >= 0.601 && rd <= 1.000) rowNumber = 3;
+    else if (rd >= 1.001 && rd <= 1.500) rowNumber = 4;
+    else if (rd >= 1.501 && rd <= 2.000) rowNumber = 5;
+    else if (rd >= 2.001 && rd <= 2.500) rowNumber = 6;
+    else rowNumber = 7;
+    const row = Math.max(0, Math.min(6, rowNumber - 1));
+
+    // Column from delta (rounded to 1 decimal -> *10)
+    const absDelt = Math.abs(safeNumber(delt, 0));
+    const deltaRounded1 = Math.round(absDelt * 10) / 10;
+    let col = Math.round(deltaRounded1 * 10);
+    if (!Number.isFinite(col)) col = 0;
+    col = Math.max(0, col);
+
+    const rowTable: number[][] = [
+      // row 0 (0 - 0.40)
+      [100,100,75,65,55,45,35,25,15,5,0,0,0,0,0,0],
+      // row 1 (>0.40 - 0.60)
+      [100,100,80,70,60,50,40,30,20,10,0,0,0,0,0,0],
+      // row 2 (>0.60 - 1.00)
+      [100,100,100,80,70,60,50,40,30,20,10,0,0,0,0,0],
+      // row 3 (>1.00 - 1.50)
+      [100,100,100,90,80,70,60,50,40,30,20,10,0,0,0,0],
+      // row 4 (>1.50 - 2.00)
+      [100,100,100,100,90,80,70,60,50,40,30,20,10,0,0,0],
+      // row 5 (>2.00 - 2.50)
+      [100,100,100,100,95,85,80,70,60,50,40,30,20,10,0,0],
+      // row 6 (>2.50)
+      [100,100,100,100,100,95,85,80,70,60,50,40,30,20,10,0],
+    ];
+
+    const selectedRow = rowTable[row] || [];
+    const result = col < selectedRow.length ? selectedRow[col] : 0;
+
+    if (__DEV__) {
+      try {
+        console.log('[DEBUG] Table lookup (WAG):', {
+          dedValue: rd,
+          dedInterval,
+          delt: deltaRounded1,
+          rowIndex: row,
+          colIndex: col,
+          value: result,
+        });
+      } catch (err) {
+        console.log('[DEBUG] Table lookup (WAG) stringify error', err);
+      }
+    }
+
+    return result;
+  }
+
+  // Public wrapper preserved for compatibility — replace internals later
   function getPercentageFromTable(dedInterval: number, delt: number): number {
-    // Determine which percentage table to use
-    const isWagVault = !discipline && ((gymnastEvent || "").toString().toUpperCase() === "VT");
-    let percentageTable;
-    if (discipline) {
-      percentageTable = percentageTableDisciplineTrue;
-    } else {
-      percentageTable = isWagVault ? percentageTableWagVault : percentageTableDisciplineFalse;
-    }
-
-    if (delt > 1.4) return 0;
-    if (dedInterval < 1 || dedInterval > 7) return 0;
-
-    // Compute delt index:
-    // - For WAG VT use ceiling mapping (first step >= delt) so 0.367 -> 0.400 column
-    // - For other cases keep previous behaviour (largest step <= delt)
-    let deltIndex = 0;
-    if (isWagVault) {
-      const idx = deltSteps.findIndex((step) => delt <= step);
-      deltIndex = idx === -1 ? deltSteps.length - 1 : idx;
-    } else {
-      // find first step greater than delt, then use previous index (floor-like)
-      const idx = deltSteps.findIndex((step) => step > delt);
-      if (idx === -1) deltIndex = deltSteps.length - 1;
-      else if (idx === 0) deltIndex = 0;
-      else deltIndex = idx - 1;
-    }
-
-    // clamp
-    if (deltIndex < 0) deltIndex = 0;
-    if (deltIndex >= deltSteps.length) deltIndex = deltSteps.length - 1;
-
-    // Table is 0-indexed, dedInterval is 1-indexed
-    return percentageTable[dedInterval - 1][deltIndex] || 0;
+    return discipline
+      ? computePercentageMAG(dedInterval, delt, gymnastEvent)
+      : computePercentageWAG(dedInterval, delt, gymnastEvent);
   }
   const isValidDimension = (w: unknown, h: unknown) =>
     Number.isFinite(w as number) && Number.isFinite(h as number) && (w as number) > 0 && (h as number) > 0;
@@ -876,18 +938,27 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                 setScore(finalScore);
 
                 /* ============================================================== */
-                const newdelt = Math.abs(Math.round((eScore - rounded) * 1000) / 1000);
+                const newdelt = Math.abs(Math.round((eScore - rounded) * 10) / 10);
                 setDelt(newdelt);
 
-                const newded = 10 - rounded;
-                setSetded(Number(newded));
+                const newded = Math.round((10 - rounded) * 10) / 10;
+                setSetded(newded);
 
-                const dedInterval = getDeductionIntervalValue(Number(newded));
+                const dedInterval = getDeductionIntervalValue(newded);
                 const percentageValue = getPercentageFromTable(
                   dedInterval,
                   newdelt
                 );
                 setpercentage(percentageValue);
+
+                console.log('[DEBUG] E modal values:', {
+                  competitionE: rounded,
+                  judgeE: eScore,
+                  newdelt,
+                  newded,
+                  dedInterval,
+                  percentageValue,
+                });
 
                 /* ============================================================== */
                 
@@ -952,12 +1023,21 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                 const newdelt = Math.abs(Math.round((eScore - e) * 10) / 10);
                 setDelt(newdelt);
 
-                const newded = 10 - e;
-                setSetded(Number(newded));
+                const newded = Math.round((10 - e) * 10) / 10;
+                setSetded(newded);
 
-                const dedInterval = getDeductionIntervalValue(Number(newded));
+                const dedInterval = getDeductionIntervalValue(newded);
                 const percentageValue = getPercentageFromTable(dedInterval, newdelt);
                 setpercentage(percentageValue);
+
+                console.log('[DEBUG] D modal values:', {
+                  competitionE: e,
+                  judgeE: eScore,
+                  newdelt,
+                  newded,
+                  dedInterval,
+                  percentageValue,
+                });
                 
               } else {
                 Alert.alert("Invalid Input", "Please enter a valid D value.", [
@@ -1008,29 +1088,40 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               const num = parseFloat(inputString.replace(",", "."));
 
               if (!isNaN(num)) {
-                const rounded = Math.round(num * 10) / 10;
-                setExecution(rounded);
-                const eScore = Number((10 - rounded).toFixed(3));
-                const newmyscore = eScore + sv + (stickbonus ? getStickBonusValue() : 0) - nd;
-                const finalScore = Math.round(newmyscore * 1000) / 1000;
+                // Input is a deduction value (deduction = num). Convert to judge execution score.
+                const dedInput = Math.round(num * 10) / 10;
+                const judgeE = Math.round((10 - dedInput) * 1000) / 1000;
 
+                // store judgeE into execution state and escore
+                setExecution(judgeE);
+                setExecutionSet(true);
+                setEScore(judgeE);
+
+                // MyScore uses judgeE + SV + stickbonus - ND
+                const newmyscore = judgeE + sv + (stickbonus ? getStickBonusValue() : 0) - nd;
+                const finalScore = Math.round(newmyscore * 1000) / 1000;
                 setMyScore(finalScore);
 
-                /* Lógica de delt existente */
-                const newdelt = Math.abs(Math.round((eScore - e) * 1000) / 1000);
+                // Delta is the absolute difference between competition reference E (state `e`) and judgeE
+                const newdelt = Math.abs(Math.round((e - judgeE) * 10) / 10);
                 setDelt(newdelt);
 
-                const newded = 10 - e;
-                setSetded(Number(newded));
+                // For the deduction interval we use the competition reference deduction (10 - competitionE)
+                const newded = Math.round((10 - e) * 10) / 10;
+                setSetded(newded);
 
-                const dedInterval = getDeductionIntervalValue(Number(newded));
-                const percentageValue = getPercentageFromTable(
-                dedInterval,
-                newdelt
-              );
-              setpercentage(percentageValue);
+                const dedInterval = getDeductionIntervalValue(newded);
+                const percentageValue = getPercentageFromTable(dedInterval, newdelt);
+                setpercentage(percentageValue);
 
-              setEScore(eScore);
+                console.log('[DEBUG] Execution modal values (ded input):', {
+                  dedInput,
+                  judgeE,
+                  newdelt,
+                  newded,
+                  dedInterval,
+                  percentageValue,
+                });
               
               } else {
                 Alert.alert(
@@ -1390,7 +1481,13 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                 style={styles.executionValueCell}
                 activeOpacity={0.7}
                 onPress={() => {
-                  setExecutionInput(trimDecimals(execution, 3));
+                  // Prefill modal with current deduction (10 - execution) only if execution exists
+                    if (executionSet) {
+                      setExecutionInput(trimDecimals(10 - execution, 1));
+                    } else {
+                      // no execution yet: default to 0
+                      setExecutionInput("0");
+                    }
                   setShowExecutionModal(true);
                 }}
               >
@@ -1403,7 +1500,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                     isTinyDevice ? styles.valueTextTiny : null,
                   ]}
                 >
-                  {trimDecimals(execution, 3)}
+                  {executionSet ? trimDecimals(10 - execution, 3) : trimDecimals(0, 3)}
                 </Text>
               </TouchableOpacity>
               <View style={styles.executionValueCell}>
