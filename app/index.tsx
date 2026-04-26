@@ -23,7 +23,7 @@ const OFFERING_ID = 'Gym Access';
 const REDIRECT_ENABLED = true; // <- cambia a false para desactivar
 // Toggle para saltarse completamente el paywall (útil para testing local)
 // Pon a `true` para entrar directamente en la app sin mostrar la pantalla de suscripción
-const SKIP_PAYWALL = true;
+const SKIP_PAYWALL = false;
 
 
 export default function Index() {
