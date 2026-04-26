@@ -591,6 +591,36 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
     return Math.max(0, Math.min(100, idx));
   }
 
+  // Keep 2 decimals, but if the second decimal is 5 or more, bump the first decimal and set the second to 0.
+  // This works from the raw string so we do not lose precision to floating-point conversion.
+  function normalizeTwoDecimalsSpecial(value: string | number): string {
+    const raw = String(value).trim().replace(",", ".");
+    const negative = raw.startsWith("-");
+    const unsigned = negative ? raw.slice(1) : raw;
+    const [wholePartRaw, decimalPartRaw = ""] = unsigned.split(".");
+
+    let wholePart = wholePartRaw || "0";
+    const decimalDigits = decimalPartRaw.replace(/\D/g, "");
+    const firstDecimal = Number(decimalDigits[0] || "0");
+    const secondDecimal = Number(decimalDigits[1] || "0");
+
+    if (secondDecimal >= 5) {
+      let bumpedFirst = firstDecimal + 1;
+      let bumpedWhole = Number(wholePart);
+
+      if (bumpedFirst >= 10) {
+        bumpedFirst = 0;
+        bumpedWhole += 1;
+      }
+
+      const sign = negative ? "-" : "";
+      return `${sign}${bumpedWhole}.${bumpedFirst}0`;
+    }
+
+    const sign = negative ? "-" : "";
+    return `${sign}${wholePart}.${firstDecimal}${secondDecimal}`;
+  }
+
   /* Tables removed — implementing percentage calculation from scratch
      The arrays that mapped deduction intervals + delt -> percentage
      have been removed. Provide clear stub functions that define the
@@ -661,7 +691,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
       try {
         console.log('[DEBUG] Table lookup (MAG):', {
           dedInterval,
-          delt: r,
+          delt: deltaRounded1,
           rowIndex: row,
           colIndex: col,
           value: result,
@@ -1088,8 +1118,12 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               const num = parseFloat(inputString.replace(",", "."));
 
               if (!isNaN(num)) {
+                // Apply special rounding first, before any calculation.
+                const dedInputText = normalizeTwoDecimalsSpecial(inputString);
+                const dedInput = parseFloat(dedInputText);
+                setExecutionInput(dedInputText);
+
                 // Input is a deduction value (deduction = num). Convert to judge execution score.
-                const dedInput = Math.round(num * 10) / 10;
                 const judgeE = Math.round((10 - dedInput) * 1000) / 1000;
 
                 // store judgeE into execution state and escore
@@ -1483,10 +1517,10 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                 onPress={() => {
                   // Prefill modal with current deduction (10 - execution) only if execution exists
                     if (executionSet) {
-                      setExecutionInput(trimDecimals(10 - execution, 1));
+                      setExecutionInput(trimDecimals(10 - execution, 2));
                     } else {
                       // no execution yet: default to 0
-                      setExecutionInput("0");
+                      setExecutionInput("0.00");
                     }
                   setShowExecutionModal(true);
                 }}
@@ -1500,7 +1534,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                     isTinyDevice ? styles.valueTextTiny : null,
                   ]}
                 >
-                  {executionSet ? trimDecimals(10 - execution, 3) : trimDecimals(0, 3)}
+                  {executionSet ? trimDecimals(10 - execution, 2) : trimDecimals(0, 2)}
                 </Text>
               </TouchableOpacity>
               <View style={styles.executionValueCell}>
