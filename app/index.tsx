@@ -9,7 +9,9 @@ import {
   Alert,
   ActivityIndicator,
   InteractionManager,
+  Platform,
 } from 'react-native';
+import Constants from 'expo-constants';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -50,6 +52,141 @@ export default function Index() {
     }
   };
 
+  const hasProductionEntitlement = (customerInfo: CustomerInfo) => {
+    const entitlement = getPrimaryEntitlement(customerInfo);
+    return Boolean(entitlement?.isActive) && entitlement?.isSandbox === false;
+  };
+
+  const isSandboxPurchase = (customerInfo: CustomerInfo) => {
+    return Boolean(getPrimaryEntitlement(customerInfo)?.isSandbox);
+  };
+
+  const getPrimaryEntitlement = (customerInfo: CustomerInfo) => {
+    const activeEntitlement = customerInfo.entitlements.active?.[ENTITLEMENT_ID];
+    if (activeEntitlement) {
+      return activeEntitlement;
+    }
+
+    const firstActiveEntitlementKey = Object.keys(customerInfo.entitlements.active ?? {})[0];
+    return firstActiveEntitlementKey ? customerInfo.entitlements.active[firstActiveEntitlementKey] : undefined;
+  };
+
+  const logRevenueCatCustomerInfo = (contextLabel: string, customerInfo: CustomerInfo) => {
+    try {
+      const activeEntitlements = Object.fromEntries(
+        Object.entries(customerInfo.entitlements.active ?? {}).map(([key, entitlement]) => [key, {
+          identifier: entitlement.identifier,
+          isActive: entitlement.isActive,
+          willRenew: entitlement.willRenew,
+          periodType: entitlement.periodType,
+          latestPurchaseDate: entitlement.latestPurchaseDate,
+          originalPurchaseDate: entitlement.originalPurchaseDate,
+          expirationDate: entitlement.expirationDate,
+          store: entitlement.store,
+          productIdentifier: entitlement.productIdentifier,
+          productPlanIdentifier: entitlement.productPlanIdentifier,
+          isSandbox: entitlement.isSandbox,
+          unsubscribeDetectedAt: entitlement.unsubscribeDetectedAt,
+          billingIssueDetectedAt: entitlement.billingIssueDetectedAt,
+          ownershipType: entitlement.ownershipType,
+          verification: entitlement.verification,
+        }])
+      );
+
+      const allEntitlements = Object.fromEntries(
+        Object.entries(customerInfo.entitlements.all ?? {}).map(([key, entitlement]) => [key, {
+          identifier: entitlement.identifier,
+          isActive: entitlement.isActive,
+          willRenew: entitlement.willRenew,
+          periodType: entitlement.periodType,
+          latestPurchaseDate: entitlement.latestPurchaseDate,
+          originalPurchaseDate: entitlement.originalPurchaseDate,
+          expirationDate: entitlement.expirationDate,
+          store: entitlement.store,
+          productIdentifier: entitlement.productIdentifier,
+          productPlanIdentifier: entitlement.productPlanIdentifier,
+          isSandbox: entitlement.isSandbox,
+          unsubscribeDetectedAt: entitlement.unsubscribeDetectedAt,
+          billingIssueDetectedAt: entitlement.billingIssueDetectedAt,
+          ownershipType: entitlement.ownershipType,
+          verification: entitlement.verification,
+        }])
+      );
+
+      const subscriptionsByProductIdentifier = Object.fromEntries(
+        Object.entries(customerInfo.subscriptionsByProductIdentifier ?? {}).map(([key, subscription]) => [key, {
+          productIdentifier: subscription.productIdentifier,
+          purchaseDate: subscription.purchaseDate,
+          originalPurchaseDate: subscription.originalPurchaseDate,
+          expiresDate: subscription.expiresDate,
+          store: subscription.store,
+          unsubscribeDetectedAt: subscription.unsubscribeDetectedAt,
+          isSandbox: subscription.isSandbox,
+          billingIssuesDetectedAt: subscription.billingIssuesDetectedAt,
+          gracePeriodExpiresDate: subscription.gracePeriodExpiresDate,
+          ownershipType: subscription.ownershipType,
+          periodType: subscription.periodType,
+          refundedAt: subscription.refundedAt,
+          storeTransactionId: subscription.storeTransactionId,
+          isActive: subscription.isActive,
+          willRenew: subscription.willRenew,
+        }])
+      );
+
+      console.log('[RC] customerInfo diagnostics:', {
+        context: contextLabel,
+        originalAppUserId: customerInfo.originalAppUserId,
+        requestDate: customerInfo.requestDate,
+        firstSeen: customerInfo.firstSeen,
+        latestExpirationDate: customerInfo.latestExpirationDate,
+        originalApplicationVersion: customerInfo.originalApplicationVersion,
+        originalPurchaseDate: customerInfo.originalPurchaseDate,
+        managementURL: customerInfo.managementURL,
+        activeSubscriptions: customerInfo.activeSubscriptions,
+        allPurchasedProductIdentifiers: customerInfo.allPurchasedProductIdentifiers,
+        allExpirationDates: customerInfo.allExpirationDates,
+        allPurchaseDates: customerInfo.allPurchaseDates,
+        activeEntitlements,
+        allEntitlements,
+        subscriptionsByProductIdentifier,
+        primaryEntitlement: getPrimaryEntitlement(customerInfo)
+          ? {
+              identifier: getPrimaryEntitlement(customerInfo)?.identifier,
+              isActive: getPrimaryEntitlement(customerInfo)?.isActive,
+              willRenew: getPrimaryEntitlement(customerInfo)?.willRenew,
+              periodType: getPrimaryEntitlement(customerInfo)?.periodType,
+              store: getPrimaryEntitlement(customerInfo)?.store,
+              productIdentifier: getPrimaryEntitlement(customerInfo)?.productIdentifier,
+              isSandbox: getPrimaryEntitlement(customerInfo)?.isSandbox,
+              ownershipType: getPrimaryEntitlement(customerInfo)?.ownershipType,
+            }
+          : null,
+      });
+    } catch (error) {
+      console.log('[RC] customerInfo diagnostics error:', error);
+    }
+  };
+
+  const logRevenueCatDeviceInfo = async (contextLabel: string) => {
+    try {
+      const appUserId = typeof Purchases.getAppUserID === 'function'
+        ? await Purchases.getAppUserID()
+        : 'unavailable';
+
+      console.log('[RC] device diagnostics:', {
+        context: contextLabel,
+        appUserId,
+        platform: Platform.OS,
+        platformVersion: Platform.Version,
+        deviceName: (Constants as any).deviceName ?? 'unknown',
+        appOwnership: Constants.appOwnership,
+        executionEnvironment: Constants.executionEnvironment,
+      });
+    } catch (error) {
+      console.log('[RC] device diagnostics error:', error);
+    }
+  };
+
   useEffect(() => {
     let navigated = false;
 
@@ -79,15 +216,25 @@ export default function Index() {
 
     const initPurchases = async () => {
       try {
+        await logRevenueCatDeviceInfo('initPurchases');
+
         console.log('[RC] ⏳ Checking customer info...');
         const customerInfo: CustomerInfo = await Purchases.getCustomerInfo();
+        logRevenueCatCustomerInfo('initPurchases', customerInfo);
         console.log('[RC] ✅ Active entitlements:', JSON.stringify(Object.keys(customerInfo.entitlements.active)));
+        console.log('[RC] customer identifiers:', {
+          originalAppUserId: customerInfo.originalAppUserId,
+          entitlementsActive: Object.keys(customerInfo.entitlements.active),
+          isSandbox: isSandboxPurchase(customerInfo),
+        });
 
-        if (REDIRECT_ENABLED && hasActiveEntitlement(customerInfo)) {
+        if (REDIRECT_ENABLED && hasProductionEntitlement(customerInfo)) {
           console.log('[RC] 🎉 User has entitlement, navigating...');
           navigated = true;
           router.replace('/discipline-select');
           return;
+        } else if (hasActiveEntitlement(customerInfo) && isSandboxPurchase(customerInfo)) {
+          console.log('[RC] 🚫 Sandbox entitlement detected. Access denied until production purchase is used.');
         }
 
         console.log('[RC] ⏳ Fetching offerings...');
@@ -138,9 +285,15 @@ export default function Index() {
 
       console.log('[RC] 💳 Purchasing package:', packageToBuy.identifier);
       const { customerInfo } = await Purchases.purchasePackage(packageToBuy);
+      logRevenueCatCustomerInfo('purchasePackage', customerInfo);
       console.log('[RC] ✅ Purchase done. Active entitlements:', JSON.stringify(Object.keys(customerInfo.entitlements.active)));
-      if (REDIRECT_ENABLED && hasActiveEntitlement(customerInfo)) {
+      if (REDIRECT_ENABLED && hasProductionEntitlement(customerInfo)) {
         router.replace('/discipline-select');
+      } else if (hasActiveEntitlement(customerInfo) && isSandboxPurchase(customerInfo)) {
+        Alert.alert(
+          'Sandbox purchase not allowed',
+          'This account has a sandbox license. Only production purchases can unlock the app.'
+        );
       }
     } catch (e: any) {
       console.log('[RC] ❌ Purchase error:', JSON.stringify(e));
@@ -166,9 +319,15 @@ export default function Index() {
     try {
       console.log('[RC] 🔁 Restoring purchases...');
       const customerInfo: CustomerInfo = await Purchases.restorePurchases();
+      logRevenueCatCustomerInfo('restorePurchases', customerInfo);
       console.log('[RC] ✅ Restore result entitlements:', JSON.stringify(Object.keys(customerInfo.entitlements.active)));
-      if (REDIRECT_ENABLED && hasActiveEntitlement(customerInfo)) {
+      if (REDIRECT_ENABLED && hasProductionEntitlement(customerInfo)) {
         router.replace('/discipline-select');
+      } else if (hasActiveEntitlement(customerInfo) && isSandboxPurchase(customerInfo)) {
+        Alert.alert(
+          'Sandbox purchase not allowed',
+          'This account has a sandbox license. Only production purchases can unlock the app.'
+        );
       } else {
         Alert.alert('No subscription found', 'No active subscription was found for this account.');
       }

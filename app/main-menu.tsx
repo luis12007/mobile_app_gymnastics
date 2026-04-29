@@ -1,6 +1,7 @@
-import { View, Text, StyleSheet, TouchableOpacity, Modal, SafeAreaView, StatusBar, Platform, ScrollView, Dimensions, FlatList, TextInput, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, SafeAreaView, StatusBar, Platform, ScrollView, Dimensions, FlatList, TextInput, Image, Alert, ActivityIndicator } from 'react-native';
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'expo-router';
+import Purchases, { CustomerInfo } from 'react-native-purchases';
 import { getDiscipline, createFolder, getRootFolders, Folder, deleteFolder, updateFolder, swapFolderPositions, moveFolderIntoFolder, getSubfolders, getFolderById } from '../lib/database';
 import FolderExportModal from '../componentes/FolderExportModal';
 import FolderImportModal from '../componentes/FolderImportModal';
@@ -41,6 +42,7 @@ const iosOverlayStyle = StyleSheet.create({
 export default function MainMenu() {
   const router = useRouter();
   const [discipline, setDisciplineState] = useState<string>('');
+  const [isCheckingAccess, setIsCheckingAccess] = useState(true);
   const [menuVisible, setMenuVisible] = useState(false);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -83,8 +85,38 @@ export default function MainMenu() {
   
 
   useEffect(() => {
-    loadDiscipline();
-    loadFolders();
+    const validateAccess = async () => {
+      try {
+        const customerInfo: CustomerInfo = await Purchases.getCustomerInfo();
+        const activeEntitlements = customerInfo.entitlements.active ?? {};
+        const primaryEntitlement = activeEntitlements['Gym Judge Pro'] ?? Object.values(activeEntitlements)[0];
+
+        console.log('[RC] main-menu access check:', {
+          originalAppUserId: customerInfo.originalAppUserId,
+          activeEntitlements: Object.keys(activeEntitlements),
+          isSandbox: Boolean(primaryEntitlement?.isSandbox),
+          store: primaryEntitlement?.store,
+          periodType: primaryEntitlement?.periodType,
+          ownershipType: primaryEntitlement?.ownershipType,
+        });
+
+        if (!primaryEntitlement || !primaryEntitlement.isActive || primaryEntitlement.isSandbox) {
+          console.log('[RC] main-menu denied. Redirecting to paywall.');
+          router.replace('/');
+          return;
+        }
+
+        await loadDiscipline();
+        await loadFolders();
+      } catch (error) {
+        console.error('Error validating RevenueCat access in main menu:', error);
+        router.replace('/');
+      } finally {
+        setIsCheckingAccess(false);
+      }
+    };
+
+    validateAccess();
   }, []);
 
   const loadDiscipline = async () => {
@@ -501,6 +533,16 @@ export default function MainMenu() {
       </TouchableOpacity>
     );
   };
+
+  if (isCheckingAccess) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+        <ActivityIndicator size="large" color="#004aad" />
+        <Text style={styles.loadingText}>Verifying access...</Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -1063,6 +1105,18 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     padding: 20,
     marginTop: 40,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
   },
   gridContainer: {
     padding: (Platform.OS === 'ios' && !Platform.isPad) ? 2 : 12,

@@ -2,7 +2,7 @@
   "expo": {
     "name": "gym_judge",
     "slug": "gym_judge",
-    "version": "2.8.1",
+    "version": "2.8.2",
     "orientation": "landscape",
     "icon": "./assets/images/iconapp.png",
     "scheme": "gymjudge",
@@ -22,7 +22,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.anonymous.gym_judge",
-      "versionCode": 25
+      "versionCode": 26
     },
     "web": {
       "bundler": "metro",

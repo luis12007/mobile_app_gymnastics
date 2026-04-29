@@ -579,9 +579,9 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   /* Helpers ============================================== */
   function trimDecimals(num: number, decimals: number) {
     const safe = safeNumber(num, 0);
-    const [int, dec] = String(safe).split(".");
-    if (!dec) return int + "." + "0".repeat(decimals);
-    return int + "." + dec.slice(0, decimals).padEnd(decimals, "0");
+    const factor = 10 ** decimals;
+    const rounded = Math.round((safe + Number.EPSILON) * factor) / factor;
+    return rounded.toFixed(decimals);
   }
 
   function getDeductionIntervalValue(newded: number): number {
