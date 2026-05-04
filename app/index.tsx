@@ -14,7 +14,7 @@ import {
 import Constants from 'expo-constants';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import Purchases, { PurchasesPackage, CustomerInfo } from 'react-native-purchases';
 
 // Set this to match your RevenueCat entitlement identifier
@@ -31,6 +31,8 @@ const SKIP_PAYWALL = false;
 export default function Index() {
   const router = useRouter();
   const { height } = useWindowDimensions();
+  const hasRedirectedRef = useRef(false); // Rastrear si ya se hizo la redirección inicial
+  const hasSkippedRef = useRef(false); // Rastrear si ya se hizo el skip inicial
 
   const isSmall = height < 720;
   const titleSize = isSmall ? 34 : 40;
@@ -191,17 +193,19 @@ export default function Index() {
     let navigated = false;
 
     // Si SKIP_PAYWALL está activado, navegar directamente y evitar lógica de compras
-    if (SKIP_PAYWALL) {
+    // hasSkippedRef evita múltiples redirecciones en bucle
+    if (SKIP_PAYWALL && !hasSkippedRef.current) {
       console.log('[RC] SKIP_PAYWALL enabled — navigating to main screen');
+      hasSkippedRef.current = true; // Marcar como skipped para evitar bucle
 
       const navigateNow = () => {
         try {
-          router.replace('/discipline-select');
+          router.replace('/discipline-select?skip_validation=true');
         } catch (err) {
           console.warn('[RC] navigation attempt failed, will retry next tick:', err);
           setTimeout(() => {
             try {
-              router.replace('/discipline-select');
+              router.replace('/discipline-select?skip_validation=true');
             } catch (e) {
               console.warn('[RC] navigation retry failed:', e);
             }
@@ -228,8 +232,12 @@ export default function Index() {
           isSandbox: isSandboxPurchase(customerInfo),
         });
 
-        if (REDIRECT_ENABLED && hasProductionEntitlement(customerInfo)) {
-          console.log('[RC] 🎉 User has entitlement, navigating...');
+        // Solo redirigir automáticamente si REDIRECT_ENABLED es true Y tiene entitlemente de producción
+        // Esto solo ocurre la primera vez que el usuario entra en el paywall
+        // hasRedirectedRef evita múltiples redirecciones en bucle
+        if (REDIRECT_ENABLED && hasProductionEntitlement(customerInfo) && !hasRedirectedRef.current) {
+          console.log('[RC] 🎉 User has production entitlement, navigating to main app...');
+          hasRedirectedRef.current = true; // Marcar como redirigido para evitar bucle
           navigated = true;
           router.replace('/discipline-select');
           return;
@@ -287,7 +295,8 @@ export default function Index() {
       const { customerInfo } = await Purchases.purchasePackage(packageToBuy);
       logRevenueCatCustomerInfo('purchasePackage', customerInfo);
       console.log('[RC] ✅ Purchase done. Active entitlements:', JSON.stringify(Object.keys(customerInfo.entitlements.active)));
-      if (REDIRECT_ENABLED && hasProductionEntitlement(customerInfo)) {
+      if (REDIRECT_ENABLED && hasProductionEntitlement(customerInfo) && !hasRedirectedRef.current) {
+        hasRedirectedRef.current = true;
         router.replace('/discipline-select');
       } else if (hasActiveEntitlement(customerInfo) && isSandboxPurchase(customerInfo)) {
         Alert.alert(
@@ -321,7 +330,8 @@ export default function Index() {
       const customerInfo: CustomerInfo = await Purchases.restorePurchases();
       logRevenueCatCustomerInfo('restorePurchases', customerInfo);
       console.log('[RC] ✅ Restore result entitlements:', JSON.stringify(Object.keys(customerInfo.entitlements.active)));
-      if (REDIRECT_ENABLED && hasProductionEntitlement(customerInfo)) {
+      if (REDIRECT_ENABLED && hasProductionEntitlement(customerInfo) && !hasRedirectedRef.current) {
+        hasRedirectedRef.current = true;
         router.replace('/discipline-select');
       } else if (hasActiveEntitlement(customerInfo) && isSandboxPurchase(customerInfo)) {
         Alert.alert(

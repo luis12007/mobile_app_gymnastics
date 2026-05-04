@@ -2,6 +2,8 @@ import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, StatusBar, Plat
 import { useEffect, useState, useRef } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { getCompetitionById, Competition, Gymnast, getGymnastsByCompetition, getGymnastById, createGymnast, updateGymnast, deleteGymnast } from '../lib/database';
+import { useProductionEntitlementCheck } from '../lib/useProductionEntitlementCheck';
+import PaywallModalSimple from '../componentes/PaywallModalSimple';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as XLSX from 'xlsx';
@@ -55,6 +57,11 @@ const MAG_EVENTS = ['FX', 'VT', 'PH', 'SR', 'PB', 'HB'];
 const WAG_EVENTS = ['FX', 'UB', 'BB', 'VT'];
 
 export default function StartJudging() {
+  // Validar que el usuario tiene entitlemente de producción
+  const { hasProduction, isLoading } = useProductionEntitlementCheck('StartJudging');
+  const [showPaywallModal, setShowPaywallModal] = useState(false);
+  const hasShownRef = useRef(false);
+
   const router = useRouter();
   const { competitionId, lastGymnastId, discipline } = useLocalSearchParams();
   const scrollViewRef = useRef<ScrollView>(null);
@@ -84,8 +91,17 @@ export default function StartJudging() {
   const [showContinueButton, setShowContinueButton] = useState(false);
 
   useEffect(() => {
+    if (isLoading) return;
+    if (!hasProduction) {
+      if (!hasShownRef.current) {
+        setShowPaywallModal(true);
+        hasShownRef.current = true;
+      }
+      return;
+    }
+
     loadCompetition();
-  }, [competitionId]);
+  }, [competitionId, isLoading, hasProduction]);
 
   useEffect(() => {
     // Show continue button if we came from a gymnast screen

@@ -5,6 +5,8 @@ import { getDiscipline, getSubfolders, getFolderById, getFolderPath, Folder, cre
 import FolderExportModal from '../../componentes/FolderExportModal';
 import FolderImportModal from '../../componentes/FolderImportModal';
 import CustomNumberPadOptimized from '../../componentes/CustomNumberPadOptimized';
+import { useProductionEntitlementCheck } from '../../lib/useProductionEntitlementCheck';
+import PaywallModalSimple from '../../componentes/PaywallModalSimple';
 
 const IMG_FOLDER_CLOSED = require('../../assets/images/folder.png');
 const IMG_FOLDER_OPEN = require('../../assets/images/open-folder.png');
@@ -42,6 +44,11 @@ const iosOverlayStyle = StyleSheet.create({
 });
 
 export default function FolderView() {
+  // Validar que el usuario tiene entitlemente de producción
+  const { hasProduction, isLoading } = useProductionEntitlementCheck('FolderView');
+  const [showPaywallModal, setShowPaywallModal] = useState(false);
+  const hasShownRef = useRef(false);
+
   const router = useRouter();
   const { id } = useLocalSearchParams();
   const [discipline, setDisciplineState] = useState<string>('');
@@ -103,9 +110,18 @@ export default function FolderView() {
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    if (isLoading) return;
+    if (!hasProduction) {
+      if (!hasShownRef.current) {
+        setShowPaywallModal(true);
+        hasShownRef.current = true;
+      }
+      return;
+    }
+
     loadDiscipline();
     loadFolderData();
-  }, [id]);
+  }, [id, isLoading, hasProduction]);
 
   const loadDiscipline = async () => {
     try {
@@ -767,6 +783,20 @@ export default function FolderView() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       
+      <PaywallModalSimple
+        visible={showPaywallModal}
+        dismissible={false}
+        onPurchaseSuccess={async () => {
+          setShowPaywallModal(false);
+          try {
+            await loadDiscipline();
+            await loadFolderData();
+          } catch (e) {
+            console.error('Error reloading after purchase', e);
+          }
+        }}
+      />
+
       {/* Top Bar with Breadcrumb */}
       <View style={styles.topBar}>
         <TouchableOpacity 

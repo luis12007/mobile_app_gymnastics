@@ -3,8 +3,10 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'expo-router';
 import Purchases, { CustomerInfo } from 'react-native-purchases';
 import { getDiscipline, createFolder, getRootFolders, Folder, deleteFolder, updateFolder, swapFolderPositions, moveFolderIntoFolder, getSubfolders, getFolderById } from '../lib/database';
+import PaywallModalSimple from '../componentes/PaywallModalSimple';
 import FolderExportModal from '../componentes/FolderExportModal';
 import FolderImportModal from '../componentes/FolderImportModal';
+import { useProductionEntitlementCheck } from '../lib/useProductionEntitlementCheck';
 
 const { width, height } = Dimensions.get('window');
 
@@ -40,9 +42,14 @@ const iosOverlayStyle = StyleSheet.create({
 });
 
 export default function MainMenu() {
+  // Validar que el usuario tiene entitlemente de producción
+  const { hasProduction, isLoading } = useProductionEntitlementCheck('MainMenu');
+
   const router = useRouter();
   const [discipline, setDisciplineState] = useState<string>('');
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
+  const [showPaywallModal, setShowPaywallModal] = useState(false);
+  const hasShownRef = useRef(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -85,39 +92,29 @@ export default function MainMenu() {
   
 
   useEffect(() => {
-    const validateAccess = async () => {
+    if (isLoading) return;
+
+    if (!hasProduction) {
+      if (!hasShownRef.current) {
+        setShowPaywallModal(true);
+        hasShownRef.current = true;
+      }
+      setIsCheckingAccess(false);
+      return;
+    }
+
+    // Usuario con licencia: cargar datos normales
+    (async () => {
       try {
-        const customerInfo: CustomerInfo = await Purchases.getCustomerInfo();
-        const activeEntitlements = customerInfo.entitlements.active ?? {};
-        const primaryEntitlement = activeEntitlements['Gym Judge Pro'] ?? Object.values(activeEntitlements)[0];
-
-        console.log('[RC] main-menu access check:', {
-          originalAppUserId: customerInfo.originalAppUserId,
-          activeEntitlements: Object.keys(activeEntitlements),
-          isSandbox: Boolean(primaryEntitlement?.isSandbox),
-          store: primaryEntitlement?.store,
-          periodType: primaryEntitlement?.periodType,
-          ownershipType: primaryEntitlement?.ownershipType,
-        });
-
-        if (!primaryEntitlement || !primaryEntitlement.isActive || primaryEntitlement.isSandbox) {
-          console.log('[RC] main-menu denied. Redirecting to paywall.');
-          router.replace('/');
-          return;
-        }
-
         await loadDiscipline();
         await loadFolders();
       } catch (error) {
         console.error('Error validating RevenueCat access in main menu:', error);
-        router.replace('/');
       } finally {
         setIsCheckingAccess(false);
       }
-    };
-
-    validateAccess();
-  }, []);
+    })();
+  }, [isLoading, hasProduction]);
 
   const loadDiscipline = async () => {
     try {
@@ -548,6 +545,20 @@ export default function MainMenu() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       
+      <PaywallModalSimple
+        visible={showPaywallModal}
+        dismissible={false}
+        onPurchaseSuccess={async () => {
+          setShowPaywallModal(false);
+          try {
+            await loadDiscipline();
+            await loadFolders();
+          } catch (e) {
+            console.error('Error reloading after purchase', e);
+          }
+        }}
+      />
+
       {/* Top Bar */}
       <View style={styles.topBar}>
         <TouchableOpacity 

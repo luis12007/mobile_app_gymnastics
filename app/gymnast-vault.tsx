@@ -585,10 +585,17 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   }
 
   function getDeductionIntervalValue(newded: number): number {
-    // Map a deduction value (0..10) to a column index in the table (0..100)
-    const v = safeNumber(newded, 0);
-    const idx = Math.round(v * 10);
-    return Math.max(0, Math.min(100, idx));
+    // Map a deduction value (0..10) into interval indices used by the tables
+    // (1..7). Match logic used in other apparatus helpers (e.g. gymnast-floor).
+    const rounded = Math.round(safeNumber(newded, 0) * 100) / 100;
+    if (rounded >= 0.0 && rounded <= 0.4) return 1;
+    if (rounded > 0.4 && rounded <= 0.6) return 2;
+    if (rounded > 0.6 && rounded <= 1.0) return 3;
+    if (rounded > 1.0 && rounded <= 1.5) return 4;
+    if (rounded > 1.5 && rounded <= 2.0) return 5;
+    if (rounded > 2.0 && rounded <= 2.5) return 6;
+    if (rounded > 2.5 && rounded <= 10.0) return 7;
+    return 0;
   }
 
   // Keep 2 decimals, but if the second decimal is 5 or more, bump the first decimal and set the second to 0.
@@ -630,31 +637,31 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
      functions that currently return 0 as placeholders.
   */
 
-  function computePercentageMAG(dedInterval: number, delt: number, gymnastEvent?: string): number {
-    // Rows defined by delta ranges:
-    // 0: 0.000 - 0.400
-    // 1: 0.401 - 0.600
-    // 2: 0.601 - 1.000
-    // 3: 1.001 - 1.500
-    // 4: 1.501 - 2.000
-    // 5: 2.001 - 2.500
-    // 6: 2.501 - 10.000
-    // Round delta to 3 decimals to match table precision
-    // Now: row is computed from the deduction based on ecomp (ded = dedInterval/10)
-    const dedValue = safeNumber(dedInterval, 0) / 10;
-    // Round dedValue to 3 decimals for stable comparison
-    const rd = Math.round(dedValue * 1000) / 1000;
+  function computePercentageMAG(dedInterval: number, delt: number, roundedDed?: number, gymnastEvent?: string): number {
+    // Determine ROW from the rounded deduction (roundedDed = round(10-compE, 1))
+    // roundedDed: numeric deduction rounded to 1 decimal (e.g. 1.2, 1.4, 1.6)
+    // Row intervals: 0-0.40, >0.40-0.60, >0.60-1.00, >1.00-1.50, >1.50-2.00, >2.00-2.50, >2.50
+    const execVal = typeof roundedDed === 'number' ? safeNumber(roundedDed, 0) : null;
+
+    // Determine rowNumber using execVal when available, else using dedInterval as index
     let rowNumber = 7;
-    if (rd <= 0.400) rowNumber = 1;
-    else if (rd >= 0.401 && rd <= 0.600) rowNumber = 2;
-    else if (rd >= 0.601 && rd <= 1.000) rowNumber = 3;
-    else if (rd >= 1.001 && rd <= 1.500) rowNumber = 4;
-    else if (rd >= 1.501 && rd <= 2.000) rowNumber = 5;
-    else if (rd >= 2.001 && rd <= 2.500) rowNumber = 6;
-    else rowNumber = 7;
+    if (execVal !== null) {
+      const rdExec = Math.round(execVal * 1000) / 1000;
+      if (rdExec <= 0.400) rowNumber = 1;
+      else if (rdExec > 0.400 && rdExec <= 0.600) rowNumber = 2;
+      else if (rdExec > 0.600 && rdExec <= 1.000) rowNumber = 3;
+      else if (rdExec > 1.000 && rdExec <= 1.500) rowNumber = 4;
+      else if (rdExec > 1.500 && rdExec <= 2.000) rowNumber = 5;
+      else if (rdExec > 2.000 && rdExec <= 2.500) rowNumber = 6;
+      else rowNumber = 7;
+    } else {
+      // Fallback: dedInterval is already an interval index (1-7), use directly
+      rowNumber = dedInterval > 0 ? dedInterval : 7;
+    }
     const row = Math.max(0, Math.min(6, rowNumber - 1));
 
-    // Column is computed from delta: round(delta * 10) -> zero-based index
+    // Column is computed from delt parameter (we expect caller to pass the
+    // difference between competition E and judgeE as 'delt' so it maps to columns)
     const absDelt = Math.abs(safeNumber(delt, 0));
     const deltaRounded1 = Math.round(absDelt * 10) / 10;
     let col = Math.round(deltaRounded1 * 10);
@@ -704,26 +711,35 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
     return result;
   }
 
-  function computePercentageWAG(dedInterval: number, delt: number, gymnastEvent?: string): number {
-    // Row computed from deduction (ded = dedInterval / 10)
-    const dedValue = safeNumber(dedInterval, 0) / 10;
-    const rd = Math.round(dedValue * 1000) / 1000;
-    let rowNumber = 7;
-    if (rd <= 0.400) rowNumber = 1;
-    else if (rd >= 0.401 && rd <= 0.600) rowNumber = 2;
-    else if (rd >= 0.601 && rd <= 1.000) rowNumber = 3;
-    else if (rd >= 1.001 && rd <= 1.500) rowNumber = 4;
-    else if (rd >= 1.501 && rd <= 2.000) rowNumber = 5;
-    else if (rd >= 2.001 && rd <= 2.500) rowNumber = 6;
-    else rowNumber = 7;
-    const row = Math.max(0, Math.min(6, rowNumber - 1));
+  function computePercentageWAG(dedInterval: number, delt: number, roundedDed?: number, gymnastEvent?: string): number {
+    // Determine ROW from the rounded deduction (roundedDed = round(10-compE, 1))
+    // roundedDed: numeric deduction rounded to 1 decimal (e.g. 1.2, 1.4, 1.6)
+    // Row intervals: 0-0.40, >0.40-0.60, >0.60-1.00, >1.00-1.50, >1.50-2.00, >2.00-2.50, >2.50
+    const execVal = typeof roundedDed === 'number' ? safeNumber(roundedDed, 0) : null;
 
-    // Column from delta (rounded to 1 decimal -> *10)
+    // Column is computed from delt parameter
     const absDelt = Math.abs(safeNumber(delt, 0));
     const deltaRounded1 = Math.round(absDelt * 10) / 10;
     let col = Math.round(deltaRounded1 * 10);
     if (!Number.isFinite(col)) col = 0;
     col = Math.max(0, col);
+
+    // Determine rowNumber using execVal when available, else using dedInterval as index
+    let rowNumber = 7;
+    if (execVal !== null) {
+      const rdExec = Math.round(execVal * 1000) / 1000;
+      if (rdExec <= 0.400) rowNumber = 1;
+      else if (rdExec > 0.400 && rdExec <= 0.600) rowNumber = 2;
+      else if (rdExec > 0.600 && rdExec <= 1.000) rowNumber = 3;
+      else if (rdExec > 1.000 && rdExec <= 1.500) rowNumber = 4;
+      else if (rdExec > 1.500 && rdExec <= 2.000) rowNumber = 5;
+      else if (rdExec > 2.000 && rdExec <= 2.500) rowNumber = 6;
+      else rowNumber = 7;
+    } else {
+      // Fallback: dedInterval is already an interval index (1-7), use directly
+      rowNumber = dedInterval > 0 ? dedInterval : 7;
+    }
+    const row = Math.max(0, Math.min(6, rowNumber - 1));
 
     const rowTable: number[][] = [
       // row 0 (0 - 0.40)
@@ -748,7 +764,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
     if (__DEV__) {
       try {
         console.log('[DEBUG] Table lookup (WAG):', {
-          dedValue: rd,
+          executionDed: execVal,
           dedInterval,
           delt: deltaRounded1,
           rowIndex: row,
@@ -764,10 +780,11 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
   }
 
   // Public wrapper preserved for compatibility — replace internals later
-  function getPercentageFromTable(dedInterval: number, delt: number): number {
+  // Now accepts optional `executionDed` (deduction entered for judge) as third arg.
+  function getPercentageFromTable(dedInterval: number, delt: number, roundedDed?: number): number {
     return discipline
-      ? computePercentageMAG(dedInterval, delt, gymnastEvent)
-      : computePercentageWAG(dedInterval, delt, gymnastEvent);
+      ? computePercentageMAG(dedInterval, delt, roundedDed, gymnastEvent)
+      : computePercentageWAG(dedInterval, delt, roundedDed, gymnastEvent);
   }
   const isValidDimension = (w: unknown, h: unknown) =>
     Number.isFinite(w as number) && Number.isFinite(h as number) && (w as number) > 0 && (h as number) > 0;
@@ -975,15 +992,19 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                 setSetded(newded);
 
                 const dedInterval = getDeductionIntervalValue(newded);
+                // Pass rounded ded (10 - compE) so row is selected from it
+                const roundedDed = newded;
                 const percentageValue = getPercentageFromTable(
                   dedInterval,
-                  newdelt
+                  newdelt,
+                  roundedDed
                 );
                 setpercentage(percentageValue);
 
                 console.log('[DEBUG] E modal values:', {
                   competitionE: rounded,
                   judgeE: eScore,
+                  roundedDed,
                   newdelt,
                   newded,
                   dedInterval,
@@ -1057,12 +1078,15 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                 setSetded(newded);
 
                 const dedInterval = getDeductionIntervalValue(newded);
-                const percentageValue = getPercentageFromTable(dedInterval, newdelt);
+                // Pass rounded ded (10 - compE) so row is selected from it
+                const roundedDed = newded;
+                const percentageValue = getPercentageFromTable(dedInterval, newdelt, roundedDed);
                 setpercentage(percentageValue);
 
                 console.log('[DEBUG] D modal values:', {
                   competitionE: e,
                   judgeE: eScore,
+                  roundedDed,
                   newdelt,
                   newded,
                   dedInterval,
@@ -1137,22 +1161,33 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                 setMyScore(finalScore);
 
                 // Delta is the absolute difference between competition reference E (state `e`) and judgeE
-                const newdelt = Math.abs(Math.round((e - judgeE) * 10) / 10);
+                // If competition E (`e`) is not set (0), avoid computing a misleading large diff.
+                let newdelt = 0;
+                let dedDiff = 0;
+                if (Number.isFinite(e) && e > 0) {
+                  newdelt = Math.abs(Math.round((e - judgeE) * 10) / 10);
+                  dedDiff = Math.round(Math.abs(e - judgeE) * 10) / 10;
+                } else {
+                  // competition E unknown yet: set delta/dedDiff to 0 (will update when user fills E)
+                  newdelt = 0;
+                  dedDiff = 0;
+                }
                 setDelt(newdelt);
+                setSetded(dedDiff);
 
-                // For the deduction interval we use the competition reference deduction (10 - competitionE)
-                const newded = Math.round((10 - e) * 10) / 10;
-                setSetded(newded);
+                // Map dedDiff to dedInterval for column lookup
+                const dedInterval = getDeductionIntervalValue(dedDiff);
 
-                const dedInterval = getDeductionIntervalValue(newded);
-                const percentageValue = getPercentageFromTable(dedInterval, newdelt);
+                // Pass rounded ded: use dedDiff if compE defined, else use rounded dedInput
+                const roundedDed = dedDiff > 0 ? dedDiff : Math.round(dedInput * 10) / 10;
+                const percentageValue = getPercentageFromTable(dedInterval, dedDiff, roundedDed);
                 setpercentage(percentageValue);
 
                 console.log('[DEBUG] Execution modal values (ded input):', {
                   dedInput,
                   judgeE,
                   newdelt,
-                  newded,
+                  dedDiff,
                   dedInterval,
                   percentageValue,
                 });
@@ -1534,7 +1569,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
                     isTinyDevice ? styles.valueTextTiny : null,
                   ]}
                 >
-                  {executionSet ? trimDecimals(10 - execution, 2) : trimDecimals(0, 2)}
+                  {executionSet ? trimDecimals(10 - execution, 1) : trimDecimals(0, 1)}
                 </Text>
               </TouchableOpacity>
               <View style={styles.executionValueCell}>

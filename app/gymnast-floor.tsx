@@ -211,7 +211,9 @@ export default function GymnastFloor() {
         const newded = 10 - compE;
         setDedded(Number(newded));
         const dedInterval = getDeductionIntervalValue(Number(newded));
-        const percentageValue = getPercentageFromTable(dedInterval, newdelt);
+        const roundedDed = Math.round((10 - compE) * 10) / 10;
+        const percentageValue = getPercentageFromTable(dedInterval, newdelt, roundedDed);
+        console.log('[Floor-D] dedInput:', num, 'ded:', newded, 'roundedDed:', roundedDed, 'interval:', dedInterval, 'delt:', newdelt, 'percentage:', percentageValue);
         setPercentage(percentageValue);
         // Guardar en base de datos si corresponde
         // await updateGymnast(gymnastId, { competition_d: num, competition_score: finalScore, delt: newdelt, dedded: newded, percentage: percentageValue });
@@ -228,7 +230,9 @@ export default function GymnastFloor() {
         const newded = 10 - num;
         setDedded(Number(newded));
         const dedInterval = getDeductionIntervalValue(Number(newded));
-        const percentageValue = getPercentageFromTable(dedInterval, newdelt);
+        const roundedDed = Math.round((10 - num) * 10) / 10;
+        const percentageValue = getPercentageFromTable(dedInterval, newdelt, roundedDed);
+        console.log('[Floor-E] dedInput:', num, 'ded:', newded, 'roundedDed:', roundedDed, 'interval:', dedInterval, 'delt:', newdelt, 'percentage:', percentageValue);
         setPercentage(percentageValue);
         // Guardar en base de datos si corresponde
         // await updateGymnast(gymnastId, { competition_e: num, competition_score: finalScore, delt: newdelt, dedded: newded, percentage: percentageValue });
@@ -255,7 +259,9 @@ export default function GymnastFloor() {
         const newded = 10 - compE;
         setDedded(Number(newded));
         const dedInterval = getDeductionIntervalValue(Number(newded));
-        const percentageValue = getPercentageFromTable(dedInterval, newdelt);
+        const roundedDed = Math.round((10 - compE) * 10) / 10;
+        const percentageValue = getPercentageFromTable(dedInterval, newdelt, roundedDed);
+        console.log('[Floor-COMP_ND] dedInput:', num, 'ded:', newded, 'roundedDed:', roundedDed, 'interval:', dedInterval, 'delt:', newdelt, 'percentage:', percentageValue);
         setPercentage(percentageValue);
         // Guardar en base de datos si corresponde
         // await updateGymnast(gymnastId, { competition_nd: num, competition_score: finalScore, delt: newdelt, dedded: newded, percentage: percentageValue });
@@ -279,7 +285,9 @@ export default function GymnastFloor() {
         const newded = 10 - compE;
         setDedded(Number(newded));
         const dedInterval = getDeductionIntervalValue(Number(newded));
-        const percentageValue = getPercentageFromTable(dedInterval, newdelt);
+        const roundedDed = Math.round((10 - compE) * 10) / 10;
+        const percentageValue = getPercentageFromTable(dedInterval, newdelt, roundedDed);
+        console.log('[Floor-SB] dedInput:', num, 'ded:', newded, 'roundedDed:', roundedDed, 'interval:', dedInterval, 'delt:', newdelt, 'percentage:', percentageValue);
         setPercentage(percentageValue);
         // Guardar en base de datos si corresponde
         // await updateGymnast(gymnastId, { competition_sb: isBonus ? getStickBonusValue() : 0, competition_score: finalScore, delt: newdelt, dedded: newded, percentage: percentageValue });
@@ -296,7 +304,9 @@ export default function GymnastFloor() {
         const newded = 10 - compE;
         setDedded(Number(newded));
         const dedInterval = getDeductionIntervalValue(Number(newded));
-        const percentageValue = getPercentageFromTable(dedInterval, newdelt);
+        const roundedDed = Math.round((10 - compE) * 10) / 10;
+        const percentageValue = getPercentageFromTable(dedInterval, newdelt, roundedDed);
+        console.log('[Floor-EXECUTION] dedInput:', num, 'ded:', newded, 'roundedDed:', roundedDed, 'interval:', dedInterval, 'delt:', newdelt, 'percentage:', percentageValue);
         setPercentage(percentageValue);
         const rawScore = newEScore + sv + (stickBonus ? getStickBonusValue() : 0) - nd;
         const newMyScore = safeRound(adjustScoreFor99(rawScore), 3);
@@ -455,11 +465,28 @@ export default function GymnastFloor() {
 
   const deltSteps = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6];
 
-  function getPercentageFromTable(dedInterval: number, delt: number): number {
+  function getPercentageFromTable(dedInterval: number, delt: number, roundedDed?: number): number {
     const percentageTable = discipline ? percentageTableDisciplineTrue : percentageTableDisciplineFalse;
     // Misma regla que Vault/integration: si delta > 1.4, percentage = 0
     if (delt > 1.4) return 0;
     if (dedInterval < 1 || dedInterval > 7) return 0;
+
+    // Determine row using roundedDed (ded redondeado a 1 decimal) when available
+    let rowNumber = 7;
+    if (typeof roundedDed === 'number') {
+      // roundedDed ya está redondeado a 1 decimal (ej: 1.2, 1.4, 1.6)
+      if (roundedDed <= 0.4) rowNumber = 1;
+      else if (roundedDed > 0.4 && roundedDed <= 0.6) rowNumber = 2;
+      else if (roundedDed > 0.6 && roundedDed <= 1.0) rowNumber = 3;
+      else if (roundedDed > 1.0 && roundedDed <= 1.5) rowNumber = 4;
+      else if (roundedDed > 1.5 && roundedDed <= 2.0) rowNumber = 5;
+      else if (roundedDed > 2.0 && roundedDed <= 2.5) rowNumber = 6;
+      else rowNumber = 7;
+    } else {
+      rowNumber = dedInterval > 0 ? dedInterval : 7;
+    }
+
+    const row = Math.max(0, Math.min(6, rowNumber - 1));
 
     // Accuracy: redondear delta al step de 0.1 más cercano (ej: 0.267 -> 0.3)
     const deltRounded = Math.round((delt + Number.EPSILON) * 10) / 10;
@@ -471,7 +498,9 @@ export default function GymnastFloor() {
       }, 0);
     }
 
-    return percentageTable[dedInterval - 1][deltIndex] || 0;
+    const result = percentageTable[row][deltIndex] || 0;
+    console.log('[Floor-getPercentageFromTable] roundedDed:', roundedDed, 'rowNumber:', rowNumber, 'row:', row, 'deltRounded:', deltRounded, 'deltIndex:', deltIndex, 'result:', result);
+    return result;
   }
 
   const saveGymnastData = async () => {
@@ -1197,7 +1226,9 @@ export default function GymnastFloor() {
                         setDedded(Number(newded));
 
                         const dedInterval = getDeductionIntervalValue(Number(newded));   
-                        const percentageValue = getPercentageFromTable(dedInterval, newdelt);
+                        const roundedDed = Math.round((10 - eScore) * 10) / 10;
+                        const percentageValue = getPercentageFromTable(dedInterval, newdelt, roundedDed);
+                        console.log('[Floor-CompSB-Toggle] ded:', newded, 'roundedDed:', roundedDed, 'interval:', dedInterval, 'delt:', newdelt, 'percentage:', percentageValue);
                         setPercentage(percentageValue);
                       } catch (error) {
                         console.error('Error toggling compSb:', error);

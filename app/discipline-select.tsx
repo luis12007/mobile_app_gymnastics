@@ -1,20 +1,34 @@
-import { View, Text, StyleSheet, TouchableOpacity, Image, useWindowDimensions, Animated, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, useWindowDimensions, Animated, Platform, Modal, SafeAreaView, StatusBar, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { APP_SETTINGS_KEYS, getDiscipline, getSetting, initDatabase, setDiscipline } from '../lib/database';
+import { useProductionEntitlementCheck } from '../lib/useProductionEntitlementCheck';
+import Purchases, { PurchasesPackage, CustomerInfo } from 'react-native-purchases';
+import PaywallModalSimple from '../componentes/PaywallModalSimple';
 
 const clamp = (min: number, value: number, max: number) => Math.min(max, Math.max(min, value));
 
 export default function DisciplineSelect() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ mode?: string; change?: string }>();
+  const params = useLocalSearchParams<{ mode?: string; change?: string; skip_validation?: string }>();
   const { width, height } = useWindowDimensions();
+
+  // Si skip_validation=true viene del parámetro, permite acceso sin validar
+  const shouldSkipValidation = params?.skip_validation === 'true';
+  
+  // Validar que el usuario tiene entitlemente de producción
+  // Devuelve { hasProduction, isLoading }
+  const { hasProduction, isLoading } = useProductionEntitlementCheck('DisciplineSelect', shouldSkipValidation);
 
   const isChangeMode = params?.mode === 'change' || params?.change === '1';
 
   const [currentDiscipline, setCurrentDiscipline] = useState<'MAG' | 'WAG'>('WAG');
 
   const [isRedirecting, setIsRedirecting] = useState(false);
+  const [isPurchasing, setIsPurchasing] = useState(false);
+  const [currentPackage, setCurrentPackage] = useState<PurchasesPackage | null>(null);
+  const [showPaywallModal, setShowPaywallModal] = useState(false);
+  const hasShownRef = useRef(false);
   const fadeAnim = useState(() => new Animated.Value(1))[0];
 
   const isPhone = width < 480 || height < 700;
@@ -86,6 +100,14 @@ export default function DisciplineSelect() {
     };
   }, [isChangeMode]);
 
+  // Mostrar modal simplificado UNA vez si no tiene entitlement de producción
+  useEffect(() => {
+    if (!isLoading && !hasProduction && !shouldSkipValidation && !hasShownRef.current) {
+      setShowPaywallModal(true);
+      hasShownRef.current = true;
+    }
+  }, [isLoading, hasProduction, shouldSkipValidation]);
+
   const handleDisciplineSelect = async (discipline: 'MAG' | 'WAG') => {
     try {
       await setDiscipline(discipline);
@@ -153,6 +175,15 @@ export default function DisciplineSelect() {
           </View>
         </View>
       </View>
+      <PaywallModalSimple
+        visible={showPaywallModal}
+        dismissible={false}
+        onPurchaseSuccess={() => {
+          setShowPaywallModal(false);
+          // Fuerzar recarga de esta pantalla para que el hook revalide entitlements
+          router.replace('/discipline-select');
+        }}
+      />
     </Animated.View>
   );
 }
