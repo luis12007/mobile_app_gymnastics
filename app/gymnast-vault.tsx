@@ -351,6 +351,69 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
     };
     fetchGymnastData();
   }, [gymnastid, competitionIdParam]);
+
+  // Cleanup on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      try {
+        setAllGymnasts([]);
+        setCurrentIndex(0);
+        setDiscipline(false);
+        setCompetenceId('');
+        setParticipants('');
+        setFolderId('');
+        setGymnastNumber(0);
+        setGymnastEvent('');
+        setGymnastName('');
+        setGymnastNoc('');
+        setGymnastBib('');
+        setCv(0);
+        setNd(0);
+        setDelt(0);
+        setpercentage(0);
+        setSv(0);
+        setMyScore(0);
+        setEScore(0);
+        setExecution(0);
+        setExecutionSet(false);
+        setD(0);
+        setScore(0);
+        setE(0);
+        setSb(false);
+        setndcomp(0);
+        setSetded(0);
+        setStickBonus(false);
+        setCommentsInput('');
+        setComments('');
+        setRateId(0);
+        setNdInput('');
+        setExecutionInput('');
+        setDInput('');
+        setEInput('');
+        setNdInputcomp('');
+        setSvInput('');
+        setShowNdModal(false);
+        setShowCommentsModal(false);
+        setShowExecutionModal(false);
+        setShowDModal(false);
+        setShowEModal(false);
+        setShowNdModalcomp(false);
+        setShowSvModal(false);
+        setShowNdCompModal(false);
+        
+        if (Platform.OS === 'android') {
+          try {
+            require('react-native').NativeModules?.ExponentUtil?.sendEvent?.('RCTNativeAppDelegate.onPause');
+          } catch (e) {
+            // GC trigger attempt - ignore if it fails
+          }
+        }
+      } catch (e) {
+        console.error('[GymnastVault] Error during cleanup:', e);
+      }
+    };
+  }, []);
+
   if (isLoading) {
     return (
       <SafeAreaView style={styles.loadingContainer}>

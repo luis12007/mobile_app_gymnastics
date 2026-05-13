@@ -7,6 +7,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { db, getPenColor, getPenStroke, getPenType, setPenColor, setPenStroke, setPenType, toggleGymnastStarred, getGymnastStarred } from '../lib/database';
+import { compressImageToFit, copyToAppDocuments, MAX_PHOTO_BYTES, normalizeImageForImport } from '../lib/photoStorage';
 
 // ErrorBoundary to catch any rendering errors and prevent app crashes
 class SkiaErrorBoundary extends Component<
@@ -118,14 +119,16 @@ const STROKE_MIN = 1;
 const STROKE_MAX = 15;
 const STROKE_BAR_WIDTH = 160;
 
-
-const MAX_PATHS_MEMORY = 500; // Limit paths to prevent memory issues
-const MAX_PHOTOS_RENDERED = 7; // Limit photos to prevent memory issues
+// Android-aggressive limits to prevent Skia crashes and OOM during rendering
+const MAX_PATHS_MEMORY = Platform.OS === 'android' ? 200 : 500; // Aggressive Android limit
+const MAX_PHOTOS_RENDERED = Platform.OS === 'android' ? 2 : 7; // Max 2 images on Android to keep bitmap memory in budget
 // Maximum number of points in a single path before we finalize and start a new one
-// This prevents paths from becoming too large and causing memory/performance issues
-const MAX_POINTS_PER_PATH = 150; // Reduced to prevent memory accumulation during long strokes
-// Minimum time between display updates (throttling) in ms
-const DISPLAY_THROTTLE_MS = 48; // ~20fps - conservative to prevent EGL context loss on Android
+// Smaller limit for Android to prevent large path objects in Skia
+const MAX_POINTS_PER_PATH = Platform.OS === 'android' ? 80 : 150;
+// Canvas update throttling - more aggressive on Android to prevent Skia EGL context loss
+const DISPLAY_THROTTLE_MS = Platform.OS === 'android' ? 80 : 48; // ~12fps on Android
+// Maximum time to spend rendering canvas per frame
+const SKIA_RENDER_BUDGET_MS = 16; // 16ms per frame (60fps target)
 
 const PHOTO_DELETE_BUTTON_SIZE = 28;
 
@@ -136,34 +139,6 @@ const getExtFromUri = (uri: string) => {
 
 const isHeic = (ext: string) => ext === 'heic' || ext === 'heif';
 
-const ensurePhotosDir = async (): Promise<string | null> => {
-  const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
-  if (!baseDir) return null;
-
-  const dir = baseDir + 'photos/';
-  try {
-    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-  } catch {
-    // ignore
-  }
-  return dir;
-};
-
-const copyToAppCache = async (srcUri: string): Promise<string> => {
-  const dir = await ensurePhotosDir();
-  if (!dir) return srcUri;
-  const ext = getExtFromUri(srcUri);
-  const filename = `${Date.now()}_${Math.floor(Math.random() * 1e6)}.${ext}`;
-  const dst = dir + filename;
-  try {
-    await FileSystem.copyAsync({ from: srcUri, to: dst });
-    const info = await FileSystem.getInfoAsync(dst);
-    if (info.exists && (info.size ?? 0) > 0) return dst;
-  } catch {
-    // fallback to original
-  }
-  return srcUri;
-};
 
 // Track loaded image IDs globally to trigger re-renders when images load
 const loadedImageIds = new Set<number>();
@@ -750,14 +725,40 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
         'SELECT * FROM gymnast_images WHERE gymnast_id = ? ORDER BY order_index ASC',
         [gymnastId]
       );
-      const items: PhotoItem[] = (rows || []).map((r: any) => ({
-        id: r.id,
-        uri: r.image_uri,
-        x: Number(r.position_x ?? 0),
-        y: Number(r.position_y ?? 0),
-        scale: Number(r.scale ?? 1) || 1,
-        rotation: Number(r.rotation ?? 0) || 0,
-      }));
+
+      // Filter out rows whose underlying file no longer exists on disk (orphans
+      // left over from when photos were stored in volatile cacheDirectory) and
+      // delete those rows so the user doesn't see ghost entries.
+      const items: PhotoItem[] = [];
+      for (const r of rows || []) {
+        const uri: string | undefined = r?.image_uri;
+        if (!uri) {
+          if (r?.id) {
+            await db.runAsync('DELETE FROM gymnast_images WHERE id = ?', [r.id]);
+          }
+          continue;
+        }
+        let exists = false;
+        try {
+          const fi = await FileSystem.getInfoAsync(uri);
+          exists = fi.exists && (fi.size ?? 0) > 0;
+        } catch {
+          exists = false;
+        }
+        if (!exists) {
+          await db.runAsync('DELETE FROM gymnast_images WHERE id = ?', [r.id]);
+          continue;
+        }
+        items.push({
+          id: r.id,
+          uri,
+          x: Number(r.position_x ?? 0),
+          y: Number(r.position_y ?? 0),
+          scale: Number(r.scale ?? 1) || 1,
+          rotation: Number(r.rotation ?? 0) || 0,
+        });
+      }
+
       setPhotoItems(items);
       // Also update ref immediately
       photoItemsRef.current = items;
@@ -816,8 +817,30 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
       lastFilteredPoint.current = null;
       lastTimestampRef.current = null;
       
-      // Clear loaded image tracking for this component instance
-      loadedImageIds.clear();
+      // Aggressive memory cleanup for Android
+      if (Platform.OS === 'android') {
+        try {
+          // Clear all paths and photos from state to free memory
+          setPaths([]);
+          setPathsData([]);
+          setPhotoItems([]);
+          setCurrentPathDisplay(null);
+          
+          // Clear loaded image tracking
+          loadedImageIds.clear();
+          
+          // Request garbage collection hint
+          const gc = (globalThis as any)?.gc;
+          if (typeof gc === 'function') {
+            try { gc(); } catch {}
+          }
+        } catch (e) {
+          console.warn('[Whiteboard] Cleanup error:', e);
+        }
+      } else {
+        // Clear loaded image tracking for iOS
+        loadedImageIds.clear();
+      }
     };
   }, [loadPathsFromDatabase, loadPhotosFromDatabase, onLoaded]);
 
@@ -1662,27 +1685,59 @@ const WhiteboardMinimal = memo(forwardRef<WhiteboardRef, WhiteboardMinimalProps>
         return;
       }
 
+      // Always re-encode the imported photo to a sane resolution + JPEG quality.
+      // This is the single biggest defence against bitmap-OOM on Android: a raw
+      // phone-camera photo decodes to ~48MB as a bitmap; the normalized version
+      // stays under ~10MB on Android, ~16MB on iOS.
+      let workingUri: string = await normalizeImageForImport(pickedUri);
+
+      // Persist the normalized file into documentDirectory so it survives the
+      // OS clearing the cache. If normalization failed and returned the
+      // original URI, we still need to copy when it's not already a file://
+      // path inside the app sandbox.
       const needsCopy =
         Platform.OS === 'ios' ||
-        pickedUri.startsWith('content://') ||
-        pickedUri.includes('onedrive') ||
-        pickedUri.includes('drive.google') ||
-        pickedUri.includes('com.microsoft.skydrive') ||
-        !pickedUri.startsWith('file://');
+        workingUri.startsWith('content://') ||
+        workingUri.includes('onedrive') ||
+        workingUri.includes('drive.google') ||
+        workingUri.includes('com.microsoft.skydrive') ||
+        !workingUri.startsWith('file://') ||
+        workingUri.includes('/ImageManipulator/') ||
+        (FileSystem.cacheDirectory ? workingUri.startsWith(FileSystem.cacheDirectory) : false);
 
       if (needsCopy) {
-        pickedUri = await copyToAppCache(pickedUri);
+        workingUri = await copyToAppDocuments(workingUri);
       }
 
-      const info = await FileSystem.getInfoAsync(pickedUri);
+      let info = await FileSystem.getInfoAsync(workingUri);
       if (!info.exists || (info.size ?? 0) === 0) {
         Alert.alert('Error', 'Could not access the selected image.');
         return;
       }
-      if ((info.size ?? 0) > 25 * 1024 * 1024) {
-        Alert.alert('Image too large', 'The image exceeds 25MB. Please select a smaller one.');
-        return;
+
+      // Safety net: if for some reason the normalized file still exceeds the
+      // 25MB ceiling (e.g. an oversized PNG), aggressively compress further.
+      if ((info.size ?? 0) > MAX_PHOTO_BYTES) {
+        const { uri: compressedUri, size: compressedSize, compressed } =
+          await compressImageToFit(workingUri, MAX_PHOTO_BYTES);
+        if (compressed && compressedUri !== workingUri) {
+          const persistedUri = await copyToAppDocuments(compressedUri);
+          workingUri = persistedUri;
+          info = await FileSystem.getInfoAsync(workingUri);
+        }
+        const finalSize = info.exists ? (info.size ?? 0) : 0;
+        if (!info.exists || finalSize === 0 || finalSize > MAX_PHOTO_BYTES) {
+          Alert.alert(
+            'Image too large',
+            `The image still exceeds 25MB after compression (${Math.round(
+              (compressedSize || finalSize) / (1024 * 1024)
+            )}MB). Please choose a different image.`
+          );
+          return;
+        }
       }
+
+      pickedUri = workingUri;
 
       // Check if component is still mounted
       if (!isMountedRef.current) return;

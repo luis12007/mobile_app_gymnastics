@@ -1,7 +1,7 @@
 {
   "name": "gym_judge",
   "main": "expo-router/entry",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "scripts": {
     "start": "expo start",
     "web": "expo start --web",

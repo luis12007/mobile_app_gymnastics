@@ -110,6 +110,29 @@ export default function StartJudging() {
     }
   }, [lastGymnastId]);
 
+  // Cleanup on unmount - aggressive memory cleanup for Android
+  useEffect(() => {
+    return () => {
+      if (Platform.OS === 'android') {
+        try {
+          // Clear state to free memory
+          setGymnasts([]);
+          setSelectedGymnasts(new Set());
+          setUndoStack([]);
+          setCompetition(null);
+          
+          // Request garbage collection
+          const gc = (globalThis as any)?.gc;
+          if (typeof gc === 'function') {
+            try { gc(); } catch {}
+          }
+        } catch (e) {
+          console.warn('[StartJudging] Cleanup error:', e);
+        }
+      }
+    };
+  }, []);
+
   const handleContinueJudging = async () => {
     try {
       if (!lastGymnastId) return;
@@ -799,12 +822,23 @@ export default function StartJudging() {
   };
 
   const getFilteredGymnasts = () => {
-    return gymnasts.filter(g => {
+    // Limit the number of gymnasts rendered on Android to prevent OOM
+    const MAX_RENDER_ITEMS = Platform.OS === 'android' ? 40 : 100;
+    
+    let filtered = gymnasts.filter(g => {
       const matchesName = !searchName || (g.gymnasta && g.gymnasta.toLowerCase().includes(searchName.toLowerCase()));
       const matchesBib = !searchBib || (g.bib && g.bib.toLowerCase().includes(searchBib.toLowerCase()));
       const matchesEvent = !searchEvent || g.evento === searchEvent;
       return matchesName && matchesBib && matchesEvent;
     });
+
+    // Limit rendered items for Android
+    if (filtered.length > MAX_RENDER_ITEMS && Platform.OS === 'android') {
+      console.warn(`[StartJudging] Limiting rendered gymnasts from ${filtered.length} to ${MAX_RENDER_ITEMS}`);
+      filtered = filtered.slice(0, MAX_RENDER_ITEMS);
+    }
+
+    return filtered;
   };
 
   return (

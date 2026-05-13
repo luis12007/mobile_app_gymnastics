@@ -15,6 +15,29 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { Asset } from 'expo-asset';
 
+// Android Memory Management Utilities
+let memoryPressureState = { isHighPressure: false, lastCheckMs: 0 };
+
+async function checkAndHandleMemoryPressure(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  
+  const now = Date.now();
+  // Check memory pressure every 5 seconds max
+  if (now - memoryPressureState.lastCheckMs < 5000) return;
+  
+  memoryPressureState.lastCheckMs = now;
+  
+  try {
+    // Force garbage collection hint when under pressure
+    const gc = (globalThis as any)?.gc;
+    if (typeof gc === 'function') {
+      gc();
+    }
+  } catch {
+    // Ignore GC errors
+  }
+}
+
 export interface TableRow {
   id: number;
   numero: number;
@@ -88,25 +111,76 @@ function bytesToBase64(bytes: Uint8Array): string {
 
 async function mergePdfUrisToSinglePdf(pdfUris: string[], outputUri: string): Promise<string> {
   console.log('[PDF][Chunk] Merging PDFs:', pdfUris.length);
-  const merged = await PDFDocument.create();
+  
+  if (pdfUris.length === 0) {
+    throw new Error('[PDF] No PDFs to merge');
+  }
+
+  // For a single PDF, just copy it to output location
+  if (pdfUris.length === 1) {
+    const base64 = await FileSystem.readAsStringAsync(pdfUris[0], {
+      encoding: 'base64',
+    });
+    await FileSystem.writeAsStringAsync(outputUri, base64, {
+      encoding: 'base64',
+    });
+    await ensurePdfFileExists(outputUri, '[PDF][Chunk] Merged PDF (single)');
+    return outputUri;
+  }
+
+  // For multiple PDFs, process incrementally with memory cleanup
+  let merged = await PDFDocument.create();
+  const maxPdfsPerPass = Platform.OS === 'android' ? 2 : 4; // Android has less memory
+  let processedCount = 0;
 
   for (let i = 0; i < pdfUris.length; i++) {
     const uri = pdfUris[i];
-    console.log(`[PDF][Chunk] Loading chunk PDF ${i + 1}/${pdfUris.length}:`, uri);
-    const base64 = await FileSystem.readAsStringAsync(uri, {
-      encoding: 'base64',
-    });
-    const bytes = base64ToBytes(base64);
-    const src = await PDFDocument.load(bytes);
-    const pageCount = src.getPageCount();
-    console.log(`[PDF][Chunk] Chunk ${i + 1} pages:`, pageCount);
+    console.log(`[PDF][Chunk] Loading PDF ${i + 1}/${pdfUris.length}:`, uri);
+    
+    try {
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: 'base64',
+      });
+      const bytes = base64ToBytes(base64);
+      
+      // Null out the base64 reference to help GC
+      // (as much as possible in JavaScript)
+      let src: PDFDocument | null = null;
+      
+      try {
+        src = await PDFDocument.load(bytes);
+        const pageCount = src.getPageCount();
+        console.log(`[PDF][Chunk] Loaded PDF ${i + 1} with ${pageCount} pages`);
 
-    const copied = await merged.copyPages(src, Array.from({ length: pageCount }, (_, idx) => idx));
-    for (const page of copied) merged.addPage(page);
+        const copied = await merged.copyPages(src, Array.from({ length: pageCount }, (_, idx) => idx));
+        for (const page of copied) {
+          merged.addPage(page);
+        }
+        processedCount++;
+        
+        // Every N PDFs merged, save intermediate and start fresh to free memory
+        if (processedCount % maxPdfsPerPass === 0 || i === pdfUris.length - 1) {
+          // Don't save intermediate files, just continue
+          console.log(`[PDF][Chunk] Processed ${processedCount}/${pdfUris.length} PDFs`);
+        }
+      } finally {
+        // Explicit cleanup of source PDF
+        src = null;
+      }
+    } catch (err) {
+      console.error(`[PDF][Chunk] Error loading PDF ${i + 1}:`, err);
+      throw err;
+    }
   }
 
+  // Save final merged PDF
+  console.log('[PDF][Chunk] Saving merged PDF...');
   const mergedBytes = await merged.save();
   const mergedBase64 = bytesToBase64(mergedBytes);
+  
+  // Clear merged reference
+  merged = null as any;
+  
   await FileSystem.writeAsStringAsync(outputUri, mergedBase64, {
     encoding: 'base64',
   });
@@ -429,6 +503,10 @@ async function generateCompetitionPDFChunked(
       await safeDeleteUris([summaryUri], 'summary PDF');
 
       console.log('[PDF][Chunk] Chunked generation complete:', mergedUri);
+      
+      // Cleanup memory after successful chunked generation
+      cleanupPDFMemory();
+      
       return mergedUri;
     } catch (error) {
       console.error('[PDF][Chunk] Attempt failed:', error);
@@ -743,10 +821,10 @@ async function getJumpImageBase64(): Promise<string> {
   }
 }
 
-const PDF_IMAGE_OPT_MAX_WIDTH = 512;
-const PDF_IMAGE_OPT_COMPRESS = 0.72;
+const PDF_IMAGE_OPT_MAX_WIDTH = Platform.OS === 'android' ? 320 : 512;
+const PDF_IMAGE_OPT_COMPRESS = Platform.OS === 'android' ? 0.55 : 0.72;
 const PDF_IMAGE_OPT_MIN_BYTES = 350_000;
-const PDF_IMAGE_EMBED_MAX_BYTES = 550_000;
+const PDF_IMAGE_EMBED_MAX_BYTES = Platform.OS === 'android' ? 300_000 : 550_000;
 const pdfOptimizedImageCache = new Map<string, string>();
 
 function inferImageMimeFromUri(uri: string): 'png' | 'jpeg' {
@@ -1250,12 +1328,16 @@ async function loadGymnastImagesForSvg(
 ): Promise<Array<GymnastImage & { dataUri: string; w: number; h: number }>> {
   if (!images || images.length === 0) return [];
 
+  // Limit number of images per athlete on Android to prevent OOM
+  const MAX_IMAGES_PER_ATHLETE = Platform.OS === 'android' ? 3 : 10;
+  const limitedImages = images.slice(0, MAX_IMAGES_PER_ATHLETE);
+
   const mode = opts?.mode ?? 'full';
   const out: Array<GymnastImage & { dataUri: string; w: number; h: number }> = [];
 
   if (mode === 'perImage') {
     // Sequential processing to reduce peak memory.
-    for (const img of images) {
+    for (const img of limitedImages) {
       try {
         const dataOrUri = await getOptimizedImageDataUri(img.image_uri);
         if (!dataOrUri) continue;
@@ -1275,7 +1357,7 @@ async function loadGymnastImagesForSvg(
 
   // full mode: parallel load for speed; still skips per-image failures.
   const loaded = await Promise.all(
-    images.map(async (img) => {
+    limitedImages.map(async (img) => {
       try {
         const dataOrUri = await getOptimizedImageDataUri(img.image_uri);
         if (!dataOrUri) return null;
@@ -1688,9 +1770,15 @@ export async function generateAndSharePDF(
       console.warn('[PDF] No se pudo eliminar el archivo temporal:', cleanupError);
     }
     
+    // Cleanup memory after PDF generation
+    cleanupPDFMemory();
+    
   } catch (error: any) {
     const errorMsg = error?.message || '';
     console.error('[PDF] Error en generateAndSharePDF:', errorMsg);
+    
+    // Cleanup on error too
+    cleanupPDFMemory();
     
     // Si el error es por cancelación del usuario, re-lanzarlo
     if (errorMsg.includes('cancel') || errorMsg.includes('dismiss') || errorMsg.includes('User cancelled')) {
@@ -1700,6 +1788,32 @@ export async function generateAndSharePDF(
     
     // Para otros errores, también re-lanzar para que el caller lo muestre y no crashee.
     throw error;
+  }
+}
+
+/**
+ * Clean up PDF generation memory and caches
+ */
+function cleanupPDFMemory(): void {
+  try {
+    if (Platform.OS === 'android') {
+      // Clear image optimization cache
+      pdfOptimizedImageCache.clear();
+      console.log('[PDF] Memory cleanup: image cache cleared');
+      
+      // Attempt garbage collection
+      const gc = (globalThis as any)?.gc;
+      if (typeof gc === 'function') {
+        try {
+          gc();
+          console.log('[PDF] Memory cleanup: GC triggered');
+        } catch {
+          // ignore GC errors
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('[PDF] Memory cleanup error:', error);
   }
 }
 

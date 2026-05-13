@@ -16,7 +16,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { getCompetitionById, getGymnastById, getGymnastsByCompetition, updateGymnast, Gymnast } from "../lib/database";
+import { getCompetitionById, getGymnastById, getGymnastsByCompetition, updateGymnast, Gymnast, Competition, Folder, getFolderById } from "../lib/database";
 import WhiteboardScreen, { WhiteboardRef } from "@/componentes/WhiteboardScreen";
 import CustomNumberPadOptimized from "@/componentes/CustomNumberPadOptimized";
 
@@ -122,6 +122,8 @@ export default function GymnastFloor() {
   const [gymnast, setGymnast] = useState<Gymnast | null>(null);
   const [allGymnasts, setAllGymnasts] = useState<Gymnast[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [competition, setCompetition] = useState<Competition | null>(null);
+  const [folder, setFolder] = useState<Folder | null>(null);
 
   // Elementos de dificultad (A-J)
   const [elementCounts, setElementCounts] = useState<ElementCounts>({
@@ -551,6 +553,76 @@ export default function GymnastFloor() {
     loadGymnastData();
   }, [gymnastId]);
 
+  // Cleanup on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      try {
+        // Clear all state
+        setGymnast(null);
+        setAllGymnasts([]);
+        setCompetition(null);
+        setFolder(null);
+        setCurrentIndex(0);
+        
+        // Clear element counts and group values
+        setElementCounts({
+          J: { value: 0, selected: false },
+          I: { value: 0, selected: false },
+          H: { value: 0, selected: false },
+          G: { value: 0, selected: false },
+          F: { value: 0, selected: false },
+          E: { value: 0, selected: false },
+          D: { value: 0, selected: false },
+          C: { value: 0, selected: false },
+          B: { value: 0, selected: false },
+          A: { value: 0, selected: false },
+        });
+        setElementGroupValues({ I: 0, II: 0, III: 0, IV: 0 });
+        
+        // Clear scores and values
+        setTotalElements(0);
+        setDifficultyValues(0);
+        setElementGroupsTotal(0);
+        setCv(0);
+        setSv(0);
+        setExecution(0);
+        setEScore(0);
+        setNd(0);
+        setMyScore(0);
+        setStickBonus(false);
+        
+        // Clear modal states
+        setShowElementGroupModal({ I: false, II: false, III: false, IV: false });
+        setShowCommentsModal(false);
+        setShowNumberPadModal(false);
+        
+        // Clear comments and other values
+        setComments('');
+        setDelta(0);
+        setPercentage(0);
+        setDedded(0);
+        
+        // Clear competition values
+        setCompD(0);
+        setCompE(0);
+        setCompSb(false);
+        setCompNd(0);
+        setCompScore(0);
+        
+        // On Android, trigger GC to help with memory
+        if (Platform.OS === 'android') {
+          try {
+            require('react-native').NativeModules?.ExponentUtil?.sendEvent?.('RCTNativeAppDelegate.onPause');
+          } catch (e) {
+            // GC trigger attempt - ignore if it fails
+          }
+        }
+      } catch (e) {
+        console.error('[GymnastFloor] Error during cleanup:', e);
+      }
+    };
+  }, []);
+
   const loadGymnastData = async () => {
     try {
       setLoading(true);
@@ -560,10 +632,42 @@ export default function GymnastFloor() {
       // Si no llega discipline por params, inferirla desde la competencia
       if (disciplineParam === null && competitionId) {
         try {
-          const competition = await getCompetitionById(competitionId);
-          if (competition) setDiscipline(competition.gender);
-        } catch {
-          // noop
+          const competitionData = await getCompetitionById(competitionId);
+          if (competitionData) {
+            setDiscipline(competitionData.gender);
+            setCompetition(competitionData);
+            
+            // Cargar carpeta si la competencia tiene folder_id
+            if (competitionData.folder_id) {
+              try {
+                const folderData = await getFolderById(competitionData.folder_id);
+                setFolder(folderData);
+              } catch (e) {
+                console.warn('[GymnastFloor] Could not load folder:', e);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[GymnastFloor] Could not load competition:', e);
+        }
+      } else if (competitionId) {
+        // Cargar competencia incluso si discipline viene por params
+        try {
+          const competitionData = await getCompetitionById(competitionId);
+          if (competitionData) {
+            setCompetition(competitionData);
+            
+            if (competitionData.folder_id) {
+              try {
+                const folderData = await getFolderById(competitionData.folder_id);
+                setFolder(folderData);
+              } catch (e) {
+                console.warn('[GymnastFloor] Could not load folder:', e);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[GymnastFloor] Could not load competition:', e);
         }
       }
 
@@ -576,7 +680,7 @@ export default function GymnastFloor() {
       setGymnast(gymnastData);
       setAllGymnasts(allGymList);
       
-      // Calcular y guardar el Ã­ndice actual
+      // Calcular y guardar el índice actual
       const index = allGymList.findIndex(g => g.id === gymnastId);
       setCurrentIndex(index !== -1 ? index : 0);
 
@@ -983,6 +1087,40 @@ export default function GymnastFloor() {
       <View style={isIphone ? styles.whiteboardWrapperIphone : undefined}>
         {renderWhiteboardSafe()}
       </View>
+      
+      {/* Header with Breadcrumbs/Folder Info */}
+      {(folder || competition) && (
+        <View style={styles.breadcrumbContainer}>
+          <TouchableOpacity 
+            style={styles.breadcrumbButton} 
+            onPress={() => {
+              try {
+                if (folder) {
+                  // Navigate back to folder view
+                  router.push({
+                    pathname: '/folder/[id]',
+                    params: { id: folder.id.toString() }
+                  });
+                } else if (competition) {
+                  // Navigate back to main table
+                  router.push({
+                    pathname: '/main-table',
+                    params: { competitionId: competition.id.toString() }
+                  });
+                }
+              } catch (e) {
+                console.error('Error navigating from breadcrumb:', e);
+                router.back();
+              }
+            }}
+          >
+            <Text style={styles.breadcrumbText}>
+              {folder ? `📁 ${folder.titulo}` : `🏆 ${competition?.name || 'Competition'}`}
+              {folder && competition ? ` > 🏆 ${competition.name}` : ''}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
       
       <ScrollView>
         <View style={styles.mainContent}>
@@ -1402,6 +1540,21 @@ const styles = StyleSheet.create({
   whiteboardWrapperIphone: {
     width: '100%',
     overflow: 'hidden',
+  },
+  breadcrumbContainer: {
+    backgroundColor: '#f5f5f5',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ddd',
+  },
+  breadcrumbButton: {
+    padding: 8,
+  },
+  breadcrumbText: {
+    fontSize: 13,
+    color: '#0066cc',
+    fontWeight: '500',
   },
   loadingContainer: {
     flex: 1,

@@ -646,11 +646,14 @@ const MainTable: React.FC = () => {
               contentContainerStyle={{ minWidth: TABLE_MIN_WIDTH }}
               showsVerticalScrollIndicator
               removeClippedSubviews
-              initialNumToRender={12}
-              maxToRenderPerBatch={18}
-              updateCellsBatchingPeriod={60}
-              windowSize={7}
+              initialNumToRender={Platform.OS === 'android' ? 6 : 12}
+              maxToRenderPerBatch={Platform.OS === 'android' ? 8 : 18}
+              updateCellsBatchingPeriod={Platform.OS === 'android' ? 100 : 60}
+              windowSize={Platform.OS === 'android' ? 4 : 7}
+              scrollEventThrottle={16}
               getItemLayout={(_, index) => ({ length: TABLE_ROW_HEIGHT, offset: TABLE_ROW_HEIGHT * index, index })}
+              // Reduce memory usage on Android
+              maintainVisibleContentPosition={Platform.OS === 'android' ? { minIndexForVisible: 0 } : undefined}
             />
           </View>
         </ScrollView>

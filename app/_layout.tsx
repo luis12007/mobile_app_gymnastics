@@ -1,9 +1,10 @@
-import React, { Component } from 'react';
+import React, { Component, useEffect } from 'react';
 import { DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import Purchases, { LOG_LEVEL } from 'react-native-purchases';
+import { migrateAndCleanPhotos } from '../lib/photoStorage';
 
 const REVENUECAT_API_KEY_IOS = 'appl_mQejviYuLICJoCRcTTaDWvGxqWl';
 const REVENUECAT_API_KEY_ANDROID = 'goog_oQKtKPTjSrjppDQtPcIjLZcVvHR';
@@ -66,6 +67,14 @@ class AppErrorBoundary extends Component<
 }
 
 export default function RootLayout() {
+  useEffect(() => {
+    // One-shot: move any photos still living in cacheDirectory into
+    // documentDirectory and drop DB rows that reference missing files.
+    migrateAndCleanPhotos().catch((e) =>
+      console.warn('[RootLayout] photo migration failed', e)
+    );
+  }, []);
+
   return (
     <SafeAreaProvider>
       <ThemeProvider value={DefaultTheme}>
