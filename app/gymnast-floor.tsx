@@ -1087,41 +1087,6 @@ export default function GymnastFloor() {
       <View style={isIphone ? styles.whiteboardWrapperIphone : undefined}>
         {renderWhiteboardSafe()}
       </View>
-      
-      {/* Header with Breadcrumbs/Folder Info */}
-      {(folder || competition) && (
-        <View style={styles.breadcrumbContainer}>
-          <TouchableOpacity 
-            style={styles.breadcrumbButton} 
-            onPress={() => {
-              try {
-                if (folder) {
-                  // Navigate back to folder view
-                  router.push({
-                    pathname: '/folder/[id]',
-                    params: { id: folder.id.toString() }
-                  });
-                } else if (competition) {
-                  // Navigate back to main table
-                  router.push({
-                    pathname: '/main-table',
-                    params: { competitionId: competition.id.toString() }
-                  });
-                }
-              } catch (e) {
-                console.error('Error navigating from breadcrumb:', e);
-                router.back();
-              }
-            }}
-          >
-            <Text style={styles.breadcrumbText}>
-              {folder ? `📁 ${folder.titulo}` : `🏆 ${competition?.name || 'Competition'}`}
-              {folder && competition ? ` > 🏆 ${competition.name}` : ''}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
-      
       <ScrollView>
         <View style={styles.mainContent}>
           {/* Left Column: Code Table */}
