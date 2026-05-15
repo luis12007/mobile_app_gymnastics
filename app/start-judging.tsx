@@ -822,21 +822,12 @@ export default function StartJudging() {
   };
 
   const getFilteredGymnasts = () => {
-    // Limit the number of gymnasts rendered on Android to prevent OOM
-    const MAX_RENDER_ITEMS = Platform.OS === 'android' ? 40 : 100;
-    
     let filtered = gymnasts.filter(g => {
       const matchesName = !searchName || (g.gymnasta && g.gymnasta.toLowerCase().includes(searchName.toLowerCase()));
       const matchesBib = !searchBib || (g.bib && g.bib.toLowerCase().includes(searchBib.toLowerCase()));
       const matchesEvent = !searchEvent || g.evento === searchEvent;
       return matchesName && matchesBib && matchesEvent;
     });
-
-    // Limit rendered items for Android
-    if (filtered.length > MAX_RENDER_ITEMS && Platform.OS === 'android') {
-      console.warn(`[StartJudging] Limiting rendered gymnasts from ${filtered.length} to ${MAX_RENDER_ITEMS}`);
-      filtered = filtered.slice(0, MAX_RENDER_ITEMS);
-    }
 
     return filtered;
   };
