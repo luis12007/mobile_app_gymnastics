@@ -1301,7 +1301,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
 
               alignItems: "center",
               elevation: 10,
-              marginBottom: "30%",
+              marginBottom: 0,
             }}
           >
             <Text
@@ -1331,7 +1331,22 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
             <View style={{ flexDirection: "row", marginTop: 18 }}>
               <TouchableOpacity
                 style={{
-                  marginRight: 16,
+                  padding: 10,
+                  backgroundColor: "#ccc",
+                  borderRadius: 8,
+                  minWidth: 80,
+                  alignItems: "center",
+                }}
+                onPress={() => setShowCommentsModal(false)}
+              >
+                <Text style={{ color: "#333", fontWeight: "bold" }}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  marginLeft: 16,
                   padding: 10,
                   backgroundColor: "#0052b4",
                   borderRadius: 8,
@@ -1350,20 +1365,7 @@ const VaultScoreDisplay: React.FC<VaultScoreDisplayProps> = ({
               >
                 <Text style={{ color: "#fff", fontWeight: "bold" }}>Save</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={{
-                  padding: 10,
-                  backgroundColor: "#ccc",
-                  borderRadius: 8,
-                  minWidth: 80,
-                  alignItems: "center",
-                }}
-                onPress={() => setShowCommentsModal(false)}
-              >
-                <Text style={{ color: "#333", fontWeight: "bold" }}>
-                  Cancel
-                </Text>
-              </TouchableOpacity>
+              
             </View>
           </View>
         </View>

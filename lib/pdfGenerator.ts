@@ -2310,6 +2310,22 @@ async function generatePDFHTML(
           </div>
         </div>
         
+        <!-- Judge Comments Section -->
+        <div class="judge-comments-section">
+          <h3>💬 Judge Comments</h3>
+          <div class="comments-cards-container">
+            ${tableData
+              .filter(row => row.comments && row.comments.trim() !== '')
+              .map(row => `
+                <div class="comment-card">
+                  <div class="comment-gymnast">${row.gymnasta} (${row.noc})</div>
+                  <div class="comment-text">${row.comments}</div>
+                </div>
+              `)
+              .join('')}
+          </div>
+        </div>
+        
         <!-- Footer -->
         <div class="footer">
           <p><strong>Generado por GymJudge</strong> el ${new Date().toLocaleString('es-ES')}</p>
@@ -2886,6 +2902,50 @@ async function generatePDFHTML(
           font-size: 10px;
           color: #666;
           text-transform: uppercase;
+        }
+
+        .judge-comments-section {
+          background: white;
+          padding: 20px;
+          border-radius: 8px;
+          margin-top: 20px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .judge-comments-section h3 {
+          color: #0052b4;
+          margin-bottom: 15px;
+          font-size: 16px;
+          border-bottom: 2px solid #0052b4;
+          padding-bottom: 10px;
+        }
+
+        .comments-cards-container {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .comment-card {
+          background: #f8f9fa;
+          border-left: 6px solid #0052b4;
+          border-radius: 6px;
+          padding: 12px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+
+        .comment-gymnast {
+          font-weight: bold;
+          color: #0052b4;
+          font-size: 11px;
+          margin-bottom: 6px;
+          text-transform: uppercase;
+        }
+
+        .comment-text {
+          font-size: 10px;
+          color: #555;
+          line-height: 1.5;
         }
 
         .participants-note {

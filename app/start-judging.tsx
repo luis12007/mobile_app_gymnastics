@@ -646,7 +646,7 @@ export default function StartJudging() {
       setEventDropdownVisible(true);
     } else {
       setEditingCell({ rowIndex, field, gymnastId: gymnast.id });
-      const currentValue = String((gymnast as any)[field] || '');
+      const currentValue = String((gymnast as any)[field] ?? '');
       setEditValue(currentValue);
       editValueRef.current = currentValue;
     }
@@ -958,8 +958,8 @@ export default function StartJudging() {
                         editValueRef.current = t;
                       }}
                       autoFocus
-                      onBlur={() => commitInlineCell(gymnast.id, 'gymnasta')}
-                      onSubmitEditing={() => commitInlineCell(gymnast.id, 'gymnasta', editValueRef.current)}
+                      onEndEditing={(e) => commitInlineCell(gymnast.id, 'gymnasta', e.nativeEvent.text)}
+                      onSubmitEditing={(e) => commitInlineCell(gymnast.id, 'gymnasta', e.nativeEvent.text)}
                       returnKeyType="done"
                       blurOnSubmit
                       autoCorrect={false}
@@ -995,8 +995,8 @@ export default function StartJudging() {
                         editValueRef.current = t;
                       }}
                       autoFocus
-                      onBlur={() => commitInlineCell(gymnast.id, 'noc')}
-                      onSubmitEditing={() => commitInlineCell(gymnast.id, 'noc', editValueRef.current)}
+                      onEndEditing={(e) => commitInlineCell(gymnast.id, 'noc', e.nativeEvent.text)}
+                      onSubmitEditing={(e) => commitInlineCell(gymnast.id, 'noc', e.nativeEvent.text)}
                       returnKeyType="done"
                       blurOnSubmit
                       autoCorrect={false}
@@ -1024,8 +1024,8 @@ export default function StartJudging() {
                         editValueRef.current = t;
                       }}
                       autoFocus
-                      onBlur={() => commitInlineCell(gymnast.id, 'bib')}
-                      onSubmitEditing={() => commitInlineCell(gymnast.id, 'bib', editValueRef.current)}
+                      onEndEditing={(e) => commitInlineCell(gymnast.id, 'bib', e.nativeEvent.text)}
+                      onSubmitEditing={(e) => commitInlineCell(gymnast.id, 'bib', e.nativeEvent.text)}
                       returnKeyType="done"
                       blurOnSubmit
                       autoCorrect={false}
